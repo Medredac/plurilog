@@ -61,16 +61,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       )}
 
       {messages.map((message) => {
-        // User Message Bubble (Pure white card with subtle shadow and rounded-xl)
+        // User Message Bubble (Soft minimalist warm stone-100 tone)
         if (message.role === 'user') {
           return (
             <div key={message.id} className="flex justify-end pt-1">
-              <div className="max-w-2xl bg-white border border-zinc-200/80 rounded-xl p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-4 mb-1 text-xs text-zinc-400">
-                  <span className="font-medium text-zinc-900">You</span>
-                  <span className="text-[10px] font-mono text-zinc-400">{message.timestamp}</span>
+              <div className="max-w-2xl bg-stone-100 border border-stone-200/90 rounded-xl p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-4 mb-1 text-xs text-stone-500">
+                  <span className="font-semibold text-stone-900">You</span>
+                  <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
-                <p className="text-sm font-normal text-zinc-900 leading-relaxed">
+                <p className="text-sm font-normal text-stone-900 leading-relaxed">
                   {message.content}
                 </p>
               </div>
