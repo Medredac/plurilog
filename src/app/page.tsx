@@ -1,350 +1,248 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Sidebar } from '../components/Sidebar';
-import { CouncilHeader } from '../components/CouncilHeader';
-import { ChatFeed } from '../components/ChatFeed';
-import { ChatInput } from '../components/ChatInput';
-import { MOCK_DEBATES, COUNCIL_MEMBERS } from '../data/mockDebates';
-import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../types/chat';
-import { Layers, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { 
+  Layers, 
+  ArrowRight, 
+  Sparkles, 
+  Bot, 
+  Check, 
+  Shield, 
+  Zap, 
+  Compass, 
+  ChevronRight 
+} from 'lucide-react';
+import { AuthModal } from '../components/AuthModal';
 
-const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
-  'gemini': 'idle',
-  'claude': 'idle',
-  'chatgpt': 'idle',
-};
+export default function LandingPage() {
+  const router = useRouter();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-export default function PlurilogApp() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [debates, setDebates] = useState<DebateTopic[]>(MOCK_DEBATES);
-  const [activeDebateId, setActiveDebateId] = useState<string>(MOCK_DEBATES[0].id);
-  const [activeModels, setActiveModels] = useState<ModelId[]>([
-    'gemini',
-    'claude',
-    'chatgpt',
-  ]);
-  const [isDebating, setIsDebating] = useState<boolean>(false);
-  const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
-  const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  useEffect(() => {
+    const isAuth = localStorage.getItem('plurilog_auth');
+    if (isAuth) {
+      setIsAuthenticated(true);
+    }
+  }, []);
 
-  // Active discussion object
-  const currentDebate = debates.find((d) => d.id === activeDebateId) || debates[0];
-
-  const handleToggleModel = (id: ModelId) => {
-    setActiveModels((prev) => {
-      if (prev.includes(id)) {
-        if (prev.length === 1) return prev;
-        return prev.filter((m) => m !== id);
-      } else {
-        return [...prev, id];
-      }
-    });
-  };
-
-  const handleNewDebate = () => {
-    const newId = `discussion-${Date.now()}`;
-    const newTopic: DebateTopic = {
-      id: newId,
-      title: 'New Discussion',
-      snippet: 'Type a topic to begin...',
-      createdAt: 'Just now',
-      participants: ['gemini', 'claude', 'chatgpt'],
-      messages: [],
-    };
-
-    setDebates([newTopic, ...debates]);
-    setActiveDebateId(newId);
-    setErrorMessage(null);
-    setSeatStatuses(INITIAL_SEAT_STATUSES);
-  };
-
-  const handleSelectDebate = (id: string) => {
-    setActiveDebateId(id);
-    setErrorMessage(null);
-    setSeatStatuses(INITIAL_SEAT_STATUSES);
-    if (window.innerWidth < 1024) {
-      setIsSidebarOpen(false);
+  const handleGetStarted = () => {
+    if (isAuthenticated) {
+      router.push('/dashboard');
+    } else {
+      setIsAuthModalOpen(true);
     }
   };
 
-  // Real backend sequential relay call via OpenRouter API
-  const handleSendMessage = async (content: string) => {
-    if (isDebating || !content.trim()) return;
-
-    setErrorMessage(null);
-
-    const userMsg: ChatMessage = {
-      id: `msg-user-${Date.now()}`,
-      role: 'user',
-      authorName: 'You',
-      content: content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    const isNew = currentDebate.messages.length === 0;
-    const updatedTitle = isNew ? (content.length > 45 ? content.slice(0, 45) + '...' : content) : currentDebate.title;
-
-    // Append user message to active discussion
-    setDebates((prev) =>
-      prev.map((d) =>
-        d.id === activeDebateId
-          ? {
-              ...d,
-              title: updatedTitle,
-              snippet: content.slice(0, 80) + '...',
-              messages: [...d.messages, userMsg],
-            }
-          : d
-      )
-    );
-
-    setIsDebating(true);
-    setSeatStatuses({
-      'gemini': 'waiting',
-      'claude': 'waiting',
-      'chatgpt': 'waiting',
-    });
-
-    try {
-      const response = await fetch('/api/debate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: content,
-        }),
-      });
-
-      if (!response.ok) {
-        let errDetails = `HTTP Error ${response.status}`;
-        try {
-          const errJson = await response.json();
-          if (errJson.error) {
-            errDetails = errJson.error;
-          }
-        } catch {
-          // ignore
-        }
-        throw new Error(errDetails);
-      }
-
-      if (!response.body) {
-        throw new Error('No response stream received.');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const block of lines) {
-          if (!block.trim()) continue;
-
-          let eventType = 'message';
-          let dataStr = '';
-
-          const eventMatch = block.match(/^event:\s*(.+)$/m);
-          if (eventMatch) {
-            eventType = eventMatch[1].trim();
-          }
-
-          const dataMatch = block.match(/^data:\s*(.+)$/m);
-          if (dataMatch) {
-            dataStr = dataMatch[1].trim();
-          }
-
-          if (!dataStr) continue;
-
-          try {
-            const data = JSON.parse(dataStr);
-
-            if (eventType === 'seat_start') {
-              const seatId = data.seatId as ModelId;
-              setActiveSpeaker(seatId);
-
-              setSeatStatuses((prev) => ({
-                ...prev,
-                [seatId]: 'speaking',
-              }));
-
-              const modelInfo = COUNCIL_MEMBERS[seatId];
-              const newMsg: ChatMessage = {
-                id: `msg-${seatId}-${Date.now()}`,
-                role: 'model',
-                modelId: seatId,
-                authorName: modelInfo?.name || data.name,
-                content: '',
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                isStreaming: true,
-              };
-
-              setDebates((prev) =>
-                prev.map((d) =>
-                  d.id === activeDebateId ? { ...d, messages: [...d.messages, newMsg] } : d
-                )
-              );
-            } else if (eventType === 'seat_chunk') {
-              const seatId = data.seatId as ModelId;
-              const chunk = data.text || '';
-
-              setDebates((prev) =>
-                prev.map((d) => {
-                  if (d.id !== activeDebateId) return d;
-                  const msgs = [...d.messages];
-                  const lastMsgIdx = msgs.findLastIndex((m) => m.modelId === seatId && m.isStreaming);
-                  if (lastMsgIdx !== -1) {
-                    msgs[lastMsgIdx] = {
-                      ...msgs[lastMsgIdx],
-                      content: msgs[lastMsgIdx].content + chunk,
-                    };
-                  }
-                  return { ...d, messages: msgs };
-                })
-              );
-            } else if (eventType === 'seat_done') {
-              const seatId = data.seatId as ModelId;
-
-              setSeatStatuses((prev) => ({
-                ...prev,
-                [seatId]: 'done',
-              }));
-
-              setDebates((prev) =>
-                prev.map((d) => {
-                  if (d.id !== activeDebateId) return d;
-                  const msgs = d.messages.map((m) =>
-                    m.modelId === seatId && m.isStreaming
-                      ? { ...m, isStreaming: false, content: data.content || m.content }
-                      : m
-                  );
-                  return { ...d, messages: msgs };
-                })
-              );
-            } else if (eventType === 'council_done') {
-              setActiveSpeaker(null);
-              setIsDebating(false);
-            } else if (eventType === 'error') {
-              setErrorMessage(data.message || 'Error occurred during discussion.');
-              setIsDebating(false);
-              setActiveSpeaker(null);
-              setDebates((prev) =>
-                prev.map((d) => {
-                  if (d.id !== activeDebateId) return d;
-                  return {
-                    ...d,
-                    messages: d.messages.map((m) =>
-                      m.isStreaming ? { ...m, isStreaming: false } : m
-                    ),
-                  };
-                })
-              );
-            }
-          } catch (jsonErr) {
-            console.error('Error parsing SSE json:', jsonErr, dataStr);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error('Error in handleSendMessage:', err);
-      setErrorMessage(
-        err?.message ||
-          'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
-      );
-    } finally {
-      setIsDebating(false);
-      setActiveSpeaker(null);
-    }
+  const handleAuthSuccess = () => {
+    setIsAuthModalOpen(false);
+    setIsAuthenticated(true);
+    router.push('/dashboard');
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans">
-      {/* Left Collapsible Sidebar */}
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-        debates={debates}
-        activeDebateId={activeDebateId}
-        onSelectDebate={handleSelectDebate}
-        onNewDebate={handleNewDebate}
-      />
+    <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
+      {/* Navigation Header */}
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-6 sm:px-12 py-3.5 flex items-center justify-between">
+        {/* Brand */}
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
+            <Layers className="w-3.5 h-3.5" />
+          </div>
+          <span className="font-semibold text-sm tracking-tight text-zinc-900">
+            Plurilog
+          </span>
+        </div>
 
-      {/* Main Chamber */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid">
-        {/* Simplified Header */}
-        <CouncilHeader
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          activeModels={activeModels}
-          onToggleModel={handleToggleModel}
-          isDebating={isDebating}
-          activeSpeaker={activeSpeaker}
-          seatStatuses={seatStatuses}
-        />
+        {/* Right Actions */}
+        <div className="flex items-center gap-3">
+          {isAuthenticated ? (
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/70 border border-amber-200/80 text-zinc-900 font-medium text-xs shadow-2xs transition-colors cursor-pointer"
+            >
+              <span>Dashboard</span>
+              <ArrowRight className="w-3 h-3 text-zinc-600" />
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer px-2 py-1"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={handleGetStarted}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                <span>Get Started</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </>
+          )}
+        </div>
+      </header>
 
-        {/* Feed */}
-        {currentDebate.messages.length === 0 ? (
-          /* Empty State */
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs mb-3">
-              <Layers className="w-4 h-4" />
+      {/* Main Landing Canvas with Faint Grid */}
+      <main className="flex-1 flex flex-col bg-tech-grid">
+        {/* Hero Section */}
+        <section className="px-6 sm:px-12 pt-20 pb-16 max-w-4xl mx-auto w-full text-center flex flex-col items-center">
+          {/* Subtle Pill Tag */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
+            <Sparkles className="w-3 h-3 text-amber-700" />
+            <span>Multi-Model AI Council</span>
+          </div>
+
+          {/* Headline */}
+          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4">
+            Multi-model reasoning at your fingertips.
+          </h1>
+
+          {/* Subheadline */}
+          <p className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8">
+            Pose any complex question to Gemini, Claude, and ChatGPT simultaneously. Experience real-time sequential relay, critical nuance, and synthesized clarity.
+          </p>
+
+          {/* Primary Action Button */}
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <button
+              onClick={handleGetStarted}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
+            >
+              <span>Get Started</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleGetStarted}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+            >
+              <span>Try Live Demo</span>
+            </button>
+          </div>
+        </section>
+
+        {/* Interactive Feature Preview Card */}
+        <section className="px-4 sm:px-12 pb-20 max-w-4xl mx-auto w-full">
+          <div className="rounded-2xl border border-zinc-200/90 bg-white shadow-md p-4 sm:p-6">
+            {/* Header simulation */}
+            <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <span className="text-zinc-400 ml-2 font-mono text-[11px]">Council Deliberation</span>
+              </div>
+              <span className="text-[10px] font-mono text-zinc-400 bg-zinc-50 px-2 py-0.5 rounded border border-zinc-100">
+                Live Relay
+              </span>
             </div>
-            <h2 className="font-semibold text-base text-zinc-900 tracking-tight mb-1">
-              Start a Discussion
-            </h2>
-            <p className="text-xs text-zinc-400 mb-6">
-              Pose a topic. Gemini, Claude, and ChatGPT will deliberate sequentially.
-            </p>
 
-            <div className="grid grid-cols-1 gap-2 w-full text-left">
-              <button
-                onClick={() => handleSendMessage('Should humanity prioritize colonizing Mars or exploring Earth’s oceans?')}
-                className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-              >
-                <div>
-                  <span className="font-medium text-zinc-900 block">Mars vs Earth Ocean Exploration</span>
-                  <span className="text-[11px] text-zinc-400">Capital allocation trade-offs</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-              </button>
+            {/* Model Pills Preview */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="font-semibold text-zinc-900">Gemini</span>
+              </div>
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span className="font-semibold text-zinc-900">Claude</span>
+              </div>
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="font-semibold text-zinc-900">ChatGPT</span>
+              </div>
+            </div>
 
-              <button
-                onClick={() => handleSendMessage('Tabs vs Spaces for modern software indentation standards.')}
-                className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-              >
-                <div>
-                  <span className="font-medium text-zinc-900 block">Tabs vs Spaces</span>
-                  <span className="text-[11px] text-zinc-400">Accessibility & tooling consensus</span>
+            {/* User prompt preview */}
+            <div className="flex justify-end mb-3">
+              <div className="bg-stone-100 border border-stone-200/90 rounded-xl p-3 max-w-lg text-xs text-stone-900 leading-relaxed shadow-2xs">
+                <span className="text-[10px] text-stone-400 font-semibold block mb-0.5">Prompt</span>
+                Should humanity allocate $500B to Mars colonization or exploring Earth’s ocean floor?
+              </div>
+            </div>
+
+            {/* Sequential AI output snippet */}
+            <div className="space-y-2.5">
+              <div className="rounded-xl border border-zinc-100 bg-white p-3.5 shadow-2xs text-xs text-zinc-700 leading-relaxed">
+                <div className="flex items-center gap-1.5 font-semibold text-zinc-900 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                  <span>Gemini</span>
                 </div>
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-              </button>
+                <p>Earth’s ocean regulates 90% of global climate heat and holds extreme microbial biology. We must invest 70% in Earth systems.</p>
+              </div>
+
+              <div className="rounded-xl border border-zinc-100 bg-white p-3.5 shadow-2xs text-xs text-zinc-700 leading-relaxed">
+                <div className="flex items-center gap-1.5 font-semibold text-zinc-900 mb-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <span>Claude</span>
+                </div>
+                <p>While Gemini’s ecological focus is vital, single-point planetary extinction risk necessitates an off-world branch of consciousness.</p>
+              </div>
             </div>
           </div>
-        ) : (
-          <ChatFeed
-            messages={currentDebate.messages}
-            onPromptClick={handleSendMessage}
-            activeSpeaker={activeSpeaker}
-            seatStatuses={seatStatuses}
-            isDebating={isDebating}
-            errorMessage={errorMessage}
-          />
-        )}
+        </section>
 
-        {/* Sticky Input */}
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          isLoading={isDebating}
-          onSelectSuggestion={(prompt) => handleSendMessage(prompt)}
-        />
+        {/* 3-Column Value Props */}
+        <section className="px-6 sm:px-12 py-12 max-w-4xl mx-auto w-full border-t border-zinc-100">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
+                <Zap className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Sequential Relay</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Each model observes and critically builds upon preceding responses in real time.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
+                <Shield className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Unbiased Perspective</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Eliminate individual hallucination and bias through multi-disciplinary counter-arguments.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
+                <Compass className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Actionable Synthesis</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Receive practical conclusions and trade-off evaluations rather than single answers.
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
+
+      {/* Minimal Footer */}
+      <footer className="px-6 sm:px-12 py-6 border-t border-zinc-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 text-[10px]">
+            <Layers className="w-2.5 h-2.5" />
+          </div>
+          <span>Plurilog © {new Date().getFullYear()}</span>
+        </div>
+
+        <div className="flex items-center gap-4 text-[11px]">
+          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Privacy</span>
+          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Terms</span>
+          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Documentation</span>
+        </div>
+      </footer>
+
+      {/* Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+      />
     </div>
   );
 }
