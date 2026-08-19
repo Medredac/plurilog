@@ -19,7 +19,7 @@ Be direct, insightful, and concise (2-3 short paragraphs max).`,
   },
   {
     seatId: 'claude',
-    modelId: 'anthropic/claude-3.5-haiku',
+    modelId: 'anthropic/claude-haiku-4.5',
     name: 'Claude',
     systemPrompt: `You are Claude in a collaborative 3-way AI discussion.
 You are responding after Gemini.

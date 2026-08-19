@@ -11,7 +11,7 @@ export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
   },
   'claude': {
     id: 'claude',
-    apiModelId: 'anthropic/claude-3.5-haiku',
+    apiModelId: 'anthropic/claude-haiku-4.5',
     name: 'Claude',
     shortName: 'Claude',
     statusDotColor: 'bg-amber-500',
