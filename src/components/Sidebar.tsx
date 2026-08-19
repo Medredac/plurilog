@@ -1,13 +1,18 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Plus, 
   Search, 
   PanelLeftClose, 
   Layers,
   Settings,
-  LogOut
+  LogOut,
+  ChevronUp,
+  Sparkles,
+  Sun,
+  CreditCard,
+  User
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
 
@@ -33,6 +38,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const filteredDebates = debates.filter((debate) => {
     return (
@@ -40,6 +48,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       debate.snippet.toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
+
+  // Close drop-up menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        menuRef.current && 
+        !menuRef.current.contains(event.target as Node) &&
+        triggerRef.current &&
+        !triggerRef.current.contains(event.target as Node)
+      ) {
+        setIsProfileMenuOpen(false);
+      }
+    };
+
+    if (isProfileMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isProfileMenuOpen]);
 
   const displayName = userEmail ? userEmail.split('@')[0] : 'User';
   const initial = displayName.charAt(0).toUpperCase();
@@ -61,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {isOpen && (
           <div className="flex flex-col h-full w-64">
-            {/* Top Brand Header: Just Plurilog, no Council badge */}
+            {/* Top Brand Header */}
             <div className="h-13 px-4 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className="w-5 h-5 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
@@ -154,28 +183,120 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
-            {/* Bottom Footer User Info & Sign Out */}
-            <div className="p-3 border-t border-zinc-100 flex items-center justify-between bg-white">
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center font-medium text-xs border border-amber-200/80 shrink-0">
-                  {initial}
-                </div>
-                <span className="text-xs font-medium text-zinc-900 truncate max-w-[130px]" title={userEmail || displayName}>
-                  {userEmail || displayName}
-                </span>
-              </div>
+            {/* Bottom User Profile Section with Drop-up Menu */}
+            <div className="relative p-2.5 border-t border-zinc-100 bg-white">
+              {/* Drop-up Popover Menu */}
+              {isProfileMenuOpen && (
+                <div
+                  ref={menuRef}
+                  className="absolute bottom-full left-2 right-2 mb-2 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                >
+                  {/* User Profile Header in Menu */}
+                  <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0">
+                        {initial}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-zinc-900 truncate">
+                          {displayName}
+                        </p>
+                        <p className="text-[10px] text-zinc-400 truncate" title={userEmail}>
+                          {userEmail || 'user@plurilog.app'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="flex items-center gap-1">
-                {onSignOut && (
-                  <button 
-                    onClick={onSignOut}
-                    className="p-1.5 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
+                  {/* Menu Items */}
+                  <div className="space-y-0.5 text-xs text-zinc-700">
+                    <button
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                    >
+                      <Settings className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>Account Settings</span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Manage Subscription</span>
+                      </div>
+                      <span className="text-[9px] font-mono font-medium px-1.5 py-0.2 rounded bg-amber-50 text-amber-900 border border-amber-200/80">
+                        Free
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={() => setIsProfileMenuOpen(false)}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Sun className="w-3.5 h-3.5 text-zinc-400" />
+                        <span>Appearance</span>
+                      </div>
+                      <span className="text-[10px] text-zinc-400 font-mono">
+                        Light
+                      </span>
+                    </button>
+
+                    <div className="border-t border-zinc-100 my-1" />
+
+                    {onSignOut && (
+                      <button
+                        onClick={() => {
+                          setIsProfileMenuOpen(false);
+                          onSignOut();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 transition-colors cursor-pointer text-left font-medium"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Log Out</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Main Profile Trigger Button */}
+              <button
+                ref={triggerRef}
+                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                className={`w-full flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer ${
+                  isProfileMenuOpen
+                    ? 'bg-zinc-50 border-zinc-300 shadow-2xs'
+                    : 'bg-white hover:bg-zinc-50 border-zinc-200/80 shadow-2xs'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0">
+                    {initial}
+                  </div>
+                  <div className="text-left min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span 
+                        className="text-xs font-medium text-zinc-900 truncate max-w-[105px]" 
+                        title={userEmail || displayName}
+                      >
+                        {userEmail || displayName}
+                      </span>
+                      <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-zinc-100 text-zinc-500 border border-zinc-200/60 shrink-0">
+                        Free
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <ChevronUp 
+                  className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-150 shrink-0 ${
+                    isProfileMenuOpen ? 'rotate-180 text-zinc-700' : ''
+                  }`} 
+                />
+              </button>
             </div>
           </div>
         )}
