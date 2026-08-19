@@ -8,7 +8,8 @@ import { ChatFeed } from '../../components/ChatFeed';
 import { ChatInput } from '../../components/ChatInput';
 import { MOCK_DEBATES, COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
-import { Layers, ArrowRight, LogOut } from 'lucide-react';
+import { Layers, ArrowRight, Loader2 } from 'lucide-react';
+import { createClient } from '../../utils/supabase/client';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
@@ -30,19 +31,52 @@ export default function DashboardPage() {
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // Check auth on load
+  const supabase = createClient();
+
+  // Protect route and listen to auth changes
   useEffect(() => {
-    const isAuth = localStorage.getItem('plurilog_auth');
-    if (!isAuth) {
-      // Allow access or redirect if strictly unauthenticated
-      // We keep it seamless for testing
-    }
-  }, [router]);
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          router.replace('/');
+          return;
+        }
+        setUserEmail(session.user?.email);
+      } catch (err) {
+        console.error('Auth verification error:', err);
+        router.replace('/');
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    };
 
-  const handleSignOut = () => {
-    localStorage.removeItem('plurilog_auth');
-    router.push('/');
+    checkAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!session) {
+        router.replace('/');
+      } else {
+        setUserEmail(session.user?.email);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [router, supabase]);
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.replace('/');
+    } catch (err) {
+      console.error('Sign out error:', err);
+      router.replace('/');
+    }
   };
 
   // Active discussion object
@@ -280,6 +314,22 @@ export default function DashboardPage() {
     }
   };
 
+  if (isLoadingAuth) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
+            <Layers className="w-4 h-4" />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
+            <span>Verifying session...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans">
       {/* Left Collapsible Sidebar */}
@@ -290,6 +340,8 @@ export default function DashboardPage() {
         activeDebateId={activeDebateId}
         onSelectDebate={handleSelectDebate}
         onNewDebate={handleNewDebate}
+        userEmail={userEmail}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Chamber */}

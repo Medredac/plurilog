@@ -6,31 +6,56 @@ import {
   Layers, 
   ArrowRight, 
   Sparkles, 
-  Bot, 
-  Check, 
   Shield, 
   Zap, 
-  Compass, 
-  ChevronRight 
+  Compass
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
+import { createClient } from '../utils/supabase/client';
 
 export default function LandingPage() {
   const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+
+  const supabase = createClient();
 
   useEffect(() => {
-    const isAuth = localStorage.getItem('plurilog_auth');
-    if (isAuth) {
-      setIsAuthenticated(true);
-    }
-  }, []);
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          setIsAuthenticated(true);
+        }
+      } catch (err) {
+        console.error('Session check error:', err);
+      } finally {
+        setIsCheckingAuth(false);
+      }
+    };
 
-  const handleGetStarted = () => {
+    checkSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [supabase]);
+
+  const handleOpenAuth = (mode: 'signin' | 'signup') => {
     if (isAuthenticated) {
       router.push('/dashboard');
     } else {
+      setAuthMode(mode);
       setIsAuthModalOpen(true);
     }
   };
@@ -57,30 +82,32 @@ export default function LandingPage() {
 
         {/* Right Actions */}
         <div className="flex items-center gap-3">
-          {isAuthenticated ? (
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/70 border border-amber-200/80 text-zinc-900 font-medium text-xs shadow-2xs transition-colors cursor-pointer"
-            >
-              <span>Dashboard</span>
-              <ArrowRight className="w-3 h-3 text-zinc-600" />
-            </button>
-          ) : (
-            <>
+          {!isCheckingAuth && (
+            isAuthenticated ? (
               <button
-                onClick={() => setIsAuthModalOpen(true)}
-                className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer px-2 py-1"
+                onClick={() => router.push('/dashboard')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/70 border border-amber-200/80 text-zinc-900 font-medium text-xs shadow-2xs transition-colors cursor-pointer"
               >
-                Sign In
+                <span>Go to Dashboard</span>
+                <ArrowRight className="w-3 h-3 text-zinc-600" />
               </button>
-              <button
-                onClick={handleGetStarted}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                <span>Get Started</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            </>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleOpenAuth('signin')}
+                  className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer px-2 py-1"
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => handleOpenAuth('signup')}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              </>
+            )
           )}
         </div>
       </header>
@@ -92,7 +119,7 @@ export default function LandingPage() {
           {/* Subtle Pill Tag */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
             <Sparkles className="w-3 h-3 text-amber-700" />
-            <span>Multi-Model AI Council</span>
+            <span>Multi-Model AI Reasoning</span>
           </div>
 
           {/* Headline */}
@@ -108,7 +135,7 @@ export default function LandingPage() {
           {/* Primary Action Button */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <button
-              onClick={handleGetStarted}
+              onClick={() => handleOpenAuth('signup')}
               className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
             >
               <span>Get Started</span>
@@ -116,10 +143,10 @@ export default function LandingPage() {
             </button>
 
             <button
-              onClick={handleGetStarted}
+              onClick={() => handleOpenAuth('signin')}
               className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
             >
-              <span>Try Live Demo</span>
+              <span>Sign In</span>
             </button>
           </div>
         </section>
@@ -133,7 +160,7 @@ export default function LandingPage() {
                 <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="text-zinc-400 ml-2 font-mono text-[11px]">Council Deliberation</span>
+                <span className="text-zinc-400 ml-2 font-mono text-[11px]">Council Chamber</span>
               </div>
               <span className="text-[10px] font-mono text-zinc-400 bg-zinc-50 px-2 py-0.5 rounded border border-zinc-100">
                 Live Relay
@@ -171,7 +198,7 @@ export default function LandingPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
                   <span>Gemini</span>
                 </div>
-                <p>Earth’s ocean regulates 90% of global climate heat and holds extreme microbial biology. We must invest 70% in Earth systems.</p>
+                <p>Earth’s ocean regulates 90% of global climate heat and holds extreme microbial biology. We must prioritize Earth systems.</p>
               </div>
 
               <div className="rounded-xl border border-zinc-100 bg-white p-3.5 shadow-2xs text-xs text-zinc-700 leading-relaxed">
@@ -240,6 +267,7 @@ export default function LandingPage() {
       {/* Authentication Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
+        initialMode={authMode}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
       />
