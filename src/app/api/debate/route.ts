@@ -1,22 +1,58 @@
 import { NextRequest } from 'next/server';
 import OpenAI from 'openai';
-import { getCouncilSeatFallbacks, PROVIDER_MODELS } from '@/utils/openrouter';
+import { getCouncilSeatFallbacks, PROVIDER_MODELS, ProviderPrefix } from '@/utils/openrouter';
+import { ModelId } from '@/types/chat';
 
-const SYSTEM_PROMPTS = {
-  gemini: `You are Gemini in a collaborative 3-way AI discussion.
-Open the discussion by outlining the core first principles, key variables, and your clear perspective on the user's topic.
-Be direct, insightful, and concise (2-3 short paragraphs max).`,
+export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You'll see any earlier responses in this conversation labeled by who said them (e.g., 'Claude said: ...'). Respond to them naturally, referring to your fellow panelists by name when it's genuinely relevant, the same way you'd naturally reference something someone just said out loud.`;
 
-  claude: `You are Claude in a collaborative 3-way AI discussion.
-You are responding after Gemini.
-Evaluate the user's question and Gemini's response. Probe any assumptions, highlight nuances or counter-perspectives, and add depth to the discussion.
-Be analytical, thoughtful, and concise (2-3 short paragraphs max).`,
+export interface PriorResponse {
+  name: string;
+  response: string;
+}
 
-  chatgpt: `You are ChatGPT in a collaborative 3-way AI discussion.
-You are responding after Gemini and Claude.
-Evaluate the viewpoints from both Gemini and Claude, synthesize the core trade-offs, and offer a practical conclusion or recommendation.
-Be structured, objective, and concise (2-3 short paragraphs max).`,
-};
+/**
+ * Generic message builder for panel discussion participants.
+ * Appends prior responses in natural chronological order if any exist.
+ */
+export function buildPanelMessages(
+  currentModelName: string,
+  prompt: string,
+  priorResponses: PriorResponse[]
+): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  let userContent = prompt;
+
+  if (priorResponses.length > 0) {
+    const priorFormatted = priorResponses
+      .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
+      .join('');
+    userContent = `${prompt}\n\n${priorFormatted}`.trimEnd();
+  }
+
+  const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
+
+  return [
+    {
+      role: 'system',
+      content: systemContent,
+    },
+    {
+      role: 'user',
+      content: userContent,
+    },
+  ];
+}
+
+interface SeatConfig {
+  seatId: ModelId;
+  name: string;
+  providerPrefix: ProviderPrefix;
+}
+
+const SEATS: SeatConfig[] = [
+  { seatId: 'gemini', name: 'Gemini', providerPrefix: 'google/' },
+  { seatId: 'claude', name: 'Claude', providerPrefix: 'anthropic/' },
+  { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
+];
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,210 +117,76 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        let geminiResponse = '';
-        let claudeResponse = '';
-        let chatgptResponse = '';
+        const priorResponses: PriorResponse[] = [];
 
         try {
-          // ==========================================
-          // 1. Gemini
-          // ==========================================
-          const geminiModels = seatFallbacks.gemini || PROVIDER_MODELS['google/'];
-          const primaryGemini = geminiModels[0];
-          let respondingGeminiModel = primaryGemini;
+          // Sequential panel execution across configured seats
+          for (const seat of SEATS) {
+            const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
+            const primaryModel = models[0];
+            let respondingModel = primaryModel;
+            let seatResponse = '';
 
-          sendEvent('seat_start', {
-            seatId: 'gemini',
-            modelId: primaryGemini,
-            name: 'Gemini',
-          });
-
-          const seat1Messages = [
-            { role: 'system', content: SYSTEM_PROMPTS.gemini },
-            { role: 'user', content: prompt },
-          ];
-
-          try {
-            const stream1 = await (openai.chat.completions.create as any)({
-              model: primaryGemini,
-              models: geminiModels,
-              messages: seat1Messages,
-              stream: true,
-              max_tokens: 800,
-              temperature: 0.7,
+            sendEvent('seat_start', {
+              seatId: seat.seatId,
+              modelId: primaryModel,
+              name: seat.name,
             });
 
-            for await (const chunk of stream1) {
-              if (chunk.model) {
-                respondingGeminiModel = chunk.model;
+            const seatMessages = buildPanelMessages(seat.name, prompt, priorResponses);
+
+            try {
+              const stream = await (openai.chat.completions.create as any)({
+                model: primaryModel,
+                models: models,
+                messages: seatMessages,
+                stream: true,
+                max_tokens: 800,
+                temperature: 0.7,
+              });
+
+              for await (const chunk of stream) {
+                if (chunk.model) {
+                  respondingModel = chunk.model;
+                }
+                const text = chunk.choices[0]?.delta?.content || '';
+                if (text) {
+                  seatResponse += text;
+                  sendEvent('seat_chunk', {
+                    seatId: seat.seatId,
+                    text: text,
+                  });
+                }
               }
-              const text = chunk.choices[0]?.delta?.content || '';
-              if (text) {
-                geminiResponse += text;
-                sendEvent('seat_chunk', {
-                  seatId: 'gemini',
-                  text: text,
-                });
+
+              console.log(
+                `[Model Route] Provider: ${seat.providerPrefix} | Primary Requested: ${primaryModel} | Responding Model: ${respondingModel}`
+              );
+
+              if (!seatResponse.trim()) {
+                throw new Error(`Received empty response from ${seat.name}.`);
               }
+
+              sendEvent('seat_done', {
+                seatId: seat.seatId,
+                modelId: respondingModel,
+                content: seatResponse,
+              });
+
+              // Record in prior responses for subsequent speakers
+              priorResponses.push({
+                name: seat.name,
+                response: seatResponse,
+              });
+            } catch (err: any) {
+              console.error(`Error with ${seat.name}:`, err);
+              sendEvent('error', {
+                seatId: seat.seatId,
+                message: `${seat.name}: ${err?.message || 'Model request failed'}`,
+              });
+              safeClose();
+              return;
             }
-
-            console.log(
-              `[Model Route] Provider: google/ | Primary Requested: ${primaryGemini} | Responding Model: ${respondingGeminiModel}`
-            );
-
-            if (!geminiResponse.trim()) {
-              throw new Error('Received empty response from Gemini.');
-            }
-
-            sendEvent('seat_done', {
-              seatId: 'gemini',
-              modelId: respondingGeminiModel,
-              content: geminiResponse,
-            });
-          } catch (err1: any) {
-            console.error('Error with Gemini:', err1);
-            sendEvent('error', {
-              seatId: 'gemini',
-              message: `Gemini: ${err1?.message || 'Model request failed'}`,
-            });
-            safeClose();
-            return;
-          }
-
-          // ==========================================
-          // 2. Claude
-          // ==========================================
-          const claudeModels = seatFallbacks.claude || PROVIDER_MODELS['anthropic/'];
-          const primaryClaude = claudeModels[0];
-          let respondingClaudeModel = primaryClaude;
-
-          sendEvent('seat_start', {
-            seatId: 'claude',
-            modelId: primaryClaude,
-            name: 'Claude',
-          });
-
-          const seat2Messages = [
-            { role: 'system', content: SYSTEM_PROMPTS.claude },
-            {
-              role: 'user',
-              content: `The user asked: "${prompt}"\n\nGemini responded with:\n"""\n${geminiResponse}\n"""\n\nProvide your analysis, counter-points, or added perspective.`,
-            },
-          ];
-
-          try {
-            const stream2 = await (openai.chat.completions.create as any)({
-              model: primaryClaude,
-              models: claudeModels,
-              messages: seat2Messages,
-              stream: true,
-              max_tokens: 800,
-              temperature: 0.7,
-            });
-
-            for await (const chunk of stream2) {
-              if (chunk.model) {
-                respondingClaudeModel = chunk.model;
-              }
-              const text = chunk.choices[0]?.delta?.content || '';
-              if (text) {
-                claudeResponse += text;
-                sendEvent('seat_chunk', {
-                  seatId: 'claude',
-                  text: text,
-                });
-              }
-            }
-
-            console.log(
-              `[Model Route] Provider: anthropic/ | Primary Requested: ${primaryClaude} | Responding Model: ${respondingClaudeModel}`
-            );
-
-            if (!claudeResponse.trim()) {
-              throw new Error('Received empty response from Claude.');
-            }
-
-            sendEvent('seat_done', {
-              seatId: 'claude',
-              modelId: respondingClaudeModel,
-              content: claudeResponse,
-            });
-          } catch (err2: any) {
-            console.error('Error with Claude:', err2);
-            sendEvent('error', {
-              seatId: 'claude',
-              message: `Claude: ${err2?.message || 'Model request failed'}`,
-            });
-            safeClose();
-            return;
-          }
-
-          // ==========================================
-          // 3. ChatGPT
-          // ==========================================
-          const chatgptModels = seatFallbacks.chatgpt || PROVIDER_MODELS['openai/'];
-          const primaryChatgpt = chatgptModels[0];
-          let respondingChatgptModel = primaryChatgpt;
-
-          sendEvent('seat_start', {
-            seatId: 'chatgpt',
-            modelId: primaryChatgpt,
-            name: 'ChatGPT',
-          });
-
-          const seat3Messages = [
-            { role: 'system', content: SYSTEM_PROMPTS.chatgpt },
-            {
-              role: 'user',
-              content: `The user asked: "${prompt}"\n\nGemini said:\n"""\n${geminiResponse}\n"""\n\nClaude said:\n"""\n${claudeResponse}\n"""\n\nSynthesize the key points and provide a practical conclusion.`,
-            },
-          ];
-
-          try {
-            const stream3 = await (openai.chat.completions.create as any)({
-              model: primaryChatgpt,
-              models: chatgptModels,
-              messages: seat3Messages,
-              stream: true,
-              max_tokens: 800,
-              temperature: 0.7,
-            });
-
-            for await (const chunk of stream3) {
-              if (chunk.model) {
-                respondingChatgptModel = chunk.model;
-              }
-              const text = chunk.choices[0]?.delta?.content || '';
-              if (text) {
-                chatgptResponse += text;
-                sendEvent('seat_chunk', {
-                  seatId: 'chatgpt',
-                  text: text,
-                });
-              }
-            }
-
-            console.log(
-              `[Model Route] Provider: openai/ | Primary Requested: ${primaryChatgpt} | Responding Model: ${respondingChatgptModel}`
-            );
-
-            if (!chatgptResponse.trim()) {
-              throw new Error('Received empty response from ChatGPT.');
-            }
-
-            sendEvent('seat_done', {
-              seatId: 'chatgpt',
-              modelId: respondingChatgptModel,
-              content: chatgptResponse,
-            });
-          } catch (err3: any) {
-            console.error('Error with ChatGPT:', err3);
-            sendEvent('error', {
-              seatId: 'chatgpt',
-              message: `ChatGPT: ${err3?.message || 'Model request failed'}`,
-            });
-            safeClose();
-            return;
           }
 
           // Complete event
