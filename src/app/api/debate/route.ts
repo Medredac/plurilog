@@ -1,7 +1,13 @@
 import { NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
 import OpenAI from 'openai';
 import { getCouncilSeatFallbacks, PROVIDER_MODELS, ProviderPrefix } from '@/utils/openrouter';
 import { ModelId } from '@/types/chat';
+import {
+  getScopedDiscussionMemory,
+  DiscussionMemoryResult,
+} from '@/utils/discussionMemory';
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say.`;
 
@@ -11,21 +17,53 @@ export interface PriorResponse {
 }
 
 /**
- * Generic message builder for panel discussion participants.
- * Appends prior responses in natural chronological order if any exist.
+ * Generic message builder for panel discussion participants with discussion-scoped memory.
+ * 
+ * Order:
+ * 1. [rolling summary, if one exists for this discussion]
+ * 2. [last 5 rounds of raw messages, formatted as "{name} said: {content}"]
+ * 3. [current round's prior seat responses, same format]
+ * 4. [current user prompt]
  */
 export function buildPanelMessages(
   currentModelName: string,
   prompt: string,
-  priorResponses: PriorResponse[]
+  priorResponses: PriorResponse[],
+  discussionMemory?: DiscussionMemoryResult
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
-  let userContent = prompt;
+  const sections: string[] = [];
 
+  // 1. [rolling summary, if one exists for this discussion]
+  if (discussionMemory?.summary && discussionMemory.summary.trim()) {
+    sections.push(`Summary of earlier discussion history:\n"""\n${discussionMemory.summary.trim()}\n"""`);
+  }
+
+  // 2. [last 5 rounds of raw messages, formatted as "{name} said: {content}"]
+  if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
+    const rawRoundsFormatted = discussionMemory.recentRounds
+      .map((round) => {
+        const userPart = `User said:\n"""\n${round.userPrompt}\n"""`;
+        const modelParts = round.modelResponses
+          .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
+          .join('\n\n');
+        return modelParts ? `${userPart}\n\n${modelParts}` : userPart;
+      })
+      .join('\n\n');
+
+    sections.push(`Prior conversation rounds:\n${rawRoundsFormatted}`);
+  }
+
+  // 3. [current round's prior seat responses, same format]
   if (priorResponses.length > 0) {
     const priorFormatted = priorResponses
       .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
       .join('');
-    userContent = `${prompt}\n\n${priorFormatted}`.trimEnd();
+    sections.push(priorFormatted.trimEnd());
+  }
+
+  let userContent = prompt;
+  if (sections.length > 0) {
+    userContent = `${sections.join('\n\n')}\n\n${prompt}`;
   }
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
@@ -56,7 +94,7 @@ const SEATS: SeatConfig[] = [
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, discussionId } = await req.json();
 
     if (!prompt || typeof prompt !== 'string') {
       return new Response(
@@ -77,6 +115,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Authenticated Supabase client using user session cookies
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {
+              // Ignore in Route Handler
+            }
+          },
+        },
+      }
+    );
+
     // Get hardcoded fallback arrays for each seat
     const seatFallbacks = getCouncilSeatFallbacks();
 
@@ -88,6 +149,12 @@ export async function POST(req: NextRequest) {
         'X-Title': 'Plurilog',
       },
     });
+
+    // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
+    let discussionMemory: DiscussionMemoryResult | undefined;
+    if (discussionId) {
+      discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
+    }
 
     const encoder = new TextEncoder();
 
@@ -133,7 +200,17 @@ export async function POST(req: NextRequest) {
               name: seat.name,
             });
 
-            const seatMessages = buildPanelMessages(seat.name, prompt, priorResponses);
+            const seatMessages = buildPanelMessages(
+              seat.name,
+              prompt,
+              priorResponses,
+              discussionMemory
+            );
+
+            if (seat.seatId === SEATS[0].seatId) {
+              console.log('[Memory Debug] API payload messages for Seat 1:');
+              console.log(JSON.stringify(seatMessages, null, 2));
+            }
 
             try {
               const stream = await (openai.chat.completions.create as any)({

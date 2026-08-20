@@ -337,6 +337,7 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: content,
+          discussionId: currentDiscussionId,
         }),
       });
 
