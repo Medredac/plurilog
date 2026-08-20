@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
@@ -19,6 +19,7 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const hasInitializedRef = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
@@ -121,7 +122,7 @@ export default function DashboardPage() {
         };
       });
 
-      console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}:`, formatted);
+      console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
       setMessages(formatted);
     } catch (err) {
       console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
@@ -131,7 +132,7 @@ export default function DashboardPage() {
     }
   }, [supabase]);
 
-  // Protect route and listen to auth changes
+  // Protect route, verify auth, and load discussions once on initial mount
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -142,10 +143,14 @@ export default function DashboardPage() {
         }
         setUserEmail(session.user?.email);
         setUserId(session.user?.id);
-        const loadedDebates = await fetchDiscussions(session.user.id);
-        if (loadedDebates.length > 0 && !activeDebateId) {
-          setActiveDebateId(loadedDebates[0].id);
-          await fetchDiscussionMessages(loadedDebates[0].id);
+
+        if (!hasInitializedRef.current) {
+          hasInitializedRef.current = true;
+          const loadedDebates = await fetchDiscussions(session.user.id);
+          if (loadedDebates.length > 0) {
+            setActiveDebateId(loadedDebates[0].id);
+            await fetchDiscussionMessages(loadedDebates[0].id);
+          }
         }
       } catch (err) {
         console.error('[Supabase Error] Auth verification error:', err);
@@ -169,7 +174,7 @@ export default function DashboardPage() {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages, activeDebateId]);
+  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages]);
 
   const handleSignOut = async () => {
     try {
@@ -192,7 +197,7 @@ export default function DashboardPage() {
     });
   };
 
-  // Reset to fresh discussion view
+  // Reset to fresh blank discussion state without triggering any fetch
   const handleNewDebate = () => {
     setActiveDebateId(null);
     setMessages([]);
