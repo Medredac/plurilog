@@ -1,41 +1,22 @@
 import { NextRequest } from 'next/server';
 import OpenAI from 'openai';
+import { getCouncilSeatFallbacks, HARDCODED_FALLBACKS } from '@/utils/openrouter';
 
-interface ModelConfig {
-  seatId: 'gemini' | 'claude' | 'chatgpt';
-  modelId: string;
-  name: string;
-  systemPrompt: string;
-}
-
-const COUNCIL_SEATS: ModelConfig[] = [
-  {
-    seatId: 'gemini',
-    modelId: 'google/gemini-2.5-flash',
-    name: 'Gemini',
-    systemPrompt: `You are Gemini in a collaborative 3-way AI discussion.
+const SYSTEM_PROMPTS = {
+  gemini: `You are Gemini in a collaborative 3-way AI discussion.
 Open the discussion by outlining the core first principles, key variables, and your clear perspective on the user's topic.
 Be direct, insightful, and concise (2-3 short paragraphs max).`,
-  },
-  {
-    seatId: 'claude',
-    modelId: 'anthropic/claude-haiku-4.5',
-    name: 'Claude',
-    systemPrompt: `You are Claude in a collaborative 3-way AI discussion.
+
+  claude: `You are Claude in a collaborative 3-way AI discussion.
 You are responding after Gemini.
 Evaluate the user's question and Gemini's response. Probe any assumptions, highlight nuances or counter-perspectives, and add depth to the discussion.
 Be analytical, thoughtful, and concise (2-3 short paragraphs max).`,
-  },
-  {
-    seatId: 'chatgpt',
-    modelId: 'openai/gpt-4o-mini',
-    name: 'ChatGPT',
-    systemPrompt: `You are ChatGPT in a collaborative 3-way AI discussion.
+
+  chatgpt: `You are ChatGPT in a collaborative 3-way AI discussion.
 You are responding after Gemini and Claude.
 Evaluate the viewpoints from both Gemini and Claude, synthesize the core trade-offs, and offer a practical conclusion or recommendation.
 Be structured, objective, and concise (2-3 short paragraphs max).`,
-  },
-];
+};
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,6 +39,19 @@ export async function POST(req: NextRequest) {
         }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Resolve dynamic fallback arrays for each seat
+    let seatFallbacks;
+    try {
+      seatFallbacks = await getCouncilSeatFallbacks();
+    } catch (fallbackErr) {
+      console.error('[debate/route] Failed to resolve fallback arrays, using emergency stack:', fallbackErr);
+      seatFallbacks = {
+        gemini: HARDCODED_FALLBACKS['google/'],
+        claude: HARDCODED_FALLBACKS['anthropic/'],
+        chatgpt: HARDCODED_FALLBACKS['openai/'],
+      };
     }
 
     const openai = new OpenAI({
@@ -105,21 +99,24 @@ export async function POST(req: NextRequest) {
           // ==========================================
           // 1. Gemini
           // ==========================================
-          const seat1 = COUNCIL_SEATS[0];
+          const geminiModels = seatFallbacks.gemini;
+          const primaryGemini = geminiModels[0] || 'google/gemini-3.7-flash';
+
           sendEvent('seat_start', {
-            seatId: seat1.seatId,
-            modelId: seat1.modelId,
-            name: seat1.name,
+            seatId: 'gemini',
+            modelId: primaryGemini,
+            name: 'Gemini',
           });
 
-          const seat1Messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            { role: 'system', content: seat1.systemPrompt },
+          const seat1Messages = [
+            { role: 'system', content: SYSTEM_PROMPTS.gemini },
             { role: 'user', content: prompt },
           ];
 
           try {
-            const stream1 = await openai.chat.completions.create({
-              model: seat1.modelId,
+            const stream1 = await (openai.chat.completions.create as any)({
+              model: primaryGemini,
+              models: geminiModels,
               messages: seat1Messages,
               stream: true,
               max_tokens: 800,
@@ -131,43 +128,45 @@ export async function POST(req: NextRequest) {
               if (text) {
                 geminiResponse += text;
                 sendEvent('seat_chunk', {
-                  seatId: seat1.seatId,
+                  seatId: 'gemini',
                   text: text,
                 });
               }
             }
 
             if (!geminiResponse.trim()) {
-              throw new Error(`Received empty response from ${seat1.name}.`);
+              throw new Error('Received empty response from Gemini.');
             }
 
             sendEvent('seat_done', {
-              seatId: seat1.seatId,
-              modelId: seat1.modelId,
+              seatId: 'gemini',
+              modelId: primaryGemini,
               content: geminiResponse,
             });
           } catch (err1: any) {
-            console.error(`Error with ${seat1.name}:`, err1);
+            console.error('Error with Gemini:', err1);
             sendEvent('error', {
-              seatId: seat1.seatId,
-              message: `${seat1.name} error: ${err1?.message || 'Request failed'}`,
+              seatId: 'gemini',
+              message: `Gemini: ${err1?.message || 'Model catalog unavailable'}`,
             });
             safeClose();
             return;
           }
 
           // ==========================================
-          // 2. Claude (anthropic/claude-3.5-haiku)
+          // 2. Claude
           // ==========================================
-          const seat2 = COUNCIL_SEATS[1];
+          const claudeModels = seatFallbacks.claude;
+          const primaryClaude = claudeModels[0] || 'anthropic/claude-sonnet-4.5';
+
           sendEvent('seat_start', {
-            seatId: seat2.seatId,
-            modelId: seat2.modelId,
-            name: seat2.name,
+            seatId: 'claude',
+            modelId: primaryClaude,
+            name: 'Claude',
           });
 
-          const seat2Messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            { role: 'system', content: seat2.systemPrompt },
+          const seat2Messages = [
+            { role: 'system', content: SYSTEM_PROMPTS.claude },
             {
               role: 'user',
               content: `The user asked: "${prompt}"\n\nGemini responded with:\n"""\n${geminiResponse}\n"""\n\nProvide your analysis, counter-points, or added perspective.`,
@@ -175,8 +174,9 @@ export async function POST(req: NextRequest) {
           ];
 
           try {
-            const stream2 = await openai.chat.completions.create({
-              model: seat2.modelId,
+            const stream2 = await (openai.chat.completions.create as any)({
+              model: primaryClaude,
+              models: claudeModels,
               messages: seat2Messages,
               stream: true,
               max_tokens: 800,
@@ -188,43 +188,45 @@ export async function POST(req: NextRequest) {
               if (text) {
                 claudeResponse += text;
                 sendEvent('seat_chunk', {
-                  seatId: seat2.seatId,
+                  seatId: 'claude',
                   text: text,
                 });
               }
             }
 
             if (!claudeResponse.trim()) {
-              throw new Error(`Received empty response from ${seat2.name}.`);
+              throw new Error('Received empty response from Claude.');
             }
 
             sendEvent('seat_done', {
-              seatId: seat2.seatId,
-              modelId: seat2.modelId,
+              seatId: 'claude',
+              modelId: primaryClaude,
               content: claudeResponse,
             });
           } catch (err2: any) {
-            console.error(`Error with ${seat2.name}:`, err2);
+            console.error('Error with Claude:', err2);
             sendEvent('error', {
-              seatId: seat2.seatId,
-              message: `${seat2.name} error: ${err2?.message || 'Request failed'}`,
+              seatId: 'claude',
+              message: `Claude: ${err2?.message || 'Model catalog unavailable'}`,
             });
             safeClose();
             return;
           }
 
           // ==========================================
-          // 3. ChatGPT (openai/gpt-4o-mini)
+          // 3. ChatGPT
           // ==========================================
-          const seat3 = COUNCIL_SEATS[2];
+          const chatgptModels = seatFallbacks.chatgpt;
+          const primaryChatgpt = chatgptModels[0] || 'openai/gpt-5';
+
           sendEvent('seat_start', {
-            seatId: seat3.seatId,
-            modelId: seat3.modelId,
-            name: seat3.name,
+            seatId: 'chatgpt',
+            modelId: primaryChatgpt,
+            name: 'ChatGPT',
           });
 
-          const seat3Messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            { role: 'system', content: seat3.systemPrompt },
+          const seat3Messages = [
+            { role: 'system', content: SYSTEM_PROMPTS.chatgpt },
             {
               role: 'user',
               content: `The user asked: "${prompt}"\n\nGemini said:\n"""\n${geminiResponse}\n"""\n\nClaude said:\n"""\n${claudeResponse}\n"""\n\nSynthesize the key points and provide a practical conclusion.`,
@@ -232,8 +234,9 @@ export async function POST(req: NextRequest) {
           ];
 
           try {
-            const stream3 = await openai.chat.completions.create({
-              model: seat3.modelId,
+            const stream3 = await (openai.chat.completions.create as any)({
+              model: primaryChatgpt,
+              models: chatgptModels,
               messages: seat3Messages,
               stream: true,
               max_tokens: 800,
@@ -245,26 +248,26 @@ export async function POST(req: NextRequest) {
               if (text) {
                 chatgptResponse += text;
                 sendEvent('seat_chunk', {
-                  seatId: seat3.seatId,
+                  seatId: 'chatgpt',
                   text: text,
                 });
               }
             }
 
             if (!chatgptResponse.trim()) {
-              throw new Error(`Received empty response from ${seat3.name}.`);
+              throw new Error('Received empty response from ChatGPT.');
             }
 
             sendEvent('seat_done', {
-              seatId: seat3.seatId,
-              modelId: seat3.modelId,
+              seatId: 'chatgpt',
+              modelId: primaryChatgpt,
               content: chatgptResponse,
             });
           } catch (err3: any) {
-            console.error(`Error with ${seat3.name}:`, err3);
+            console.error('Error with ChatGPT:', err3);
             sendEvent('error', {
-              seatId: seat3.seatId,
-              message: `${seat3.name} error: ${err3?.message || 'Request failed'}`,
+              seatId: 'chatgpt',
+              message: `ChatGPT: ${err3?.message || 'Model catalog unavailable'}`,
             });
             safeClose();
             return;
