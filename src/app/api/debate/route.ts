@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import OpenAI from 'openai';
-import { getCouncilSeatFallbacks, HARDCODED_FALLBACKS } from '@/utils/openrouter';
+import { getCouncilSeatFallbacks, PROVIDER_MODELS } from '@/utils/openrouter';
 
 const SYSTEM_PROMPTS = {
   gemini: `You are Gemini in a collaborative 3-way AI discussion.
@@ -41,18 +41,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Resolve dynamic fallback arrays for each seat
-    let seatFallbacks;
-    try {
-      seatFallbacks = await getCouncilSeatFallbacks();
-    } catch (fallbackErr) {
-      console.error('[debate/route] Failed to resolve fallback arrays, using emergency stack:', fallbackErr);
-      seatFallbacks = {
-        gemini: HARDCODED_FALLBACKS['google/'],
-        claude: HARDCODED_FALLBACKS['anthropic/'],
-        chatgpt: HARDCODED_FALLBACKS['openai/'],
-      };
-    }
+    // Get hardcoded fallback arrays for each seat
+    const seatFallbacks = getCouncilSeatFallbacks();
 
     const openai = new OpenAI({
       apiKey: apiKey.trim(),
@@ -99,8 +89,9 @@ export async function POST(req: NextRequest) {
           // ==========================================
           // 1. Gemini
           // ==========================================
-          const geminiModels = seatFallbacks.gemini;
-          const primaryGemini = geminiModels[0] || 'google/gemini-3.7-flash';
+          const geminiModels = seatFallbacks.gemini || PROVIDER_MODELS['google/'];
+          const primaryGemini = geminiModels[0];
+          let respondingGeminiModel = primaryGemini;
 
           sendEvent('seat_start', {
             seatId: 'gemini',
@@ -124,6 +115,9 @@ export async function POST(req: NextRequest) {
             });
 
             for await (const chunk of stream1) {
+              if (chunk.model) {
+                respondingGeminiModel = chunk.model;
+              }
               const text = chunk.choices[0]?.delta?.content || '';
               if (text) {
                 geminiResponse += text;
@@ -134,20 +128,24 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            console.log(
+              `[Model Route] Provider: google/ | Primary Requested: ${primaryGemini} | Responding Model: ${respondingGeminiModel}`
+            );
+
             if (!geminiResponse.trim()) {
               throw new Error('Received empty response from Gemini.');
             }
 
             sendEvent('seat_done', {
               seatId: 'gemini',
-              modelId: primaryGemini,
+              modelId: respondingGeminiModel,
               content: geminiResponse,
             });
           } catch (err1: any) {
             console.error('Error with Gemini:', err1);
             sendEvent('error', {
               seatId: 'gemini',
-              message: `Gemini: ${err1?.message || 'Model catalog unavailable'}`,
+              message: `Gemini: ${err1?.message || 'Model request failed'}`,
             });
             safeClose();
             return;
@@ -156,8 +154,9 @@ export async function POST(req: NextRequest) {
           // ==========================================
           // 2. Claude
           // ==========================================
-          const claudeModels = seatFallbacks.claude;
-          const primaryClaude = claudeModels[0] || 'anthropic/claude-sonnet-4.5';
+          const claudeModels = seatFallbacks.claude || PROVIDER_MODELS['anthropic/'];
+          const primaryClaude = claudeModels[0];
+          let respondingClaudeModel = primaryClaude;
 
           sendEvent('seat_start', {
             seatId: 'claude',
@@ -184,6 +183,9 @@ export async function POST(req: NextRequest) {
             });
 
             for await (const chunk of stream2) {
+              if (chunk.model) {
+                respondingClaudeModel = chunk.model;
+              }
               const text = chunk.choices[0]?.delta?.content || '';
               if (text) {
                 claudeResponse += text;
@@ -194,20 +196,24 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            console.log(
+              `[Model Route] Provider: anthropic/ | Primary Requested: ${primaryClaude} | Responding Model: ${respondingClaudeModel}`
+            );
+
             if (!claudeResponse.trim()) {
               throw new Error('Received empty response from Claude.');
             }
 
             sendEvent('seat_done', {
               seatId: 'claude',
-              modelId: primaryClaude,
+              modelId: respondingClaudeModel,
               content: claudeResponse,
             });
           } catch (err2: any) {
             console.error('Error with Claude:', err2);
             sendEvent('error', {
               seatId: 'claude',
-              message: `Claude: ${err2?.message || 'Model catalog unavailable'}`,
+              message: `Claude: ${err2?.message || 'Model request failed'}`,
             });
             safeClose();
             return;
@@ -216,8 +222,9 @@ export async function POST(req: NextRequest) {
           // ==========================================
           // 3. ChatGPT
           // ==========================================
-          const chatgptModels = seatFallbacks.chatgpt;
-          const primaryChatgpt = chatgptModels[0] || 'openai/gpt-5';
+          const chatgptModels = seatFallbacks.chatgpt || PROVIDER_MODELS['openai/'];
+          const primaryChatgpt = chatgptModels[0];
+          let respondingChatgptModel = primaryChatgpt;
 
           sendEvent('seat_start', {
             seatId: 'chatgpt',
@@ -244,6 +251,9 @@ export async function POST(req: NextRequest) {
             });
 
             for await (const chunk of stream3) {
+              if (chunk.model) {
+                respondingChatgptModel = chunk.model;
+              }
               const text = chunk.choices[0]?.delta?.content || '';
               if (text) {
                 chatgptResponse += text;
@@ -254,20 +264,24 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            console.log(
+              `[Model Route] Provider: openai/ | Primary Requested: ${primaryChatgpt} | Responding Model: ${respondingChatgptModel}`
+            );
+
             if (!chatgptResponse.trim()) {
               throw new Error('Received empty response from ChatGPT.');
             }
 
             sendEvent('seat_done', {
               seatId: 'chatgpt',
-              modelId: primaryChatgpt,
+              modelId: respondingChatgptModel,
               content: chatgptResponse,
             });
           } catch (err3: any) {
             console.error('Error with ChatGPT:', err3);
             sendEvent('error', {
               seatId: 'chatgpt',
-              message: `ChatGPT: ${err3?.message || 'Model catalog unavailable'}`,
+              message: `ChatGPT: ${err3?.message || 'Model request failed'}`,
             });
             safeClose();
             return;
