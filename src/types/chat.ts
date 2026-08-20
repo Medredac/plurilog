@@ -11,6 +11,7 @@ export interface CouncilMember {
 
 export interface ChatMessage {
   id: string;
+  discussionId?: string;
   role: 'user' | 'model';
   modelId?: ModelId;
   authorName?: string;
@@ -24,8 +25,10 @@ export interface ChatMessage {
 export interface DebateTopic {
   id: string;
   title: string;
-  snippet: string;
+  snippet?: string;
   createdAt: string;
+  updatedAt?: string;
+  userId?: string;
   participants: ModelId[];
   messages: ChatMessage[];
 }

@@ -11,8 +11,7 @@ import {
   ChevronUp,
   Sparkles,
   Sun,
-  CreditCard,
-  User
+  Trash2
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
 
@@ -23,6 +22,7 @@ interface SidebarProps {
   activeDebateId: string;
   onSelectDebate: (id: string) => void;
   onNewDebate: () => void;
+  onDeleteDebate?: (id: string, e: React.MouseEvent) => void;
   userEmail?: string;
   onSignOut?: () => void;
 }
@@ -34,6 +34,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeDebateId,
   onSelectDebate,
   onNewDebate,
+  onDeleteDebate,
   userEmail,
   onSignOut,
 }) => {
@@ -44,8 +45,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const filteredDebates = debates.filter((debate) => {
     return (
-      debate.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      debate.snippet.toLowerCase().includes(searchQuery.toLowerCase())
+      (debate.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (debate.snippet || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
   });
 
@@ -150,34 +151,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {filteredDebates.length === 0 ? (
                 <div className="p-4 text-center text-xs text-zinc-400">
-                  No discussions found
+                  {searchQuery.trim() ? 'No discussions found' : 'No discussions yet'}
                 </div>
               ) : (
                 filteredDebates.map((debate) => {
                   const isActive = debate.id === activeDebateId;
                   return (
-                    <button
+                    <div
                       key={debate.id}
                       onClick={() => onSelectDebate(debate.id)}
-                      className={`w-full text-left p-2.5 rounded-xl text-xs transition-all group cursor-pointer flex flex-col gap-0.5 ${
+                      className={`group/item relative w-full text-left p-2.5 rounded-xl text-xs transition-all cursor-pointer flex flex-col gap-0.5 ${
                         isActive
                           ? 'bg-amber-50/50 border border-amber-200/80 shadow-2xs text-zinc-900'
                           : 'bg-white hover:bg-zinc-50/80 border border-transparent text-zinc-600'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1 w-full">
-                        <span className="font-medium text-zinc-900 truncate flex-1">
+                        <span className="font-medium text-zinc-900 truncate flex-1 pr-2">
                           {debate.title}
                         </span>
-                        <span className="text-[10px] text-zinc-400 shrink-0 font-mono">
-                          {debate.createdAt}
-                        </span>
+                        <div className="flex items-center shrink-0">
+                          <span className="text-[10px] text-zinc-400 font-mono group-hover/item:hidden">
+                            {debate.createdAt}
+                          </span>
+                          {onDeleteDebate && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteDebate(debate.id, e);
+                              }}
+                              className="hidden group-hover/item:flex items-center justify-center p-1 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Delete discussion"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <p className="text-[11px] text-zinc-400 line-clamp-1">
-                        {debate.snippet}
+                        {debate.snippet || ''}
                       </p>
-                    </button>
+                    </div>
                   );
                 })
               )}

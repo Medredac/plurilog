@@ -67,10 +67,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <div key={message.id} className="flex justify-end pt-1">
               <div className="max-w-2xl bg-stone-100 border border-stone-200/90 rounded-xl p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-4 mb-1 text-xs text-stone-500">
-                  <span className="font-semibold text-stone-900">You</span>
+                  <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
-                <p className="text-sm font-normal text-stone-900 leading-relaxed">
+                <p className="text-sm font-normal text-stone-900 leading-relaxed whitespace-pre-line">
                   {message.content}
                 </p>
               </div>
@@ -78,9 +78,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           );
         }
 
-        // Sequential AI Model Card (No subtitles, no extra badges)
-        const member = message.modelId ? COUNCIL_MEMBERS[message.modelId] : null;
-        if (!member) return null;
+        // Sequential AI Model Card
+        let modelKey: ModelId = 'gemini';
+        if (message.modelId) {
+          const lower = String(message.modelId).toLowerCase();
+          if (lower.includes('claude') || lower.includes('anthropic')) modelKey = 'claude';
+          else if (lower.includes('chatgpt') || lower.includes('gpt') || lower.includes('openai')) modelKey = 'chatgpt';
+          else modelKey = 'gemini';
+        }
+
+        const member = COUNCIL_MEMBERS[modelKey] || {
+          id: modelKey,
+          apiModelId: message.modelId || '',
+          name: message.authorName || 'AI',
+          shortName: message.authorName || 'AI',
+          statusDotColor: 'bg-zinc-500',
+          status: 'Ready',
+        };
 
         const currentLikes = likedIds[message.id] ?? (message.likes || 0);
 
