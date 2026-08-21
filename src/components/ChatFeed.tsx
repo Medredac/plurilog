@@ -48,7 +48,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-4 max-w-3xl mx-auto w-full">
+    <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 max-w-5xl mx-auto w-full">
       {/* Error Notice */}
       {errorMessage && (
         <div className="p-3.5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
@@ -65,12 +65,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         if (message.role === 'user') {
           return (
             <div key={message.id} className="flex justify-end pt-1">
-              <div className="max-w-2xl bg-stone-100 border border-stone-200/90 rounded-xl p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-4 mb-1 text-xs text-stone-500">
+              <div className="max-w-3xl bg-stone-100 border border-stone-200/90 rounded-xl p-4.5 shadow-sm">
+                <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
                   <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
-                <p className="text-sm font-normal text-stone-900 leading-relaxed whitespace-pre-line">
+                <p className="text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line">
                   {message.content}
                 </p>
               </div>
@@ -101,10 +101,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         return (
           <div
             key={message.id}
-            className="rounded-xl border border-zinc-100 bg-white p-4 sm:p-5 shadow-sm transition-all hover:border-zinc-200"
+            className="rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200"
           >
             {/* Header: Model name & timestamp only */}
-            <div className="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-zinc-100">
+            <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${member.statusDotColor}`} />
                 <span className="font-semibold text-xs text-zinc-900">
@@ -118,10 +118,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             </div>
 
             {/* Message Body */}
-            <div className="text-xs sm:text-sm text-zinc-800 leading-relaxed font-normal space-y-2 whitespace-pre-line">
+            <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal space-y-2.5 whitespace-pre-line">
               {message.content}
               {message.isStreaming && (
-                <span className="inline-block w-1.5 h-3.5 bg-amber-500 animate-pulse ml-0.5 align-middle" />
+                <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
               )}
             </div>
 

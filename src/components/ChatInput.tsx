@@ -52,7 +52,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <div className="sticky bottom-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-4 px-4 sm:px-6 max-w-3xl mx-auto w-full z-10">
+    <div className="sticky bottom-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-5 px-4 sm:px-8 max-w-5xl mx-auto w-full z-10">
       {/* Sleek Prompt Chips */}
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2 mb-1">
         <button
@@ -79,13 +79,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       </div>
 
       {/* Sleek, Wide Pill-Shaped Input Card */}
-      <div className="relative rounded-2xl bg-zinc-50 border border-zinc-200/80 shadow-sm p-2 sm:p-2.5 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300">
+      <div className="relative rounded-2xl bg-zinc-50 border border-zinc-200/80 shadow-sm p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300">
         <div className="flex items-end gap-2">
           {/* Attach icon */}
           <button
             type="button"
             title="Attach file"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors hidden sm:flex items-center justify-center cursor-pointer shrink-0"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors hidden sm:flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -98,7 +98,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             placeholder="Type a topic for discussion..."
-            className="w-full resize-none text-xs sm:text-sm font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
+            className="w-full resize-none text-sm sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
           />
 
           {/* Send Button */}
