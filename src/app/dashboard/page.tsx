@@ -551,59 +551,61 @@ export default function DashboardPage() {
           seatStatuses={seatStatuses}
         />
 
-        {/* Feed or Empty State */}
-        {isLoadingMessages ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-            <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
-            <p className="text-xs text-zinc-400">Loading conversation...</p>
-          </div>
-        ) : messages.length === 0 ? (
-          /* Empty State */
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
-            <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs mb-3">
-              <Layers className="w-4 h-4" />
+        {/* Full-width scrollable viewport (Scrollbar at true right edge of screen) */}
+        <div className="flex-1 overflow-y-auto w-full relative">
+          {isLoadingMessages ? (
+            <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px]">
+              <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
+              <p className="text-xs text-zinc-400">Loading conversation...</p>
             </div>
-            <h2 className="font-semibold text-base text-zinc-900 tracking-tight mb-1">
-              Start a Discussion
-            </h2>
-            <p className="text-xs text-zinc-400 mb-6">
-              Pose a topic. Gemini, Claude, and ChatGPT will deliberate sequentially.
-            </p>
+          ) : messages.length === 0 ? (
+            /* Empty State */
+            <div className="flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto h-full min-h-[400px]">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs mb-3">
+                <Layers className="w-4 h-4" />
+              </div>
+              <h2 className="font-semibold text-base text-zinc-900 tracking-tight mb-1">
+                Start a Discussion
+              </h2>
+              <p className="text-xs text-zinc-400 mb-6">
+                Pose a topic. Gemini, Claude, and ChatGPT will deliberate sequentially.
+              </p>
 
-            <div className="grid grid-cols-1 gap-2 w-full text-left">
-              <button
-                onClick={() => handleSendMessage('Should humanity prioritize colonizing Mars or exploring Earth’s oceans?')}
-                className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-              >
-                <div>
-                  <span className="font-medium text-zinc-900 block">Mars vs Earth Ocean Exploration</span>
-                  <span className="text-[11px] text-zinc-400">Capital allocation trade-offs</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-              </button>
+              <div className="grid grid-cols-1 gap-2 w-full text-left">
+                <button
+                  onClick={() => handleSendMessage('Should humanity prioritize colonizing Mars or exploring Earth’s oceans?')}
+                  className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div>
+                    <span className="font-medium text-zinc-900 block">Mars vs Earth Ocean Exploration</span>
+                    <span className="text-[11px] text-zinc-400">Capital allocation trade-offs</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
+                </button>
 
-              <button
-                onClick={() => handleSendMessage('Tabs vs Spaces for modern software indentation standards.')}
-                className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-              >
-                <div>
-                  <span className="font-medium text-zinc-900 block">Tabs vs Spaces</span>
-                  <span className="text-[11px] text-zinc-400">Accessibility & tooling consensus</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-              </button>
+                <button
+                  onClick={() => handleSendMessage('Tabs vs Spaces for modern software indentation standards.')}
+                  className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
+                >
+                  <div>
+                    <span className="font-medium text-zinc-900 block">Tabs vs Spaces</span>
+                    <span className="text-[11px] text-zinc-400">Accessibility & tooling consensus</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
+                </button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <ChatFeed
-            messages={messages}
-            onPromptClick={handleSendMessage}
-            activeSpeaker={activeSpeaker}
-            seatStatuses={seatStatuses}
-            isDebating={isDebating}
-            errorMessage={errorMessage}
-          />
-        )}
+          ) : (
+            <ChatFeed
+              messages={messages}
+              onPromptClick={handleSendMessage}
+              activeSpeaker={activeSpeaker}
+              seatStatuses={seatStatuses}
+              isDebating={isDebating}
+              errorMessage={errorMessage}
+            />
+          )}
+        </div>
 
         {/* Sticky Input */}
         <ChatInput

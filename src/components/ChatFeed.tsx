@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   ThumbsUp, 
   Copy, 
@@ -31,8 +31,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   isDebating = false,
   errorMessage = null,
 }) => {
+  const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<Record<string, number>>({});
+
+  // Auto-scroll on new messages, streaming tokens, or discussion load
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({
+      behavior: isDebating ? 'smooth' : 'auto',
+      block: 'end',
+    });
+  }, [messages, isDebating]);
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -48,7 +57,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-5 max-w-5xl mx-auto w-full">
+    <div className="px-4 sm:px-8 py-6 space-y-5 max-w-5xl mx-auto w-full">
       {/* Error Notice */}
       {errorMessage && (
         <div className="p-3.5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
@@ -159,6 +168,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           </div>
         );
       })}
+
+      {/* Invisible anchor for auto-scroll */}
+      <div ref={bottomRef} className="h-1 w-full" />
     </div>
   );
 };
