@@ -5,7 +5,8 @@ import {
   ThumbsUp, 
   Copy, 
   Check, 
-  AlertCircle
+  AlertCircle,
+  CornerDownRight
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
@@ -17,6 +18,8 @@ interface ChatFeedProps {
   seatStatuses?: Record<ModelId, SeatStatus>;
   isDebating?: boolean;
   errorMessage?: string | null;
+  canContinue?: boolean;
+  onContinue?: () => void;
 }
 
 export const ChatFeed: React.FC<ChatFeedProps> = ({
@@ -30,6 +33,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   },
   isDebating = false,
   errorMessage = null,
+  canContinue = false,
+  onContinue,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -182,6 +187,21 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           </div>
         );
       })}
+
+      {/* Continue Discussion Button - Fades in below final message bubble, bottom-right */}
+      {canContinue && !isDebating && messages.length > 0 && onContinue && (
+        <div className="flex justify-end pt-3 animate-in fade-in zoom-in-95 duration-200">
+          <button
+            type="button"
+            onClick={onContinue}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white hover:bg-amber-50/80 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
+            title="Trigger another deliberation round on this topic"
+          >
+            <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors" />
+            <span>Continue</span>
+          </button>
+        </div>
+      )}
 
       {/* Invisible anchor for auto-scroll */}
       <div ref={bottomRef} className="h-1 w-full" />

@@ -17,6 +17,9 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'chatgpt': 'idle',
 };
 
+const CONTINUE_INSTRUCTION =
+  "Respond directly to what was just said in the previous round — agree, push back, or add to it, the same way you would in an ongoing conversation.";
+
 export default function DashboardPage() {
   const router = useRouter();
   const hasInitializedRef = useRef(false);
@@ -42,6 +45,7 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [canContinue, setCanContinue] = useState<boolean>(false);
 
   const supabase = createClient();
 
@@ -84,6 +88,7 @@ export default function DashboardPage() {
   const fetchDiscussionMessages = useCallback(async (discussionId: string) => {
     if (!discussionId) {
       setMessages([]);
+      setCanContinue(false);
       return;
     }
 
@@ -98,6 +103,7 @@ export default function DashboardPage() {
       if (error) {
         console.error('[Supabase Error] Error fetching messages for discussion:', error, { discussion_id: discussionId });
         setMessages([]);
+        setCanContinue(false);
         return;
       }
 
@@ -129,9 +135,11 @@ export default function DashboardPage() {
 
       console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
       setMessages(formatted);
+      setCanContinue(formatted.length > 0);
     } catch (err) {
       console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
       setMessages([]);
+      setCanContinue(false);
     } finally {
       setIsLoadingMessages(false);
     }
@@ -210,6 +218,7 @@ export default function DashboardPage() {
     setSeatStatuses(INITIAL_SEAT_STATUSES);
     setIsDebating(false);
     setActiveSpeaker(null);
+    setCanContinue(false);
   };
 
   // Select existing discussion and load its messages
@@ -219,6 +228,7 @@ export default function DashboardPage() {
     setSeatStatuses(INITIAL_SEAT_STATUSES);
     setIsDebating(false);
     setActiveSpeaker(null);
+    setCanContinue(false);
     fetchDiscussionMessages(id);
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
@@ -250,105 +260,19 @@ export default function DashboardPage() {
     }
   };
 
-  // Real backend sequential relay call via OpenRouter API with Supabase persistence
-  const handleSendMessage = async (content: string) => {
-    const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
-    if (isDebating || !content.trim() || !userId || activeSeatOrder.length === 0) return;
-
-    setErrorMessage(null);
-    setIsDebating(true);
-
-    const initialStatuses: Record<ModelId, SeatStatus> = {
-      gemini: 'idle',
-      claude: 'idle',
-      chatgpt: 'idle',
-    };
-    activeSeatOrder.forEach((id) => {
-      initialStatuses[id] = 'waiting';
-    });
-    setSeatStatuses(initialStatuses);
-
-    let currentDiscussionId = activeDebateId;
-
-    // 1. If no active discussion, create one in Supabase with title from first 40 chars
-    if (!currentDiscussionId) {
-      try {
-        const title = content.slice(0, 40).trim() || 'New Discussion';
-        const { data: newDisc, error: discErr } = await supabase
-          .from('discussions')
-          .insert({
-            user_id: userId,
-            title: title,
-          })
-          .select()
-          .single();
-
-        if (discErr) {
-          console.error('[Supabase Error] Error creating discussion in DB:', discErr, { user_id: userId, title });
-        } else if (newDisc) {
-          currentDiscussionId = newDisc.id;
-          setActiveDebateId(newDisc.id);
-
-          const newTopic: DebateTopic = {
-            id: newDisc.id,
-            title: newDisc.title,
-            snippet: content.slice(0, 70) + '...',
-            createdAt: 'Just now',
-            userId: userId,
-            participants: ['gemini', 'claude', 'chatgpt'],
-            messages: [],
-          };
-          setDebates((prev) => [newTopic, ...prev]);
-        }
-      } catch (createErr) {
-        console.error('[Supabase Exception] Error initializing discussion:', createErr);
-      }
-    }
-
-    // 2. Insert user message locally and into Supabase messages table (schema: discussion_id, sender, content)
-    const tempUserMsgId = `msg-user-${Date.now()}`;
-    const userMsg: ChatMessage = {
-      id: tempUserMsgId,
-      discussionId: currentDiscussionId || undefined,
-      role: 'user',
-      authorName: 'You',
-      content: content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    // Optimistic UI update: instantly append user message and keep it permanently visible
-    setMessages((prev) => [...prev, userMsg]);
-
-    if (currentDiscussionId) {
-      try {
-        const { data: insertedUserMsg, error: insertUserErr } = await supabase.from('messages').insert({
-          discussion_id: currentDiscussionId,
-          sender: 'user',
-          content: content,
-        }).select();
-
-        if (insertUserErr) {
-          console.error('[Supabase Error] Failed to insert user message:', insertUserErr, {
-            discussion_id: currentDiscussionId,
-            sender: 'user',
-            content: content,
-          });
-        } else {
-          console.log('[Supabase Success] Inserted user message:', insertedUserMsg);
-        }
-      } catch (insertUserErr) {
-        console.error('[Supabase Exception] Error persisting user message:', insertUserErr);
-      }
-    }
-
-    // 3. Trigger sequential AI relay
+  // Executes sequential SSE relay stream for either new user message or continue round
+  const runRelay = async (
+    promptToSend: string,
+    discussionId: string,
+    activeSeatOrder: ModelId[]
+  ) => {
     try {
       const response = await fetch('/api/debate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: content,
-          discussionId: currentDiscussionId,
+          prompt: promptToSend,
+          discussionId: discussionId,
           seatOrder: activeSeatOrder,
         }),
       });
@@ -415,7 +339,7 @@ export default function DashboardPage() {
               const modelInfo = COUNCIL_MEMBERS[seatId];
               const newMsg: ChatMessage = {
                 id: `msg-${seatId}-${Date.now()}`,
-                discussionId: currentDiscussionId || undefined,
+                discussionId: discussionId || undefined,
                 role: 'model',
                 modelId: seatId,
                 authorName: modelInfo?.name || data.name,
@@ -458,17 +382,17 @@ export default function DashboardPage() {
               );
 
               // Persist model response into Supabase messages table (schema: discussion_id, sender, content)
-              if (currentDiscussionId && completedContent.trim()) {
+              if (discussionId && completedContent.trim()) {
                 try {
                   const { data: insertedModelMsg, error: insertModelErr } = await supabase.from('messages').insert({
-                    discussion_id: currentDiscussionId,
+                    discussion_id: discussionId,
                     sender: seatId, // 'gemini' | 'claude' | 'chatgpt'
                     content: completedContent,
                   }).select();
 
                   if (insertModelErr) {
                     console.error(`[Supabase Error] Failed to insert ${seatId} message:`, insertModelErr, {
-                      discussion_id: currentDiscussionId,
+                      discussion_id: discussionId,
                       sender: seatId,
                       content: completedContent,
                     });
@@ -482,14 +406,15 @@ export default function DashboardPage() {
             } else if (eventType === 'council_done') {
               setActiveSpeaker(null);
               setIsDebating(false);
+              setCanContinue(true); // Allow continuous discussion round!
 
               // Touch discussion updated_at
-              if (currentDiscussionId) {
+              if (discussionId) {
                 try {
                   await supabase
                     .from('discussions')
                     .update({ updated_at: new Date().toISOString() })
-                    .eq('id', currentDiscussionId);
+                    .eq('id', discussionId);
                 } catch (updateDiscErr) {
                   console.error('[Supabase Exception] Error updating discussion timestamp:', updateDiscErr);
                 }
@@ -498,6 +423,7 @@ export default function DashboardPage() {
               setErrorMessage(data.message || 'Error occurred during discussion.');
               setIsDebating(false);
               setActiveSpeaker(null);
+              setCanContinue(true);
               setMessages((prev) =>
                 prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
               );
@@ -508,15 +434,136 @@ export default function DashboardPage() {
         }
       }
     } catch (err: any) {
-      console.error('Error in handleSendMessage:', err);
+      console.error('Error in relay stream:', err);
       setErrorMessage(
         err?.message ||
           'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
       );
+      setCanContinue(true);
     } finally {
       setIsDebating(false);
       setActiveSpeaker(null);
     }
+  };
+
+  // Triggered when user submits a new prompt
+  const handleSendMessage = async (content: string) => {
+    const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
+    if (isDebating || !content.trim() || !userId || activeSeatOrder.length === 0) return;
+
+    setCanContinue(false);
+    setErrorMessage(null);
+    setIsDebating(true);
+
+    const initialStatuses: Record<ModelId, SeatStatus> = {
+      gemini: 'idle',
+      claude: 'idle',
+      chatgpt: 'idle',
+    };
+    activeSeatOrder.forEach((id) => {
+      initialStatuses[id] = 'waiting';
+    });
+    setSeatStatuses(initialStatuses);
+
+    let currentDiscussionId = activeDebateId;
+
+    // 1. If no active discussion, create one in Supabase with title from first 40 chars
+    if (!currentDiscussionId) {
+      try {
+        const title = content.slice(0, 40).trim() || 'New Discussion';
+        const { data: newDisc, error: discErr } = await supabase
+          .from('discussions')
+          .insert({
+            user_id: userId,
+            title: title,
+          })
+          .select()
+          .single();
+
+        if (discErr) {
+          console.error('[Supabase Error] Error creating discussion in DB:', discErr, { user_id: userId, title });
+        } else if (newDisc) {
+          currentDiscussionId = newDisc.id;
+          setActiveDebateId(newDisc.id);
+
+          const newTopic: DebateTopic = {
+            id: newDisc.id,
+            title: newDisc.title,
+            snippet: content.slice(0, 70) + '...',
+            createdAt: 'Just now',
+            userId: userId,
+            participants: ['gemini', 'claude', 'chatgpt'],
+            messages: [],
+          };
+          setDebates((prev) => [newTopic, ...prev]);
+        }
+      } catch (createErr) {
+        console.error('[Supabase Exception] Error initializing discussion:', createErr);
+      }
+    }
+
+    // 2. Insert user message locally and into Supabase messages table
+    const tempUserMsgId = `msg-user-${Date.now()}`;
+    const userMsg: ChatMessage = {
+      id: tempUserMsgId,
+      discussionId: currentDiscussionId || undefined,
+      role: 'user',
+      authorName: 'You',
+      content: content,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    // Optimistic UI update: instantly append user message
+    setMessages((prev) => [...prev, userMsg]);
+
+    if (currentDiscussionId) {
+      try {
+        const { data: insertedUserMsg, error: insertUserErr } = await supabase.from('messages').insert({
+          discussion_id: currentDiscussionId,
+          sender: 'user',
+          content: content,
+        }).select();
+
+        if (insertUserErr) {
+          console.error('[Supabase Error] Failed to insert user message:', insertUserErr, {
+            discussion_id: currentDiscussionId,
+            sender: 'user',
+            content: content,
+          });
+        } else {
+          console.log('[Supabase Success] Inserted user message:', insertedUserMsg);
+        }
+      } catch (insertUserErr) {
+        console.error('[Supabase Exception] Error persisting user message:', insertUserErr);
+      }
+    }
+
+    // 3. Trigger sequential AI relay
+    if (currentDiscussionId) {
+      await runRelay(content, currentDiscussionId, activeSeatOrder);
+    }
+  };
+
+  // Triggered when user clicks "Continue Discussion" button
+  const handleContinue = async () => {
+    const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
+    if (isDebating || !activeDebateId || !userId || activeSeatOrder.length === 0) return;
+
+    setCanContinue(false);
+    setErrorMessage(null);
+    setIsDebating(true);
+
+    const initialStatuses: Record<ModelId, SeatStatus> = {
+      gemini: 'idle',
+      claude: 'idle',
+      chatgpt: 'idle',
+    };
+    activeSeatOrder.forEach((id) => {
+      initialStatuses[id] = 'waiting';
+    });
+    setSeatStatuses(initialStatuses);
+
+    await runRelay(CONTINUE_INSTRUCTION, activeDebateId, activeSeatOrder);
   };
 
   if (isLoadingAuth) {
@@ -617,6 +664,8 @@ export default function DashboardPage() {
               seatStatuses={seatStatuses}
               isDebating={isDebating}
               errorMessage={errorMessage}
+              canContinue={canContinue}
+              onContinue={handleContinue}
             />
           )}
         </div>
