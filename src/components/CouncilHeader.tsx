@@ -1,10 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   PanelLeft, 
   Share2, 
-  Loader2
+  Loader2,
+  GripVertical
 } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId, SeatStatus } from '../types/chat';
@@ -12,6 +13,8 @@ import { ModelId, SeatStatus } from '../types/chat';
 interface CouncilHeaderProps {
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
+  seatOrder: ModelId[];
+  onReorderSeats: (newOrder: ModelId[]) => void;
   activeModels: ModelId[];
   onToggleModel: (id: ModelId) => void;
   isDebating?: boolean;
@@ -22,6 +25,8 @@ interface CouncilHeaderProps {
 export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   isSidebarOpen,
   onToggleSidebar,
+  seatOrder,
+  onReorderSeats,
   activeModels,
   onToggleModel,
   isDebating = false,
@@ -32,12 +37,48 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
     'chatgpt': 'idle',
   },
 }) => {
-  const models: ModelId[] = ['gemini', 'claude', 'chatgpt'];
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (isDebating) return;
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+    setDragOverIndex(index);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const newOrder = [...seatOrder];
+    const [movedItem] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, movedItem);
+
+    onReorderSeats(newOrder);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
 
   return (
     <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-4 sm:px-6 py-2">
       <div className="flex items-center justify-between gap-3">
-        {/* Left: Sidebar toggle and the 3 clean model indicators */}
+        {/* Left: Sidebar toggle and the draggable model pills */}
         <div className="flex items-center gap-3">
           <button
             onClick={onToggleSidebar}
@@ -48,33 +89,59 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             <PanelLeft className="w-4 h-4" />
           </button>
 
-          {/* Clean Model Pills: Gemini, Claude, ChatGPT (No subtitles, no extra badges) */}
+          {/* Draggable Model Pills */}
           <div className="flex items-center gap-1.5">
-            {models.map((id) => {
+            {seatOrder.map((id, idx) => {
               const member = COUNCIL_MEMBERS[id];
               const isSelected = activeModels.includes(id);
               const currentStatus = seatStatuses[id] || 'idle';
               const isSpeaking = currentStatus === 'speaking' || activeSpeaker === id;
+              const isBeingDragged = draggedIndex === idx;
+              const isTargetOver = dragOverIndex === idx;
 
               return (
-                <button
+                <div
                   key={id}
-                  onClick={() => onToggleModel(id)}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
-                    isSpeaking
-                      ? 'bg-amber-50 text-zinc-900 border-amber-300 shadow-2xs font-semibold'
-                      : isSelected
-                      ? 'bg-zinc-50 text-zinc-800 border-zinc-200/80 hover:bg-zinc-100/70'
-                      : 'bg-white text-zinc-400 border-zinc-200/50 opacity-60'
+                  draggable={!isDebating}
+                  onDragStart={(e) => handleDragStart(e, idx)}
+                  onDragOver={(e) => handleDragOver(e, idx)}
+                  onDrop={(e) => handleDrop(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  className={`group relative flex items-center rounded-lg transition-all select-none ${
+                    isDebating ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
+                  } ${isBeingDragged ? 'opacity-40 scale-95' : ''} ${
+                    isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1 scale-105' : ''
                   }`}
+                  title={
+                    isDebating
+                      ? `${member?.name || id} (deliberating...)`
+                      : `Drag to reorder seat sequence • Click to ${isSelected ? 'remove' : 'include'}`
+                  }
                 >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      isSpeaking ? 'bg-amber-500 animate-pulse' : isSelected ? member.statusDotColor : 'bg-zinc-300'
+                  <button
+                    type="button"
+                    onClick={() => onToggleModel(id)}
+                    className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+                      isSpeaking
+                        ? 'bg-amber-50 text-zinc-900 border-amber-300 shadow-2xs font-semibold'
+                        : isSelected
+                        ? 'bg-zinc-50 text-zinc-800 border-zinc-200/80 hover:bg-zinc-100/70'
+                        : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50 line-through hover:opacity-75'
                     }`}
-                  />
-                  <span>{member.name}</span>
-                </button>
+                  >
+                    <GripVertical className="w-3 h-3 text-zinc-300 group-hover:text-zinc-500 transition-colors -ml-0.5" />
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        isSpeaking
+                          ? 'bg-amber-500 animate-pulse'
+                          : isSelected
+                          ? member?.statusDotColor || 'bg-zinc-500'
+                          : 'bg-zinc-300'
+                      }`}
+                    />
+                    <span>{member?.name || id}</span>
+                  </button>
+                </div>
               );
             })}
           </div>

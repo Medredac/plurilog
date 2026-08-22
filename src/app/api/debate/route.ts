@@ -86,15 +86,15 @@ interface SeatConfig {
   providerPrefix: ProviderPrefix;
 }
 
-const SEATS: SeatConfig[] = [
-  { seatId: 'gemini', name: 'Gemini', providerPrefix: 'google/' },
-  { seatId: 'claude', name: 'Claude', providerPrefix: 'anthropic/' },
-  { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
-];
+const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
+  gemini: { seatId: 'gemini', name: 'Gemini', providerPrefix: 'google/' },
+  claude: { seatId: 'claude', name: 'Claude', providerPrefix: 'anthropic/' },
+  chatgpt: { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
+};
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId } = await req.json();
+    const { prompt, discussionId, seatOrder } = await req.json();
 
     if (!prompt || typeof prompt !== 'string') {
       return new Response(
@@ -186,9 +186,24 @@ export async function POST(req: NextRequest) {
 
         const priorResponses: PriorResponse[] = [];
 
+        // Build active configured seats list dynamically from client seatOrder with secure server-side definitions
+        let configuredSeats: SeatConfig[] = [];
+        if (Array.isArray(seatOrder) && seatOrder.length > 0) {
+          configuredSeats = seatOrder
+            .filter((id: string): id is ModelId => id in SEAT_DEFINITIONS)
+            .map((id: ModelId) => SEAT_DEFINITIONS[id]);
+        }
+        if (configuredSeats.length === 0) {
+          configuredSeats = [
+            SEAT_DEFINITIONS.gemini,
+            SEAT_DEFINITIONS.claude,
+            SEAT_DEFINITIONS.chatgpt,
+          ];
+        }
+
         try {
-          // Sequential panel execution across configured seats
-          for (const seat of SEATS) {
+          // Sequential panel execution across configured seats in custom order
+          for (const seat of configuredSeats) {
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
             let respondingModel = primaryModel;
@@ -207,7 +222,7 @@ export async function POST(req: NextRequest) {
               discussionMemory
             );
 
-            if (seat.seatId === SEATS[0].seatId) {
+            if (seat.seatId === configuredSeats[0].seatId) {
               console.log('[Memory Debug] API payload messages for Seat 1:');
               console.log(JSON.stringify(seatMessages, null, 2));
             }

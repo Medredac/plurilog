@@ -24,6 +24,11 @@ export default function DashboardPage() {
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [seatOrder, setSeatOrder] = useState<ModelId[]>([
+    'gemini',
+    'claude',
+    'chatgpt',
+  ]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([
     'gemini',
     'claude',
@@ -247,15 +252,21 @@ export default function DashboardPage() {
 
   // Real backend sequential relay call via OpenRouter API with Supabase persistence
   const handleSendMessage = async (content: string) => {
-    if (isDebating || !content.trim() || !userId) return;
+    const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
+    if (isDebating || !content.trim() || !userId || activeSeatOrder.length === 0) return;
 
     setErrorMessage(null);
     setIsDebating(true);
-    setSeatStatuses({
-      'gemini': 'waiting',
-      'claude': 'waiting',
-      'chatgpt': 'waiting',
+
+    const initialStatuses: Record<ModelId, SeatStatus> = {
+      gemini: 'idle',
+      claude: 'idle',
+      chatgpt: 'idle',
+    };
+    activeSeatOrder.forEach((id) => {
+      initialStatuses[id] = 'waiting';
     });
+    setSeatStatuses(initialStatuses);
 
     let currentDiscussionId = activeDebateId;
 
@@ -338,6 +349,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           prompt: content,
           discussionId: currentDiscussionId,
+          seatOrder: activeSeatOrder,
         }),
       });
 
@@ -544,6 +556,8 @@ export default function DashboardPage() {
         <CouncilHeader
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          seatOrder={seatOrder}
+          onReorderSeats={setSeatOrder}
           activeModels={activeModels}
           onToggleModel={handleToggleModel}
           isDebating={isDebating}
