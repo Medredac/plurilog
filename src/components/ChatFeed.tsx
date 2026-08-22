@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown, { Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Copy, 
   Check, 
@@ -11,6 +13,135 @@ import {
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
+
+// Custom Fenced Code Block Component: Distinct light beige bubble, text-amber-900 brand font, top-right copy icon
+const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
+  children,
+  className,
+}) => {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || '');
+  const language = match ? match[1] : '';
+  const codeContent = String(children || '').replace(/\n$/, '');
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(codeContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="relative my-3 rounded-xl bg-amber-50/70 border border-amber-200/80 overflow-hidden shadow-2xs group text-left">
+      {/* Top Header Bar with Language tag and Copy Button */}
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-amber-100/50 border-b border-amber-200/60 text-amber-900">
+        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-amber-900/80">
+          {language || 'code'}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+          title="Copy code"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-700" />
+              <span className="text-[10px] font-mono text-emerald-700 font-medium">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              <span className="text-[10px] font-mono">Copy</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Code Content */}
+      <div className="p-3.5 overflow-x-auto">
+        <pre className="font-mono text-xs sm:text-[13px] leading-relaxed text-amber-900 whitespace-pre">
+          <code>{codeContent}</code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+const markdownComponents: Components = {
+  pre: ({ children }) => <>{children}</>,
+  code: ({ className, children, ...props }) => {
+    const match = /language-(\w+)/.exec(className || '');
+    const isFenced = Boolean(match) || String(children).includes('\n');
+
+    if (!isFenced) {
+      return (
+        <code
+          className="font-mono text-[0.875em] bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal"
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+
+    return <CodeBlock className={className}>{children}</CodeBlock>;
+  },
+  p: ({ children }) => (
+    <p className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal mb-3 last:mb-0">
+      {children}
+    </p>
+  ),
+  ul: ({ children }) => (
+    <ul className="my-2.5 pl-5 list-disc space-y-1 text-zinc-800 text-base sm:text-[16.5px]">
+      {children}
+    </ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-zinc-800 text-base sm:text-[16.5px]">
+      {children}
+    </ol>
+  ),
+  li: ({ children }) => (
+    <li className="leading-relaxed text-zinc-800 text-base sm:text-[16.5px]">
+      {children}
+    </li>
+  ),
+  h1: ({ children }) => (
+    <h1 className="font-semibold text-lg sm:text-xl text-zinc-900 mt-4 mb-2">
+      {children}
+    </h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="font-semibold text-base sm:text-lg text-zinc-900 mt-3.5 mb-1.5">
+      {children}
+    </h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="font-semibold text-sm sm:text-base text-zinc-900 mt-3 mb-1">
+      {children}
+    </h3>
+  ),
+  strong: ({ children }) => (
+    <strong className="font-semibold text-zinc-900">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic">{children}</em>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-amber-300 pl-3.5 my-2.5 italic text-zinc-600">
+      {children}
+    </blockquote>
+  ),
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-amber-800 hover:text-amber-900 underline underline-offset-2 transition-colors"
+    >
+      {children}
+    </a>
+  ),
+};
 
 interface ChatFeedProps {
   messages: ChatMessage[];
@@ -208,9 +339,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </span>
             </div>
 
-            {/* Message Body */}
-            <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal space-y-2.5 whitespace-pre-line">
-              {message.content}
+            {/* Message Body with real ReactMarkdown rendering */}
+            <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+              >
+                {message.content}
+              </ReactMarkdown>
               {message.isStreaming && (
                 <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
               )}
