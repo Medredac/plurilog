@@ -520,22 +520,22 @@ export default function DashboardPage() {
     const nowIso = new Date().toISOString();
     const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // 1. If no active discussion, create one in Supabase with title from first 40 chars
+    // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
     if (!currentDiscussionId) {
       try {
-        const title = content.slice(0, 40).trim() || 'New Discussion';
+        const placeholderTitle = content.slice(0, 40).trim() || 'New Discussion';
         const { data: newDisc, error: discErr } = await supabase
           .from('discussions')
           .insert({
             user_id: userId,
-            title: title,
+            title: placeholderTitle,
             updated_at: nowIso,
           })
           .select()
           .single();
 
         if (discErr) {
-          console.error('[Supabase Error] Error creating discussion in DB:', discErr, { user_id: userId, title });
+          console.error('[Supabase Error] Error creating discussion in DB:', discErr, { user_id: userId, title: placeholderTitle });
         } else if (newDisc) {
           isNewlyCreatedDiscussionRef.current = true;
           currentDiscussionId = newDisc.id;
@@ -553,6 +553,31 @@ export default function DashboardPage() {
             messages: [],
           };
           setDebates((prev) => [newTopic, ...prev]);
+
+          // In parallel (non-blocking), generate AI title with gemini-3.1-flash-lite and update DB + sidebar
+          fetch('/api/generate-title', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: content, discussionId: newDisc.id }),
+          })
+            .then((res) => res.json())
+            .then(async (data) => {
+              if (data?.title && data.title !== placeholderTitle) {
+                const generatedTitle = data.title;
+                // Update local sidebar state
+                setDebates((prev) =>
+                  prev.map((d) => (d.id === newDisc.id ? { ...d, title: generatedTitle } : d))
+                );
+                // Update Supabase discussions table
+                await supabase
+                  .from('discussions')
+                  .update({ title: generatedTitle })
+                  .eq('id', newDisc.id);
+              }
+            })
+            .catch((titleErr) => {
+              console.error('[AI Title Error]', titleErr);
+            });
         }
       } catch (createErr) {
         console.error('[Supabase Exception] Error initializing discussion:', createErr);
