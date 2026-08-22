@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { 
-  Share2, 
   Loader2,
   GripVertical
 } from 'lucide-react';
@@ -73,7 +72,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   return (
     <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-4 sm:px-6 py-2">
       <div className="flex items-center justify-between gap-3">
-        {/* Left: Draggable model pills (font-semibold for panelist names) */}
+        {/* Left: Draggable model pills */}
         <div className="flex items-center gap-1.5">
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
@@ -130,7 +129,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           })}
         </div>
 
-        {/* Right: Clean minimal status / share */}
+        {/* Right: Clean minimal deliberation status */}
         <div className="flex items-center gap-2">
           {isDebating && (
             <div className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
@@ -138,14 +137,6 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
               <span>Responding...</span>
             </div>
           )}
-
-          <button
-            title="Share discussion"
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50 border border-zinc-200/60 transition-colors cursor-pointer"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Share</span>
-          </button>
         </div>
       </div>
     </header>

@@ -761,7 +761,6 @@ export default function DashboardPage() {
         <ChatInput
           onSendMessage={handleSendMessage}
           isLoading={isDebating}
-          onSelectSuggestion={(prompt) => handleSendMessage(prompt)}
         />
       </main>
     </div>

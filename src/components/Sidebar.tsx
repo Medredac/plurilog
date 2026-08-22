@@ -93,7 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Open sidebar"
             aria-label="Open sidebar"
           >
-            <PanelLeftClose className="w-4 h-4 rotate-180" />
+            <PanelLeftClose className="w-4 h-4 rotate-180" strokeWidth={1.5} />
           </button>
         </div>
       )}
@@ -122,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title="Collapse sidebar"
                 aria-label="Collapse sidebar"
               >
-                <PanelLeftClose className="w-4 h-4" />
+                <PanelLeftClose className="w-4 h-4" strokeWidth={1.5} />
               </button>
             </div>
 

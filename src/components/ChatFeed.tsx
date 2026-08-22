@@ -2,13 +2,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
-  ThumbsUp, 
   Copy, 
   Check, 
-  AlertCircle,
-  CornerDownRight,
-  ChevronDown,
-  ChevronUp
+  AlertCircle, 
+  CornerDownRight, 
+  ChevronDown, 
+  ChevronUp 
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
@@ -47,7 +46,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const lastUserMsgIdRef = useRef<string | null>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [likedIds, setLikedIds] = useState<Record<string, number>>({});
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
 
   // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
@@ -92,13 +90,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleLike = (id: string, currentLikes: number = 0) => {
-    setLikedIds((prev) => ({
-      ...prev,
-      [id]: (prev[id] ?? currentLikes) + 1,
-    }));
   };
 
   return (
@@ -188,8 +179,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           status: 'Ready',
         };
 
-        const currentLikes = likedIds[message.id] ?? (message.likes || 0);
-
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
         // - Smaller cohesive gap following another model response (Model -> Model)
@@ -227,18 +216,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               )}
             </div>
 
-            {/* Bottom Actions Bar */}
+            {/* Bottom Actions Bar: Copy Only */}
             <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleLike(message.id, message.likes)}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  title="Like"
-                >
-                  <ThumbsUp className="w-3 h-3" />
-                  <span className="font-mono text-[10px]">{currentLikes}</span>
-                </button>
-
                 <button
                   onClick={() => handleCopy(message.id, message.content)}
                   className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
