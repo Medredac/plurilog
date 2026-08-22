@@ -130,7 +130,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             >
               <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
                 <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
-                  <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
+                  <span className="font-semibold text-zinc-700">{message.authorName || 'You'}</span>
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
 
@@ -209,7 +209,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${member.statusDotColor}`} />
-                <span className="font-semibold text-xs text-zinc-900">
+                <span className="font-semibold text-xs text-zinc-700">
                   {member.name}
                 </span>
               </div>

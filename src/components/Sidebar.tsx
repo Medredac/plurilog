@@ -177,7 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }`}
                     >
                       <span className={`text-sm truncate flex-1 pr-2 ${
-                        isActive ? 'font-semibold text-zinc-800' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
+                        isActive ? 'font-semibold text-amber-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
                       }`}>
                         {debate.title}
                       </span>
