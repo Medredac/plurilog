@@ -27,6 +27,8 @@ export default function DashboardPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
+  const activeDebateIdRef = useRef<string | null>(null);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([
     'gemini',
@@ -49,6 +51,11 @@ export default function DashboardPage() {
   const [canContinue, setCanContinue] = useState<boolean>(false);
 
   const supabase = createClient();
+
+  // Keep activeDebateIdRef synchronized
+  useEffect(() => {
+    activeDebateIdRef.current = activeDebateId;
+  }, [activeDebateId]);
 
   // Load all discussions for current user ordered by created_at desc
   const fetchDiscussions = useCallback(async (uid: string) => {
@@ -162,6 +169,7 @@ export default function DashboardPage() {
           hasInitializedRef.current = true;
           const loadedDebates = await fetchDiscussions(session.user.id);
           if (loadedDebates.length > 0) {
+            activeDebateIdRef.current = loadedDebates[0].id;
             setActiveDebateId(loadedDebates[0].id);
             await fetchDiscussionMessages(loadedDebates[0].id);
           }
@@ -213,6 +221,7 @@ export default function DashboardPage() {
 
   // Reset to fresh blank discussion state without triggering any fetch
   const handleNewDebate = () => {
+    activeDebateIdRef.current = null;
     setActiveDebateId(null);
     setMessages([]);
     setErrorMessage(null);
@@ -224,6 +233,7 @@ export default function DashboardPage() {
 
   // Select existing discussion and load its messages
   const handleSelectDebate = (id: string) => {
+    activeDebateIdRef.current = id;
     setActiveDebateId(id);
     setErrorMessage(null);
     setSeatStatuses(INITIAL_SEAT_STATUSES);
@@ -327,62 +337,68 @@ export default function DashboardPage() {
 
           try {
             const data = JSON.parse(dataStr);
+            const isCurrentDiscussionActive = activeDebateIdRef.current === discussionId;
 
             if (eventType === 'seat_start') {
               const seatId = data.seatId as ModelId;
-              setActiveSpeaker(seatId);
+              if (isCurrentDiscussionActive) {
+                setActiveSpeaker(seatId);
+                setSeatStatuses((prev) => ({
+                  ...prev,
+                  [seatId]: 'speaking',
+                }));
 
-              setSeatStatuses((prev) => ({
-                ...prev,
-                [seatId]: 'speaking',
-              }));
+                const modelInfo = COUNCIL_MEMBERS[seatId];
+                const newMsg: ChatMessage = {
+                  id: `msg-${seatId}-${Date.now()}`,
+                  discussionId: discussionId || undefined,
+                  role: 'model',
+                  modelId: seatId,
+                  authorName: modelInfo?.name || data.name,
+                  content: '',
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  isStreaming: true,
+                };
 
-              const modelInfo = COUNCIL_MEMBERS[seatId];
-              const newMsg: ChatMessage = {
-                id: `msg-${seatId}-${Date.now()}`,
-                discussionId: discussionId || undefined,
-                role: 'model',
-                modelId: seatId,
-                authorName: modelInfo?.name || data.name,
-                content: '',
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                isStreaming: true,
-              };
-
-              setMessages((prev) => [...prev, newMsg]);
+                setMessages((prev) => [...prev, newMsg]);
+              }
             } else if (eventType === 'seat_chunk') {
               const seatId = data.seatId as ModelId;
               const chunk = data.text || '';
 
-              setMessages((prev) => {
-                const msgs = [...prev];
-                const lastMsgIdx = msgs.findLastIndex((m) => m.modelId === seatId && m.isStreaming);
-                if (lastMsgIdx !== -1) {
-                  msgs[lastMsgIdx] = {
-                    ...msgs[lastMsgIdx],
-                    content: msgs[lastMsgIdx].content + chunk,
-                  };
-                }
-                return msgs;
-              });
+              if (isCurrentDiscussionActive) {
+                setMessages((prev) => {
+                  const msgs = [...prev];
+                  const lastMsgIdx = msgs.findLastIndex((m) => m.modelId === seatId && m.isStreaming);
+                  if (lastMsgIdx !== -1) {
+                    msgs[lastMsgIdx] = {
+                      ...msgs[lastMsgIdx],
+                      content: msgs[lastMsgIdx].content + chunk,
+                    };
+                  }
+                  return msgs;
+                });
+              }
             } else if (eventType === 'seat_done') {
               const seatId = data.seatId as ModelId;
               const completedContent = data.content || '';
 
-              setSeatStatuses((prev) => ({
-                ...prev,
-                [seatId]: 'done',
-              }));
+              if (isCurrentDiscussionActive) {
+                setSeatStatuses((prev) => ({
+                  ...prev,
+                  [seatId]: 'done',
+                }));
 
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.modelId === seatId && m.isStreaming
-                    ? { ...m, isStreaming: false, content: completedContent }
-                    : m
-                )
-              );
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.modelId === seatId && m.isStreaming
+                      ? { ...m, isStreaming: false, content: completedContent }
+                      : m
+                  )
+                );
+              }
 
-              // Persist model response into Supabase messages table (schema: discussion_id, sender, content)
+              // Persist model response into Supabase messages table (schema: discussion_id, sender, content) - always runs for stream discussionId
               if (discussionId && completedContent.trim()) {
                 try {
                   const { data: insertedModelMsg, error: insertModelErr } = await supabase.from('messages').insert({
@@ -405,9 +421,11 @@ export default function DashboardPage() {
                 }
               }
             } else if (eventType === 'council_done') {
-              setActiveSpeaker(null);
-              setIsDebating(false);
-              setCanContinue(true); // Allow continuous discussion round!
+              if (isCurrentDiscussionActive) {
+                setActiveSpeaker(null);
+                setIsDebating(false);
+                setCanContinue(true); // Allow continuous discussion round!
+              }
 
               // Touch discussion updated_at
               if (discussionId) {
@@ -421,13 +439,15 @@ export default function DashboardPage() {
                 }
               }
             } else if (eventType === 'error') {
-              setErrorMessage(data.message || 'Error occurred during discussion.');
-              setIsDebating(false);
-              setActiveSpeaker(null);
-              setCanContinue(true);
-              setMessages((prev) =>
-                prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
-              );
+              if (isCurrentDiscussionActive) {
+                setErrorMessage(data.message || 'Error occurred during discussion.');
+                setIsDebating(false);
+                setActiveSpeaker(null);
+                setCanContinue(true);
+                setMessages((prev) =>
+                  prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+                );
+              }
             }
           } catch (jsonErr) {
             console.error('Error parsing SSE json:', jsonErr, dataStr);
@@ -436,14 +456,18 @@ export default function DashboardPage() {
       }
     } catch (err: any) {
       console.error('Error in relay stream:', err);
-      setErrorMessage(
-        err?.message ||
-          'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
-      );
-      setCanContinue(true);
+      if (activeDebateIdRef.current === discussionId) {
+        setErrorMessage(
+          err?.message ||
+            'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
+        );
+        setCanContinue(true);
+      }
     } finally {
-      setIsDebating(false);
-      setActiveSpeaker(null);
+      if (activeDebateIdRef.current === discussionId) {
+        setIsDebating(false);
+        setActiveSpeaker(null);
+      }
     }
   };
 
@@ -486,6 +510,7 @@ export default function DashboardPage() {
         } else if (newDisc) {
           isNewlyCreatedDiscussionRef.current = true;
           currentDiscussionId = newDisc.id;
+          activeDebateIdRef.current = newDisc.id;
           setActiveDebateId(newDisc.id);
 
           const newTopic: DebateTopic = {
