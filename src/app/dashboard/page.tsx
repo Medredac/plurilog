@@ -57,32 +57,35 @@ export default function DashboardPage() {
     activeDebateIdRef.current = activeDebateId;
   }, [activeDebateId]);
 
-  // Load all discussions for current user ordered by created_at desc
+  // Load all discussions for current user ordered by most recent activity (updated_at desc)
   const fetchDiscussions = useCallback(async (uid: string) => {
     try {
       const { data, error } = await supabase
         .from('discussions')
         .select('*')
         .eq('user_id', uid)
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false, nullsFirst: false });
 
       if (error) {
         console.error('[Supabase Error] Error fetching discussions:', error, { user_id: uid });
         return [];
       }
 
-      const formatted: DebateTopic[] = (data || []).map((d: any) => ({
-        id: d.id,
-        title: d.title || 'Untitled Discussion',
-        snippet: d.snippet || '',
-        createdAt: d.created_at
-          ? new Date(d.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : 'Just now',
-        updatedAt: d.updated_at || d.created_at,
-        userId: d.user_id,
-        participants: ['gemini', 'claude', 'chatgpt'],
-        messages: [],
-      }));
+      const formatted: DebateTopic[] = (data || []).map((d: any) => {
+        const lastActivity = d.updated_at || d.created_at;
+        return {
+          id: d.id,
+          title: d.title || 'Untitled Discussion',
+          snippet: d.snippet || '',
+          createdAt: lastActivity
+            ? new Date(lastActivity).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : 'Just now',
+          updatedAt: lastActivity,
+          userId: d.user_id,
+          participants: ['gemini', 'claude', 'chatgpt'],
+          messages: [],
+        };
+      });
 
       setDebates(formatted);
       return formatted;
@@ -90,6 +93,36 @@ export default function DashboardPage() {
       console.error('[Supabase Exception] fetchDiscussions exception:', err);
       return [];
     }
+  }, [supabase]);
+
+  // Helper to touch discussion in DB and re-sort to top of sidebar in real time
+  const touchDiscussion = useCallback((discussionId: string, snippet?: string) => {
+    const nowIso = new Date().toISOString();
+    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    setDebates((prev) => {
+      const idx = prev.findIndex((d) => d.id === discussionId);
+      if (idx === -1) return prev;
+      const target = prev[idx];
+      const updated: DebateTopic = {
+        ...target,
+        snippet: snippet !== undefined ? snippet : target.snippet,
+        createdAt: nowTimeStr,
+        updatedAt: nowIso,
+      };
+      const remainder = prev.filter((d) => d.id !== discussionId);
+      return [updated, ...remainder];
+    });
+
+    supabase
+      .from('discussions')
+      .update({ updated_at: nowIso })
+      .eq('id', discussionId)
+      .then(({ error }) => {
+        if (error) {
+          console.error('[Supabase Error] Error updating discussion updated_at:', error);
+        }
+      });
   }, [supabase]);
 
   // Fetch messages for a specific discussion and populate canvas
@@ -398,7 +431,7 @@ export default function DashboardPage() {
                 );
               }
 
-              // Persist model response into Supabase messages table (schema: discussion_id, sender, content) - always runs for stream discussionId
+              // Persist model response into Supabase messages table (always runs for discussionId)
               if (discussionId && completedContent.trim()) {
                 try {
                   const { data: insertedModelMsg, error: insertModelErr } = await supabase.from('messages').insert({
@@ -427,16 +460,9 @@ export default function DashboardPage() {
                 setCanContinue(true); // Allow continuous discussion round!
               }
 
-              // Touch discussion updated_at
+              // Touch discussion updated_at and move to top of sidebar
               if (discussionId) {
-                try {
-                  await supabase
-                    .from('discussions')
-                    .update({ updated_at: new Date().toISOString() })
-                    .eq('id', discussionId);
-                } catch (updateDiscErr) {
-                  console.error('[Supabase Exception] Error updating discussion timestamp:', updateDiscErr);
-                }
+                touchDiscussion(discussionId);
               }
             } else if (eventType === 'error') {
               if (isCurrentDiscussionActive) {
@@ -491,6 +517,8 @@ export default function DashboardPage() {
     setSeatStatuses(initialStatuses);
 
     let currentDiscussionId = activeDebateId;
+    const nowIso = new Date().toISOString();
+    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // 1. If no active discussion, create one in Supabase with title from first 40 chars
     if (!currentDiscussionId) {
@@ -501,6 +529,7 @@ export default function DashboardPage() {
           .insert({
             user_id: userId,
             title: title,
+            updated_at: nowIso,
           })
           .select()
           .single();
@@ -516,8 +545,9 @@ export default function DashboardPage() {
           const newTopic: DebateTopic = {
             id: newDisc.id,
             title: newDisc.title,
-            snippet: content.slice(0, 70) + '...',
-            createdAt: 'Just now',
+            snippet: content.slice(0, 70) + (content.length > 70 ? '...' : ''),
+            createdAt: nowTimeStr,
+            updatedAt: nowIso,
             userId: userId,
             participants: ['gemini', 'claude', 'chatgpt'],
             messages: [],
@@ -527,6 +557,9 @@ export default function DashboardPage() {
       } catch (createErr) {
         console.error('[Supabase Exception] Error initializing discussion:', createErr);
       }
+    } else {
+      // Existing discussion: immediately re-sort to top and update snippet & timestamp
+      touchDiscussion(currentDiscussionId, content.slice(0, 70) + (content.length > 70 ? '...' : ''));
     }
 
     // 2. Insert user message locally and into Supabase messages table
@@ -537,7 +570,7 @@ export default function DashboardPage() {
       role: 'user',
       authorName: 'You',
       content: content,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: nowTimeStr,
     };
 
     // Optimistic UI update: instantly append user message
@@ -589,6 +622,9 @@ export default function DashboardPage() {
       initialStatuses[id] = 'waiting';
     });
     setSeatStatuses(initialStatuses);
+
+    // Re-sort discussion to top immediately
+    touchDiscussion(activeDebateId);
 
     // 1. Insert visible "Continue" user bubble into the conversation (DISPLAY-ONLY)
     const tempUserMsgId = `msg-user-${Date.now()}`;

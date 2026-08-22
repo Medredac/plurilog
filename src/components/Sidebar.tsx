@@ -126,13 +126,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {/* Action Bar: "New Discussion" Button (Light gray, single icon, no shortcut badge) */}
+            {/* Action Bar: "New Discussion" Button (Lighter shade of gray) */}
             <div className="p-3">
               <button
                 onClick={onNewDebate}
-                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-100 hover:bg-zinc-200/70 text-zinc-900 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-900 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-zinc-700" />
+                <Plus className="w-4 h-4 text-zinc-600" />
                 <span>New Discussion</span>
               </button>
             </div>
@@ -169,39 +169,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div
                       key={debate.id}
                       onClick={() => onSelectDebate(debate.id)}
-                      className={`group/item relative w-full text-left p-3 rounded-xl transition-all cursor-pointer flex flex-col gap-1 ${
+                      className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
                         isActive
                           ? 'bg-amber-50/80 shadow-2xs text-zinc-900'
-                          : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
+                          : 'bg-white hover:bg-zinc-50/80 text-zinc-700'
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-1 w-full">
-                        <span className="font-medium text-sm text-zinc-900 truncate flex-1 pr-2">
-                          {debate.title}
+                      <span className={`text-sm truncate flex-1 pr-2 ${
+                        isActive ? 'font-semibold text-zinc-900' : 'font-normal text-zinc-700 group-hover/item:text-zinc-900'
+                      }`}>
+                        {debate.title}
+                      </span>
+                      <div className="flex items-center shrink-0">
+                        <span className="text-[10px] text-zinc-400 font-mono font-light group-hover/item:hidden">
+                          {debate.createdAt}
                         </span>
-                        <div className="flex items-center shrink-0">
-                          <span className="text-xs text-zinc-400 font-mono font-light group-hover/item:hidden">
-                            {debate.createdAt}
-                          </span>
-                          {onDeleteDebate && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteDebate(debate.id, e);
-                              }}
-                              className="hidden group-hover/item:flex items-center justify-center p-1 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                              title="Delete discussion"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                        {onDeleteDebate && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteDebate(debate.id, e);
+                            }}
+                            className="hidden group-hover/item:flex items-center justify-center p-1 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete discussion"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
-
-                      <p className="text-xs font-light text-zinc-400 line-clamp-1">
-                        {debate.snippet || ''}
-                      </p>
                     </div>
                   );
                 })
