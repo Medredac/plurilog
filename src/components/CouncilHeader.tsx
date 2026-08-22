@@ -107,9 +107,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   onClick={() => onToggleModel(id)}
                   className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
                     isSpeaking
-                      ? 'bg-amber-50 text-zinc-900 border-amber-300 shadow-2xs'
+                      ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
                       : isSelected
-                      ? 'bg-zinc-50 text-zinc-800 border-zinc-200/80 hover:bg-zinc-100/70'
+                      ? 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100/70 hover:text-zinc-800 font-medium'
                       : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50 line-through hover:opacity-75 font-normal'
                   }`}
                 >
@@ -141,7 +141,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
 
           <button
             title="Share discussion"
-            className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 border border-zinc-200/60 transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50 border border-zinc-200/60 transition-colors cursor-pointer"
           >
             <Share2 className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Share</span>

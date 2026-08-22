@@ -14,6 +14,16 @@
   --accent-cream-light: #FFFBEB;
 }
 
+::selection {
+  background-color: #E4E4E7;
+  color: #09090B;
+}
+
+::-moz-selection {
+  background-color: #E4E4E7;
+  color: #09090B;
+}
+
 body {
   background-color: var(--background);
   color: var(--foreground);

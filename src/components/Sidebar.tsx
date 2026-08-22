@@ -89,7 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="fixed top-2.5 left-3 z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
           <button
             onClick={onToggle}
-            className="p-2 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer"
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer"
             title="Open sidebar"
             aria-label="Open sidebar"
           >
@@ -105,20 +105,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       >
         {isOpen && (
           <div className="flex flex-col h-full w-72">
-            {/* Top Brand Header: Logo, Bold Title (700), and Sidebar Toggle */}
+            {/* Top Brand Header: Logo, Bold Title (700) in dark grey (zinc-800), and Sidebar Toggle */}
             <div className="h-14 px-4.5 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-6 h-6 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
                   <Layers className="w-3.5 h-3.5" />
                 </div>
-                <span className="font-bold text-base tracking-tight text-zinc-900">
+                <span className="font-bold text-base tracking-tight text-zinc-800">
                   Plurilog
                 </span>
               </div>
 
               <button
                 onClick={onToggle}
-                className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 transition-colors cursor-pointer"
                 title="Collapse sidebar"
                 aria-label="Collapse sidebar"
               >
@@ -126,13 +126,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {/* Action Bar: "New Discussion" Button (Lighter shade of gray) */}
+            {/* Action Bar: "New Discussion" Button in graduated grey */}
             <div className="p-3">
               <button
                 onClick={onNewDebate}
-                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-900 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-700 hover:text-zinc-900 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-zinc-600" />
+                <Plus className="w-4 h-4 text-zinc-500" />
                 <span>New Discussion</span>
               </button>
             </div>
@@ -146,16 +146,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   placeholder="Search discussions..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm text-zinc-900 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
+                  className="w-full pl-9 pr-3 py-2 text-sm text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
                 />
               </div>
             </div>
 
             {/* Discussions List */}
             <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
-              <div className="px-2.5 py-1 text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+              {/* Normal/regular font weight, mid-grey label */}
+              <div className="px-2.5 py-1 text-xs font-normal text-zinc-400 flex items-center justify-between">
                 <span>Discussions</span>
-                <span className="font-mono text-xs font-normal">{filteredDebates.length}</span>
+                <span className="font-mono text-xs font-normal text-zinc-400">{filteredDebates.length}</span>
               </div>
 
               {filteredDebates.length === 0 ? (
@@ -171,12 +172,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => onSelectDebate(debate.id)}
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
                         isActive
-                          ? 'bg-amber-50/80 shadow-2xs text-zinc-900'
-                          : 'bg-white hover:bg-zinc-50/80 text-zinc-700'
+                          ? 'bg-amber-50/80 shadow-2xs text-zinc-800'
+                          : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
                       <span className={`text-sm truncate flex-1 pr-2 ${
-                        isActive ? 'font-semibold text-zinc-900' : 'font-normal text-zinc-700 group-hover/item:text-zinc-900'
+                        isActive ? 'font-semibold text-zinc-800' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
                       }`}>
                         {debate.title}
                       </span>
@@ -219,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {initial}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-zinc-900 truncate">
+                        <p className="text-sm font-medium text-zinc-700 truncate">
                           {displayName}
                         </p>
                         <p className="text-xs font-light text-zinc-400 truncate" title={userEmail}>
@@ -230,10 +231,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {/* Menu Items */}
-                  <div className="space-y-0.5 text-sm text-zinc-700">
+                  <div className="space-y-0.5 text-sm text-zinc-600">
                     <button
                       onClick={() => setIsProfileMenuOpen(false)}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
                       <span className="font-normal">Account Settings</span>
@@ -241,7 +242,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                     <button
                       onClick={() => setIsProfileMenuOpen(false)}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
                     >
                       <div className="flex items-center gap-2.5">
                         <Sparkles className="w-4 h-4 text-amber-600" />
@@ -254,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                     <button
                       onClick={() => setIsProfileMenuOpen(false)}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-700 hover:text-zinc-900 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
                     >
                       <div className="flex items-center gap-2.5">
                         <Sun className="w-4 h-4 text-zinc-400" />
@@ -300,7 +301,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="text-left min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span 
-                        className="text-sm font-medium text-zinc-900 truncate max-w-[130px]" 
+                        className="text-sm font-medium text-zinc-700 truncate max-w-[130px]" 
                         title={userEmail || displayName}
                       >
                         {userEmail || displayName}
@@ -314,7 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 <ChevronUp 
                   className={`w-4 h-4 text-zinc-400 transition-transform duration-150 shrink-0 ${
-                    isProfileMenuOpen ? 'rotate-180 text-zinc-700' : ''
+                    isProfileMenuOpen ? 'rotate-180 text-zinc-600' : ''
                   }`} 
                 />
               </button>
