@@ -3,6 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
   Copy, 
   Check, 
@@ -14,14 +16,14 @@ import {
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 
-// Custom Fenced Code Block Component: Distinct light beige bubble, text-amber-900 brand font, top-right copy icon
+// Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
   children,
   className,
 }) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
-  const language = match ? match[1] : '';
+  const language = match ? match[1] : 'text';
   const codeContent = String(children || '').replace(/\n$/, '');
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -32,22 +34,22 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
   };
 
   return (
-    <div className="relative my-3 rounded-xl bg-amber-50/70 border border-amber-200/80 overflow-hidden shadow-2xs group text-left">
-      {/* Top Header Bar with Language tag and Copy Button */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-amber-100/50 border-b border-amber-200/60 text-amber-900">
-        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-amber-900/80">
-          {language || 'code'}
+    <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden shadow-2xs group text-left">
+      {/* Top Header Bar with Language tag and Copy Button (Neutral light grey styling) */}
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-zinc-500">
+        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-zinc-500">
+          {language !== 'text' ? language : 'code'}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/70 transition-colors cursor-pointer"
           title="Copy code"
         >
           {copied ? (
             <>
-              <Check className="w-3.5 h-3.5 text-emerald-700" />
-              <span className="text-[10px] font-mono text-emerald-700 font-medium">Copied</span>
+              <Check className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="text-[10px] font-mono text-emerald-600 font-medium">Copied</span>
             </>
           ) : (
             <>
@@ -58,11 +60,27 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
         </button>
       </div>
 
-      {/* Code Content */}
-      <div className="p-3.5 overflow-x-auto">
-        <pre className="font-mono text-xs sm:text-[13px] leading-relaxed text-amber-900 whitespace-pre">
-          <code>{codeContent}</code>
-        </pre>
+      {/* Syntax Highlighted Code Area (Cohesive Soft Light Grey Background #f8f8f8) */}
+      <div className="overflow-x-auto bg-[#f8f8f8]">
+        <SyntaxHighlighter
+          language={language}
+          style={oneLight}
+          customStyle={{
+            margin: 0,
+            padding: '0.875rem 1rem',
+            backgroundColor: '#f8f8f8',
+            fontSize: '0.8125rem',
+            lineHeight: '1.6',
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          }}
+          codeTagProps={{
+            style: {
+              fontFamily: 'inherit',
+            },
+          }}
+        >
+          {codeContent}
+        </SyntaxHighlighter>
       </div>
     </div>
   );
