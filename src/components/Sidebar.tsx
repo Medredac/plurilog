@@ -11,9 +11,11 @@ import {
   ChevronUp,
   Sparkles,
   Sun,
-  Trash2
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
+import { createClient } from '../utils/supabase/client';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -39,15 +41,83 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [isSearchingDb, setIsSearchingDb] = useState(false);
+  const [dbMatchingIds, setDbMatchingIds] = useState<Set<string>>(new Set());
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const supabase = useRef(createClient()).current;
 
+  // 1. Debounce search query input by 400ms
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQuery(searchQuery.trim());
+    }, 400);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchQuery]);
+
+  // 2. Query messages table for content matches across user discussions
+  useEffect(() => {
+    if (!debouncedQuery) {
+      setDbMatchingIds(new Set());
+      setIsSearchingDb(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsSearchingDb(true);
+
+    const searchMessages = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('discussion_id')
+          .ilike('content', `%${debouncedQuery}%`);
+
+        if (error) {
+          console.error('[Search Error] Error querying messages content:', error);
+          if (!isCancelled) {
+            setDbMatchingIds(new Set());
+            setIsSearchingDb(false);
+          }
+          return;
+        }
+
+        if (!isCancelled) {
+          const ids = new Set<string>(
+            (data || []).map((m: any) => m.discussion_id).filter(Boolean)
+          );
+          setDbMatchingIds(ids);
+          setIsSearchingDb(false);
+        }
+      } catch (err) {
+        console.error('[Search Exception] Error querying messages for search:', err);
+        if (!isCancelled) {
+          setDbMatchingIds(new Set());
+          setIsSearchingDb(false);
+        }
+      }
+    };
+
+    searchMessages();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [debouncedQuery, supabase]);
+
+  // 3. Combined Filter: Title match OR Message Content match from DB
+  const queryToMatch = debouncedQuery.toLowerCase();
   const filteredDebates = debates.filter((debate) => {
-    return (
-      (debate.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (debate.snippet || '').toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    if (!queryToMatch) return true;
+    const matchesTitle = (debate.title || '').toLowerCase().includes(queryToMatch);
+    const matchesContent = dbMatchingIds.has(debate.id);
+    return matchesTitle || matchesContent;
   });
 
   // Close drop-up menu when clicking outside
@@ -137,10 +207,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            {/* Search Input: "Search discussions..." */}
+            {/* Search Input: "Search discussions..." with Debounce & DB Search Loading Indicator */}
             <div className="px-3 pb-2">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                {isSearchingDb ? (
+                  <Loader2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                )}
                 <input
                   type="text"
                   placeholder="Search discussions..."
@@ -161,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {filteredDebates.length === 0 ? (
                 <div className="p-4 text-center text-sm font-light text-zinc-400">
-                  {searchQuery.trim() ? 'No discussions found' : 'No discussions yet'}
+                  {debouncedQuery.trim() ? 'No discussions found' : 'No discussions yet'}
                 </div>
               ) : (
                 filteredDebates.map((debate) => {
