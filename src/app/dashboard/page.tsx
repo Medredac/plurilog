@@ -23,6 +23,7 @@ const CONTINUE_INSTRUCTION =
 export default function DashboardPage() {
   const router = useRouter();
   const hasInitializedRef = useRef(false);
+  const isNewlyCreatedDiscussionRef = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
@@ -483,6 +484,7 @@ export default function DashboardPage() {
         if (discErr) {
           console.error('[Supabase Error] Error creating discussion in DB:', discErr, { user_id: userId, title });
         } else if (newDisc) {
+          isNewlyCreatedDiscussionRef.current = true;
           currentDiscussionId = newDisc.id;
           setActiveDebateId(newDisc.id);
 
@@ -563,6 +565,30 @@ export default function DashboardPage() {
     });
     setSeatStatuses(initialStatuses);
 
+    // 1. Insert visible "Continue" user bubble into the conversation (DISPLAY-ONLY)
+    const tempUserMsgId = `msg-user-${Date.now()}`;
+    const userMsg: ChatMessage = {
+      id: tempUserMsgId,
+      discussionId: activeDebateId,
+      role: 'user',
+      authorName: 'You',
+      content: 'Continue',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+
+    try {
+      await supabase.from('messages').insert({
+        discussion_id: activeDebateId,
+        sender: 'user',
+        content: 'Continue',
+      });
+    } catch (err) {
+      console.error('[Supabase Exception] Error persisting continue message:', err);
+    }
+
+    // 2. CRITICAL DISTINCTION: Send separate internal instruction to AI models
     await runRelay(CONTINUE_INSTRUCTION, activeDebateId, activeSeatOrder);
   };
 
@@ -613,7 +639,7 @@ export default function DashboardPage() {
         />
 
         {/* Full-width scrollable viewport (Scrollbar at true right edge of screen) */}
-        <div className="flex-1 overflow-y-auto w-full relative">
+        <div className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8">
           {isLoadingMessages ? (
             <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px]">
               <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
@@ -666,6 +692,8 @@ export default function DashboardPage() {
               errorMessage={errorMessage}
               canContinue={canContinue}
               onContinue={handleContinue}
+              activeDebateId={activeDebateId}
+              isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
             />
           )}
         </div>

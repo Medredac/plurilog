@@ -6,7 +6,9 @@ import {
   Copy, 
   Check, 
   AlertCircle,
-  CornerDownRight
+  CornerDownRight,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
@@ -20,6 +22,8 @@ interface ChatFeedProps {
   errorMessage?: string | null;
   canContinue?: boolean;
   onContinue?: () => void;
+  activeDebateId?: string | null;
+  isNewlyCreatedRef?: React.MutableRefObject<boolean>;
 }
 
 export const ChatFeed: React.FC<ChatFeedProps> = ({
@@ -35,18 +39,54 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   errorMessage = null,
   canContinue = false,
   onContinue,
+  activeDebateId = null,
+  isNewlyCreatedRef,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const lastActiveDebateIdRef = useRef<string | null>(null);
+  const lastUserMsgIdRef = useRef<string | null>(null);
+
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<Record<string, number>>({});
+  const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
 
-  // Auto-scroll on new messages, streaming tokens, or discussion load
+  // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: isDebating ? 'smooth' : 'auto',
-      block: 'end',
-    });
-  }, [messages, isDebating]);
+    if (activeDebateId && activeDebateId !== lastActiveDebateIdRef.current) {
+      lastActiveDebateIdRef.current = activeDebateId;
+
+      // If discussion was just auto-created by sending a prompt, skip jump-to-bottom
+      if (isNewlyCreatedRef?.current) {
+        isNewlyCreatedRef.current = false;
+        return;
+      }
+
+      setTimeout(() => {
+        bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      }, 50);
+    }
+  }, [activeDebateId, isNewlyCreatedRef]);
+
+  // 2. On sending a new message or inserting Continue bubble: scroll smoothly so message sits near top of viewport, then hold still
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'user' && lastMsg.id !== lastUserMsgIdRef.current) {
+      lastUserMsgIdRef.current = lastMsg.id;
+      requestAnimationFrame(() => {
+        const el = document.getElementById(lastMsg.id);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    }
+  }, [messages]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedMsgIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -62,7 +102,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="px-4 sm:px-8 py-6 max-w-5xl mx-auto w-full flex flex-col">
+    <div className="px-4 sm:px-8 pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col">
       {/* Error Notice */}
       {errorMessage && (
         <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
@@ -79,19 +119,52 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         // User Message Bubble (Soft minimalist warm stone-100 tone)
         if (message.role === 'user') {
+          const isLongContent = message.content.length > 240 || message.content.split('\n').length > 4;
+          const isExpanded = !!expandedMsgIds[message.id];
+
           return (
             <div 
+              id={message.id}
               key={message.id} 
-              className={`flex justify-end ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
+              className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
             >
-              <div className="max-w-3xl bg-stone-100 border border-stone-200/90 rounded-xl p-4.5 shadow-sm">
+              <div className="max-w-3xl bg-stone-100 border border-stone-200/90 rounded-xl p-4.5 shadow-sm relative">
                 <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
                   <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
-                <p className="text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line">
-                  {message.content}
-                </p>
+
+                {/* Message Body with truncation if long */}
+                <div className="relative">
+                  <p
+                    className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line ${
+                      isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
+                    }`}
+                  >
+                    {message.content}
+                  </p>
+
+                  {/* Show More / Show Less Toggle */}
+                  {isLongContent && (
+                    <button
+                      type="button"
+                      onClick={() => toggleExpand(message.id)}
+                      className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp className="w-3.5 h-3.5" />
+                          <span>Show less</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-3.5 h-3.5" />
+                          <span>Show more</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -128,8 +201,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         return (
           <div
+            id={message.id}
             key={message.id}
-            className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 ${spacingClass}`}
+            className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 ${spacingClass}`}
           >
             {/* Header: Model name & timestamp only */}
             <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
@@ -203,7 +277,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         </div>
       )}
 
-      {/* Invisible anchor for auto-scroll */}
+      {/* Dynamic bottom spacer: untransitioned/instant height change so scrollHeight is immediately accurate during deliberation */}
+      <div className={`w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
+
+      {/* Invisible anchor for auto-scroll on discussion load */}
       <div ref={bottomRef} className="h-1 w-full" />
     </div>
   );
