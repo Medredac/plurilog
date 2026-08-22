@@ -57,10 +57,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="px-4 sm:px-8 py-6 space-y-5 max-w-5xl mx-auto w-full">
+    <div className="px-4 sm:px-8 py-6 max-w-5xl mx-auto w-full flex flex-col">
       {/* Error Notice */}
       {errorMessage && (
-        <div className="p-3.5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
+        <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
           <div className="space-y-1">
             <span className="font-semibold block">Notice</span>
@@ -69,11 +69,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         </div>
       )}
 
-      {messages.map((message) => {
+      {messages.map((message, idx) => {
+        const isPrevUser = idx > 0 && messages[idx - 1]?.role === 'user';
+
         // User Message Bubble (Soft minimalist warm stone-100 tone)
         if (message.role === 'user') {
           return (
-            <div key={message.id} className="flex justify-end pt-1">
+            <div 
+              key={message.id} 
+              className={`flex justify-end ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
+            >
               <div className="max-w-3xl bg-stone-100 border border-stone-200/90 rounded-xl p-4.5 shadow-sm">
                 <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
                   <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
@@ -107,10 +112,19 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         const currentLikes = likedIds[message.id] ?? (message.likes || 0);
 
+        // Gap calculation:
+        // - Larger noticeable gap following a user message (User -> Model)
+        // - Smaller cohesive gap following another model response (Model -> Model)
+        const spacingClass = idx === 0 
+          ? 'mt-0' 
+          : isPrevUser 
+            ? 'mt-7 sm:mt-8' 
+            : 'mt-3.5 sm:mt-4';
+
         return (
           <div
             key={message.id}
-            className="rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200"
+            className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 ${spacingClass}`}
           >
             {/* Header: Model name & timestamp only */}
             <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
