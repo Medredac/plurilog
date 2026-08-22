@@ -652,8 +652,6 @@ export default function DashboardPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid">
         {/* Simplified Header */}
         <CouncilHeader
-          isSidebarOpen={isSidebarOpen}
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           seatOrder={seatOrder}
           onReorderSeats={setSeatOrder}
           activeModels={activeModels}

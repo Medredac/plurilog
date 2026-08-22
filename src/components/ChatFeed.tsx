@@ -128,7 +128,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               key={message.id} 
               className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
             >
-              <div className="max-w-3xl bg-stone-100 border border-stone-200/90 rounded-xl p-4.5 shadow-sm relative">
+              <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
                 <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
                   <span className="font-semibold text-stone-900">{message.authorName || 'You'}</span>
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
