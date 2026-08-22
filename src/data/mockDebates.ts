@@ -3,7 +3,7 @@ import { CouncilMember, DebateTopic } from '../types/chat';
 export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
   'gemini': {
     id: 'gemini',
-    apiModelId: 'google/gemini-3.1-flash-lite',
+    apiModelId: 'google/gemini-3.7-flash',
     name: 'Gemini',
     shortName: 'Gemini',
     statusDotColor: 'bg-blue-500',
@@ -11,7 +11,7 @@ export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
   },
   'claude': {
     id: 'claude',
-    apiModelId: '~anthropic/claude-haiku-latest',
+    apiModelId: '~anthropic/claude-sonnet-latest',
     name: 'Claude',
     shortName: 'Claude',
     statusDotColor: 'bg-amber-500',

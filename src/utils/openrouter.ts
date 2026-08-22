@@ -8,13 +8,13 @@ export type ProviderPrefix = 'google/' | 'anthropic/' | 'openai/';
 
 export const PROVIDER_MODELS: Record<ProviderPrefix, string[]> = {
   'google/': [
-    'google/gemini-3.1-flash-lite',
     'google/gemini-3.7-flash',
+    'google/gemini-3.1-flash-lite',
     'google/gemini-3.1-pro-preview',
   ],
   'anthropic/': [
-    '~anthropic/claude-haiku-latest',
     '~anthropic/claude-sonnet-latest',
+    '~anthropic/claude-haiku-latest',
     '~anthropic/claude-opus-latest',
   ],
   'openai/': [
