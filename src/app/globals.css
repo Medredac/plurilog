@@ -76,3 +76,35 @@ body {
   border: 1px solid #FEF08A;
   color: #713F12;
 }
+
+/* Subtle Entrance Animations */
+@keyframes dropFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes simpleFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-drop-fade {
+  animation: dropFadeIn 250ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+}
+
+.animate-simple-fade {
+  animation: simpleFadeIn 250ms ease-out forwards;
+  opacity: 0;
+}
+
