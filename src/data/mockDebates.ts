@@ -6,7 +6,7 @@ export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
     apiModelId: 'google/gemini-3.7-flash',
     name: 'Gemini',
     shortName: 'Gemini',
-    statusDotColor: 'bg-blue-500',
+    statusDotColor: 'bg-[#4880E6]',
     status: 'Ready',
   },
   'claude': {
@@ -14,7 +14,7 @@ export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
     apiModelId: '~anthropic/claude-sonnet-latest',
     name: 'Claude',
     shortName: 'Claude',
-    statusDotColor: 'bg-amber-500',
+    statusDotColor: 'bg-[#E0644B]',
     status: 'Ready',
   },
   'chatgpt': {
@@ -22,7 +22,7 @@ export const COUNCIL_MEMBERS: Record<string, CouncilMember> = {
     apiModelId: 'openai/gpt-5.6-luna',
     name: 'ChatGPT',
     shortName: 'ChatGPT',
-    statusDotColor: 'bg-emerald-500',
+    statusDotColor: 'bg-[#1E1E1E]',
     status: 'Ready',
   },
 };

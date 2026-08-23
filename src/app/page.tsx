@@ -168,15 +168,15 @@ export default function LandingPage() {
             {/* Model Pills Preview */}
             <div className="grid grid-cols-3 gap-2 mb-4">
               <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="w-2 h-2 rounded-full bg-[#4880E6]" />
                 <span className="font-semibold text-zinc-900">Gemini</span>
               </div>
               <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span className="w-2 h-2 rounded-full bg-[#E0644B]" />
                 <span className="font-semibold text-zinc-900">Claude</span>
               </div>
               <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="w-2 h-2 rounded-full bg-[#1E1E1E]" />
                 <span className="font-semibold text-zinc-900">ChatGPT</span>
               </div>
             </div>
