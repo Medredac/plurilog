@@ -7,12 +7,16 @@ interface ChatInputProps {
   onSendMessage: (content: string, imageFile?: File) => void;
   isLoading?: boolean;
   isCentered?: boolean;
+  autoFocus?: boolean;
+  focusTrigger?: any;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
   isCentered = false,
+  autoFocus = false,
+  focusTrigger,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -20,6 +24,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Automatically focus textarea on mount, empty state, or when switching discussions
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [isCentered, autoFocus, focusTrigger]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

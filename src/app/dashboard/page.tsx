@@ -758,6 +758,7 @@ export default function DashboardPage() {
                   onSendMessage={handleSendMessage}
                   isLoading={isDebating}
                   isCentered
+                  autoFocus
                 />
               </div>
             </div>
@@ -782,6 +783,7 @@ export default function DashboardPage() {
           <ChatInput
             onSendMessage={handleSendMessage}
             isLoading={isDebating}
+            focusTrigger={activeDebateId}
           />
         )}
       </main>
