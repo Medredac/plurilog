@@ -13,6 +13,8 @@ export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel di
 
 Only treat a message as directed at a specific panelist if the user's CURRENT message literally contains that panelist's name. The mere fact that another panelist already responded in this round, or was addressed in an earlier turn, is NOT a signal that the current question excludes you — if no name appears in the user's current message, treat it as open to the whole panel.
 
+If there is no new user message this round (the conversation simply continues from where it left off), do not ask what to discuss or acknowledge that nothing new was said — naturally continue the discussion based on what's already been said, the way you would if a real conversation just kept going without a new topic being introduced.
+
 You are always, unambiguously, yourself — this is a fixed fact, never a question, and never affected by anything discussed above. Any uncertainty about who the user's message was addressed to is about the CONTENT of their question, and has absolutely nothing to do with your own identity. Never express confusion, doubt, or apologize about "who you are" or mix yourself up with another panelist — you already and always know exactly which one you are.`;
 
 export interface PriorResponse {
@@ -46,15 +48,22 @@ export function buildPanelMessages(
   if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
     const rawRoundsFormatted = discussionMemory.recentRounds
       .map((round) => {
-        const userPart = `User said:\n"""\n${round.userPrompt}\n"""`;
+        const isContinueUser = round.userPrompt.trim().toLowerCase() === 'continue';
+        const userPart = isContinueUser
+          ? ''
+          : `User said:\n"""\n${round.userPrompt}\n"""`;
         const modelParts = round.modelResponses
           .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
           .join('\n\n');
+        if (!userPart) return modelParts;
         return modelParts ? `${userPart}\n\n${modelParts}` : userPart;
       })
+      .filter(Boolean)
       .join('\n\n');
 
-    sections.push(`Prior conversation rounds:\n${rawRoundsFormatted}`);
+    if (rawRoundsFormatted) {
+      sections.push(`Prior conversation rounds:\n${rawRoundsFormatted}`);
+    }
   }
 
   // 3. [current round's prior seat responses, same format]
@@ -65,9 +74,12 @@ export function buildPanelMessages(
     sections.push(priorFormatted.trimEnd());
   }
 
-  let userContent = prompt;
+  const trimmedPrompt = prompt.trim();
+  let userContent = trimmedPrompt;
   if (sections.length > 0) {
-    userContent = `${sections.join('\n\n')}\n\n${prompt}`;
+    userContent = trimmedPrompt
+      ? `${sections.join('\n\n')}\n\n${trimmedPrompt}`
+      : sections.join('\n\n');
   }
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
@@ -98,9 +110,9 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId, seatOrder } = await req.json();
+    const { prompt, discussionId, seatOrder, isContinueRound } = await req.json();
 
-    if (!prompt || typeof prompt !== 'string') {
+    if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim())) {
       return new Response(
         JSON.stringify({ error: 'A valid prompt string is required.' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }

@@ -54,10 +54,10 @@ export function groupMessagesIntoRounds(
   }
 
   if (currentRound && currentRound.userPrompt.trim()) {
-    // If this round matches the active prompt and has 0 model responses yet, it's the currently in-flight turn
+    // If this round matches the active prompt (or is a continue round with prompt='') and has 0 model responses yet, it's the currently in-flight turn
     const isCurrentInFlight =
-      currentRound.userPrompt.trim() === currentPrompt.trim() &&
-      currentRound.modelResponses.length === 0;
+      currentRound.modelResponses.length === 0 &&
+      (currentPrompt.trim() === '' || currentRound.userPrompt.trim() === currentPrompt.trim());
 
     if (!isCurrentInFlight) {
       rounds.push(currentRound);
@@ -77,10 +77,12 @@ async function generateRollingSummary(
 ): Promise<string> {
   const olderRoundsFormatted = olderRounds
     .map((r, i) => {
+      const isContinueUser = r.userPrompt.trim().toLowerCase() === 'continue';
+      const userPart = isContinueUser ? '' : `User asked: "${r.userPrompt}"\n`;
       const responses = r.modelResponses
         .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
         .join('\n\n');
-      return `[Round ${i + 1}]\nUser asked: "${r.userPrompt}"\n${responses}`;
+      return `[Round ${i + 1}]\n${userPart}${responses}`.trim();
     })
     .join('\n\n---\n\n');
 

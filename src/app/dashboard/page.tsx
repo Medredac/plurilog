@@ -201,12 +201,7 @@ export default function DashboardPage() {
 
         if (!hasInitializedRef.current) {
           hasInitializedRef.current = true;
-          const loadedDebates = await fetchDiscussions(session.user.id);
-          if (loadedDebates.length > 0) {
-            activeDebateIdRef.current = loadedDebates[0].id;
-            setActiveDebateId(loadedDebates[0].id);
-            await fetchDiscussionMessages(loadedDebates[0].id);
-          }
+          await fetchDiscussions(session.user.id);
         }
       } catch (err) {
         console.error('[Supabase Error] Auth verification error:', err);
@@ -316,7 +311,8 @@ export default function DashboardPage() {
   const runRelay = async (
     promptToSend: string,
     discussionId: string,
-    activeSeatOrder: ModelId[]
+    activeSeatOrder: ModelId[],
+    isContinueRound?: boolean
   ) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -332,6 +328,7 @@ export default function DashboardPage() {
           prompt: promptToSend,
           discussionId: discussionId,
           seatOrder: activeSeatOrder,
+          isContinueRound: isContinueRound || false,
         }),
       });
 
@@ -734,8 +731,8 @@ export default function DashboardPage() {
       console.error('[Supabase Exception] Error persisting continue message:', err);
     }
 
-    // 2. CRITICAL DISTINCTION: Send separate internal instruction to AI models
-    await runRelay(CONTINUE_INSTRUCTION, activeDebateId, activeSeatOrder);
+    // 2. Trigger relay with empty string prompt and isContinueRound flag
+    await runRelay('', activeDebateId, activeSeatOrder, true);
   };
 
   if (isLoadingAuth) {
