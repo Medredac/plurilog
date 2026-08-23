@@ -31,6 +31,8 @@ export default function DashboardPage() {
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const activeDebateIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const currentFetchIdRef = useRef<string | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([
@@ -128,21 +130,41 @@ export default function DashboardPage() {
       });
   }, [supabase]);
 
-  // Fetch messages for a specific discussion and populate canvas
-  const fetchDiscussionMessages = useCallback(async (discussionId: string) => {
+  // Fetch messages for a specific discussion and populate canvas atomically
+  const fetchDiscussionMessages = useCallback(async (discussionId: string, isInitialMount: boolean = false) => {
     if (!discussionId) {
       setMessages([]);
       setCanContinue(false);
       return;
     }
 
-    setIsLoadingMessages(true);
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+
+    currentFetchIdRef.current = discussionId;
+
+    // For initial mount without existing content, or slow fetch (>400ms), show spinner
+    if (isInitialMount) {
+      setIsLoadingMessages(true);
+    } else {
+      fetchTimeoutRef.current = setTimeout(() => {
+        setIsLoadingMessages(true);
+      }, 400);
+    }
+
     try {
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('discussion_id', discussionId)
         .order('created_at', { ascending: true });
+
+      // If another discussion was selected in the meantime, ignore stale result
+      if (currentFetchIdRef.current !== discussionId) {
+        return;
+      }
 
       if (error) {
         console.error('[Supabase Error] Error fetching messages for discussion:', error, { discussion_id: discussionId });
@@ -178,14 +200,30 @@ export default function DashboardPage() {
       });
 
       console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
+
+      // Atomic swap: update discussion ID, messages, and state together once data arrives
+      activeDebateIdRef.current = discussionId;
+      setActiveDebateId(discussionId);
       setMessages(formatted);
       setCanContinue(formatted.length > 0);
+      setErrorMessage(null);
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setIsDebating(false);
+      setActiveSpeaker(null);
     } catch (err) {
-      console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
-      setMessages([]);
-      setCanContinue(false);
+      if (currentFetchIdRef.current === discussionId) {
+        console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
+        setMessages([]);
+        setCanContinue(false);
+      }
     } finally {
-      setIsLoadingMessages(false);
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = null;
+      }
+      if (currentFetchIdRef.current === discussionId) {
+        setIsLoadingMessages(false);
+      }
     }
   }, [supabase]);
 
@@ -207,7 +245,7 @@ export default function DashboardPage() {
           if (urlDiscussionId) {
             activeDebateIdRef.current = urlDiscussionId;
             setActiveDebateId(urlDiscussionId);
-            await fetchDiscussionMessages(urlDiscussionId);
+            await fetchDiscussionMessages(urlDiscussionId, true);
           }
         }
       } catch (err) {
@@ -232,7 +270,41 @@ export default function DashboardPage() {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages]);
+  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages, urlDiscussionId]);
+
+  // Handle browser back/forward buttons with pushState routing
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      const match = path.match(/\/dashboard\/(.+)/);
+      if (match && match[1]) {
+        const discId = match[1];
+        fetchDiscussionMessages(discId, false);
+      } else if (path === '/dashboard' || path === '/dashboard/') {
+        if (fetchTimeoutRef.current) {
+          clearTimeout(fetchTimeoutRef.current);
+          fetchTimeoutRef.current = null;
+        }
+        currentFetchIdRef.current = null;
+        activeDebateIdRef.current = null;
+        setActiveDebateId(null);
+        setMessages([]);
+        setCanContinue(false);
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setIsDebating(false);
+        setActiveSpeaker(null);
+        setIsLoadingMessages(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, [fetchDiscussionMessages]);
 
   const handleSignOut = async () => {
     try {
@@ -257,6 +329,11 @@ export default function DashboardPage() {
 
   // Reset to fresh blank discussion state without triggering any fetch
   const handleNewDebate = () => {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+    currentFetchIdRef.current = null;
     activeDebateIdRef.current = null;
     setActiveDebateId(null);
     setMessages([]);
@@ -265,19 +342,15 @@ export default function DashboardPage() {
     setIsDebating(false);
     setActiveSpeaker(null);
     setCanContinue(false);
+    setIsLoadingMessages(false);
+    window.history.pushState(null, '', '/dashboard');
   };
 
-  // Select existing discussion and load its messages
+  // Select existing discussion, update URL, and load its messages atomically
   const handleSelectDebate = (id: string) => {
-    router.push(`/dashboard/${id}`);
-    activeDebateIdRef.current = id;
-    setActiveDebateId(id);
-    setErrorMessage(null);
-    setSeatStatuses(INITIAL_SEAT_STATUSES);
-    setIsDebating(false);
-    setActiveSpeaker(null);
-    setCanContinue(false);
-    fetchDiscussionMessages(id);
+    if (activeDebateId === id && !isDebating) return;
+    window.history.pushState(null, '', `/dashboard/${id}`);
+    fetchDiscussionMessages(id, false);
     if (window.innerWidth < 1024) {
       setIsSidebarOpen(false);
     }
