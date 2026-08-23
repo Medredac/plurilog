@@ -722,48 +722,43 @@ export default function DashboardPage() {
           seatStatuses={seatStatuses}
         />
 
-        {/* Full-width scrollable viewport (Scrollbar at true right edge of screen) */}
-        <div className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8">
+        {/* Full-width scrollable viewport / Centered Empty State */}
+        <div className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col">
           {isLoadingMessages ? (
-            <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px]">
+            <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
               <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
               <p className="text-xs text-zinc-400">Loading conversation...</p>
             </div>
           ) : messages.length === 0 ? (
-            /* Empty State */
-            <div className="flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto h-full min-h-[400px]">
-              <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs mb-3">
-                <Layers className="w-4 h-4" />
+            /* Claude-style Clean Centered Empty State */
+            <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16">
+              {/* Brand Logo in Black (Substantially Enlarged ~2.5x) */}
+              <div className="w-24 h-24 mb-5 flex items-center justify-center text-black">
+                <svg viewBox="0 0 1391 1493" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-20 h-20 sm:w-22 sm:h-22">
+                  <path d="M520.475 46.8916C628.765 -15.6299 762.185 -15.6309 870.476 46.8906L1215.95 246.351C1324.24 308.872 1390.95 424.417 1390.95 549.46V948.38C1390.95 1073.42 1324.24 1188.97 1215.95 1251.49L870.476 1450.95C839.295 1468.95 806.031 1481.77 771.884 1489.4V1267.46C771.884 1224.41 793.863 1184.33 830.168 1161.2L1094.26 992.901C1130.56 969.765 1152.54 929.694 1152.54 886.644V583.73C1152.54 538.272 1128.06 496.338 1088.47 473.997L756.024 286.395C716.572 264.132 668.204 264.761 629.344 288.043L319.853 473.464C281.861 496.225 258.609 537.262 258.609 581.55V1299.76L175 1251.49C66.7098 1188.97 0 1073.42 0 948.38V549.46C0.000106195 424.417 66.7099 308.873 175 246.352L520.475 46.8916Z" fill="currentColor"/>
+                  <path d="M376.402 536.352L673.55 680.923C691.417 689.616 712.339 689.37 729.998 680.259L1008.92 536.352L731.766 381.638C713.162 371.252 690.568 370.974 671.713 380.899L376.402 536.352Z" fill="currentColor"/>
+                  <path d="M766.066 812.685V1103.38L1024.9 937.777C1043 926.198 1053.95 906.195 1053.95 884.71V619.578L799.12 757.258C778.757 768.259 766.066 789.54 766.066 812.685Z" fill="currentColor"/>
+                  <path d="M393.853 1372.47L660.466 1492.74V824.821C660.466 801.177 647.227 779.524 626.183 768.747L356.758 630.766V1315.04C356.758 1339.81 371.273 1362.28 393.853 1372.47Z" fill="currentColor"/>
+                </svg>
               </div>
-              <h2 className="font-semibold text-base text-zinc-900 tracking-tight mb-1">
-                Start a Discussion
+
+              {/* Greeting Heading */}
+              <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5">
+                How can we help you today?
               </h2>
-              <p className="text-xs text-zinc-400 mb-6">
-                Pose a topic. Gemini, Claude, and ChatGPT will deliberate sequentially.
+
+              {/* Warmer Panel Subtext */}
+              <p className="text-xs sm:text-sm font-normal text-zinc-400 mb-6">
+                Gemini, Claude, and ChatGPT are here to help
               </p>
 
-              <div className="grid grid-cols-1 gap-2 w-full text-left">
-                <button
-                  onClick={() => handleSendMessage('Should humanity prioritize colonizing Mars or exploring Earth’s oceans?')}
-                  className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-                >
-                  <div>
-                    <span className="font-medium text-zinc-900 block">Mars vs Earth Ocean Exploration</span>
-                    <span className="text-[11px] text-zinc-400">Capital allocation trade-offs</span>
-                  </div>
-                  <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-                </button>
-
-                <button
-                  onClick={() => handleSendMessage('Tabs vs Spaces for modern software indentation standards.')}
-                  className="p-3 rounded-xl bg-white hover:bg-zinc-50/80 border border-zinc-200/70 shadow-sm text-xs transition-colors flex items-center justify-between group cursor-pointer"
-                >
-                  <div>
-                    <span className="font-medium text-zinc-900 block">Tabs vs Spaces</span>
-                    <span className="text-[11px] text-zinc-400">Accessibility & tooling consensus</span>
-                  </div>
-                  <ArrowRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-700 transition-colors" />
-                </button>
+              {/* Centered Input */}
+              <div className="w-full">
+                <ChatInput
+                  onSendMessage={handleSendMessage}
+                  isLoading={isDebating}
+                  isCentered
+                />
               </div>
             </div>
           ) : (
@@ -782,11 +777,13 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Sticky Input */}
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          isLoading={isDebating}
-        />
+        {/* Sticky Input (Only shown once conversation has messages) */}
+        {messages.length > 0 && (
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            isLoading={isDebating}
+          />
+        )}
       </main>
     </div>
   );

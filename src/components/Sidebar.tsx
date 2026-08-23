@@ -178,11 +178,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Top Brand Header: Logo, Bold Title (700) in dark grey (zinc-800), and Sidebar Toggle */}
             <div className="h-14 px-4.5 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
-                  <Layers className="w-3.5 h-3.5" />
-                </div>
-                <span className="font-bold text-base tracking-tight text-zinc-800">
-                  Plurilog
+                <img src="/logo.svg" alt="plurilog" className="w-5 h-5 object-contain" />
+                <span className="font-medium text-[15px] tracking-tight text-zinc-800">
+                  plurilog
                 </span>
               </div>
 

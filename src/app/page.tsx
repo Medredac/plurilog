@@ -72,9 +72,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-6 sm:px-12 py-3.5 flex items-center justify-between">
         {/* Brand */}
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
-            <Layers className="w-3.5 h-3.5" />
-          </div>
+          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
           <span className="font-semibold text-sm tracking-tight text-zinc-900">
             Plurilog
           </span>

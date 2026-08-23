@@ -1,24 +1,58 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { ArrowUp, Paperclip } from 'lucide-react';
+import { ArrowUp, Paperclip, X } from 'lucide-react';
 
 interface ChatInputProps {
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, imageFile?: File) => void;
   isLoading?: boolean;
+  isCentered?: boolean;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
+  isCentered = false,
 }) => {
   const [inputVal, setInputVal] = useState('');
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file.');
+      return;
+    }
+
+    setAttachedFile(file);
+    const objectUrl = URL.createObjectURL(file);
+    setImagePreviewUrl(objectUrl);
+
+    // Clear input so same file can be selected again if needed
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = () => {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setAttachedFile(null);
+    setImagePreviewUrl(null);
+  };
 
   const handleSend = () => {
-    if (!inputVal.trim() || isLoading) return;
-    onSendMessage(inputVal.trim());
+    if ((!inputVal.trim() && !attachedFile) || isLoading) return;
+    onSendMessage(inputVal.trim() || 'Attached an image for discussion.', attachedFile || undefined);
+    
     setInputVal('');
+    handleRemoveAttachment();
+    
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
@@ -39,16 +73,53 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const containerClasses = isCentered
+    ? 'w-full max-w-2xl mx-auto'
+    : 'sticky bottom-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-5 px-4 sm:px-8 max-w-5xl mx-auto w-full z-10';
+
   return (
-    <div className="sticky bottom-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-5 px-4 sm:px-8 max-w-5xl mx-auto w-full z-10">
+    <div className={containerClasses}>
+      {/* Hidden File Input */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Sleek, Wide Pill-Shaped Input Card */}
-      <div className="relative rounded-2xl bg-zinc-50 border border-zinc-200/80 shadow-sm p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300">
+      <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 ${
+        isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
+      }`}>
+        {/* Attached Image Thumbnail Preview */}
+        {imagePreviewUrl && (
+          <div className="relative self-start group animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs">
+              <img
+                src={imagePreviewUrl}
+                alt="Selected attachment"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveAttachment}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 transition-colors cursor-pointer"
+              title="Remove attachment"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
           {/* Attach icon */}
           <button
             type="button"
-            title="Attach file"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors hidden sm:flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach image"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
           >
             <Paperclip className="w-4 h-4" />
           </button>
@@ -68,9 +139,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <button
             type="button"
             onClick={handleSend}
-            disabled={!inputVal.trim() || isLoading}
+            disabled={(!inputVal.trim() && !attachedFile) || isLoading}
             className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer ${
-              inputVal.trim() && !isLoading
+              (inputVal.trim() || attachedFile) && !isLoading
                 ? 'bg-amber-100 hover:bg-amber-200/90 text-amber-950 border border-amber-200 shadow-2xs'
                 : 'bg-zinc-100 text-zinc-300 border border-zinc-200/60 cursor-not-allowed'
             }`}

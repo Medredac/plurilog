@@ -106,9 +106,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Logo & Header */}
         <div className="flex flex-col items-center text-center mb-5">
-          <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs mb-2.5">
-            <Layers className="w-4 h-4" />
-          </div>
+          <img src="/logo.svg" alt="Plurilog" className="w-8 h-8 rounded-lg object-contain mb-2.5" />
           <h3 className="font-semibold text-base text-zinc-900 tracking-tight">
             {mode === 'signin' ? 'Sign in to Plurilog' : 'Create your account'}
           </h3>

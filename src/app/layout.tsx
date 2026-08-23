@@ -12,6 +12,9 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: "Plurilog · The AI Council Debate",
   description: "Watch GPT-4o, Claude 3.5, and Gemini 1.5 convene, debate, and synthesize answers to your deepest & silliest questions.",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
