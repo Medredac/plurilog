@@ -254,7 +254,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div
                       key={debate.id}
                       onClick={() => onSelectDebate(debate.id)}
-                      className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-all cursor-pointer flex items-center justify-between gap-1.5 ${
+                      className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
                         isActive
                           ? 'bg-amber-50/80 shadow-2xs text-zinc-800'
                           : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
@@ -266,9 +266,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {debate.title}
                       </span>
                       
-                      <div className="flex items-center shrink-0">
+                      <div className="w-12 h-4 flex items-center justify-end shrink-0 relative">
                         {/* Timestamp (hidden when hovering or menu open) */}
-                        <span className={`text-[10px] text-zinc-400 font-mono font-light ${
+                        <span className={`text-[10px] leading-4 text-zinc-400 font-mono font-light text-right ${
                           isMenuOpen ? 'hidden' : 'group-hover/item:hidden'
                         }`}>
                           {debate.createdAt}
@@ -276,19 +276,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                         {/* Three-Dot Menu Trigger */}
                         {onDeleteDebate && (
-                          <div className="relative">
+                          <div className="relative h-4 flex items-center">
                             <button
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setMenuOpenDebateId(isMenuOpen ? null : debate.id);
                               }}
-                              className={`p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer ${
+                              className={`p-0.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer items-center justify-center h-4 w-4 ${
                                 isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'hidden group-hover/item:flex'
                               }`}
                               title="More options"
                             >
-                              <MoreVertical className="w-4 h-4" />
+                              <MoreVertical className="w-3.5 h-3.5" />
                             </button>
 
                             {/* Dropdown Menu */}
