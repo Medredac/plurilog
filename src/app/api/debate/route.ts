@@ -208,6 +208,11 @@ export async function POST(req: NextRequest) {
         try {
           // Sequential panel execution across configured seats in custom order
           for (const seat of configuredSeats) {
+            if (req.signal.aborted) {
+              safeClose();
+              return;
+            }
+
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
             let respondingModel = primaryModel;
@@ -239,9 +244,13 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 max_tokens: 800,
                 temperature: 0.7,
+                signal: req.signal,
               });
 
               for await (const chunk of stream) {
+                if (req.signal.aborted) {
+                  break;
+                }
                 if (chunk.model) {
                   respondingModel = chunk.model;
                 }
@@ -253,6 +262,11 @@ export async function POST(req: NextRequest) {
                     text: text,
                   });
                 }
+              }
+
+              if (req.signal.aborted) {
+                safeClose();
+                return;
               }
 
               console.log(
@@ -275,6 +289,10 @@ export async function POST(req: NextRequest) {
                 response: seatResponse,
               });
             } catch (err: any) {
+              if (req.signal.aborted || err?.name === 'AbortError') {
+                safeClose();
+                return;
+              }
               console.error(`Error with ${seat.name}:`, err);
               sendEvent('error', {
                 seatId: seat.seatId,

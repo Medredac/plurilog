@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { ArrowUp, Paperclip, X } from 'lucide-react';
+import { ArrowUp, Paperclip, X, Square } from 'lucide-react';
 
 interface ChatInputProps {
   onSendMessage: (content: string, imageFile?: File) => void;
   isLoading?: boolean;
+  onStop?: () => void;
   isCentered?: boolean;
   autoFocus?: boolean;
   focusTrigger?: any;
@@ -14,6 +15,7 @@ interface ChatInputProps {
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
+  onStop,
   isCentered = false,
   autoFocus = false,
   focusTrigger,
@@ -147,20 +149,31 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             className="w-full resize-none text-sm sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
           />
 
-          {/* Send Button */}
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={(!inputVal.trim() && !attachedFile) || isLoading}
-            className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer ${
-              (inputVal.trim() || attachedFile) && !isLoading
-                ? 'bg-amber-100 hover:bg-amber-200/90 text-amber-950 border border-amber-200 shadow-2xs'
-                : 'bg-zinc-100 text-zinc-300 border border-zinc-200/60 cursor-not-allowed'
-            }`}
-            title="Send"
-          >
-            <ArrowUp className="w-4 h-4" />
-          </button>
+          {/* Send / Stop Button */}
+          {isLoading ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
+              title="Stop generation"
+            >
+              <Square className="w-3 h-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!inputVal.trim() && !attachedFile}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+                inputVal.trim() || attachedFile
+                  ? 'bg-amber-50/80 hover:bg-amber-100/90 text-amber-900 border border-amber-200/80 shadow-2xs'
+                  : 'bg-zinc-100 text-zinc-300 border border-zinc-200/60 cursor-not-allowed'
+              }`}
+              title="Send"
+            >
+              <ArrowUp className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -28,6 +28,7 @@ export default function DashboardPage() {
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const activeDebateIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([
@@ -304,16 +305,29 @@ export default function DashboardPage() {
     }
   };
 
+  // Stop / Cancel currently in-progress debate relay
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
   // Executes sequential SSE relay stream for either new user message or continue round
   const runRelay = async (
     promptToSend: string,
     discussionId: string,
     activeSeatOrder: ModelId[]
   ) => {
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    let inProgressModelId: ModelId | null = null;
+    let inProgressContent = '';
+
     try {
       const response = await fetch('/api/debate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           prompt: promptToSend,
           discussionId: discussionId,
@@ -374,6 +388,9 @@ export default function DashboardPage() {
 
             if (eventType === 'seat_start') {
               const seatId = data.seatId as ModelId;
+              inProgressModelId = seatId;
+              inProgressContent = '';
+
               if (isCurrentDiscussionActive) {
                 setActiveSpeaker(seatId);
                 setSeatStatuses((prev) => ({
@@ -398,6 +415,7 @@ export default function DashboardPage() {
             } else if (eventType === 'seat_chunk') {
               const seatId = data.seatId as ModelId;
               const chunk = data.text || '';
+              inProgressContent += chunk;
 
               if (isCurrentDiscussionActive) {
                 setMessages((prev) => {
@@ -414,7 +432,9 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'seat_done') {
               const seatId = data.seatId as ModelId;
-              const completedContent = data.content || '';
+              const completedContent = data.content || inProgressContent || '';
+              inProgressModelId = null;
+              inProgressContent = '';
 
               if (isCurrentDiscussionActive) {
                 setSeatStatuses((prev) => ({
@@ -481,15 +501,51 @@ export default function DashboardPage() {
         }
       }
     } catch (err: any) {
-      console.error('Error in relay stream:', err);
-      if (activeDebateIdRef.current === discussionId) {
-        setErrorMessage(
-          err?.message ||
-            'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
-        );
-        setCanContinue(true);
+      const isAborted = controller.signal.aborted || err?.name === 'AbortError';
+
+      if (isAborted) {
+        console.log('[Relay Stopped] Discussion stream was stopped by user.');
+
+        // If stopped mid-stream, persist whatever partial response was already received
+        if (discussionId && inProgressModelId && inProgressContent.trim()) {
+          try {
+            await supabase.from('messages').insert({
+              discussion_id: discussionId,
+              sender: inProgressModelId,
+              content: inProgressContent.trim(),
+            });
+          } catch (persistPartialErr) {
+            console.error('[Supabase Error] Error persisting partial message on stop:', persistPartialErr);
+          }
+        }
+
+        if (activeDebateIdRef.current === discussionId) {
+          setSeatStatuses(INITIAL_SEAT_STATUSES);
+          setActiveSpeaker(null);
+          setCanContinue(true);
+          setMessages((prev) =>
+            prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+          );
+        }
+
+        if (discussionId) {
+          touchDiscussion(discussionId);
+        }
+      } else {
+        console.error('Error in relay stream:', err);
+        if (activeDebateIdRef.current === discussionId) {
+          setErrorMessage(
+            err?.message ||
+              'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
+          );
+          setCanContinue(true);
+          setMessages((prev) =>
+            prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+          );
+        }
       }
     } finally {
+      abortControllerRef.current = null;
       if (activeDebateIdRef.current === discussionId) {
         setIsDebating(false);
         setActiveSpeaker(null);
@@ -777,6 +833,7 @@ export default function DashboardPage() {
                 <ChatInput
                   onSendMessage={handleSendMessage}
                   isLoading={isDebating}
+                  onStop={handleStop}
                   isCentered
                   autoFocus
                 />
@@ -803,6 +860,7 @@ export default function DashboardPage() {
           <ChatInput
             onSendMessage={handleSendMessage}
             isLoading={isDebating}
+            onStop={handleStop}
             focusTrigger={activeDebateId}
           />
         )}
