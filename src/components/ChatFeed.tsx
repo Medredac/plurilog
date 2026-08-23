@@ -337,6 +337,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             ? 'mt-7 sm:mt-8' 
             : 'mt-3.5 sm:mt-4';
 
+        const isThinking = message.isStreaming && !message.content.trim();
+
         return (
           <div
             id={message.id}
@@ -357,41 +359,61 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </span>
             </div>
 
-            {/* Message Body with real ReactMarkdown rendering */}
-            <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={markdownComponents}
-              >
-                {message.content}
-              </ReactMarkdown>
-              {message.isStreaming && (
-                <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
-              )}
-            </div>
-
-            {/* Bottom Actions Bar: Copy Only */}
-            <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleCopy(message.id, message.content)}
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                  title="Copy text"
-                >
-                  {copiedId === message.id ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-600" />
-                      <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3" />
-                      <span className="text-[10px]">Copy</span>
-                    </>
-                  )}
-                </button>
+            {/* Message Body */}
+            {isThinking ? (
+              /* Thinking Indicator Placeholder */
+              <div className="py-0.5 flex items-center gap-2.5 animate-in fade-in duration-150">
+                <div className="w-3.5 h-3.5 flex items-center justify-center text-amber-500 shrink-0 animate-pulse-spin">
+                  <svg viewBox="0 0 1391 1493" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5">
+                    <path d="M520.475 46.8916C628.765 -15.6299 762.185 -15.6309 870.476 46.8906L1215.95 246.351C1324.24 308.872 1390.95 424.417 1390.95 549.46V948.38C1390.95 1073.42 1324.24 1188.97 1215.95 1251.49L870.476 1450.95C839.295 1468.95 806.031 1481.77 771.884 1489.4V1267.46C771.884 1224.41 793.863 1184.33 830.168 1161.2L1094.26 992.901C1130.56 969.765 1152.54 929.694 1152.54 886.644V583.73C1152.54 538.272 1128.06 496.338 1088.47 473.997L756.024 286.395C716.572 264.132 668.204 264.761 629.344 288.043L319.853 473.464C281.861 496.225 258.609 537.262 258.609 581.55V1299.76L175 1251.49C66.7098 1188.97 0 1073.42 0 948.38V549.46C0.000106195 424.417 66.7099 308.873 175 246.352L520.475 46.8916Z" fill="currentColor"/>
+                    <path d="M376.402 536.352L673.55 680.923C691.417 689.616 712.339 689.37 729.998 680.259L1008.92 536.352L731.766 381.638C713.162 371.252 690.568 370.974 671.713 380.899L376.402 536.352Z" fill="currentColor"/>
+                    <path d="M766.066 812.685V1103.38L1024.9 937.777C1043 926.198 1053.95 906.195 1053.95 884.71V619.578L799.12 757.258C778.757 768.259 766.066 789.54 766.066 812.685Z" fill="currentColor"/>
+                    <path d="M393.853 1372.47L660.466 1492.74V824.821C660.466 801.177 647.227 779.524 626.183 768.747L356.758 630.766V1315.04C356.758 1339.81 371.273 1362.28 393.853 1372.47Z" fill="currentColor"/>
+                  </svg>
+                </div>
+                <span className="text-xs font-normal animate-text-shimmer tracking-tight select-none">
+                  Thinking...
+                </span>
               </div>
-            </div>
+            ) : (
+              /* Message Body with real ReactMarkdown rendering */
+              <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {message.content}
+                </ReactMarkdown>
+                {message.isStreaming && (
+                  <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
+                )}
+              </div>
+            )}
+
+            {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
+            {!isThinking && (
+              <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleCopy(message.id, message.content)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                    title="Copy text"
+                  >
+                    {copiedId === message.id ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span className="text-[10px]">Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })}

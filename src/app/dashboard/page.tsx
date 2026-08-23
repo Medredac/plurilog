@@ -395,7 +395,7 @@ export default function DashboardPage() {
                 setActiveSpeaker(seatId);
                 setSeatStatuses((prev) => ({
                   ...prev,
-                  [seatId]: 'speaking',
+                  [seatId]: 'thinking',
                 }));
 
                 const modelInfo = COUNCIL_MEMBERS[seatId];
@@ -418,6 +418,10 @@ export default function DashboardPage() {
               inProgressContent += chunk;
 
               if (isCurrentDiscussionActive) {
+                setSeatStatuses((prev) =>
+                  prev[seatId] !== 'speaking' ? { ...prev, [seatId]: 'speaking' } : prev
+                );
+
                 setMessages((prev) => {
                   const msgs = [...prev];
                   const lastMsgIdx = msgs.findLastIndex((m) => m.modelId === seatId && m.isStreaming);

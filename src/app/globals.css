@@ -108,3 +108,43 @@ body {
   opacity: 0;
 }
 
+/* Thinking Indicator Animations */
+@keyframes pulseSpin {
+  0% {
+    transform: rotate(0deg) scale(0.95);
+  }
+  50% {
+    transform: rotate(180deg) scale(1.05);
+  }
+  75% {
+    transform: rotate(360deg) scale(1);
+  }
+  100% {
+    transform: rotate(360deg) scale(0.95);
+  }
+}
+
+@keyframes textShimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.animate-pulse-spin {
+  animation: pulseSpin 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-text-shimmer {
+  background: linear-gradient(90deg, #a1a1aa 25%, #e4e4e7 50%, #a1a1aa 75%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: textShimmer 2s linear infinite;
+}
+
+
+
