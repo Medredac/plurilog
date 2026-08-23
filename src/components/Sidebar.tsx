@@ -260,7 +260,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
-                      <span className={`text-sm truncate flex-1 pr-2 ${
+                      <span className={`text-[13px] truncate flex-1 pr-2 ${
                         isActive ? 'font-normal text-amber-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
                       }`}>
                         {debate.title}
@@ -268,7 +268,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       
                       <div className="w-12 h-4 flex items-center justify-end shrink-0 relative">
                         {/* Timestamp (hidden when hovering or menu open) */}
-                        <span className={`text-[10px] leading-4 text-zinc-400 font-mono font-light text-right ${
+                        <span className={`text-[9.5px] leading-4 text-zinc-400 font-mono font-light text-right ${
                           isMenuOpen ? 'hidden' : 'group-hover/item:hidden'
                         }`}>
                           {debate.createdAt}
