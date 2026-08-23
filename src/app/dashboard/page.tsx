@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed } from '../../components/ChatFeed';
@@ -22,6 +22,8 @@ const CONTINUE_INSTRUCTION =
 
 export default function DashboardPage() {
   const router = useRouter();
+  const params = useParams();
+  const urlDiscussionId = params?.discussionId as string | undefined;
   const hasInitializedRef = useRef(false);
   const isNewlyCreatedDiscussionRef = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -202,6 +204,11 @@ export default function DashboardPage() {
         if (!hasInitializedRef.current) {
           hasInitializedRef.current = true;
           await fetchDiscussions(session.user.id);
+          if (urlDiscussionId) {
+            activeDebateIdRef.current = urlDiscussionId;
+            setActiveDebateId(urlDiscussionId);
+            await fetchDiscussionMessages(urlDiscussionId);
+          }
         }
       } catch (err) {
         console.error('[Supabase Error] Auth verification error:', err);
@@ -262,6 +269,7 @@ export default function DashboardPage() {
 
   // Select existing discussion and load its messages
   const handleSelectDebate = (id: string) => {
+    router.push(`/dashboard/${id}`);
     activeDebateIdRef.current = id;
     setActiveDebateId(id);
     setErrorMessage(null);
@@ -598,6 +606,7 @@ export default function DashboardPage() {
           currentDiscussionId = newDisc.id;
           activeDebateIdRef.current = newDisc.id;
           setActiveDebateId(newDisc.id);
+          window.history.pushState(null, '', `/dashboard/${newDisc.id}`);
 
           const newTopic: DebateTopic = {
             id: newDisc.id,
