@@ -5,13 +5,13 @@ import {
   Plus, 
   Search, 
   PanelLeftClose, 
-  Layers,
   Settings,
   LogOut,
   ChevronUp,
   Sparkles,
   Sun,
   Trash2,
+  MoreVertical,
   Loader2
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
@@ -45,9 +45,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isSearchingDb, setIsSearchingDb] = useState(false);
   const [dbMatchingIds, setDbMatchingIds] = useState<Set<string>>(new Set());
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [menuOpenDebateId, setMenuOpenDebateId] = useState<string | null>(null);
+  const [confirmDeleteDebate, setConfirmDeleteDebate] = useState<DebateTopic | null>(null);
   
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownMenuRef = useRef<HTMLDivElement>(null);
   const supabase = useRef(createClient()).current;
 
   // 1. Debounce search query input by 400ms
@@ -120,7 +123,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return matchesTitle || matchesContent;
   });
 
-  // Close drop-up menu when clicking outside
+  // Close drop-up menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -131,15 +134,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ) {
         setIsProfileMenuOpen(false);
       }
+
+      // Close discussion 3-dot dropdown if click is outside the dropdown container
+      if (
+        menuOpenDebateId &&
+        dropdownMenuRef.current &&
+        !dropdownMenuRef.current.contains(event.target as Node)
+      ) {
+        setMenuOpenDebateId(null);
+      }
     };
 
-    if (isProfileMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isProfileMenuOpen]);
+  }, [isProfileMenuOpen, menuOpenDebateId]);
 
   const displayName = userEmail ? userEmail.split('@')[0] : 'User';
   const initial = displayName.charAt(0).toUpperCase();
@@ -238,6 +248,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 filteredDebates.map((debate) => {
                   const isActive = debate.id === activeDebateId;
+                  const isMenuOpen = menuOpenDebateId === debate.id;
+
                   return (
                     <div
                       key={debate.id}
@@ -253,22 +265,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }`}>
                         {debate.title}
                       </span>
+                      
                       <div className="flex items-center shrink-0">
-                        <span className="text-[10px] text-zinc-400 font-mono font-light group-hover/item:hidden">
+                        {/* Timestamp (hidden when hovering or menu open) */}
+                        <span className={`text-[10px] text-zinc-400 font-mono font-light ${
+                          isMenuOpen ? 'hidden' : 'group-hover/item:hidden'
+                        }`}>
                           {debate.createdAt}
                         </span>
+
+                        {/* Three-Dot Menu Trigger */}
                         {onDeleteDebate && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteDebate(debate.id, e);
-                            }}
-                            className="hidden group-hover/item:flex items-center justify-center p-1 rounded-md text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Delete discussion"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMenuOpenDebateId(isMenuOpen ? null : debate.id);
+                              }}
+                              className={`p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer ${
+                                isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'hidden group-hover/item:flex'
+                              }`}
+                              title="More options"
+                            >
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            {isMenuOpen && (
+                              <div
+                                ref={dropdownMenuRef}
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 top-full mt-1 w-28 rounded-xl bg-white border border-zinc-200/90 shadow-lg p-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMenuOpenDebateId(null);
+                                    setConfirmDeleteDebate(debate);
+                                  }}
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -395,6 +439,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </aside>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteDebate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            onClick={() => setConfirmDeleteDebate(null)}
+            className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity"
+          />
+
+          {/* Dialog Card */}
+          <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
+              Delete discussion?
+            </h3>
+            <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
+              Are you sure you want to delete <span className="font-medium text-zinc-700">"{confirmDeleteDebate.title}"</span>? This action cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteDebate(null)}
+                className="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (onDeleteDebate && confirmDeleteDebate) {
+                    onDeleteDebate(confirmDeleteDebate.id, e);
+                  }
+                  setConfirmDeleteDebate(null);
+                }}
+                className="px-3.5 py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer shadow-2xs"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };
