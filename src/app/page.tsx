@@ -161,69 +161,18 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Interactive Feature Preview Card */}
-        <section className="px-4 sm:px-12 pb-20 max-w-4xl mx-auto w-full">
-          <div className="rounded-2xl border border-zinc-200/90 bg-white shadow-md p-4 sm:p-6">
-            {/* Header simulation */}
-            <div className="flex items-center justify-between pb-3 mb-4 border-b border-zinc-100 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-red-400" />
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="text-zinc-400 ml-2 font-mono text-[11px]">Council Chamber</span>
-              </div>
-              <span className="text-[10px] font-mono text-zinc-400 bg-zinc-50 px-2 py-0.5 rounded border border-zinc-100">
-                Live Relay
-              </span>
-            </div>
-
-            {/* Model Pills Preview */}
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-[#4880E6]" />
-                <span className="font-semibold text-zinc-900">Gemini</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-[#E0644B]" />
-                <span className="font-semibold text-zinc-900">Claude</span>
-              </div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-zinc-50 border border-zinc-200/70 text-xs">
-                <span className="w-2 h-2 rounded-full bg-[#1E1E1E]" />
-                <span className="font-semibold text-zinc-900">ChatGPT</span>
-              </div>
-            </div>
-
-            {/* User prompt preview */}
-            <div className="flex justify-end mb-3">
-              <div className="bg-stone-100 border border-stone-200/90 rounded-xl p-3 max-w-lg text-xs text-stone-900 leading-relaxed shadow-2xs">
-                <span className="text-[10px] text-stone-400 font-semibold block mb-0.5">Prompt</span>
-                Should humanity allocate $500B to Mars colonization or exploring Earth’s ocean floor?
-              </div>
-            </div>
-
-            {/* Sequential AI output snippet */}
-            <div className="space-y-2.5">
-              <div className="rounded-xl border border-zinc-100 bg-white p-3.5 shadow-2xs text-xs text-zinc-700 leading-relaxed">
-                <div className="flex items-center gap-1.5 font-semibold text-zinc-900 mb-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                  <span>Gemini</span>
-                </div>
-                <p>Earth’s ocean regulates 90% of global climate heat and holds extreme microbial biology. We must prioritize Earth systems.</p>
-              </div>
-
-              <div className="rounded-xl border border-zinc-100 bg-white p-3.5 shadow-2xs text-xs text-zinc-700 leading-relaxed">
-                <div className="flex items-center gap-1.5 font-semibold text-zinc-900 mb-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  <span>Claude</span>
-                </div>
-                <p>While Gemini’s ecological focus is vital, single-point planetary extinction risk necessitates an off-world branch of consciousness.</p>
-              </div>
-            </div>
-          </div>
+        {/* Section Header */}
+        <section className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center">
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
+            How many times have you had to fact-check an AI answer? Or cross-check it with another AI to be sure?
+          </h2>
+          <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-2xl mx-auto">
+            Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion — so they check each other, not just you.
+          </p>
         </section>
 
         {/* 3-Column Value Props */}
-        <section className="px-6 sm:px-12 py-12 max-w-4xl mx-auto w-full border-t border-zinc-100">
+        <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
             <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
