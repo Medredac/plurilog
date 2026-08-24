@@ -102,21 +102,13 @@ export default function LandingPage() {
                 <ArrowRight className="w-3 h-3 text-zinc-600" />
               </button>
             ) : (
-              <>
-                <button
-                  onClick={() => handleOpenAuth('signin')}
-                  className="text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors cursor-pointer px-2 py-1"
-                >
-                  Sign In
-                </button>
-                <button
-                  onClick={() => handleOpenAuth('signup')}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
-                >
-                  <span>Get Started</span>
-                  <ArrowRight className="w-3 h-3" />
-                </button>
-              </>
+              <button
+                onClick={() => handleOpenAuth('signup')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
+              >
+                <span>Get Started</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
             )
           )}
         </div>
@@ -150,15 +142,15 @@ export default function LandingPage() {
                 onClick={() => handleOpenAuth('signup')}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
               >
-                <span>Get Started</span>
+                <span>Get Started for Free</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
               <button
-                onClick={() => handleOpenAuth('signin')}
+                onClick={() => {}}
                 className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
-                <span>Sign In</span>
+                <span>Watch Demo</span>
               </button>
             </div>
           </div>
