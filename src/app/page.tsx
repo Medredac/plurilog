@@ -169,6 +169,17 @@ export default function LandingPage() {
           <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-2xl mx-auto">
             Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion — so they check each other, not just you.
           </p>
+          <div className="bg-amber-50 rounded-3xl p-3 mt-8">
+            <video
+              src="/videodemo.mp4"
+              autoPlay
+              loop
+              muted
+              playsInline
+              controls={false}
+              className="w-full rounded-2xl shadow-md"
+            />
+          </div>
         </section>
 
         {/* 3-Column Value Props */}
