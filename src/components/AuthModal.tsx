@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
 
@@ -26,6 +26,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const supabase = createClient();
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode(initialMode);
+    }
+  }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 

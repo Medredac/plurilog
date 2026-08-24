@@ -3,7 +3,9 @@
 import React, { useState } from 'react';
 import { 
   Loader2,
-  GripVertical
+  ChevronLeft,
+  ChevronRight,
+  Power
 } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId, SeatStatus } from '../types/chat';
@@ -77,6 +79,17 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
             const isSelected = activeModels.includes(id);
+            const activeSeatOrder = seatOrder.filter((sid) => activeModels.includes(sid));
+            const orderPosition = activeSeatOrder.indexOf(id); // -1 if disabled
+
+            const handleSwap = (e: React.MouseEvent, targetIdx: number) => {
+              e.stopPropagation();
+              if (isDebating || targetIdx < 0 || targetIdx >= seatOrder.length) return;
+              const newOrder = [...seatOrder];
+              [newOrder[idx], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[idx]];
+              onReorderSeats(newOrder);
+            };
+
             const currentStatus = seatStatuses[id] || 'idle';
             const isSpeaking = currentStatus === 'speaking' || activeSpeaker === id;
             const isBeingDragged = draggedIndex === idx;
@@ -90,39 +103,84 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 onDragOver={(e) => handleDragOver(e, idx)}
                 onDrop={(e) => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
-                className={`group relative flex items-center rounded-lg transition-all select-none ${
+                className={`group relative flex items-center rounded-lg border text-xs transition-all select-none ${
                   isDebating ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
                 } ${isBeingDragged ? 'opacity-40 scale-95' : ''} ${
                   isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1 scale-105' : ''
+                } ${
+                  isSpeaking
+                    ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
+                    : isSelected
+                    ? 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100/70 hover:text-zinc-800 font-medium'
+                    : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50 hover:opacity-75 font-normal'
                 }`}
                 title={
                   isDebating
                     ? `${member?.name || id} (deliberating...)`
-                    : `Drag to reorder seat sequence • Click to ${isSelected ? 'remove' : 'include'}`
+                    : `Drag to reorder • Use chevrons to swap • Power button to ${isSelected ? 'turn off' : 'turn on'}`
                 }
               >
+                {/* Left Chevron Swap Button */}
                 <button
                   type="button"
-                  onClick={() => onToggleModel(id)}
-                  className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
-                    isSpeaking
-                      ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
-                      : isSelected
-                      ? 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100/70 hover:text-zinc-800 font-medium'
-                      : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50 line-through hover:opacity-75 font-normal'
-                  }`}
+                  onClick={(e) => handleSwap(e, idx - 1)}
+                  disabled={idx === 0 || isDebating}
+                  aria-label={`Move ${member?.name || id} earlier`}
+                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
                 >
-                  <GripVertical className="w-3 h-3 text-zinc-300 group-hover:text-zinc-500 transition-colors -ml-0.5" />
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      isSpeaking
-                        ? 'bg-amber-500 animate-pulse'
-                        : isSelected
-                        ? member?.statusDotColor || 'bg-zinc-500'
-                        : 'bg-zinc-300'
-                    }`}
-                  />
-                  <span>{member?.name || id}</span>
+                  <ChevronLeft className="w-3 h-3" />
+                </button>
+
+                {/* Order Badge (Active Seats Only) */}
+                {orderPosition !== -1 && (
+                  <span className="w-4 h-4 rounded-full bg-zinc-200 text-zinc-700 font-mono text-[9px] font-semibold flex items-center justify-center shrink-0 ml-0.5">
+                    {orderPosition + 1}
+                  </span>
+                )}
+
+                {/* Status Dot */}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-1 ${
+                    isSpeaking
+                      ? 'bg-amber-500 animate-pulse'
+                      : isSelected
+                      ? member?.statusDotColor || 'bg-zinc-500'
+                      : 'bg-zinc-300'
+                  }`}
+                />
+
+                {/* Model Name */}
+                <span className={`pr-1 select-none ${!isSelected ? 'line-through text-zinc-400' : ''}`}>
+                  {member?.name || id}
+                </span>
+
+                {/* Right Chevron Swap Button */}
+                <button
+                  type="button"
+                  onClick={(e) => handleSwap(e, idx + 1)}
+                  disabled={idx === seatOrder.length - 1 || isDebating}
+                  aria-label={`Move ${member?.name || id} later`}
+                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
+                >
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+
+                {/* Dedicated Power Toggle Button */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleModel(id);
+                  }}
+                  aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
+                  className={`p-1 pl-1.5 pr-1.5 border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer ${
+                    isSelected 
+                      ? 'text-zinc-400 hover:text-red-600 hover:bg-red-50' 
+                      : 'text-zinc-300 hover:text-emerald-600 hover:bg-emerald-50'
+                  }`}
+                  title={isSelected ? `Disable ${member?.name || id}` : `Enable ${member?.name || id}`}
+                >
+                  <Power className={`w-3 h-3 ${isSelected ? 'text-zinc-500 hover:text-red-600' : 'text-zinc-400'}`} />
                 </button>
               </div>
             );
