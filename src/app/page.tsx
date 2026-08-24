@@ -8,7 +8,8 @@ import {
   Sparkles, 
   Shield, 
   Zap, 
-  Compass
+  Compass,
+  Loader2
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { createClient } from '../utils/supabase/client';
@@ -28,6 +29,8 @@ export default function LandingPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setIsAuthenticated(true);
+          router.replace('/dashboard');
+          return;
         }
       } catch (err) {
         console.error('Session check error:', err);
@@ -41,6 +44,7 @@ export default function LandingPage() {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setIsAuthenticated(true);
+        router.replace('/dashboard');
       } else {
         setIsAuthenticated(false);
       }
@@ -49,7 +53,7 @@ export default function LandingPage() {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [router, supabase]);
 
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
     if (isAuthenticated) {
@@ -63,8 +67,16 @@ export default function LandingPage() {
   const handleAuthSuccess = () => {
     setIsAuthModalOpen(false);
     setIsAuthenticated(true);
-    router.push('/dashboard');
+    router.replace('/dashboard');
   };
+
+  if (isCheckingAuth || isAuthenticated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+        <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
