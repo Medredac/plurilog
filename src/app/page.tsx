@@ -252,6 +252,15 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
+
+          <div className="flex justify-center mt-10">
+            <button
+              onClick={() => handleOpenAuth('signup')}
+              className="px-10 py-3 rounded-full bg-[#4880E6] hover:bg-[#3a6fd0] text-white font-medium text-sm shadow-sm transition-colors cursor-pointer"
+            >
+              Try it now for free
+            </button>
+          </div>
         </section>
       </main>
 
