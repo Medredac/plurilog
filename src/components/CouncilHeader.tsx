@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import { 
   Loader2,
   ChevronLeft,
@@ -36,21 +37,23 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  const handleDragStart = (e: React.DragEvent, index: number) => {
+  const handleDragStart = (e: any, index: number) => {
     if (isDebating) return;
     setDraggedIndex(index);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(index));
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(index));
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
+  const handleDragOver = (e: any, index: number) => {
+    if (e.preventDefault) e.preventDefault();
     if (draggedIndex === null || draggedIndex === index) return;
     setDragOverIndex(index);
   };
 
-  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
+  const handleDrop = (e: any, targetIndex: number) => {
+    if (e.preventDefault) e.preventDefault();
     if (draggedIndex === null || draggedIndex === targetIndex) {
       setDraggedIndex(null);
       setDragOverIndex(null);
@@ -96,17 +99,19 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             const isTargetOver = dragOverIndex === idx;
 
             return (
-              <div
+              <motion.div
                 key={id}
+                layout="position"
+                transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
                 draggable={!isDebating}
                 onDragStart={(e) => handleDragStart(e, idx)}
                 onDragOver={(e) => handleDragOver(e, idx)}
                 onDrop={(e) => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
-                className={`group relative flex items-center rounded-lg border text-xs transition-all select-none ${
+                className={`group relative flex items-center rounded-lg border text-xs transition-colors select-none ${
                   isDebating ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
-                } ${isBeingDragged ? 'opacity-40 scale-95' : ''} ${
-                  isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1 scale-105' : ''
+                } ${isBeingDragged ? 'opacity-40' : ''} ${
+                  isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1' : ''
                 } ${
                   isSpeaking
                     ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
@@ -182,7 +187,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 >
                   <Power className={`w-3 h-3 ${isSelected ? 'text-zinc-500 hover:text-red-600' : 'text-zinc-400'}`} />
                 </button>
-              </div>
+              </motion.div>
             );
           })}
         </div>
