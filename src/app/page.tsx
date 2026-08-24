@@ -164,10 +164,11 @@ export default function LandingPage() {
         {/* Section Header */}
         <section className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
-            How many times have you had to fact-check an AI answer? Or cross-check it with another AI to be sure?
+            How many times have you had to fact-check an AI answer? <br />
+            Or cross-check it with another AI to be sure?
           </h2>
-          <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-2xl mx-auto">
-            Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion — so they check each other, not just you.
+          <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
+            Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
           </p>
           <div className="bg-amber-50 rounded-3xl p-3 mt-8">
             <video
