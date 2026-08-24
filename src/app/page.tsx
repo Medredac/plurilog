@@ -125,39 +125,47 @@ export default function LandingPage() {
       {/* Main Landing Canvas with Faint Grid */}
       <main className="flex-1 flex flex-col bg-tech-grid">
         {/* Hero Section */}
-        <section className="px-6 sm:px-12 pt-20 pb-16 max-w-4xl mx-auto w-full text-center flex flex-col items-center">
-          {/* Subtle Pill Tag */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
-            <Sparkles className="w-3 h-3 text-amber-700" />
-            <span>Multi-Model AI Reasoning</span>
+        <section className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
+          {/* Left Column: Text & Actions */}
+          <div className="w-full lg:w-1/2 text-left flex flex-col items-start">
+            {/* Subtle Pill Tag */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
+              <Sparkles className="w-3 h-3 text-amber-700" />
+              <span>The Best AIs. One Room.</span>
+            </div>
+
+            {/* Headline */}
+            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4">
+              One AI can be confidently wrong. Three rarely are.
+            </h1>
+
+            {/* Subheadline */}
+            <p className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8">
+              Ask once. Watch Gemini, Claude, and ChatGPT debate it live, call out each other&apos;s blind spots, and land on an answer you can actually trust.
+            </p>
+
+            {/* Primary Action Button */}
+            <div className="flex flex-col sm:flex-row items-start gap-3">
+              <button
+                onClick={() => handleOpenAuth('signup')}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
+              >
+                <span>Get Started</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => handleOpenAuth('signin')}
+                className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+              >
+                <span>Sign In</span>
+              </button>
+            </div>
           </div>
 
-          {/* Headline */}
-          <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4">
-            Multi-model reasoning at your fingertips.
-          </h1>
-
-          {/* Subheadline */}
-          <p className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8">
-            Pose any complex question to Gemini, Claude, and ChatGPT simultaneously. Experience real-time sequential relay, critical nuance, and synthesized clarity.
-          </p>
-
-          {/* Primary Action Button */}
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <button
-              onClick={() => handleOpenAuth('signup')}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
-            >
-              <span>Get Started</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => handleOpenAuth('signin')}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
-            >
-              <span>Sign In</span>
-            </button>
+          {/* Right Column: Hero Image */}
+          <div className="hidden lg:block lg:w-1/2">
+            <img src="/herodraw.svg" alt="" className="w-full h-auto" />
           </div>
         </section>
 
