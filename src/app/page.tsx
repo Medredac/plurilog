@@ -6,10 +6,13 @@ import {
   Layers, 
   ArrowRight, 
   Sparkles, 
-  Shield, 
-  Zap, 
-  Compass,
-  Loader2
+  Loader2,
+  MessageCircle,
+  MessagesSquare,
+  ArrowUpDown,
+  RefreshCw,
+  Trophy,
+  Eye
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { createClient } from '../utils/supabase/client';
@@ -183,36 +186,69 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* 3-Column Value Props */}
+        {/* 6-Column Value Props */}
         <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8">
+            Made to Get You the Best Answer
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
             <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
-                <Zap className="w-4 h-4" />
+                <MessageCircle className="w-4 h-4" />
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Sequential Relay</h3>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">They Answer You</h3>
               <p className="text-xs text-zinc-500 leading-relaxed">
-                Each model observes and critically builds upon preceding responses in real time.
+                Every model responds directly to what you actually asked — no dodging, no filler.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
+                <MessagesSquare className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">They Answer Each Other</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Models read one another&apos;s responses live and react — agreeing, correcting, or pushing back.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
+                <ArrowUpDown className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">You Set the Order</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Choose who goes first, second, and third. Reorder the discussion however you want.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
+                <RefreshCw className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Swap Anyone, Anytime</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Not vibing with a model&apos;s take? Remove it or bring in a different one mid-discussion.
+              </p>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+              <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
+                <Trophy className="w-4 h-4" />
+              </div>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">The Best of All Three</h3>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                Walk away with the strongest answer — not just one model&apos;s opinion.
               </p>
             </div>
 
             <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
-                <Shield className="w-4 h-4" />
+                <Eye className="w-4 h-4" />
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Unbiased Perspective</h3>
+              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Watch It Unfold Live</h3>
               <p className="text-xs text-zinc-500 leading-relaxed">
-                Eliminate individual hallucination and bias through multi-disciplinary counter-arguments.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
-                <Compass className="w-4 h-4" />
-              </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Actionable Synthesis</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Receive practical conclusions and trade-off evaluations rather than single answers.
+                See the full reasoning and back-and-forth in real time, not just a final answer.
               </p>
             </div>
           </div>
