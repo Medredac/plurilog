@@ -119,7 +119,7 @@ export default function LandingPage() {
         {/* Hero Section */}
         <section className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
           {/* Left Column: Text & Actions */}
-          <div className="w-full lg:w-1/2 text-left flex flex-col items-start">
+          <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             {/* Subtle Pill Tag */}
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
               <Sparkles className="w-3 h-3 text-amber-700" />
@@ -156,7 +156,7 @@ export default function LandingPage() {
           </div>
 
           {/* Right Column: Hero Image */}
-          <div className="hidden lg:block lg:w-1/2">
+          <div className="w-full lg:w-[55%] order-first lg:order-last">
             <img src="/herodraw.svg" alt="" className="w-full h-auto" />
           </div>
         </section>
