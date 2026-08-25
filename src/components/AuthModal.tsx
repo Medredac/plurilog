@@ -91,6 +91,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+    if (error) {
+      setErrorMessage(error.message);
+      setIsLoading(false);
+    }
+  };
+
   const toggleMode = () => {
     setMode(mode === 'signin' ? 'signup' : 'signin');
     setErrorMessage(null);
@@ -144,11 +159,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        {/* Google OAuth Button (Placeholder) */}
+        {/* Google OAuth Button */}
         <button
           type="button"
-          onClick={() => {}}
-          className="w-full py-2 px-3 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-xs shadow-2xs transition-colors flex items-center justify-center gap-2 cursor-pointer mb-3"
+          onClick={handleGoogleSignIn}
+          disabled={isLoading}
+          className="w-full py-2 px-3 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-xs shadow-2xs transition-colors flex items-center justify-center gap-2 cursor-pointer mb-3 disabled:opacity-60"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
