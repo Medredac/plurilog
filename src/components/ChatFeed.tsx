@@ -257,6 +257,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       {messages.map((message, idx) => {
         const isPrevUser = idx > 0 && messages[idx - 1]?.role === 'user';
 
+        if (message.role === 'user' && message.content === 'Continue') {
+          return (
+            <div
+              id={message.id}
+              key={message.id}
+              className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
+            >
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-400">
+                <CornerDownRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          );
+        }
+
         // User Message Bubble (Soft minimalist warm stone-100 tone)
         if (message.role === 'user') {
           const isLongContent = message.content.length > 240 || message.content.split('\n').length > 4;
@@ -428,7 +442,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             title="Trigger another deliberation round on this topic"
           >
             <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors" />
-            <span>Continue</span>
+            <span>Let them keep discussing</span>
           </button>
         </div>
       )}
