@@ -172,6 +172,30 @@ export async function POST(req: NextRequest) {
       discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
     }
 
+    // Pre-flight balance check using session-authenticated Supabase client
+    const { data: balanceRows, error: balanceError } = await supabase.rpc('get_my_balance');
+    const balance = balanceRows?.[0];
+    if (balanceError || !balance) {
+      console.error('[Spend Tracking] Error fetching balance:', balanceError);
+      return new Response(
+        JSON.stringify({ error: 'Could not verify account balance.' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (Number(balance.remaining_cents) <= 0) {
+      return new Response(
+        JSON.stringify({
+          error:
+            balance.plan === 'free'
+              ? 'Your free trial credit is used up. Upgrade to continue.'
+              : "You've used your credits for this billing period.",
+          code: 'INSUFFICIENT_CREDITS',
+        }),
+        { status: 402, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
@@ -229,6 +253,7 @@ export async function POST(req: NextRequest) {
             const primaryModel = models[0];
             let respondingModel = primaryModel;
             let seatResponse = '';
+            let seatUsage: any = null;
 
             sendEvent('seat_start', {
               seatId: seat.seatId,
@@ -266,6 +291,9 @@ export async function POST(req: NextRequest) {
                 if (chunk.model) {
                   respondingModel = chunk.model;
                 }
+                if ((chunk as any).usage) {
+                  seatUsage = (chunk as any).usage;
+                }
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
@@ -294,6 +322,35 @@ export async function POST(req: NextRequest) {
                 modelId: respondingModel,
                 content: seatResponse,
               });
+
+              if (seatUsage) {
+                console.log(
+                  `[Spend Tracking Debug] Raw seatUsage for ${seat.name}:`,
+                  JSON.stringify(seatUsage, null, 2)
+                );
+              }
+
+              if (seatUsage && typeof seatUsage.cost === 'number') {
+                const costCents = seatUsage.cost * 100; // dollars → cents, full precision, no rounding
+                if (costCents > 0) {
+                  const { error: spendError } = await supabase.rpc('spend_credits', {
+                    p_cents: costCents,
+                    p_model: respondingModel,
+                    p_discussion_id: discussionId || null,
+                    p_meta: { seatId: seat.seatId },
+                  });
+                  if (spendError) {
+                    console.error(
+                      `[Spend Tracking] Failed to record spend for ${seat.name}:`,
+                      spendError
+                    );
+                  }
+                }
+              } else {
+                console.warn(
+                  `[Spend Tracking] No usage/cost data received for ${seat.name} — spend not recorded for this call.`
+                );
+              }
 
               // Record in prior responses for subsequent speakers
               priorResponses.push({
