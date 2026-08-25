@@ -82,8 +82,6 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
             const isSelected = activeModels.includes(id);
-            const activeSeatOrder = seatOrder.filter((sid) => activeModels.includes(sid));
-            const orderPosition = activeSeatOrder.indexOf(id); // -1 if disabled
 
             const handleSwap = (e: React.MouseEvent, targetIdx: number) => {
               e.stopPropagation();
@@ -135,13 +133,6 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 >
                   <ChevronLeft className="w-3 h-3" />
                 </button>
-
-                {/* Order Badge (Active Seats Only) */}
-                {orderPosition !== -1 && (
-                  <span className="w-4 h-4 rounded-full bg-zinc-200 text-zinc-700 font-mono text-[9px] font-semibold flex items-center justify-center shrink-0 ml-0.5">
-                    {orderPosition + 1}
-                  </span>
-                )}
 
                 {/* Status Dot */}
                 <span
