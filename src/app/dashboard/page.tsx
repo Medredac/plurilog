@@ -6,6 +6,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed } from '../../components/ChatFeed';
 import { ChatInput } from '../../components/ChatInput';
+import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
 import { Layers, ArrowRight, Loader2 } from 'lucide-react';
@@ -49,6 +50,9 @@ export default function DashboardPage() {
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isOutOfCredits, setIsOutOfCredits] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
@@ -415,15 +419,21 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         let errDetails = `HTTP Error ${response.status}`;
+        let errCode: string | undefined;
         try {
           const errJson = await response.json();
           if (errJson.error) {
             errDetails = errJson.error;
           }
+          if (errJson.code) {
+            errCode = errJson.code;
+          }
         } catch {
           // ignore
         }
-        throw new Error(errDetails);
+        const err = new Error(errDetails);
+        (err as any).code = errCode;
+        throw err;
       }
 
       if (!response.body) {
@@ -616,10 +626,16 @@ export default function DashboardPage() {
       } else {
         console.error('Error in relay stream:', err);
         if (activeDebateIdRef.current === discussionId) {
-          setErrorMessage(
-            err?.message ||
-              'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
-          );
+          if (err?.code === 'INSUFFICIENT_CREDITS') {
+            setIsOutOfCredits(true);
+            setShowUpgradeModal(true);
+            setRestoreDraft({ text: promptToSend, trigger: Date.now() });
+          } else {
+            setErrorMessage(
+              err?.message ||
+                'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
+            );
+          }
           setCanContinue(true);
           setMessages((prev) =>
             prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
@@ -859,6 +875,8 @@ export default function DashboardPage() {
           isDebating={isDebating}
           activeSpeaker={activeSpeaker}
           seatStatuses={seatStatuses}
+          isOutOfCredits={isOutOfCredits}
+          onUpgradeClick={() => setShowUpgradeModal(true)}
         />
 
         {/* Full-width scrollable viewport / Centered Empty State */}
@@ -918,6 +936,7 @@ export default function DashboardPage() {
                   onStop={handleStop}
                   isCentered
                   autoFocus
+                  restoreDraft={restoreDraft}
                 />
               </div>
             </div>
@@ -944,9 +963,16 @@ export default function DashboardPage() {
             isLoading={isDebating}
             onStop={handleStop}
             focusTrigger={activeDebateId}
+            restoreDraft={restoreDraft}
           />
         )}
       </main>
+
+      {/* Out of Credits Upgrade Modal */}
+      <OutOfCreditsModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+      />
     </div>
   );
 }

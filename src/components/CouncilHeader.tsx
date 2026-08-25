@@ -19,6 +19,8 @@ interface CouncilHeaderProps {
   isDebating?: boolean;
   activeSpeaker?: ModelId | null;
   seatStatuses?: Record<ModelId, SeatStatus>;
+  isOutOfCredits?: boolean;
+  onUpgradeClick?: () => void;
 }
 
 export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
@@ -33,6 +35,8 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
     'claude': 'idle',
     'chatgpt': 'idle',
   },
+  isOutOfCredits = false,
+  onUpgradeClick,
 }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -183,8 +187,21 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           })}
         </div>
 
-        {/* Right: Clean minimal deliberation status */}
+        {/* Right: Clean minimal deliberation status and out of credits badge */}
         <div className="flex items-center gap-2">
+          {isOutOfCredits && (
+            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
+              <span>Free credits used —</span>
+              <button 
+                type="button" 
+                onClick={onUpgradeClick || (() => {})} 
+                className="underline hover:no-underline cursor-pointer"
+              >
+                Upgrade
+              </button>
+            </div>
+          )}
+
           {isDebating && (
             <div className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
               <Loader2 className="w-3 h-3 animate-spin text-amber-700" />

@@ -10,6 +10,7 @@ interface ChatInputProps {
   isCentered?: boolean;
   autoFocus?: boolean;
   focusTrigger?: any;
+  restoreDraft?: { text: string; trigger: number } | null;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -19,6 +20,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   isCentered = false,
   autoFocus = false,
   focusTrigger,
+  restoreDraft,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -34,6 +36,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }, 50);
     return () => clearTimeout(timer);
   }, [isCentered, autoFocus, focusTrigger]);
+
+  // Restore draft prompt text when requested (e.g. out of credits recovery)
+  React.useEffect(() => {
+    if (restoreDraft) {
+      setInputVal(restoreDraft.text);
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+      }
+    }
+  }, [restoreDraft?.trigger]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
