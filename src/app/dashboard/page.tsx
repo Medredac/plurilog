@@ -231,6 +231,19 @@ export default function DashboardPage() {
     }
   }, [supabase]);
 
+  // Check user's current credit balance from database and update isOutOfCredits state
+  const refreshCreditStatus = useCallback(async () => {
+    try {
+      const { data: balanceRows, error } = await supabase.rpc('get_my_balance');
+      const balance = balanceRows?.[0];
+      if (!error && balance) {
+        setIsOutOfCredits(Number(balance.remaining_cents) <= 0);
+      }
+    } catch (err) {
+      console.error('[Credit Check] Failed to refresh balance:', err);
+    }
+  }, [supabase]);
+
   // Protect route, verify auth, and load discussions once on initial mount
   useEffect(() => {
     const checkAuth = async () => {
@@ -242,6 +255,7 @@ export default function DashboardPage() {
         }
         setUserEmail(session.user?.email);
         setUserId(session.user?.id);
+        refreshCreditStatus();
 
         if (!hasInitializedRef.current) {
           hasInitializedRef.current = true;
@@ -268,13 +282,14 @@ export default function DashboardPage() {
       } else {
         setUserEmail(session.user?.email);
         setUserId(session.user?.id);
+        refreshCreditStatus();
       }
     });
 
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages, urlDiscussionId]);
+  }, [router, supabase, fetchDiscussions, fetchDiscussionMessages, urlDiscussionId, refreshCreditStatus]);
 
   // Handle browser back/forward buttons with pushState routing
   useEffect(() => {
@@ -648,6 +663,7 @@ export default function DashboardPage() {
         setIsDebating(false);
         setActiveSpeaker(null);
       }
+      refreshCreditStatus();
     }
   };
 
@@ -655,6 +671,11 @@ export default function DashboardPage() {
   const handleSendMessage = async (content: string) => {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || !content.trim() || !userId || activeSeatOrder.length === 0) return;
+
+    if (isOutOfCredits) {
+      setShowUpgradeModal(true);
+      return;
+    }
 
     setCanContinue(false);
     setErrorMessage(null);
@@ -788,6 +809,11 @@ export default function DashboardPage() {
   const handleContinue = async () => {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || !activeDebateId || !userId || activeSeatOrder.length === 0) return;
+
+    if (isOutOfCredits) {
+      setShowUpgradeModal(true);
+      return;
+    }
 
     setCanContinue(false);
     setErrorMessage(null);
