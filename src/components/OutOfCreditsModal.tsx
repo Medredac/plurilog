@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Sparkles } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
@@ -9,6 +9,25 @@ interface OutOfCreditsModalProps {
 }
 
 export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, onClose }) => {
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
+  const handleUpgrade = async () => {
+    setIsRedirecting(true);
+    try {
+      const res = await fetch('/api/stripe/checkout', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        console.error('[Upgrade] No checkout URL returned:', data);
+        setIsRedirecting(false);
+      }
+    } catch (err) {
+      console.error('[Upgrade] Failed to start checkout:', err);
+      setIsRedirecting(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -30,10 +49,11 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
         <div className="flex flex-col gap-2.5">
           <button
             type="button"
-            onClick={() => {}}
-            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-[#4880E6] hover:bg-[#3a6fd0] transition-colors cursor-pointer shadow-sm"
+            onClick={handleUpgrade}
+            disabled={isRedirecting}
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-[#4880E6] hover:bg-[#3a6fd0] transition-colors cursor-pointer shadow-sm disabled:opacity-60"
           >
-            Upgrade to Plus
+            {isRedirecting ? 'Redirecting…' : 'Upgrade to Plus'}
           </button>
           <button
             type="button"
