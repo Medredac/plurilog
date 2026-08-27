@@ -51,6 +51,7 @@ export default function DashboardPage() {
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
+  const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
@@ -238,6 +239,7 @@ export default function DashboardPage() {
       const balance = balanceRows?.[0];
       if (!error && balance) {
         setIsOutOfCredits(Number(balance.remaining_cents) <= 0);
+        setUserPlan(balance.plan === 'paid' ? 'paid' : 'free');
       }
     } catch (err) {
       console.error('[Credit Check] Failed to refresh balance:', err);
@@ -887,6 +889,7 @@ export default function DashboardPage() {
         onNewDebate={handleNewDebate}
         onDeleteDebate={handleDeleteDebate}
         userEmail={userEmail}
+        userPlan={userPlan}
         onSignOut={handleSignOut}
       />
 

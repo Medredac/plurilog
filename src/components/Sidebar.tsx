@@ -26,6 +26,7 @@ interface SidebarProps {
   onNewDebate: () => void;
   onDeleteDebate?: (id: string, e: React.MouseEvent) => void;
   userEmail?: string;
+  userPlan?: 'free' | 'paid';
   onSignOut?: () => void;
 }
 
@@ -38,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewDebate,
   onDeleteDebate,
   userEmail,
+  userPlan = 'free',
   onSignOut,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -364,8 +366,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <Sparkles className="w-4 h-4 text-amber-600" />
                         <span className="font-normal">Manage Subscription</span>
                       </div>
-                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200/80">
-                        Free
+                      <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${
+                        userPlan === 'paid'
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
+                      }`}>
+                        {userPlan === 'paid' ? 'Plus' : 'Free'}
                       </span>
                     </button>
 
@@ -422,8 +428,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       >
                         {userEmail || displayName}
                       </span>
-                      <span className="text-[10px] font-mono font-normal px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 border border-zinc-200/60 shrink-0">
-                        Free
+                      <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded shrink-0 border ${
+                        userPlan === 'paid'
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
+                      }`}>
+                        {userPlan === 'paid' ? 'Plus' : 'Free'}
                       </span>
                     </div>
                   </div>
