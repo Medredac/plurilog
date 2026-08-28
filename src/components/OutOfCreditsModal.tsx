@@ -1,7 +1,6 @@
 'use client';
-
 import React, { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Check } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
   isOpen: boolean;
@@ -32,26 +31,45 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div 
-        onClick={onClose} 
-        className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" 
-      />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 text-center">
-        <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200/80 flex items-center justify-center mx-auto mb-4">
-          <Sparkles className="w-5 h-5 text-amber-600" />
-        </div>
-        <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
-          You've used your free trial
+      <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
+      <div className="relative w-full max-w-xs rounded-2xl bg-white border border-zinc-200/90 p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 text-center">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-full mb-4">
+          <Sparkles className="w-3 h-3" />
+          Free trial used
+        </span>
+        <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-1.5">
+          Upgrade to Plus
         </h3>
-        <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-6">
-          Upgrade to Plus for $6/month to keep this conversation going — and every one after it.
+        <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
+          Keep the conversation going.
         </p>
+        <div className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-4 mb-5 text-left">
+          <div className="flex items-baseline gap-1 mb-0.5">
+            <span className="text-2xl font-semibold text-zinc-900">$16</span>
+            <span className="text-xs text-zinc-500">/ month</span>
+          </div>
+          <p className="text-[11px] text-zinc-400 mb-3">Plurilog Plus</p>
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+              <span className="text-xs text-zinc-700">File upload</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+              <span className="text-xs text-zinc-700">Image upload</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+              <span className="text-xs text-zinc-700">More extensive use</span>
+            </div>
+          </div>
+        </div>
         <div className="flex flex-col gap-2.5">
           <button
             type="button"
             onClick={handleUpgrade}
             disabled={isRedirecting}
-            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-[#4880E6] hover:bg-[#3a6fd0] transition-colors cursor-pointer shadow-sm disabled:opacity-60"
+            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer shadow-sm disabled:opacity-60"
           >
             {isRedirecting ? 'Redirecting…' : 'Upgrade to Plus'}
           </button>
