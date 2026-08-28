@@ -9,7 +9,6 @@ import {
   LogOut,
   ChevronUp,
   Sparkles,
-  Sun,
   Trash2,
   MoreVertical,
   Loader2
@@ -26,6 +25,8 @@ interface SidebarProps {
   onNewDebate: () => void;
   onDeleteDebate?: (id: string, e: React.MouseEvent) => void;
   userEmail?: string;
+  userDisplayName?: string;
+  userAvatarUrl?: string;
   userPlan?: 'free' | 'paid';
   onSignOut?: () => void;
 }
@@ -39,6 +40,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewDebate,
   onDeleteDebate,
   userEmail,
+  userDisplayName,
+  userAvatarUrl,
   userPlan = 'free',
   onSignOut,
 }) => {
@@ -153,7 +156,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [isProfileMenuOpen, menuOpenDebateId]);
 
-  const displayName = userEmail ? userEmail.split('@')[0] : 'User';
+  const displayName = userDisplayName || userEmail || 'User';
+  const firstName = displayName.split(' ')[0];
   const initial = displayName.charAt(0).toUpperCase();
 
   return (
@@ -334,8 +338,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* User Profile Header in Menu */}
                   <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0">
-                        {initial}
+                      <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                        {userAvatarUrl ? (
+                          <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                        ) : (
+                          initial
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-zinc-700 truncate">
@@ -375,19 +383,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                     </button>
 
-                    <button
-                      onClick={() => setIsProfileMenuOpen(false)}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Sun className="w-4 h-4 text-zinc-400" />
-                        <span className="font-normal">Appearance</span>
-                      </div>
-                      <span className="text-xs font-mono font-light text-zinc-400">
-                        Light
-                      </span>
-                    </button>
-
                     <div className="border-t border-zinc-100 my-1" />
 
                     {onSignOut && (
@@ -417,16 +412,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0">
-                    {initial}
+                  <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                    {userAvatarUrl ? (
+                      <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      initial
+                    )}
                   </div>
                   <div className="text-left min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span 
                         className="text-sm font-medium text-zinc-700 truncate max-w-[130px]" 
-                        title={userEmail || displayName}
+                        title={displayName}
                       >
-                        {userEmail || displayName}
+                        {firstName}
                       </span>
                       <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded shrink-0 border ${
                         userPlan === 'paid'

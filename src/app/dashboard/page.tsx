@@ -55,6 +55,8 @@ export default function DashboardPage() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
+  const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
+  const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>(undefined);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -257,6 +259,9 @@ export default function DashboardPage() {
         }
         setUserEmail(session.user?.email);
         setUserId(session.user?.id);
+        const metadata = session.user?.user_metadata;
+        setUserDisplayName(metadata?.display_name || metadata?.full_name || undefined);
+        setUserAvatarUrl(metadata?.avatar_url || undefined);
         refreshCreditStatus();
 
         if (!hasInitializedRef.current) {
@@ -284,6 +289,9 @@ export default function DashboardPage() {
       } else {
         setUserEmail(session.user?.email);
         setUserId(session.user?.id);
+        const metadata = session.user?.user_metadata;
+        setUserDisplayName(metadata?.display_name || metadata?.full_name || undefined);
+        setUserAvatarUrl(metadata?.avatar_url || undefined);
         refreshCreditStatus();
       }
     });
@@ -889,6 +897,8 @@ export default function DashboardPage() {
         onNewDebate={handleNewDebate}
         onDeleteDebate={handleDeleteDebate}
         userEmail={userEmail}
+        userDisplayName={userDisplayName}
+        userAvatarUrl={userAvatarUrl}
         userPlan={userPlan}
         onSignOut={handleSignOut}
       />
