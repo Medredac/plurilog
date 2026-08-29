@@ -8,7 +8,6 @@ import {
   Settings,
   LogOut,
   ChevronUp,
-  Sparkles,
   Trash2,
   MoreVertical,
   Loader2
@@ -216,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="p-3">
               <button
                 onClick={onNewDebate}
-                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-700 hover:text-zinc-900 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-500 hover:text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4 text-zinc-500" />
                 <span>New Discussion</span>
@@ -369,23 +368,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
                       <span className="font-normal">Account Settings</span>
-                    </button>
-
-                    <button
-                      onClick={() => setIsProfileMenuOpen(false)}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Sparkles className="w-4 h-4 text-amber-600" />
-                        <span className="font-normal">Manage Subscription</span>
-                      </div>
-                      <span className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border ${
-                        userPlan === 'paid'
-                          ? 'bg-amber-100 text-amber-900 border-amber-300'
-                          : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
-                      }`}>
-                        {userPlan === 'paid' ? 'Plus' : 'Free'}
-                      </span>
                     </button>
 
                     <div className="border-t border-zinc-100 my-1" />
