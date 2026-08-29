@@ -11,6 +11,7 @@ interface AccountSettingsModalProps {
   userAvatarUrl?: string;
   userPlan: 'free' | 'paid';
   onNameUpdated?: (newName: string) => void;
+  periodResetAt?: string | null;
 }
 
 export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
@@ -21,6 +22,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   userAvatarUrl,
   userPlan,
   onNameUpdated,
+  periodResetAt,
 }) => {
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -81,6 +83,23 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
       }
     } catch {
       setLoading(false);
+    }
+  };
+
+  const handleManagePortal = async () => {
+    setIsRedirectingCard(true);
+    try {
+      const res = await fetch('/api/stripe/portal', { method: 'POST' });
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        console.error('[Portal] No portal URL returned:', data);
+        setIsRedirectingCard(false);
+      }
+    } catch (err) {
+      console.error('[Portal] Failed to open portal:', err);
+      setIsRedirectingCard(false);
     }
   };
 
@@ -153,13 +172,19 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
               </div>
               <button
                 type="button"
-                onClick={userPlan === 'paid' ? () => {} : () => handleUpgrade(setIsRedirectingCard)}
-                disabled={userPlan === 'free' && isRedirectingCard}
+                onClick={userPlan === 'paid' ? handleManagePortal : () => handleUpgrade(setIsRedirectingCard)}
+                disabled={isRedirectingCard}
                 className="px-3.5 py-1.5 rounded-full text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-60"
               >
-                {userPlan === 'paid' ? 'Manage subscription' : (isRedirectingCard ? 'Redirecting…' : 'Upgrade')}
+                {isRedirectingCard ? 'Redirecting…' : (userPlan === 'paid' ? 'Manage subscription' : 'Upgrade')}
               </button>
             </div>
+
+            {userPlan === 'paid' && periodResetAt && (
+              <p className="text-xs text-zinc-500 mt-2">
+                Renews {new Date(periodResetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </p>
+            )}
 
             {userPlan === 'free' && (
               <div className="mt-4 rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5">

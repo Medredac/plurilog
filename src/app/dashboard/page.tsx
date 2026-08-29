@@ -55,6 +55,7 @@ export default function DashboardPage() {
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
   const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
   const [remainingCents, setRemainingCents] = useState<number>(0);
+  const [periodResetAt, setPeriodResetAt] = useState<string | null>(null);
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
   const hasShownLowCreditRef = useRef(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -259,6 +260,16 @@ export default function DashboardPage() {
         ) {
           hasShownLowCreditRef.current = true;
           setShowLowCreditModal(true);
+        }
+
+        const { data: { user: freshUser } } = await supabase.auth.getUser();
+        if (freshUser) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('period_reset_at')
+            .eq('id', freshUser.id)
+            .single();
+          setPeriodResetAt(profileRow?.period_reset_at || null);
         }
       }
     } catch (err) {
@@ -1058,6 +1069,7 @@ export default function DashboardPage() {
         userAvatarUrl={userAvatarUrl}
         userPlan={userPlan}
         onNameUpdated={(newName) => setUserDisplayName(newName)}
+        periodResetAt={periodResetAt}
       />
     </div>
   );
