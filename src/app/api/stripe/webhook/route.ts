@@ -51,7 +51,11 @@ export async function POST(request: Request) {
 
       case 'invoice.paid': {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscriptionId = (invoice as any).subscription as string | null;
+        const subscriptionId = (
+          (invoice as any).subscription ??
+          (invoice as any).parent?.subscription_details?.subscription ??
+          null
+        ) as string | null;
         if (!subscriptionId) break;
 
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
@@ -73,7 +77,11 @@ export async function POST(request: Request) {
 
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscriptionId = (invoice as any).subscription as string | null;
+        const subscriptionId = (
+          (invoice as any).subscription ??
+          (invoice as any).parent?.subscription_details?.subscription ??
+          null
+        ) as string | null;
         if (!subscriptionId) break;
 
         await supabase.from('profiles').update({
