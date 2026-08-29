@@ -7,6 +7,7 @@ import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed } from '../../components/ChatFeed';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
+import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
 import { Layers, ArrowRight, Loader2 } from 'lucide-react';
@@ -53,6 +54,7 @@ export default function DashboardPage() {
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
   const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
@@ -900,6 +902,7 @@ export default function DashboardPage() {
         userDisplayName={userDisplayName}
         userAvatarUrl={userAvatarUrl}
         userPlan={userPlan}
+        onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
         onSignOut={handleSignOut}
       />
 
@@ -1011,6 +1014,17 @@ export default function DashboardPage() {
       <OutOfCreditsModal
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
+      />
+
+      {/* Account Settings Modal */}
+      <AccountSettingsModal
+        isOpen={isAccountSettingsOpen}
+        onClose={() => setIsAccountSettingsOpen(false)}
+        displayName={userDisplayName || userEmail || 'User'}
+        userEmail={userEmail}
+        userAvatarUrl={userAvatarUrl}
+        userPlan={userPlan}
+        onNameUpdated={(newName) => setUserDisplayName(newName)}
       />
     </div>
   );

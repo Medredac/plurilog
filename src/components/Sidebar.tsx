@@ -28,6 +28,7 @@ interface SidebarProps {
   userDisplayName?: string;
   userAvatarUrl?: string;
   userPlan?: 'free' | 'paid';
+  onOpenAccountSettings?: () => void;
   onSignOut?: () => void;
 }
 
@@ -43,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userDisplayName,
   userAvatarUrl,
   userPlan = 'free',
+  onOpenAccountSettings,
   onSignOut,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -359,7 +361,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* Menu Items */}
                   <div className="space-y-0.5 text-sm text-zinc-600">
                     <button
-                      onClick={() => setIsProfileMenuOpen(false)}
+                      onClick={() => {
+                        setIsProfileMenuOpen(false);
+                        onOpenAccountSettings?.();
+                      }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
