@@ -312,7 +312,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                     setMenuOpenDebateId(null);
                                     setConfirmDeleteDebate(debate);
                                   }}
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors cursor-pointer"
+                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                   <span>Delete</span>
@@ -378,10 +378,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setIsProfileMenuOpen(false);
                           onSignOut();
                         }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-red-50 text-red-600 hover:text-red-700 transition-colors cursor-pointer text-left font-medium"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
                       >
                         <LogOut className="w-4 h-4" />
-                        <span>Log Out</span>
+                        <span className="font-normal">Log Out</span>
                       </button>
                     )}
                   </div>
@@ -414,7 +414,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       >
                         {firstName}
                       </span>
-                      <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded shrink-0 border ${
+                      <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
                         userPlan === 'paid'
                           ? 'bg-amber-100 text-amber-900 border-amber-300'
                           : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
