@@ -93,6 +93,21 @@ export async function POST(request: Request) {
         break;
       }
 
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription;
+        const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
+        const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
+
+        await supabase.from('profiles').update({
+          plan_status: (subscription.cancel_at_period_end || subscription.cancel_at !== null) ? 'canceling' : 'active',
+          ...(periodEnd ? { current_period_end: periodEnd, period_reset_at: periodEnd } : {}),
+          updated_at: new Date().toISOString(),
+        }).eq('stripe_subscription_id', subscription.id);
+
+        console.log(`[Stripe Webhook] Subscription ${subscription.id} updated — cancel_at: ${subscription.cancel_at}, cancel_at_period_end: ${subscription.cancel_at_period_end}`);
+        break;
+      }
+
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
 
