@@ -39,6 +39,17 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        setIsRedirectingCard(false);
+        setIsRedirectingPromo(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
   const handleSaveName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed || trimmed === displayName) return;
@@ -146,14 +157,15 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 disabled={userPlan === 'free' && isRedirectingCard}
                 className="px-3.5 py-1.5 rounded-full text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-60"
               >
-                {userPlan === 'paid' ? 'Manage subscription' : 'Upgrade'}
+                {userPlan === 'paid' ? 'Manage subscription' : (isRedirectingCard ? 'Redirecting…' : 'Upgrade')}
               </button>
             </div>
 
             {userPlan === 'free' && (
               <div className="mt-4 rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5">
                 <h4 className="text-lg font-semibold text-zinc-900 mb-1">Upgrade to Plus</h4>
-                <p className="text-sm text-zinc-500 mb-4">Unlock more from every conversation.</p>
+                <p className="text-sm text-zinc-500 mb-1">Unlock more from every conversation.</p>
+                <p className="text-sm font-medium text-zinc-900 mb-4">$16/month</p>
                 <div className="space-y-2 text-left max-w-[220px] mb-5">
                   <div className="flex items-start gap-2">
                     <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
@@ -174,7 +186,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   disabled={isRedirectingPromo}
                   className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-zinc-900 bg-amber-400 hover:bg-amber-500 transition-colors cursor-pointer disabled:opacity-60"
                 >
-                  Upgrade to Plus
+                  {isRedirectingPromo ? 'Redirecting…' : 'Upgrade to Plus'}
                 </button>
               </div>
             )}
