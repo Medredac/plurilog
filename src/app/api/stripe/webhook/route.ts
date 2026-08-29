@@ -114,7 +114,9 @@ export async function POST(request: Request) {
         const { error, count } = await supabase.from('profiles').update({
           plan_status: 'past_due',
           updated_at: new Date().toISOString(),
-        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+        }, { count: 'exact' })
+          .eq('stripe_subscription_id', subscriptionId)
+          .neq('plan_status', 'canceled');
 
         if (error) {
           console.error(`[Stripe Webhook] Supabase update failed for invoice.payment_failed:`, error);
