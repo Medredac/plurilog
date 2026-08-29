@@ -7,6 +7,7 @@ import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed } from '../../components/ChatFeed';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
+import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
@@ -53,6 +54,9 @@ export default function DashboardPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
   const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
+  const [remainingCents, setRemainingCents] = useState<number>(0);
+  const [showLowCreditModal, setShowLowCreditModal] = useState(false);
+  const hasShownLowCreditRef = useRef(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
@@ -242,8 +246,20 @@ export default function DashboardPage() {
       const { data: balanceRows, error } = await supabase.rpc('get_my_balance');
       const balance = balanceRows?.[0];
       if (!error && balance) {
-        setIsOutOfCredits(Number(balance.remaining_cents) <= 0);
+        const remaining = Number(balance.remaining_cents);
+        setIsOutOfCredits(remaining <= 0);
         setUserPlan(balance.plan === 'paid' ? 'paid' : 'free');
+        setRemainingCents(remaining);
+
+        if (
+          balance.plan !== 'paid' &&
+          remaining > 0 &&
+          remaining <= 25 &&
+          !hasShownLowCreditRef.current
+        ) {
+          hasShownLowCreditRef.current = true;
+          setShowLowCreditModal(true);
+        }
       }
     } catch (err) {
       console.error('[Credit Check] Failed to refresh balance:', err);
@@ -918,6 +934,7 @@ export default function DashboardPage() {
           activeSpeaker={activeSpeaker}
           seatStatuses={seatStatuses}
           isOutOfCredits={isOutOfCredits}
+          isLowCredit={userPlan === 'free' && remainingCents > 0 && remainingCents <= 25}
           onUpgradeClick={async () => {
             try {
               const res = await fetch('/api/stripe/checkout', { method: 'POST' });
@@ -1024,6 +1041,12 @@ export default function DashboardPage() {
       <OutOfCreditsModal
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
+      />
+
+      {/* Low Credit Warning Modal */}
+      <LowCreditModal
+        isOpen={showLowCreditModal}
+        onClose={() => setShowLowCreditModal(false)}
       />
 
       {/* Account Settings Modal */}

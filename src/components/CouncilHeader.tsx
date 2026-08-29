@@ -20,6 +20,7 @@ interface CouncilHeaderProps {
   activeSpeaker?: ModelId | null;
   seatStatuses?: Record<ModelId, SeatStatus>;
   isOutOfCredits?: boolean;
+  isLowCredit?: boolean;
   onUpgradeClick?: () => void;
 }
 
@@ -36,6 +37,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
     'chatgpt': 'idle',
   },
   isOutOfCredits = false,
+  isLowCredit = false,
   onUpgradeClick,
 }) => {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -190,13 +192,22 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
         {/* Right: Clean minimal deliberation status and out of credits badge */}
         <div className="flex items-center gap-2">
           {isOutOfCredits && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-red-800 bg-red-50 px-2.5 py-0.5 rounded-md border border-red-200/70">
               <span>Free credits used —</span>
               <button 
                 type="button" 
                 onClick={onUpgradeClick || (() => {})} 
                 className="underline hover:no-underline cursor-pointer"
               >
+                Upgrade
+              </button>
+            </div>
+          )}
+
+          {isLowCredit && !isOutOfCredits && (
+            <div className="flex items-center gap-1.5 text-xs font-medium text-red-800 bg-red-50 px-2.5 py-0.5 rounded-md border border-red-200/70">
+              <span>Almost out of free credit —</span>
+              <button type="button" onClick={onUpgradeClick || (() => {})} className="underline hover:no-underline cursor-pointer">
                 Upgrade
               </button>
             </div>
