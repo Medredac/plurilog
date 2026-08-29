@@ -918,7 +918,17 @@ export default function DashboardPage() {
           activeSpeaker={activeSpeaker}
           seatStatuses={seatStatuses}
           isOutOfCredits={isOutOfCredits}
-          onUpgradeClick={() => setShowUpgradeModal(true)}
+          onUpgradeClick={async () => {
+            try {
+              const res = await fetch('/api/stripe/checkout', { method: 'POST' });
+              const data = await res.json();
+              if (data.url) {
+                window.location.href = data.url;
+              }
+            } catch (err) {
+              console.error('[Header Upgrade] Failed to start checkout:', err);
+            }
+          }}
         />
 
         {/* Full-width scrollable viewport / Centered Empty State */}

@@ -1,6 +1,6 @@
 'use client';
-import React, { useState } from 'react';
-import { Sparkles, Check } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Check } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
   isOpen: boolean;
@@ -9,6 +9,16 @@ interface OutOfCreditsModalProps {
 
 export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, onClose }) => {
   const [isRedirecting, setIsRedirecting] = useState(false);
+
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        setIsRedirecting(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
 
   const handleUpgrade = async () => {
     setIsRedirecting(true);
@@ -32,16 +42,16 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-xs rounded-2xl bg-white border border-zinc-200/90 p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 text-center">
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 border border-amber-200/80 px-2.5 py-1 rounded-full mb-4">
-          <Sparkles className="w-3 h-3" />
-          Free trial used
-        </span>
-        <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-1.5">
+      <div className="relative w-full max-w-xs rounded-2xl bg-white border border-zinc-200/90 p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center gap-2 mb-3">
+          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6" />
+          <span className="text-xs font-medium text-zinc-500">You've used all your free credit</span>
+        </div>
+        <h3 className="text-2xl font-semibold text-zinc-900 tracking-tight mb-1.5">
           Upgrade to Plus
         </h3>
-        <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
-          Keep the conversation going.
+        <p className="text-sm text-zinc-500 leading-relaxed mb-5">
+          To keep the conversation going.
         </p>
         <div className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-4 mb-5 text-left">
           <div className="flex items-baseline gap-1 mb-0.5">
@@ -71,7 +81,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
             disabled={isRedirecting}
             className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer shadow-sm disabled:opacity-60"
           >
-            {isRedirecting ? 'Redirecting…' : 'Upgrade to Plus'}
+            {isRedirecting ? 'Redirecting…' : 'Upgrade'}
           </button>
           <button
             type="button"
