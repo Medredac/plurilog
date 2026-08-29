@@ -28,11 +28,12 @@ export async function POST(request: Request) {
         const userId = session.client_reference_id;
         if (!userId || !session.subscription) break;
 
-        const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
+        const subscriptionId = session.subscription as string;
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end ?? (Date.now() / 1000 + 30 * 24 * 3600);
         const periodEnd = new Date(periodEndTimestamp * 1000).toISOString();
 
-        await supabase.from('profiles').update({
+        const { error, count } = await supabase.from('profiles').update({
           plan: 'paid',
           plan_status: 'active',
           credits_cents: 600,
@@ -41,9 +42,15 @@ export async function POST(request: Request) {
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
           stripe_customer_id: session.customer as string,
-          stripe_subscription_id: session.subscription as string,
+          stripe_subscription_id: subscriptionId,
           updated_at: new Date().toISOString(),
-        }).eq('id', userId);
+        }, { count: 'exact' }).eq('id', userId);
+
+        if (error) {
+          console.error(`[Stripe Webhook] Supabase update failed for checkout.session.completed:`, error);
+        } else if (count === 0) {
+          console.error(`[Stripe Webhook] Supabase update matched 0 rows for checkout.session.completed, subscriptionId: ${subscriptionId}`);
+        }
 
         console.log(`[Stripe Webhook] Upgraded user ${userId} to paid.`);
         break;
@@ -62,14 +69,20 @@ export async function POST(request: Request) {
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end ?? (Date.now() / 1000 + 30 * 24 * 3600);
         const periodEnd = new Date(periodEndTimestamp * 1000).toISOString();
 
-        await supabase.from('profiles').update({
+        const { error, count } = await supabase.from('profiles').update({
           plan_status: 'active',
           remaining_cents: 600,
           total_spent_cents: 0,
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
           updated_at: new Date().toISOString(),
-        }).eq('stripe_subscription_id', subscriptionId);
+        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+
+        if (error) {
+          console.error(`[Stripe Webhook] Supabase update failed for invoice.paid:`, error);
+        } else if (count === 0) {
+          console.error(`[Stripe Webhook] Supabase update matched 0 rows for invoice.paid, subscriptionId: ${subscriptionId}`);
+        }
 
         console.log(`[Stripe Webhook] Renewed subscription ${subscriptionId}.`);
         break;
@@ -84,10 +97,16 @@ export async function POST(request: Request) {
         ) as string | null;
         if (!subscriptionId) break;
 
-        await supabase.from('profiles').update({
+        const { error, count } = await supabase.from('profiles').update({
           plan_status: 'past_due',
           updated_at: new Date().toISOString(),
-        }).eq('stripe_subscription_id', subscriptionId);
+        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+
+        if (error) {
+          console.error(`[Stripe Webhook] Supabase update failed for invoice.payment_failed:`, error);
+        } else if (count === 0) {
+          console.error(`[Stripe Webhook] Supabase update matched 0 rows for invoice.payment_failed, subscriptionId: ${subscriptionId}`);
+        }
 
         console.log(`[Stripe Webhook] Payment failed for subscription ${subscriptionId}, marked past_due.`);
         break;
@@ -95,14 +114,21 @@ export async function POST(request: Request) {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
+        const subscriptionId = subscription.id;
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
 
-        await supabase.from('profiles').update({
+        const { error, count } = await supabase.from('profiles').update({
           plan_status: (subscription.cancel_at_period_end || subscription.cancel_at !== null) ? 'canceling' : 'active',
           ...(periodEnd ? { current_period_end: periodEnd, period_reset_at: periodEnd } : {}),
           updated_at: new Date().toISOString(),
-        }).eq('stripe_subscription_id', subscription.id);
+        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+
+        if (error) {
+          console.error(`[Stripe Webhook] Supabase update failed for customer.subscription.updated:`, error);
+        } else if (count === 0) {
+          console.error(`[Stripe Webhook] Supabase update matched 0 rows for customer.subscription.updated, subscriptionId: ${subscriptionId}`);
+        }
 
         console.log(`[Stripe Webhook] Subscription ${subscription.id} updated — cancel_at: ${subscription.cancel_at}, cancel_at_period_end: ${subscription.cancel_at_period_end}`);
         break;
@@ -110,15 +136,22 @@ export async function POST(request: Request) {
 
       case 'customer.subscription.deleted': {
         const subscription = event.data.object as Stripe.Subscription;
+        const subscriptionId = subscription.id;
 
-        await supabase.from('profiles').update({
+        const { error, count } = await supabase.from('profiles').update({
           plan: 'free',
           plan_status: 'canceled',
           credits_cents: 50,
           remaining_cents: 0,
           period_reset_at: null,
           updated_at: new Date().toISOString(),
-        }).eq('stripe_subscription_id', subscription.id);
+        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+
+        if (error) {
+          console.error(`[Stripe Webhook] Supabase update failed for customer.subscription.deleted:`, error);
+        } else if (count === 0) {
+          console.error(`[Stripe Webhook] Supabase update matched 0 rows for customer.subscription.deleted, subscriptionId: ${subscriptionId}`);
+        }
 
         console.log(`[Stripe Webhook] Subscription ${subscription.id} ended, reverted to free.`);
         break;
