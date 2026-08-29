@@ -69,19 +69,33 @@ export async function POST(request: Request) {
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end ?? (Date.now() / 1000 + 30 * 24 * 3600);
         const periodEnd = new Date(periodEndTimestamp * 1000).toISOString();
 
-        const { error, count } = await supabase.from('profiles').update({
+        const updatePayload = {
           plan_status: 'active',
           remaining_cents: 600,
           total_spent_cents: 0,
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
+          stripe_subscription_id: subscriptionId,
           updated_at: new Date().toISOString(),
-        }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+        };
+
+        let matchPath = 'stripe_subscription_id';
+        let { error, count } = await supabase.from('profiles').update(updatePayload, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
+
+        const customerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer as any)?.id;
+        if (!error && count === 0 && customerId) {
+          matchPath = 'stripe_customer_id';
+          const fallback = await supabase.from('profiles').update(updatePayload, { count: 'exact' }).eq('stripe_customer_id', customerId);
+          error = fallback.error;
+          count = fallback.count;
+        }
 
         if (error) {
           console.error(`[Stripe Webhook] Supabase update failed for invoice.paid:`, error);
         } else if (count === 0) {
           console.error(`[Stripe Webhook] Supabase update matched 0 rows for invoice.paid, subscriptionId: ${subscriptionId}`);
+        } else {
+          console.log(`[Stripe Webhook] invoice.paid updated profile via ${matchPath}.`);
         }
 
         console.log(`[Stripe Webhook] Renewed subscription ${subscriptionId}.`);
