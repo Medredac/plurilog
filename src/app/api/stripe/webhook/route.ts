@@ -133,7 +133,11 @@ export async function POST(request: Request) {
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
 
         const { error, count } = await supabase.from('profiles').update({
-          plan_status: (subscription.cancel_at_period_end || subscription.cancel_at !== null) ? 'canceling' : 'active',
+          plan_status: (subscription.status === 'past_due' || subscription.status === 'unpaid')
+            ? 'past_due'
+            : (subscription.cancel_at_period_end || subscription.cancel_at !== null)
+              ? 'canceling'
+              : 'active',
           ...(periodEnd ? { current_period_end: periodEnd, period_reset_at: periodEnd } : {}),
           updated_at: new Date().toISOString(),
         }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
