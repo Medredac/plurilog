@@ -64,6 +64,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (mode === 'signin') {
+        if (!email.trim() || !password.trim()) {
+          setErrorMessage('Please enter a valid email and password.');
+          setIsLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password: password,
