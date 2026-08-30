@@ -28,8 +28,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const supabase = createClient();
 
   useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        setIsLoading(false);
+      }
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
+      setDisplayName('');
+      setEmail('');
+      setPassword('');
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      setIsLoading(false);
     }
   }, [isOpen, initialMode]);
 
