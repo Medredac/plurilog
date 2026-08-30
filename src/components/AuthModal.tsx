@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
 import { ResetPasswordModal } from './ResetPasswordModal';
 
@@ -22,6 +22,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMessage(null);
       setIsLoading(false);
       setIsResetPasswordOpen(false);
+      setShowPassword(false);
     }
   }, [isOpen, initialMode]);
 
@@ -289,14 +291,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <label className="block text-[11px] font-medium text-zinc-700 mb-1">
               Password{mode === 'signup' && <span className="text-red-500 ml-0.5">*</span>}
             </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full pl-3 pr-9 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-600 transition-colors cursor-pointer"
+                title={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </div>
             {mode === 'signin' && (
               <div className="flex justify-end mt-1.5">
                 <button
