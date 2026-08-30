@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { ArrowUp, Paperclip, X, Square } from 'lucide-react';
+import { UploadFileDrawer } from './UploadFileDrawer';
 
 interface ChatInputProps {
   onSendMessage: (content: string, imageFile?: File) => void;
@@ -25,6 +26,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [inputVal, setInputVal] = useState('');
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [isUploadDrawerOpen, setIsUploadDrawerOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,8 +146,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           {/* Attach icon */}
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            title="Attach image"
+            onClick={() => setIsUploadDrawerOpen(true)}
+            title="Attach file"
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
           >
             <Paperclip className="w-4 h-4" />
@@ -189,6 +191,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           )}
         </div>
       </div>
+
+      {/* Upload File Drawer */}
+      <UploadFileDrawer
+        isOpen={isUploadDrawerOpen}
+        onClose={() => setIsUploadDrawerOpen(false)}
+      />
     </div>
   );
 };
