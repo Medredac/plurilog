@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Check } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { ResetPasswordModal } from './ResetPasswordModal';
 
 interface AccountSettingsModalProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   const [isSavingName, setIsSavingName] = useState(false);
   const [isRedirectingCard, setIsRedirectingCard] = useState(false);
   const [isRedirectingPromo, setIsRedirectingPromo] = useState(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
   const initial = displayName.charAt(0).toUpperCase();
 
   useEffect(() => {
@@ -153,7 +155,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => {}}
+            onClick={() => setIsResetPasswordOpen(true)}
             className="text-xs font-medium text-zinc-600 hover:text-zinc-900 underline hover:no-underline cursor-pointer"
           >
             Reset password
@@ -218,6 +220,12 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
           </div>
         </div>
       </div>
+
+      <ResetPasswordModal
+        isOpen={isResetPasswordOpen}
+        onClose={() => setIsResetPasswordOpen(false)}
+        initialEmail={userEmail}
+      />
     </div>
   );
 };
