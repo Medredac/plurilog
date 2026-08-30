@@ -101,7 +101,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (data.session) {
           onSuccess();
         } else if (data.user && data.user.identities && data.user.identities.length === 0) {
-          setErrorMessage('An account with this email already exists. Please sign in.');
+          const submittedEmail = email.trim();
+          setEmail(submittedEmail);
+          setErrorMessage(`An account associated with ${submittedEmail} already exists.`);
         } else {
           setSuccessMessage("Account created! We've sent a confirmation link to your email — click it to activate your account.");
           setTimeout(() => {
@@ -182,7 +184,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           errorMessage !== 'Please enter a valid email address.' && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span className="leading-snug">{errorMessage}</span>
+            <span className="leading-snug">
+              {errorMessage}
+              {mode === 'signup' && errorMessage.startsWith('An account associated with ') && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('signin');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className="font-medium text-zinc-900 underline hover:no-underline cursor-pointer ml-0.5"
+                  >
+                    Sign in
+                  </button>
+                </>
+              )}
+            </span>
           </div>
         )}
 
