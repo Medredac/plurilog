@@ -17,6 +17,7 @@ export interface ChatMessage {
   authorName?: string;
   content: string;
   timestamp: string;
+  image_url?: string | null;
   likes?: number;
   isConsensusSummary?: boolean;
   isStreaming?: boolean;

@@ -288,6 +288,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
 
+                {/* Attached Image if present */}
+                {message.image_url && (
+                  <div className="mb-2.5 max-w-xs rounded-lg overflow-hidden border border-stone-200/90 shadow-2xs">
+                    <img
+                      src={message.image_url}
+                      alt="Attached image"
+                      className="w-full h-auto object-cover max-h-72"
+                    />
+                  </div>
+                )}
+
                 {/* Message Body with truncation if long */}
                 <div className="relative">
                   <p

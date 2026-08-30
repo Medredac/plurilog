@@ -208,6 +208,7 @@ export default function DashboardPage() {
           timestamp: m.created_at
             ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '',
+          image_url: m.image_url || null,
           likes: 0,
           isStreaming: false,
         };
@@ -707,9 +708,9 @@ export default function DashboardPage() {
   };
 
   // Triggered when user submits a new prompt
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, imageFile?: File) => {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
-    if (isDebating || !content.trim() || !userId || activeSeatOrder.length === 0) return;
+    if (isDebating || (!content.trim() && !imageFile) || !userId || activeSeatOrder.length === 0) return;
 
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
@@ -719,6 +720,43 @@ export default function DashboardPage() {
     setCanContinue(false);
     setErrorMessage(null);
     setIsDebating(true);
+
+    let imageUrl: string | null = null;
+
+    // Handle image upload to Supabase Storage if present
+    if (imageFile) {
+      try {
+        const filePath = `${userId}/${Date.now()}-${imageFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('message-images')
+          .upload(filePath, imageFile);
+
+        if (uploadError) {
+          console.error('[Supabase Storage Error] Upload failed:', uploadError);
+          setErrorMessage('Failed to upload image. Please try again.');
+          setIsDebating(false);
+          return;
+        }
+
+        const { data: signedData, error: signError } = await supabase.storage
+          .from('message-images')
+          .createSignedUrl(filePath, 259200); // 72 hours
+
+        if (signError || !signedData?.signedUrl) {
+          console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
+          setErrorMessage('Failed to process image. Please try again.');
+          setIsDebating(false);
+          return;
+        }
+
+        imageUrl = signedData.signedUrl;
+      } catch (err: any) {
+        console.error('[Supabase Storage Exception]', err);
+        setErrorMessage('Failed to upload image. Please try again.');
+        setIsDebating(false);
+        return;
+      }
+    }
 
     const initialStatuses: Record<ModelId, SeatStatus> = {
       gemini: 'idle',
@@ -811,6 +849,7 @@ export default function DashboardPage() {
       authorName: 'You',
       content: content,
       timestamp: nowTimeStr,
+      image_url: imageUrl,
     };
 
     // Optimistic UI update: instantly append user message
@@ -822,6 +861,7 @@ export default function DashboardPage() {
           discussion_id: currentDiscussionId,
           sender: 'user',
           content: content,
+          image_url: imageUrl,
         }).select();
 
         if (insertUserErr) {
