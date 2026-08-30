@@ -154,7 +154,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Error / Success Notifications */}
-        {errorMessage && (
+        {errorMessage && errorMessage !== 'Password must be at least 6 characters and contain letters and numbers.' && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span className="leading-snug">{errorMessage}</span>
@@ -194,11 +194,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode === 'signup' && (
             <div>
               <label className="block text-[11px] font-medium text-zinc-700 mb-1">
-                Display name
+                Display name <span className="text-zinc-400 font-normal">(optional)</span>
               </label>
               <input
                 type="text"
-                required
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Your name"
@@ -209,7 +208,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <div>
             <label className="block text-[11px] font-medium text-zinc-700 mb-1">
-              Email address
+              Email address{mode === 'signup' && <span className="text-red-500 ml-0.5">*</span>}
             </label>
             <input
               type="email"
@@ -223,7 +222,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <div>
             <label className="block text-[11px] font-medium text-zinc-700 mb-1">
-              Password
+              Password{mode === 'signup' && <span className="text-red-500 ml-0.5">*</span>}
             </label>
             <input
               type="password"
@@ -233,6 +232,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               placeholder="••••••••"
               className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
             />
+            {mode === 'signup' && errorMessage === 'Password must be at least 6 characters and contain letters and numbers.' && (
+              <p className="text-[11px] text-red-600 mt-1.5 leading-snug">
+                Password must be at least 6 characters and contain letters and numbers.
+              </p>
+            )}
           </div>
 
           <button
