@@ -30,6 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Automatically focus textarea on mount, empty state, or when switching discussions
   React.useEffect(() => {
@@ -143,15 +144,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         )}
 
         <div className="flex items-end gap-2">
-          {/* Attach icon */}
-          <button
-            type="button"
-            onClick={() => setIsUploadDrawerOpen(true)}
-            title="Attach file"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer shrink-0 mb-0.5"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
+          {/* Attach icon & Popover */}
+          <div className="relative shrink-0 mb-0.5">
+            <button
+              ref={triggerRef}
+              type="button"
+              onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
+              title="Attach file"
+              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+
+            {/* Upload File Popover */}
+            <UploadFileDrawer
+              isOpen={isUploadDrawerOpen}
+              onClose={() => setIsUploadDrawerOpen(false)}
+              triggerRef={triggerRef}
+            />
+          </div>
 
           {/* Textarea */}
           <textarea
@@ -191,12 +202,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           )}
         </div>
       </div>
-
-      {/* Upload File Drawer */}
-      <UploadFileDrawer
-        isOpen={isUploadDrawerOpen}
-        onClose={() => setIsUploadDrawerOpen(false)}
-      />
     </div>
   );
 };
