@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
+import { ResetPasswordModal } from './ResetPasswordModal';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
 
   const supabase = createClient();
 
@@ -46,6 +48,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrorMessage(null);
       setSuccessMessage(null);
       setIsLoading(false);
+      setIsResetPasswordOpen(false);
     }
   }, [isOpen, initialMode]);
 
@@ -202,6 +205,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </button>
                 </>
               )}
+              {mode === 'signin' && errorMessage === 'Invalid login credentials' && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => setIsResetPasswordOpen(true)}
+                    className="font-medium text-zinc-900 underline hover:no-underline cursor-pointer ml-0.5"
+                  >
+                    Forgot password?
+                  </button>
+                </>
+              )}
             </span>
           </div>
         )}
@@ -282,6 +297,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               placeholder="••••••••"
               className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
             />
+            {mode === 'signin' && (
+              <div className="flex justify-end mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsResetPasswordOpen(true)}
+                  className="text-[11px] font-medium text-zinc-500 hover:text-zinc-900 hover:underline cursor-pointer"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
             {mode === 'signup' && errorMessage === 'Password must be at least 6 characters and contain letters and numbers.' && (
               <p className="text-[11px] text-red-600 mt-1.5 leading-snug">
                 Password must be at least 6 characters and contain letters and numbers.
@@ -322,6 +348,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </p>
         </div>
       </div>
+
+      <ResetPasswordModal
+        isOpen={isResetPasswordOpen}
+        onClose={() => setIsResetPasswordOpen(false)}
+        initialEmail={email}
+      />
     </div>
   );
 };
