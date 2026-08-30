@@ -32,8 +32,9 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setErrorMessage('Please enter an email address.');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setErrorMessage('Please enter a valid email address.');
       return;
     }
 
@@ -81,7 +82,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} noValidate>
             <p className="text-xs text-zinc-500 leading-relaxed mb-3">
               Enter your email address to receive a link to reset your password.
             </p>
@@ -97,7 +98,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
                 disabled={isLoading}
               />
               {errorMessage && (
-                <p className="text-xs text-red-600 mt-1.5">{errorMessage}</p>
+                <p className="text-[11px] text-red-600 mt-1.5 leading-snug">{errorMessage}</p>
               )}
             </div>
 
