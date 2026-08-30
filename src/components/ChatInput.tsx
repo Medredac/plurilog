@@ -113,7 +113,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <input
         type="file"
         ref={fileInputRef}
-        accept="image/*"
+        accept="image/*,.pdf,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={handleFileSelect}
       />
@@ -161,6 +161,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               isOpen={isUploadDrawerOpen}
               onClose={() => setIsUploadDrawerOpen(false)}
               triggerRef={triggerRef}
+              onUploadClick={() => {
+                fileInputRef.current?.click();
+              }}
             />
           </div>
 
