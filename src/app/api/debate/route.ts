@@ -379,8 +379,7 @@ export async function POST(req: NextRequest) {
                 seatId: seat.seatId,
                 message: `${seat.name}: ${err?.message || 'Model request failed'}`,
               });
-              safeClose();
-              return;
+              continue;
             }
           }
 
