@@ -291,7 +291,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 {/* Message Body with truncation if long */}
                 <div className="relative">
                   <p
-                    className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line ${
+                    className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
                       isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
                     }`}
                   >
