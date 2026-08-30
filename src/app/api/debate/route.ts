@@ -35,7 +35,8 @@ export function buildPanelMessages(
   currentModelName: string,
   prompt: string,
   priorResponses: PriorResponse[],
-  discussionMemory?: DiscussionMemoryResult
+  discussionMemory?: DiscussionMemoryResult,
+  imageUrl?: string | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -84,15 +85,25 @@ export function buildPanelMessages(
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
 
+  const userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam = imageUrl
+    ? {
+        role: 'user',
+        content: [
+          { type: 'text', text: userContent },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      }
+    : {
+        role: 'user',
+        content: userContent,
+      };
+
   return [
     {
       role: 'system',
       content: systemContent,
     },
-    {
-      role: 'user',
-      content: userContent,
-    },
+    userMessageParam,
   ];
 }
 
@@ -110,7 +121,7 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId, seatOrder, isContinueRound } = await req.json();
+    const { prompt, discussionId, seatOrder, isContinueRound, imageUrl } = await req.json();
 
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim())) {
       return new Response(
@@ -265,7 +276,8 @@ export async function POST(req: NextRequest) {
               seat.name,
               prompt,
               priorResponses,
-              discussionMemory
+              discussionMemory,
+              imageUrl
             );
 
             if (seat.seatId === configuredSeats[0].seatId) {

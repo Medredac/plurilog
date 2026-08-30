@@ -452,7 +452,8 @@ export default function DashboardPage() {
     promptToSend: string,
     discussionId: string,
     activeSeatOrder: ModelId[],
-    isContinueRound?: boolean
+    isContinueRound?: boolean,
+    imageUrl?: string | null
   ) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -469,6 +470,7 @@ export default function DashboardPage() {
           discussionId: discussionId,
           seatOrder: activeSeatOrder,
           isContinueRound: isContinueRound || false,
+          imageUrl: imageUrl || null,
         }),
       });
 
@@ -896,7 +898,7 @@ export default function DashboardPage() {
 
     // 4. Trigger sequential AI relay
     if (currentDiscussionId) {
-      await runRelay(content, currentDiscussionId, activeSeatOrder);
+      await runRelay(content, currentDiscussionId, activeSeatOrder, false, realSignedUrl);
     }
   };
 
@@ -951,7 +953,7 @@ export default function DashboardPage() {
     }
 
     // 2. Trigger relay with empty string prompt and isContinueRound flag
-    await runRelay('', activeDebateId, activeSeatOrder, true);
+    await runRelay('', activeDebateId, activeSeatOrder, true, null);
   };
 
   if (isLoadingAuth) {
