@@ -58,10 +58,6 @@ export default function ResetPasswordPage() {
       setErrorMessage('Passwords do not match.');
       return;
     }
-    if (password.length < 6) {
-      setErrorMessage('Password must be at least 6 characters long.');
-      return;
-    }
 
     setIsSubmitting(true);
     setErrorMessage(null);
@@ -69,12 +65,20 @@ export default function ResetPasswordPage() {
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) {
-        setErrorMessage(error.message || 'Failed to update password.');
+        if (error.code === 'weak_password') {
+          setErrorMessage('Password must be at least 6 characters and contain letters and numbers.');
+        } else {
+          setErrorMessage(error.message || 'Failed to update password.');
+        }
       } else {
         setIsSuccess(true);
       }
     } catch (err: any) {
-      setErrorMessage(err?.message || 'An unexpected error occurred.');
+      if (err?.code === 'weak_password') {
+        setErrorMessage('Password must be at least 6 characters and contain letters and numbers.');
+      } else {
+        setErrorMessage(err?.message || 'An unexpected error occurred.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -153,7 +157,6 @@ export default function ResetPasswordPage() {
                 <input
                   type="password"
                   required
-                  minLength={6}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
@@ -169,7 +172,6 @@ export default function ResetPasswordPage() {
                 <input
                   type="password"
                   required
-                  minLength={6}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"

@@ -67,6 +67,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         });
 
         if (error) {
+          if (error.code === 'weak_password') {
+            setErrorMessage('Password must be at least 6 characters and contain letters and numbers.');
+            setIsLoading(false);
+            return;
+          }
           throw error;
         }
 
@@ -85,7 +90,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     } catch (err: any) {
       console.error('Supabase auth error:', err);
-      setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
+      if (err?.code === 'weak_password') {
+        setErrorMessage('Password must be at least 6 characters and contain letters and numbers.');
+      } else {
+        setErrorMessage(err?.message || 'Authentication failed. Please check your credentials.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -219,7 +228,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <input
               type="password"
               required
-              minLength={6}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
