@@ -150,10 +150,10 @@ export default function LandingPage() {
               </button>
 
               <button
-                onClick={() => {}}
+                onClick={() => handleOpenAuth('signin')}
                 className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
-                <span>Watch Demo</span>
+                <span>Sign in</span>
               </button>
             </div>
           </div>
