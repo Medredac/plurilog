@@ -75,7 +75,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         } else if (data.user && data.user.identities && data.user.identities.length === 0) {
           setErrorMessage('An account with this email already exists. Please sign in.');
         } else {
-          setSuccessMessage('Account created! If email confirmation is enabled, check your inbox to verify your account.');
+          setSuccessMessage("Account created! We've sent a confirmation link to your email — click it to activate your account.");
           setTimeout(() => {
             if (data.session) {
               onSuccess();
