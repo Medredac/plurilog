@@ -427,6 +427,40 @@ export default function DashboardPage() {
     }
 
     try {
+      // Find and delete any attached images in storage for this discussion
+      const { data: imgMessages, error: imgFetchErr } = await supabase
+        .from('messages')
+        .select('image_url')
+        .eq('discussion_id', id)
+        .not('image_url', 'is', null);
+
+      if (imgFetchErr) {
+        console.error('[Supabase Error] Error fetching images for discussion deletion:', imgFetchErr, { discussion_id: id });
+      } else if (imgMessages && imgMessages.length > 0) {
+        const filePaths: string[] = [];
+        for (const row of imgMessages) {
+          if (!row.image_url) continue;
+          const bucketIndex = row.image_url.indexOf('message-images/');
+          if (bucketIndex !== -1) {
+            const rawPath = row.image_url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
+            const decodedPath = decodeURIComponent(rawPath);
+            if (decodedPath) {
+              filePaths.push(decodedPath);
+            }
+          }
+        }
+
+        if (filePaths.length > 0) {
+          const { error: storageRemoveErr } = await supabase.storage
+            .from('message-images')
+            .remove(filePaths);
+
+          if (storageRemoveErr) {
+            console.error('[Supabase Error] Error removing discussion images from storage:', storageRemoveErr, { filePaths });
+          }
+        }
+      }
+
       const { error: msgDelErr } = await supabase.from('messages').delete().eq('discussion_id', id);
       if (msgDelErr) {
         console.error('[Supabase Error] Error deleting messages for discussion:', msgDelErr, { discussion_id: id });
