@@ -721,43 +721,6 @@ export default function DashboardPage() {
     setErrorMessage(null);
     setIsDebating(true);
 
-    let imageUrl: string | null = null;
-
-    // Handle image upload to Supabase Storage if present
-    if (imageFile) {
-      try {
-        const filePath = `${userId}/${Date.now()}-${imageFile.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from('message-images')
-          .upload(filePath, imageFile);
-
-        if (uploadError) {
-          console.error('[Supabase Storage Error] Upload failed:', uploadError);
-          setErrorMessage('Failed to upload image. Please try again.');
-          setIsDebating(false);
-          return;
-        }
-
-        const { data: signedData, error: signError } = await supabase.storage
-          .from('message-images')
-          .createSignedUrl(filePath, 259200); // 72 hours
-
-        if (signError || !signedData?.signedUrl) {
-          console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
-          setErrorMessage('Failed to process image. Please try again.');
-          setIsDebating(false);
-          return;
-        }
-
-        imageUrl = signedData.signedUrl;
-      } catch (err: any) {
-        console.error('[Supabase Storage Exception]', err);
-        setErrorMessage('Failed to upload image. Please try again.');
-        setIsDebating(false);
-        return;
-      }
-    }
-
     const initialStatuses: Record<ModelId, SeatStatus> = {
       gemini: 'idle',
       claude: 'idle',
@@ -771,6 +734,22 @@ export default function DashboardPage() {
     let currentDiscussionId = activeDebateId;
     const nowIso = new Date().toISOString();
     const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Temporary local blob URL for instant optimistic display without waiting for storage upload
+    const tempImageUrl = imageFile ? URL.createObjectURL(imageFile) : null;
+    const tempUserMsgId = `msg-user-${Date.now()}`;
+    const userMsg: ChatMessage = {
+      id: tempUserMsgId,
+      discussionId: currentDiscussionId || undefined,
+      role: 'user',
+      authorName: 'You',
+      content: content,
+      timestamp: nowTimeStr,
+      image_url: tempImageUrl,
+    };
+
+    // Instant optimistic UI update: immediately append user message to chat
+    setMessages((prev) => [...prev, userMsg]);
 
     // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
     if (!currentDiscussionId) {
@@ -840,28 +819,65 @@ export default function DashboardPage() {
       touchDiscussion(currentDiscussionId, content.slice(0, 70) + (content.length > 70 ? '...' : ''));
     }
 
-    // 2. Insert user message locally and into Supabase messages table
-    const tempUserMsgId = `msg-user-${Date.now()}`;
-    const userMsg: ChatMessage = {
-      id: tempUserMsgId,
-      discussionId: currentDiscussionId || undefined,
-      role: 'user',
-      authorName: 'You',
-      content: content,
-      timestamp: nowTimeStr,
-      image_url: imageUrl,
-    };
+    // 2. Handle image upload to Supabase Storage in background if present
+    let realSignedUrl: string | null = null;
+    if (imageFile) {
+      try {
+        const filePath = `${userId}/${Date.now()}-${imageFile.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('message-images')
+          .upload(filePath, imageFile);
 
-    // Optimistic UI update: instantly append user message
-    setMessages((prev) => [...prev, userMsg]);
+        if (uploadError) {
+          console.error('[Supabase Storage Error] Upload failed:', uploadError);
+          // Rollback optimistic message on failure
+          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
+          if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+          setErrorMessage('Failed to upload image. Please try again.');
+          setIsDebating(false);
+          return;
+        }
 
+        const { data: signedData, error: signError } = await supabase.storage
+          .from('message-images')
+          .createSignedUrl(filePath, 259200); // 72 hours
+
+        if (signError || !signedData?.signedUrl) {
+          console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
+          // Rollback optimistic message on failure
+          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
+          if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+          setErrorMessage('Failed to process image. Please try again.');
+          setIsDebating(false);
+          return;
+        }
+
+        realSignedUrl = signedData.signedUrl;
+
+        // Replace temporary object URL with real signed URL and revoke object URL
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempUserMsgId ? { ...m, image_url: realSignedUrl } : m))
+        );
+        if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+      } catch (err: any) {
+        console.error('[Supabase Storage Exception]', err);
+        // Rollback optimistic message on failure
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
+        if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+        setErrorMessage('Failed to upload image. Please try again.');
+        setIsDebating(false);
+        return;
+      }
+    }
+
+    // 3. Persist user message to Supabase messages table
     if (currentDiscussionId) {
       try {
         const { data: insertedUserMsg, error: insertUserErr } = await supabase.from('messages').insert({
           discussion_id: currentDiscussionId,
           sender: 'user',
           content: content,
-          image_url: imageUrl,
+          image_url: realSignedUrl,
         }).select();
 
         if (insertUserErr) {
@@ -878,7 +894,7 @@ export default function DashboardPage() {
       }
     }
 
-    // 3. Trigger sequential AI relay
+    // 4. Trigger sequential AI relay
     if (currentDiscussionId) {
       await runRelay(content, currentDiscussionId, activeSeatOrder);
     }

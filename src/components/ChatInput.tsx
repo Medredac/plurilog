@@ -3,6 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { ArrowUp, Paperclip, X, Square } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
+import { ImageLightbox } from './ImageLightbox';
 
 interface ChatInputProps {
   onSendMessage: (content: string, imageFile?: File) => void;
@@ -27,6 +28,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [isUploadDrawerOpen, setIsUploadDrawerOpen] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -75,6 +77,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
     setAttachedFile(null);
     setImagePreviewUrl(null);
+    setIsLightboxOpen(false);
   };
 
   const handleSend = () => {
@@ -133,17 +136,22 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {/* Attached Image Thumbnail Preview */}
         {imagePreviewUrl && (
           <div className="relative self-start group animate-in fade-in zoom-in-95 duration-150">
-            <div className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => setIsLightboxOpen(true)}
+              className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+              title="Click to view full image"
+            >
               <img
                 src={imagePreviewUrl}
                 alt="Selected attachment"
                 className="w-full h-full object-cover"
               />
-            </div>
+            </button>
             <button
               type="button"
               onClick={handleRemoveAttachment}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 transition-colors cursor-pointer"
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 transition-colors cursor-pointer z-10"
               title="Remove attachment"
             >
               <X className="w-3 h-3" />
@@ -216,6 +224,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           )}
         </div>
       </div>
+      {/* Image Lightbox Modal */}
+      <ImageLightbox
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        imageUrl={imagePreviewUrl}
+      />
     </div>
   );
 };

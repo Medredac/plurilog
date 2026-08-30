@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
+import { ImageLightbox } from './ImageLightbox';
 
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
@@ -196,6 +197,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
+  const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
   // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
   useEffect(() => {
@@ -288,15 +290,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
 
-                {/* Attached Image if present */}
+                {/* Attached Image Thumbnail if present */}
                 {message.image_url && (
-                  <div className="mb-2.5 max-w-xs rounded-lg overflow-hidden border border-stone-200/90 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setLightboxImageUrl(message.image_url!)}
+                    className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                    title="Click to view full image"
+                  >
                     <img
                       src={message.image_url}
                       alt="Attached image"
-                      className="w-full h-auto object-cover max-h-72"
+                      className="w-full h-full object-cover"
                     />
-                  </div>
+                  </button>
                 )}
 
                 {/* Message Body with truncation if long */}
@@ -463,6 +470,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
       {/* Invisible anchor for auto-scroll on discussion load */}
       <div ref={bottomRef} className="h-1 w-full" />
+
+      {/* Image Lightbox Modal */}
+      <ImageLightbox
+        isOpen={!!lightboxImageUrl}
+        onClose={() => setLightboxImageUrl(null)}
+        imageUrl={lightboxImageUrl}
+      />
     </div>
   );
 };
