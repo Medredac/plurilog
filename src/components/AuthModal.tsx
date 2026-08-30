@@ -72,6 +72,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onSuccess();
         }
       } else {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+          setErrorMessage('Please enter a valid email address.');
+          setIsLoading(false);
+          return;
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
@@ -170,7 +177,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Error / Success Notifications */}
-        {errorMessage && errorMessage !== 'Password must be at least 6 characters and contain letters and numbers.' && (
+        {errorMessage &&
+          errorMessage !== 'Password must be at least 6 characters and contain letters and numbers.' &&
+          errorMessage !== 'Please enter a valid email address.' && (
           <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span className="leading-snug">{errorMessage}</span>
@@ -206,7 +215,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
           {mode === 'signup' && (
             <div>
               <label className="block text-[11px] font-medium text-zinc-700 mb-1">
@@ -234,6 +243,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               placeholder="you@example.com"
               className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
             />
+            {mode === 'signup' && errorMessage === 'Please enter a valid email address.' && (
+              <p className="text-[11px] text-red-600 mt-1.5 leading-snug">
+                Please enter a valid email address.
+              </p>
+            )}
           </div>
 
           <div>
