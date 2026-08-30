@@ -30,6 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Automatically focus textarea on mount, empty state, or when switching discussions
@@ -109,11 +110,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className={containerClasses}>
-      {/* Hidden File Input */}
+      {/* Hidden File Inputs */}
       <input
         type="file"
         ref={fileInputRef}
-        accept="image/*,.pdf,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+      <input
+        type="file"
+        ref={docInputRef}
+        accept=".pdf,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={handleFileSelect}
       />
@@ -161,8 +169,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               isOpen={isUploadDrawerOpen}
               onClose={() => setIsUploadDrawerOpen(false)}
               triggerRef={triggerRef}
-              onUploadClick={() => {
+              onUploadImageClick={() => {
                 fileInputRef.current?.click();
+              }}
+              onUploadFileClick={() => {
+                docInputRef.current?.click();
               }}
             />
           </div>
