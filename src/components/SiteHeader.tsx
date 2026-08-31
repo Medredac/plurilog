@@ -46,15 +46,15 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
             onClick={onGetStartedClick}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
           >
-            <span>Get Started for Free</span>
+            <span>Get Started</span>
             <ArrowRight className="w-3 h-3" />
           </button>
         ) : (
           <Link
-            href="/"
+            href="/?signup=true"
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
           >
-            <span>Get Started for Free</span>
+            <span>Get Started</span>
             <ArrowRight className="w-3 h-3" />
           </Link>
         )}

@@ -1,23 +1,37 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect, Suspense, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   Layers, 
   ArrowRight, 
   Sparkles, 
-  Loader2,
-  MessageCircle,
-  MessagesSquare,
-  ArrowUpDown,
-  RefreshCw,
-  Trophy,
-  Eye
+  Loader2, 
+  MessageCircle, 
+  MessagesSquare, 
+  ArrowUpDown, 
+  RefreshCw, 
+  Trophy, 
+  Eye 
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { createClient } from '../utils/supabase/client';
+
+function AuthParamsHandler({ onTriggerSignup }: { onTriggerSignup: () => void }) {
+  const searchParams = useSearchParams();
+  const hasTriggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (searchParams.get('signup') === 'true' && !hasTriggeredRef.current) {
+      hasTriggeredRef.current = true;
+      onTriggerSignup();
+    }
+  }, [searchParams, onTriggerSignup]);
+
+  return null;
+}
 
 export default function LandingPage() {
   const router = useRouter();
@@ -85,6 +99,10 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
+      <Suspense fallback={null}>
+        <AuthParamsHandler onTriggerSignup={() => handleOpenAuth('signup')} />
+      </Suspense>
+
       {/* Navigation Header */}
       <SiteHeader onGetStartedClick={() => handleOpenAuth('signup')} />
 
