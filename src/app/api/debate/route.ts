@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
   try {
     const { prompt, discussionId, seatOrder, isContinueRound, imageUrl } = await req.json();
 
-    if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim())) {
+    if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !imageUrl)) {
       return new Response(
         JSON.stringify({ error: 'A valid prompt string is required.' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }

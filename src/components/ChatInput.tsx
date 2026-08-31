@@ -82,7 +82,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSend = () => {
     if ((!inputVal.trim() && !attachedFile) || isLoading) return;
-    onSendMessage(inputVal.trim() || 'Attached an image for discussion.', attachedFile || undefined);
+    onSendMessage(inputVal.trim(), attachedFile || undefined);
     
     setInputVal('');
     handleRemoveAttachment();

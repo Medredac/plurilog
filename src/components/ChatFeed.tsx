@@ -321,37 +321,39 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   )
                 )}
 
-                {/* Message Body with truncation if long */}
-                <div className="relative">
-                  <p
-                    className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
-                      isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
-                    }`}
-                  >
-                    {message.content}
-                  </p>
-
-                  {/* Show More / Show Less Toggle */}
-                  {isLongContent && (
-                    <button
-                      type="button"
-                      onClick={() => toggleExpand(message.id)}
-                      className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
+                {/* Message Body with truncation if long (only if text exists) */}
+                {message.content?.trim() ? (
+                  <div className="relative">
+                    <p
+                      className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
+                        isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
+                      }`}
                     >
-                      {isExpanded ? (
-                        <>
-                          <ChevronUp className="w-3.5 h-3.5" />
-                          <span>Show less</span>
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="w-3.5 h-3.5" />
-                          <span>Show more</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
+                      {message.content}
+                    </p>
+
+                    {/* Show More / Show Less Toggle */}
+                    {isLongContent && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(message.id)}
+                        className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
+                      >
+                        {isExpanded ? (
+                          <>
+                            <ChevronUp className="w-3.5 h-3.5" />
+                            <span>Show less</span>
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                            <span>Show more</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
           );
