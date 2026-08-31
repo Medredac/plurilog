@@ -315,7 +315,6 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 max_tokens: 2000,
                 temperature: 0.7,
-                reasoning: { effort: 'low' },
                 signal: req.signal,
               });
 
