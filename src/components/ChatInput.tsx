@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { ArrowUp, Paperclip, X, Square } from 'lucide-react';
+import { ArrowUp, Paperclip, X, Square, FileText } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 
@@ -58,8 +58,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file.');
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      alert('Please select a valid image or PDF file.');
       return;
     }
 
@@ -133,21 +133,35 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 ${
         isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
       }`}>
-        {/* Attached Image Thumbnail Preview */}
+        {/* Attached File Preview (Image or PDF) */}
         {imagePreviewUrl && (
           <div className="relative self-start group animate-in fade-in zoom-in-95 duration-150">
-            <button
-              type="button"
-              onClick={() => setIsLightboxOpen(true)}
-              className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-              title="Click to view full image"
-            >
-              <img
-                src={imagePreviewUrl}
-                alt="Selected attachment"
-                className="w-full h-full object-cover"
-              />
-            </button>
+            {attachedFile?.type === 'application/pdf' ? (
+              <button
+                type="button"
+                onClick={() => window.open(imagePreviewUrl, '_blank')}
+                className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
+                title="Click to view PDF in new tab"
+              >
+                <FileText className="w-5 h-5 text-red-500" />
+                <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
+                  PDF
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsLightboxOpen(true)}
+                className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                title="Click to view full image"
+              >
+                <img
+                  src={imagePreviewUrl}
+                  alt="Selected attachment"
+                  className="w-full h-full object-cover"
+                />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleRemoveAttachment}
