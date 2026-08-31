@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SiteHeader } from '@/components/SiteHeader';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy · Plurilog',
@@ -11,17 +12,11 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       {/* Navigation Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-6 sm:px-12 py-3.5 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2 group cursor-pointer">
-          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
-          <span className="font-semibold text-sm tracking-tight text-zinc-900">
-            Plurilog
-          </span>
-        </Link>
-      </header>
+      <SiteHeader />
 
       {/* Main Content Column */}
-      <main className="flex-1 max-w-3xl mx-auto w-full px-6 sm:px-8 py-12 sm:py-16">
+      <main className="flex-1 bg-tech-grid">
+        <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-12 sm:py-16">
         <div className="mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 mb-2">
             Privacy Policy
@@ -174,6 +169,7 @@ export default function PrivacyPage() {
             </p>
           </section>
         </article>
+        </div>
       </main>
 
       {/* Minimal Footer */}

@@ -16,6 +16,7 @@ import {
   Eye
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
+import { SiteHeader } from '../components/SiteHeader';
 import { createClient } from '../utils/supabase/client';
 
 export default function LandingPage() {
@@ -85,43 +86,12 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       {/* Navigation Header */}
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-6 sm:px-12 py-3.5 flex items-center justify-between">
-        {/* Brand */}
-        <div className="flex items-center gap-2">
-          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
-          <span className="font-semibold text-sm tracking-tight text-zinc-900">
-            Plurilog
-          </span>
-        </div>
-
-        {/* Right Actions */}
-        <div className="flex items-center gap-3">
-          {!isCheckingAuth && (
-            isAuthenticated ? (
-              <button
-                onClick={() => router.push('/dashboard')}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100/70 border border-amber-200/80 text-zinc-900 font-medium text-xs shadow-2xs transition-colors cursor-pointer"
-              >
-                <span>Go to Dashboard</span>
-                <ArrowRight className="w-3 h-3 text-zinc-600" />
-              </button>
-            ) : (
-              <button
-                onClick={() => handleOpenAuth('signup')}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-xs shadow-xs transition-colors cursor-pointer"
-              >
-                <span>Get Started</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            )
-          )}
-        </div>
-      </header>
+      <SiteHeader onGetStartedClick={() => handleOpenAuth('signup')} />
 
       {/* Main Landing Canvas with Faint Grid */}
       <main className="flex-1 flex flex-col bg-tech-grid">
         {/* Hero Section */}
-        <section className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
+        <section id="hero" className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
           {/* Left Column: Text & Actions */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             {/* Subtle Pill Tag */}
