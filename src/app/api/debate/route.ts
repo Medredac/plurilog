@@ -85,14 +85,30 @@ export function buildPanelMessages(
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
 
+  const isPdf = imageUrl ? imageUrl.split('?')[0].toLowerCase().endsWith('.pdf') : false;
+
   const userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam = imageUrl
-    ? {
-        role: 'user',
-        content: [
-          { type: 'text', text: userContent },
-          { type: 'image_url', image_url: { url: imageUrl } },
-        ],
-      }
+    ? isPdf
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text', text: userContent },
+            {
+              type: 'file',
+              file: {
+                filename: 'attachment.pdf',
+                file_data: imageUrl,
+              },
+            } as any,
+          ],
+        }
+      : {
+          role: 'user',
+          content: [
+            { type: 'text', text: userContent },
+            { type: 'image_url', image_url: { url: imageUrl } },
+          ],
+        }
     : {
         role: 'user',
         content: userContent,
