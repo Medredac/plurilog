@@ -6,7 +6,7 @@ import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 
 interface ChatInputProps {
-  onSendMessage: (content: string, imageFile?: File) => void;
+  onSendMessage: (content: string, files?: File[]) => void;
   isLoading?: boolean;
   onStop?: () => void;
   isCentered?: boolean;
@@ -143,7 +143,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSend = () => {
     if ((!inputVal.trim() && attachedFiles.length === 0) || isLoading) return;
-    onSendMessage(inputVal.trim(), attachedFiles[0]?.file || undefined);
+    onSendMessage(inputVal.trim(), attachedFiles.length > 0 ? attachedFiles.map(item => item.file) : undefined);
     
     setInputVal('');
     handleClearAllAttachments();

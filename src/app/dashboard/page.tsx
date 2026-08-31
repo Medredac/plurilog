@@ -209,6 +209,7 @@ export default function DashboardPage() {
             ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '',
           image_url: m.image_url || null,
+          attachment_urls: m.attachment_urls || null,
           likes: 0,
           isStreaming: false,
         };
@@ -750,9 +751,9 @@ export default function DashboardPage() {
   };
 
   // Triggered when user submits a new prompt
-  const handleSendMessage = async (content: string, imageFile?: File) => {
+  const handleSendMessage = async (content: string, imageFiles?: File[]) => {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
-    if (isDebating || (!content.trim() && !imageFile) || !userId || activeSeatOrder.length === 0) return;
+    if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
@@ -777,8 +778,8 @@ export default function DashboardPage() {
     const nowIso = new Date().toISOString();
     const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // Temporary local blob URL for instant optimistic display without waiting for storage upload
-    const tempImageUrl = imageFile ? URL.createObjectURL(imageFile) : null;
+    // Temporary local blob URLs for instant optimistic display without waiting for storage upload
+    const tempObjectUrls = (imageFiles || []).map((f) => URL.createObjectURL(f));
     const tempUserMsgId = `msg-user-${Date.now()}`;
     const userMsg: ChatMessage = {
       id: tempUserMsgId,
@@ -787,11 +788,17 @@ export default function DashboardPage() {
       authorName: 'You',
       content: content,
       timestamp: nowTimeStr,
-      image_url: tempImageUrl,
+      image_url: null,
+      attachment_urls: tempObjectUrls.length > 0 ? tempObjectUrls : null,
     };
 
     // Instant optimistic UI update: immediately append user message to chat
     setMessages((prev) => [...prev, userMsg]);
+
+    const rollbackOptimistic = () => {
+      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
+      tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
 
     // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
     if (!currentDiscussionId) {
@@ -861,51 +868,53 @@ export default function DashboardPage() {
       touchDiscussion(currentDiscussionId, content.slice(0, 70) + (content.length > 70 ? '...' : ''));
     }
 
-    // 2. Handle image upload to Supabase Storage in background if present
-    let realSignedUrl: string | null = null;
-    if (imageFile) {
+    // 2. Handle files upload to Supabase Storage in background if present
+    const realSignedUrls: string[] = [];
+    if (imageFiles && imageFiles.length > 0) {
       try {
-        const filePath = `${userId}/${Date.now()}-${imageFile.name}`;
-        const { error: uploadError } = await supabase.storage
-          .from('message-images')
-          .upload(filePath, imageFile);
+        for (let i = 0; i < imageFiles.length; i++) {
+          const file = imageFiles[i];
+          const randomSuffix = Math.random().toString(36).slice(2, 7);
+          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}-${file.name}`;
+          const { error: uploadError } = await supabase.storage
+            .from('message-images')
+            .upload(filePath, file);
 
-        if (uploadError) {
-          console.error('[Supabase Storage Error] Upload failed:', uploadError);
-          // Rollback optimistic message on failure
-          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
-          if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
-          setErrorMessage('Failed to upload file. Please try again.');
-          setIsDebating(false);
-          return;
+          if (uploadError) {
+            console.error('[Supabase Storage Error] Upload failed:', uploadError);
+            rollbackOptimistic();
+            setErrorMessage('Failed to upload file. Please try again.');
+            setIsDebating(false);
+            return;
+          }
+
+          const { data: signedData, error: signError } = await supabase.storage
+            .from('message-images')
+            .createSignedUrl(filePath, 259200); // 72 hours
+
+          if (signError || !signedData?.signedUrl) {
+            console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
+            rollbackOptimistic();
+            setErrorMessage('Failed to process file. Please try again.');
+            setIsDebating(false);
+            return;
+          }
+
+          realSignedUrls.push(signedData.signedUrl);
         }
 
-        const { data: signedData, error: signError } = await supabase.storage
-          .from('message-images')
-          .createSignedUrl(filePath, 259200); // 72 hours
-
-        if (signError || !signedData?.signedUrl) {
-          console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
-          // Rollback optimistic message on failure
-          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
-          if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
-          setErrorMessage('Failed to process file. Please try again.');
-          setIsDebating(false);
-          return;
-        }
-
-        realSignedUrl = signedData.signedUrl;
-
-        // Replace temporary object URL with real signed URL and revoke object URL
+        // Replace temporary object URLs with real signed URLs and revoke object URLs
         setMessages((prev) =>
-          prev.map((m) => (m.id === tempUserMsgId ? { ...m, image_url: realSignedUrl } : m))
+          prev.map((m) =>
+            m.id === tempUserMsgId
+              ? { ...m, attachment_urls: realSignedUrls.length > 0 ? realSignedUrls : null }
+              : m
+          )
         );
-        if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+        tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
       } catch (err: any) {
         console.error('[Supabase Storage Exception]', err);
-        // Rollback optimistic message on failure
-        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
-        if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
+        rollbackOptimistic();
         setErrorMessage('Failed to upload file. Please try again.');
         setIsDebating(false);
         return;
@@ -919,7 +928,7 @@ export default function DashboardPage() {
           discussion_id: currentDiscussionId,
           sender: 'user',
           content: content,
-          image_url: realSignedUrl,
+          attachment_urls: realSignedUrls.length > 0 ? realSignedUrls : null,
         }).select();
 
         if (insertUserErr) {
@@ -938,7 +947,7 @@ export default function DashboardPage() {
 
     // 4. Trigger sequential AI relay
     if (currentDiscussionId) {
-      await runRelay(content, currentDiscussionId, activeSeatOrder, false, realSignedUrl);
+      await runRelay(content, currentDiscussionId, activeSeatOrder, false, realSignedUrls[0] || null);
     }
   };
 

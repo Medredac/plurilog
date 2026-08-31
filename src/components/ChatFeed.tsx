@@ -278,6 +278,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         if (message.role === 'user') {
           const isLongContent = message.content.length > 240 || message.content.split('\n').length > 4;
           const isExpanded = !!expandedMsgIds[message.id];
+          const attachments: string[] =
+            message.attachment_urls && message.attachment_urls.length > 0
+              ? message.attachment_urls
+              : message.image_url
+                ? [message.image_url]
+                : [];
 
           return (
             <div 
@@ -291,34 +297,41 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
 
-                {/* Attached File Thumbnail (Image or PDF) if present */}
-                {message.image_url && (
-                  message.image_url.split('?')[0].toLowerCase().endsWith('.pdf') ? (
-                    <button
-                      type="button"
-                      onClick={() => window.open(message.image_url!, '_blank')}
-                      className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                      title="Click to view PDF in new tab"
-                    >
-                      <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
-                      <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                        PDF
-                      </span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setLightboxImageUrl(message.image_url!)}
-                      className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-                      title="Click to view full image"
-                    >
-                      <img
-                        src={message.image_url}
-                        alt="Attached image"
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  )
+                {/* Attached Files (Images or PDFs) if present */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2.5 mb-2.5">
+                    {attachments.map((url, i) => {
+                      const isPdf = url.split('?')[0].toLowerCase().endsWith('.pdf');
+                      return isPdf ? (
+                        <button
+                          key={`${url}-${i}`}
+                          type="button"
+                          onClick={() => window.open(url, '_blank')}
+                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                          title="Click to view PDF in new tab"
+                        >
+                          <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
+                          <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                            PDF
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          key={`${url}-${i}`}
+                          type="button"
+                          onClick={() => setLightboxImageUrl(url)}
+                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                          title="Click to view full image"
+                        >
+                          <img
+                            src={url}
+                            alt="Attached file"
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
 
                 {/* Message Body with truncation if long (only if text exists) */}
