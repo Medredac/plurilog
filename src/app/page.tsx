@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { 
   Layers, 
   ArrowRight, 
@@ -274,8 +275,8 @@ export default function LandingPage() {
         </div>
 
         <div className="flex items-center gap-4 text-[11px]">
-          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Privacy</span>
-          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Terms</span>
+          <Link href="/privacy" className="hover:text-zinc-600 transition-colors cursor-pointer">Privacy Policy</Link>
+          <Link href="/terms" className="hover:text-zinc-600 transition-colors cursor-pointer">Terms of Service</Link>
           <span className="hover:text-zinc-600 transition-colors cursor-pointer">Documentation</span>
         </div>
       </footer>

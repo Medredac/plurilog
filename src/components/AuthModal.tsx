@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
 import { ResetPasswordModal } from './ResetPasswordModal';
@@ -356,6 +357,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             )}
           </button>
         </form>
+
+        {/* Terms and Privacy Agreement Notice (Sign up only) */}
+        {mode === 'signup' && (
+          <p className="text-[11px] text-zinc-400 text-center mt-3 leading-relaxed">
+            By signing up, you agree to our{' '}
+            <Link
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-600 underline hover:text-zinc-900 transition-colors"
+            >
+              Terms of Service
+            </Link>{' '}
+            and{' '}
+            <Link
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-zinc-600 underline hover:text-zinc-900 transition-colors"
+            >
+              Privacy Policy
+            </Link>.
+          </p>
+        )}
 
         {/* Toggle Mode Switcher */}
         <div className="mt-4 pt-3 border-t border-zinc-100 text-center">
