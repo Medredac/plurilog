@@ -434,6 +434,8 @@ export default function DashboardPage() {
         .eq('discussion_id', id)
         .not('image_url', 'is', null);
 
+      console.log(`[Image Cleanup] Found ${imgMessages?.length || 0} image messages for discussion ${id}`);
+
       if (imgFetchErr) {
         console.error('[Supabase Error] Error fetching images for discussion deletion:', imgFetchErr, { discussion_id: id });
       } else if (imgMessages && imgMessages.length > 0) {
@@ -450,10 +452,14 @@ export default function DashboardPage() {
           }
         }
 
+        console.log('[Image Cleanup] Extracted file paths:', filePaths);
+
         if (filePaths.length > 0) {
-          const { error: storageRemoveErr } = await supabase.storage
+          const { data: storageRemoveData, error: storageRemoveErr } = await supabase.storage
             .from('message-images')
             .remove(filePaths);
+
+          console.log('[Image Cleanup] Storage remove() returned:', storageRemoveData);
 
           if (storageRemoveErr) {
             console.error('[Supabase Error] Error removing discussion images from storage:', storageRemoveErr, { filePaths });
