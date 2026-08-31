@@ -11,7 +11,8 @@ import {
   AlertCircle, 
   CornerDownRight, 
   ChevronDown, 
-  ChevronUp 
+  ChevronUp,
+  FileText
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
@@ -290,20 +291,34 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
                 </div>
 
-                {/* Attached Image Thumbnail if present */}
+                {/* Attached File Thumbnail (Image or PDF) if present */}
                 {message.image_url && (
-                  <button
-                    type="button"
-                    onClick={() => setLightboxImageUrl(message.image_url!)}
-                    className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-                    title="Click to view full image"
-                  >
-                    <img
-                      src={message.image_url}
-                      alt="Attached image"
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
+                  message.image_url.split('?')[0].toLowerCase().endsWith('.pdf') ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(message.image_url!, '_blank')}
+                      className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                      title="Click to view PDF in new tab"
+                    >
+                      <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
+                      <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                        PDF
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxImageUrl(message.image_url!)}
+                      className="mb-2.5 w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                      title="Click to view full image"
+                    >
+                      <img
+                        src={message.image_url}
+                        alt="Attached image"
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  )
                 )}
 
                 {/* Message Body with truncation if long */}

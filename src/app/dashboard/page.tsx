@@ -875,7 +875,7 @@ export default function DashboardPage() {
           // Rollback optimistic message on failure
           setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
           if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
-          setErrorMessage('Failed to upload image. Please try again.');
+          setErrorMessage('Failed to upload file. Please try again.');
           setIsDebating(false);
           return;
         }
@@ -889,7 +889,7 @@ export default function DashboardPage() {
           // Rollback optimistic message on failure
           setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
           if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
-          setErrorMessage('Failed to process image. Please try again.');
+          setErrorMessage('Failed to process file. Please try again.');
           setIsDebating(false);
           return;
         }
@@ -906,7 +906,7 @@ export default function DashboardPage() {
         // Rollback optimistic message on failure
         setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
         if (tempImageUrl) URL.revokeObjectURL(tempImageUrl);
-        setErrorMessage('Failed to upload image. Please try again.');
+        setErrorMessage('Failed to upload file. Please try again.');
         setIsDebating(false);
         return;
       }
