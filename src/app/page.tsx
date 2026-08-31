@@ -13,22 +13,35 @@ import {
   ArrowUpDown, 
   RefreshCw, 
   Trophy, 
-  Eye 
+  Eye,
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { createClient } from '../utils/supabase/client';
 
-function AuthParamsHandler({ onTriggerSignup }: { onTriggerSignup: () => void }) {
+function AuthParamsHandler({ 
+  onTriggerSignup, 
+  onAuthError 
+}: { 
+  onTriggerSignup: () => void; 
+  onAuthError: () => void; 
+}) {
   const searchParams = useSearchParams();
-  const hasTriggeredRef = useRef(false);
+  const hasTriggeredSignupRef = useRef(false);
+  const hasTriggeredAuthErrorRef = useRef(false);
 
   useEffect(() => {
-    if (searchParams.get('signup') === 'true' && !hasTriggeredRef.current) {
-      hasTriggeredRef.current = true;
+    if (searchParams.get('signup') === 'true' && !hasTriggeredSignupRef.current) {
+      hasTriggeredSignupRef.current = true;
       onTriggerSignup();
     }
-  }, [searchParams, onTriggerSignup]);
+    if (searchParams.get('auth_error') === 'true' && !hasTriggeredAuthErrorRef.current) {
+      hasTriggeredAuthErrorRef.current = true;
+      onAuthError();
+    }
+  }, [searchParams, onTriggerSignup, onAuthError]);
 
   return null;
 }
@@ -37,10 +50,16 @@ export default function LandingPage() {
   const router = useRouter();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   const supabase = createClient();
+
+  const handleAuthError = () => {
+    setAuthErrorBanner('Something went wrong signing you in. Please try again.');
+    handleOpenAuth('signin');
+  };
 
   useEffect(() => {
     const checkSession = async () => {
@@ -100,7 +119,10 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       <Suspense fallback={null}>
-        <AuthParamsHandler onTriggerSignup={() => handleOpenAuth('signup')} />
+        <AuthParamsHandler 
+          onTriggerSignup={() => handleOpenAuth('signup')} 
+          onAuthError={handleAuthError} 
+        />
       </Suspense>
 
       {/* Navigation Header */}
@@ -108,6 +130,26 @@ export default function LandingPage() {
 
       {/* Main Landing Canvas with Faint Grid */}
       <main className="flex-1 flex flex-col bg-tech-grid">
+        {/* Auth Error Banner */}
+        {authErrorBanner && (
+          <div className="max-w-6xl mx-auto w-full px-6 sm:px-12 pt-6">
+            <div className="p-3.5 rounded-xl bg-red-50 border border-red-200/90 text-red-700 text-xs sm:text-sm flex items-center justify-between shadow-2xs animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{authErrorBanner}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAuthErrorBanner(null)}
+                className="p-1 rounded-lg text-red-400 hover:text-red-700 hover:bg-red-100/60 transition-colors cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Hero Section */}
         <section id="hero" className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
           {/* Left Column: Text & Actions */}
