@@ -36,7 +36,7 @@ export function buildPanelMessages(
   prompt: string,
   priorResponses: PriorResponse[],
   discussionMemory?: DiscussionMemoryResult,
-  imageUrl?: string | null
+  attachments?: { url: string; filename: string }[] | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -85,34 +85,39 @@ export function buildPanelMessages(
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
 
-  const isPdf = imageUrl ? imageUrl.split('?')[0].toLowerCase().endsWith('.pdf') : false;
+  let userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
-  const userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam = imageUrl
-    ? isPdf
-      ? {
-          role: 'user',
-          content: [
-            { type: 'text', text: userContent },
-            {
-              type: 'file',
-              file: {
-                filename: 'attachment.pdf',
-                file_data: imageUrl,
-              },
-            } as any,
-          ],
-        }
-      : {
-          role: 'user',
-          content: [
-            { type: 'text', text: userContent },
-            { type: 'image_url', image_url: { url: imageUrl } },
-          ],
-        }
-    : {
-        role: 'user',
-        content: userContent,
-      };
+  if (attachments && attachments.length > 0) {
+    const contentBlocks: any[] = [{ type: 'text', text: userContent }];
+
+    for (const attachment of attachments) {
+      const isPdf = attachment.url.split('?')[0].toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        contentBlocks.push({
+          type: 'file',
+          file: {
+            filename: attachment.filename || 'attachment.pdf',
+            file_data: attachment.url,
+          },
+        });
+      } else {
+        contentBlocks.push({
+          type: 'image_url',
+          image_url: { url: attachment.url },
+        });
+      }
+    }
+
+    userMessageParam = {
+      role: 'user',
+      content: contentBlocks,
+    };
+  } else {
+    userMessageParam = {
+      role: 'user',
+      content: userContent,
+    };
+  }
 
   return [
     {
@@ -137,9 +142,10 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId, seatOrder, isContinueRound, imageUrl } = await req.json();
+    const { prompt, discussionId, seatOrder, isContinueRound, attachments } = await req.json();
 
-    if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !imageUrl)) {
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
       return new Response(
         JSON.stringify({ error: 'A valid prompt string is required.' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -293,7 +299,7 @@ export async function POST(req: NextRequest) {
               prompt,
               priorResponses,
               discussionMemory,
-              imageUrl
+              attachments
             );
 
             if (seat.seatId === configuredSeats[0].seatId) {

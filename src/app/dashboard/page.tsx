@@ -494,7 +494,7 @@ export default function DashboardPage() {
     discussionId: string,
     activeSeatOrder: ModelId[],
     isContinueRound?: boolean,
-    imageUrl?: string | null
+    attachments?: { url: string; filename: string }[] | null
   ) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -511,7 +511,7 @@ export default function DashboardPage() {
           discussionId: discussionId,
           seatOrder: activeSeatOrder,
           isContinueRound: isContinueRound || false,
-          imageUrl: imageUrl || null,
+          attachments: attachments || null,
         }),
       });
 
@@ -947,7 +947,14 @@ export default function DashboardPage() {
 
     // 4. Trigger sequential AI relay
     if (currentDiscussionId) {
-      await runRelay(content, currentDiscussionId, activeSeatOrder, false, realSignedUrls[0] || null);
+      const relayAttachments =
+        realSignedUrls.length > 0 && imageFiles
+          ? realSignedUrls.map((url, i) => ({
+              url,
+              filename: imageFiles[i]?.name || 'attachment',
+            }))
+          : null;
+      await runRelay(content, currentDiscussionId, activeSeatOrder, false, relayAttachments);
     }
   };
 
