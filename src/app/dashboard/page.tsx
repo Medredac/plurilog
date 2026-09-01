@@ -428,42 +428,54 @@ export default function DashboardPage() {
     }
 
     try {
-      // Find and delete any attached images in storage for this discussion
-      const { data: imgMessages, error: imgFetchErr } = await supabase
+      // Find and delete any attached files (images & PDFs) in storage for this discussion
+      const { data: attachmentMessages, error: attachmentFetchErr } = await supabase
         .from('messages')
-        .select('image_url')
-        .eq('discussion_id', id)
-        .not('image_url', 'is', null);
+        .select('image_url, attachment_urls')
+        .eq('discussion_id', id);
 
-      console.log(`[Image Cleanup] Found ${imgMessages?.length || 0} image messages for discussion ${id}`);
+      console.log(`[Attachment Cleanup] Found ${attachmentMessages?.length || 0} messages to inspect for discussion ${id}`);
 
-      if (imgFetchErr) {
-        console.error('[Supabase Error] Error fetching images for discussion deletion:', imgFetchErr, { discussion_id: id });
-      } else if (imgMessages && imgMessages.length > 0) {
+      if (attachmentFetchErr) {
+        console.error('[Supabase Error] Error fetching attachments for discussion deletion:', attachmentFetchErr, { discussion_id: id });
+      } else if (attachmentMessages && attachmentMessages.length > 0) {
+        const rawUrls: string[] = [];
+        for (const row of attachmentMessages) {
+          if (row.image_url) {
+            rawUrls.push(row.image_url);
+          }
+          if (Array.isArray(row.attachment_urls)) {
+            for (const url of row.attachment_urls) {
+              if (url) {
+                rawUrls.push(url);
+              }
+            }
+          }
+        }
+
         const filePaths: string[] = [];
-        for (const row of imgMessages) {
-          if (!row.image_url) continue;
-          const bucketIndex = row.image_url.indexOf('message-images/');
+        for (const url of rawUrls) {
+          const bucketIndex = url.indexOf('message-images/');
           if (bucketIndex !== -1) {
-            const rawPath = row.image_url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
+            const rawPath = url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
             const decodedPath = decodeURIComponent(rawPath);
-            if (decodedPath) {
+            if (decodedPath && !filePaths.includes(decodedPath)) {
               filePaths.push(decodedPath);
             }
           }
         }
 
-        console.log('[Image Cleanup] Extracted file paths:', filePaths);
+        console.log('[Attachment Cleanup] Extracted file paths:', filePaths);
 
         if (filePaths.length > 0) {
           const { data: storageRemoveData, error: storageRemoveErr } = await supabase.storage
             .from('message-images')
             .remove(filePaths);
 
-          console.log('[Image Cleanup] Storage remove() returned:', storageRemoveData);
+          console.log('[Attachment Cleanup] Storage remove() returned:', storageRemoveData);
 
           if (storageRemoveErr) {
-            console.error('[Supabase Error] Error removing discussion images from storage:', storageRemoveErr, { filePaths });
+            console.error('[Supabase Error] Error removing discussion attachments from storage:', storageRemoveErr, { filePaths });
           }
         }
       }
