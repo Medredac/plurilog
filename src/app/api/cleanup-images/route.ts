@@ -50,11 +50,11 @@ async function handleCleanup(req: NextRequest) {
     // 48 hours ago cutoff timestamp
     const cutoffTime = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
 
-    // 1. Fetch expired messages containing an image_url
+    // 1. Fetch expired messages containing an image_url or attachment_urls
     const { data: expiredMessages, error: queryErr } = await supabase
       .from('messages')
-      .select('id, image_url, created_at')
-      .not('image_url', 'is', null)
+      .select('id, image_url, attachment_urls, created_at')
+      .or('image_url.not.is.null,attachment_urls.not.is.null')
       .lt('created_at', cutoffTime);
 
     if (queryErr) {
@@ -65,10 +65,17 @@ async function handleCleanup(req: NextRequest) {
       );
     }
 
-    if (!expiredMessages || expiredMessages.length === 0) {
+    // Filter to only messages that have at least one attachment
+    const validExpiredMessages = (expiredMessages || []).filter((msg: any) => {
+      const hasLegacy = Boolean(msg.image_url);
+      const hasAttachments = Array.isArray(msg.attachment_urls) && msg.attachment_urls.length > 0;
+      return hasLegacy || hasAttachments;
+    });
+
+    if (validExpiredMessages.length === 0) {
       return NextResponse.json({
         success: true,
-        message: 'No expired images found (older than 48 hours).',
+        message: 'No expired attachments found (older than 48 hours).',
         processedCount: 0,
       });
     }
@@ -76,41 +83,55 @@ async function handleCleanup(req: NextRequest) {
     const deletedFiles: string[] = [];
     const errors: any[] = [];
 
-    // 2. Delete storage files and nullify image_url on database rows
-    for (const msg of expiredMessages) {
-      if (!msg.image_url) continue;
-
+    // 2. Delete storage files and nullify image_url and attachment_urls on database rows
+    for (const msg of validExpiredMessages) {
       try {
-        // Extract relative storage path inside 'message-images' bucket
-        // Format typically: .../message-images/{userId}/{timestamp}-{filename}
-        const bucketIndex = msg.image_url.indexOf('/message-images/');
-        let filePath = '';
-        if (bucketIndex !== -1) {
-          filePath = decodeURIComponent(
-            msg.image_url.slice(bucketIndex + '/message-images/'.length).split('?')[0]
-          );
+        const rawUrls: string[] = [];
+        if (msg.image_url) {
+          rawUrls.push(msg.image_url);
         }
-
-        if (filePath) {
-          const { error: removeErr } = await supabase.storage
-            .from('message-images')
-            .remove([filePath]);
-
-          if (removeErr) {
-            console.warn(`[Cleanup Warning] Could not remove file ${filePath} from storage:`, removeErr);
-          } else {
-            deletedFiles.push(filePath);
+        if (Array.isArray(msg.attachment_urls)) {
+          for (const url of msg.attachment_urls) {
+            if (url) {
+              rawUrls.push(url);
+            }
           }
         }
 
-        // Set image_url to null on message row while preserving text content
+        const filePaths: string[] = [];
+        for (const url of rawUrls) {
+          const bucketIndex = url.indexOf('message-images/');
+          if (bucketIndex !== -1) {
+            const rawPath = url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
+            const decodedPath = decodeURIComponent(rawPath);
+            if (decodedPath && !filePaths.includes(decodedPath)) {
+              filePaths.push(decodedPath);
+            }
+          }
+        }
+
+        if (filePaths.length > 0) {
+          const { error: removeErr } = await supabase.storage
+            .from('message-images')
+            .remove(filePaths);
+
+          if (removeErr) {
+            console.warn(`[Cleanup Warning] Could not remove files from storage for message ${msg.id}:`, removeErr, { filePaths });
+            errors.push({ id: msg.id, error: removeErr.message });
+            continue;
+          } else {
+            deletedFiles.push(...filePaths);
+          }
+        }
+
+        // Set image_url and attachment_urls to null on message row while preserving text content
         const { error: updateErr } = await supabase
           .from('messages')
-          .update({ image_url: null })
+          .update({ image_url: null, attachment_urls: null })
           .eq('id', msg.id);
 
         if (updateErr) {
-          console.error(`[Cleanup Error] Failed to nullify image_url on message ${msg.id}:`, updateErr);
+          console.error(`[Cleanup Error] Failed to nullify attachments on message ${msg.id}:`, updateErr);
           errors.push({ id: msg.id, error: updateErr.message });
         }
       } catch (msgEx: any) {
@@ -122,7 +143,7 @@ async function handleCleanup(req: NextRequest) {
     return NextResponse.json({
       success: true,
       cutoffTime,
-      totalExpired: expiredMessages.length,
+      totalExpired: validExpiredMessages.length,
       deletedFilesCount: deletedFiles.length,
       errorsCount: errors.length,
       deletedFiles,
