@@ -335,6 +335,16 @@ async function generateStructuredMemory(
     return existingStructured;
   }
 
+  if (isIncremental) {
+    console.log(
+      `[Memory] Generating incremental structured memory from ${roundsToIncorporate.length} new rounds (${olderRounds.length} older rounds total)...`
+    );
+  } else {
+    console.log(
+      `[Memory] Generating full structured memory from ${olderRounds.length} older rounds...`
+    );
+  }
+
   const olderRoundsFormatted = roundsToIncorporate
     .map((r, i) => {
       const isContinueUser = r.userPrompt.trim().toLowerCase() === 'continue';
@@ -415,11 +425,19 @@ ${olderRoundsFormatted}
         { role: 'user', content: userPrompt },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 800,
+      max_tokens: 2500,
       temperature: 0.2,
     });
 
-    const rawContent = res.choices[0]?.message?.content?.trim();
+    const choice = res.choices[0];
+    const finishReason = choice?.finish_reason;
+
+    if (finishReason === 'length') {
+      console.error('[Memory] Summarizer output was truncated due to max_tokens limit');
+      return null;
+    }
+
+    const rawContent = choice?.message?.content?.trim();
     if (!rawContent) {
       console.error('[Memory] Empty response received from summarizer model');
       return null;
@@ -530,13 +548,17 @@ export async function getScopedDiscussionMemory(
     const priorHistory = allRounds.slice(0, -1);
     const priorSplitIndex = getRecentRoundsSplitIndex(priorHistory, RECENT_MEMORY_TOKEN_BUDGET);
     const previousOlderCount = priorHistory.slice(0, priorSplitIndex).length;
+    const summarizedRoundsCount =
+      parsedSummary.structured?._meta.summarized_rounds_count;
 
     const shouldRegenerateSummary =
       currentOlderCount > 0 &&
-      (!rawStoredSummary || Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5));
+      (!rawStoredSummary ||
+        (typeof summarizedRoundsCount === 'number'
+          ? currentOlderCount - summarizedRoundsCount >= 5
+          : Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5)));
 
     if (shouldRegenerateSummary) {
-      console.log(`[Memory] Generating structured memory for ${olderRounds.length} older rounds in discussion ${discussionId}...`);
       const newStructured = await generateStructuredMemory(
         openai,
         olderRounds,
