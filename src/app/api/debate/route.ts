@@ -323,7 +323,7 @@ export async function POST(req: NextRequest) {
                 max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
-                ...((seat.seatId === 'gemini' || seat.seatId === 'claude') && hasPdf
+                ...((seat.seatId === 'gemini' || seat.seatId === 'claude' || seat.seatId === 'chatgpt') && hasPdf
                   ? {
                       plugins: [
                         {
