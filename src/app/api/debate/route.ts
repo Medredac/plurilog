@@ -346,6 +346,68 @@ export async function POST(req: NextRequest) {
         }
 
         try {
+          // Attempt hybrid discussion-memory retrieval (non-critical)
+          let retrievedMemory: any[] = [];
+          if (discussionId && prompt && prompt.trim() && !req.signal.aborted) {
+            try {
+              const queryEmbeddingRes = await (openai.embeddings.create as any)(
+                {
+                  model: 'google/gemini-embedding-2',
+                  dimensions: 1536,
+                  input: prompt,
+                  encoding_format: 'float',
+                },
+                {
+                  timeout: 10000,
+                  signal: req.signal,
+                }
+              );
+
+              const queryEmbedding = queryEmbeddingRes?.data?.[0]?.embedding;
+              if (!Array.isArray(queryEmbedding) || queryEmbedding.length !== 1536) {
+                console.error(
+                  '[Memory Retrieval] Missing or invalid 1536-dimension query embedding vector returned by model'
+                );
+              } else {
+                const { data: hybridRows, error: searchErr } = await supabase.rpc(
+                  'search_discussion_memory_hybrid',
+                  {
+                    p_discussion_id: discussionId,
+                    p_query_text: prompt,
+                    p_query_embedding: queryEmbedding,
+                    p_match_count: 5,
+                  }
+                );
+
+                if (searchErr) {
+                  console.error(
+                    '[Memory Retrieval] Error calling search_discussion_memory_hybrid:',
+                    searchErr
+                  );
+                } else {
+                  retrievedMemory = Array.isArray(hybridRows) ? hybridRows : [];
+                  console.log('[Memory Retrieval] Hybrid search completed', {
+                    discussionId,
+                    resultCount: retrievedMemory.length,
+                    results: retrievedMemory.map((row: any) => ({
+                      id: row?.id,
+                      source_user_message_id: row?.source_user_message_id,
+                      semantic_rank: row?.semantic_rank,
+                      keyword_rank: row?.keyword_rank,
+                      hybrid_score: row?.hybrid_score,
+                      content: row?.content ? row.content.slice(0, 120) : '',
+                    })),
+                  });
+                }
+              }
+            } catch (retrievalErr: any) {
+              console.error(
+                '[Memory Retrieval] Error during hybrid memory retrieval:',
+                retrievalErr
+              );
+            }
+          }
+
           // Sequential panel execution across configured seats in custom order
           for (const seat of configuredSeats) {
             if (req.signal.aborted) {
