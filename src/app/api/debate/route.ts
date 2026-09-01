@@ -385,9 +385,21 @@ export async function POST(req: NextRequest) {
                     searchErr
                   );
                 } else {
-                  retrievedMemory = Array.isArray(hybridRows) ? hybridRows : [];
+                  const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
+                  retrievedMemory = rawCandidates
+                    .filter((row: any) => {
+                      const hasSemanticMatch =
+                        typeof row?.semantic_similarity === 'number' &&
+                        row.semantic_similarity >= 0.62;
+                      const hasKeywordMatch =
+                        row?.keyword_rank !== null && row?.keyword_rank !== undefined;
+                      return hasSemanticMatch || hasKeywordMatch;
+                    })
+                    .slice(0, 3);
+
                   console.log('[Memory Retrieval] Hybrid search completed', {
                     discussionId,
+                    candidateCount: rawCandidates.length,
                     resultCount: retrievedMemory.length,
                     results: retrievedMemory.map((row: any) => ({
                       id: row?.id,
