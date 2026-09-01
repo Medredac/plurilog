@@ -37,7 +37,8 @@ export function buildPanelMessages(
   priorResponses: PriorResponse[],
   discussionMemory?: DiscussionMemoryResult,
   attachments?: { url: string; filename: string }[] | null,
-  fileAnnotations?: any[] | null
+  fileAnnotations?: any[] | null,
+  retrievedMemory?: any[] | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -46,7 +47,19 @@ export function buildPanelMessages(
     sections.push(`Summary of earlier discussion history:\n"""\n${discussionMemory.summary.trim()}\n"""`);
   }
 
-  // 2. [last 5 rounds of raw messages, formatted as "{name} said: {content}"]
+  // 2. [hybrid-retrieved relevant earlier discussion rounds]
+  if (retrievedMemory && retrievedMemory.length > 0) {
+    const memoryBlocks = retrievedMemory
+      .map((row) => (typeof row?.content === 'string' ? row.content.trim() : ''))
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+
+    if (memoryBlocks) {
+      sections.push(`Relevant earlier discussion:\n${memoryBlocks}`);
+    }
+  }
+
+  // 3. [last 5 rounds of raw messages, formatted as "{name} said: {content}"]
   if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
     const rawRoundsFormatted = discussionMemory.recentRounds
       .map((round) => {
@@ -491,7 +504,8 @@ export async function POST(req: NextRequest) {
               priorResponses,
               discussionMemory,
               attachments,
-              isReusingAnnotations ? roundFileAnnotations : null
+              isReusingAnnotations ? roundFileAnnotations : null,
+              retrievedMemory
             );
 
             if (seat.seatId === configuredSeats[0].seatId) {
