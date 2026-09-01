@@ -21,6 +21,60 @@ export interface DiscussionMemoryResult {
 }
 
 /**
+ * Formats a Round into the exact textual representation used in model context.
+ * Special handling: omits userPrompt if it is equal to 'continue'.
+ */
+export function formatRoundForContext(round: Round): string {
+  const isContinueUser = round.userPrompt.trim().toLowerCase() === 'continue';
+  const userPart = isContinueUser
+    ? ''
+    : `User said:\n"""\n${round.userPrompt}\n"""`;
+  const modelParts = round.modelResponses
+    .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
+    .join('\n\n');
+  if (!userPart) return modelParts;
+  return modelParts ? `${userPart}\n\n${modelParts}` : userPart;
+}
+
+/**
+ * Conservative cross-model / multilingual token estimator based on JavaScript character length
+ * and UTF-8 byte length. Used strictly for context window budgeting, not provider billing.
+ */
+export function estimateTokens(text: string): number {
+  const utf8Bytes = new TextEncoder().encode(text).length;
+  return Math.ceil(Math.max(text.length / 4, utf8Bytes / 3));
+}
+
+export const RECENT_MEMORY_TOKEN_BUDGET = 4000;
+
+/**
+ * Determines the split index in a rounds array so that the newest complete rounds backwards
+ * fit within the given token budget. Always includes at least the newest round if rounds exist.
+ */
+export function getRecentRoundsSplitIndex(
+  rounds: Round[],
+  tokenBudget: number = RECENT_MEMORY_TOKEN_BUDGET
+): number {
+  const total = rounds.length;
+  if (total <= 1) return 0;
+
+  let splitIndex = total - 1;
+  let accumulatedTokens = estimateTokens(formatRoundForContext(rounds[splitIndex]));
+
+  for (let i = total - 2; i >= 0; i--) {
+    const roundTokens = estimateTokens(formatRoundForContext(rounds[i]));
+    if (accumulatedTokens + roundTokens <= tokenBudget) {
+      accumulatedTokens += roundTokens;
+      splitIndex = i;
+    } else {
+      break;
+    }
+  }
+
+  return splitIndex;
+}
+
+/**
  * Groups raw chronological messages from the messages table into conversational rounds.
  * A round begins with a user prompt followed by all panelist responses for that turn.
  */
@@ -165,21 +219,29 @@ export async function getScopedDiscussionMemory(
     console.log(`[Memory Debug] Grouped into ${allRounds.length} prior rounds:`, JSON.stringify(allRounds, null, 2));
     const totalRounds = allRounds.length;
 
-    // Sliding window: last 5 rounds of history in full raw detail
-    if (totalRounds <= 5) {
+    if (totalRounds === 0) {
       return {
         summary: discussion?.summary || undefined,
-        recentRounds: allRounds,
+        recentRounds: [],
       };
     }
 
-    // More than 5 rounds: keep last 5 rounds raw, summarize older rounds
-    const recentRounds = allRounds.slice(-5);
-    const olderRounds = allRounds.slice(0, totalRounds - 5);
+    // Token-budgeted sliding window: walk backwards from newest completed round
+    const splitIndex = getRecentRoundsSplitIndex(allRounds, RECENT_MEMORY_TOKEN_BUDGET);
+    const recentRounds = allRounds.slice(splitIndex);
+    const olderRounds = allRounds.slice(0, splitIndex);
     let summary = discussion?.summary || '';
 
-    // Re-generate rolling summary when crossing threshold or when older rounds grow by 5
-    const shouldRegenerateSummary = !summary || olderRounds.length % 5 === 0;
+    // Determine if rolling summary should be generated/updated:
+    // Check older rounds count compared to prior state (before newest round)
+    const currentOlderCount = olderRounds.length;
+    const priorHistory = allRounds.slice(0, -1);
+    const priorSplitIndex = getRecentRoundsSplitIndex(priorHistory, RECENT_MEMORY_TOKEN_BUDGET);
+    const previousOlderCount = priorHistory.slice(0, priorSplitIndex).length;
+
+    const shouldRegenerateSummary =
+      currentOlderCount > 0 &&
+      (!summary || Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5));
 
     if (shouldRegenerateSummary) {
       console.log(`[Memory] Generating rolling summary for ${olderRounds.length} older rounds in discussion ${discussionId}...`);

@@ -7,6 +7,7 @@ import { ModelId } from '@/types/chat';
 import {
   getScopedDiscussionMemory,
   DiscussionMemoryResult,
+  formatRoundForContext,
 } from '@/utils/discussionMemory';
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not respond as if you are the one being questioned, corrected, or apologized-for — you may still comment as an observer if genuinely relevant to the discussion, but do not claim responsibility, apologize, or answer as though you were the addressee, unless you actually are the one named.
@@ -59,20 +60,10 @@ export function buildPanelMessages(
     }
   }
 
-  // 3. [last 5 rounds of raw messages, formatted as "{name} said: {content}"]
+  // 3. [recent exact conversation rounds within token budget]
   if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
     const rawRoundsFormatted = discussionMemory.recentRounds
-      .map((round) => {
-        const isContinueUser = round.userPrompt.trim().toLowerCase() === 'continue';
-        const userPart = isContinueUser
-          ? ''
-          : `User said:\n"""\n${round.userPrompt}\n"""`;
-        const modelParts = round.modelResponses
-          .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
-          .join('\n\n');
-        if (!userPart) return modelParts;
-        return modelParts ? `${userPart}\n\n${modelParts}` : userPart;
-      })
+      .map(formatRoundForContext)
       .filter(Boolean)
       .join('\n\n');
 
