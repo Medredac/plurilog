@@ -88,7 +88,10 @@ export function buildPanelMessages(
   let userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
   if (attachments && attachments.length > 0) {
-    const contentBlocks: any[] = [{ type: 'text', text: userContent }];
+    const contentBlocks: any[] = [];
+    if (userContent.trim()) {
+      contentBlocks.push({ type: 'text', text: userContent });
+    }
 
     for (const attachment of attachments) {
       const isPdf = attachment.url.split('?')[0].toLowerCase().endsWith('.pdf');
