@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
                     p_discussion_id: discussionId,
                     p_query_text: prompt,
                     p_query_embedding: queryEmbedding,
-                    p_match_count: 5,
+                    p_match_count: 10,
                   }
                 );
 
@@ -385,9 +385,27 @@ export async function POST(req: NextRequest) {
                     searchErr
                   );
                 } else {
+                  const recentUserMessageIds = new Set<string>();
+                  if (discussionMemory?.recentRounds) {
+                    for (const r of discussionMemory.recentRounds) {
+                      if (r.userMessageId) {
+                        recentUserMessageIds.add(r.userMessageId);
+                      }
+                    }
+                  }
+                  if (sourceUserMessageId) {
+                    recentUserMessageIds.add(sourceUserMessageId);
+                  }
+
                   const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
                   retrievedMemory = rawCandidates
                     .filter((row: any) => {
+                      if (
+                        row?.source_user_message_id &&
+                        recentUserMessageIds.has(row.source_user_message_id)
+                      ) {
+                        return false;
+                      }
                       const hasSemanticMatch =
                         typeof row?.semantic_similarity === 'number' &&
                         row.semantic_similarity >= 0.62;

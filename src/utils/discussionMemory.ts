@@ -10,6 +10,7 @@ export interface HistoryMessage {
 }
 
 export interface Round {
+  userMessageId?: string;
   userPrompt: string;
   modelResponses: { name: string; content: string }[];
 }
@@ -36,6 +37,7 @@ export function groupMessagesIntoRounds(
         rounds.push(currentRound);
       }
       currentRound = {
+        userMessageId: msg.id,
         userPrompt: msg.content || '',
         modelResponses: [],
       };
