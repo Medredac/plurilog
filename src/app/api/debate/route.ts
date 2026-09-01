@@ -544,6 +544,7 @@ export async function POST(req: NextRequest) {
                   model: 'google/gemini-embedding-2',
                   dimensions: 1536,
                   input: completedRoundText,
+                  encoding_format: 'float',
                 },
                 {
                   timeout: 10000,
