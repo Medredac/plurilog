@@ -372,16 +372,22 @@ Strict Rules:
 1. Return JSON only. Do not include markdown code fences or conversational text.
 2. Do NOT generate any '_meta' key or internal metadata.
 3. Preserve specific names, numbers, constraints, decisions, and distinctions when materially useful.
-4. 'user_facts' may contain ONLY facts explicitly stated by the user.
-5. NEVER turn a panelist's inference, recommendation, or speculation into a user fact.
-6. NEVER treat roleplay, fictional personas, jokes, hypotheticals, or quoted examples as real-world user facts. Recurring roleplay or jokes may instead appear in 'likely_future_callbacks' when they have genuinely become a running thread.
-7. Preserve meaningful panel disagreements and attribute them accurately (e.g., "Claude favored X due to Y, while Gemini preferred Z"). Do not flatten disagreement into false consensus.
-8. Update or supersede stale conclusions when later conversation changes them.
-9. Remove unresolved questions once they have actually been resolved.
-10. Merge semantically duplicate entries rather than accumulating copies.
-11. Prioritize durable context, recurring themes, decisions, unresolved work, meaningful distinctions, and callbacks likely to matter later.
-12. 'likely_future_callbacks' must be grounded in something that actually recurred, was explicitly deferred, or was explicitly flagged for later. Do not invent predictions about what the user may discuss.
-13. Keep the entire structure compact because it is injected on every panel turn.`;
+4. 'user_facts' Rules:
+   - 'user_facts' may contain ONLY real-world facts that the user explicitly states about themselves, their circumstances, preferences, goals, profession, technical/project environment, constraints, possessions, relationships, location, or similar personal/project facts.
+   - A user merely asking about, discussing, requesting information about, or repeatedly returning to a topic is NOT evidence of an interest, preference, identity, occupation, expertise, belief, or personal fact.
+   - Explicitly PROHIBITED derived statements: NEVER generate statements such as "User is interested in X", "User likes X", "User prefers X", "User wants to learn about X", or "User is knowledgeable about X" unless the user actually stated that fact about themselves.
+   - Panelist statements, recommendations, assumptions, roleplay, jokes, hypotheticals, and the summarizer's own deductions must NEVER create user_facts.
+   - If whether something qualifies as a user fact is uncertain, omit it. An empty user_facts array is preferable to an inferred fact.
+   - During incremental updates, existing user_facts should normally be carried forward unchanged. Add, correct, supersede, or remove a user fact only when the newly supplied USER messages explicitly support that change. Do not try to infer the provenance of existing facts from their wording.
+   - During a full rebuild, derive user_facts only from explicit statements in the supplied USER messages. Do not infer them from the topics of those messages.
+5. NEVER treat roleplay, fictional personas, jokes, hypotheticals, or quoted examples as real-world user facts. Recurring roleplay or jokes may instead appear in 'likely_future_callbacks' when they have genuinely become a running thread.
+6. Preserve meaningful panel disagreements and attribute them accurately (e.g., "Claude favored X due to Y, while Gemini preferred Z"). Do not flatten disagreement into false consensus.
+7. Update or supersede stale conclusions when later conversation changes them.
+8. Remove unresolved questions once they have actually been resolved.
+9. Merge semantically duplicate entries rather than accumulating copies.
+10. Prioritize durable context, recurring themes, decisions, unresolved work, meaningful distinctions, and callbacks likely to matter later.
+11. 'likely_future_callbacks' must be grounded in something that actually recurred, was explicitly deferred, or was explicitly flagged for later. Do not invent predictions about what the user may discuss.
+12. Keep the entire structure compact because it is injected on every panel turn.`;
 
   let userPrompt = '';
   if (previousMemoryForPrompt) {
