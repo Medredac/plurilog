@@ -36,7 +36,8 @@ export function buildPanelMessages(
   prompt: string,
   priorResponses: PriorResponse[],
   discussionMemory?: DiscussionMemoryResult,
-  attachments?: { url: string; filename: string }[] | null
+  attachments?: { url: string; filename: string }[] | null,
+  fileAnnotations?: any[] | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -84,6 +85,61 @@ export function buildPanelMessages(
   }
 
   const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`;
+
+  // When reusing existing PDF file annotations via OpenRouter's documented assistant-message pattern:
+  if (fileAnnotations && fileAnnotations.length > 0 && attachments && attachments.length > 0) {
+    const pdfBlocks: any[] = [];
+    const nonPdfBlocks: any[] = [];
+
+    for (const attachment of attachments) {
+      const isPdf = attachment.url.split('?')[0].toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        pdfBlocks.push({
+          type: 'file',
+          file: {
+            filename: attachment.filename || 'attachment.pdf',
+            file_data: attachment.url,
+          },
+        });
+      } else {
+        nonPdfBlocks.push({
+          type: 'image_url',
+          image_url: { url: attachment.url },
+        });
+      }
+    }
+
+    if (pdfBlocks.length > 0) {
+      const currentUserBlocks: any[] = [];
+      if (userContent.trim()) {
+        currentUserBlocks.push({ type: 'text', text: userContent });
+      }
+      currentUserBlocks.push(...nonPdfBlocks);
+
+      return [
+        {
+          role: 'system',
+          content: systemContent,
+        },
+        {
+          role: 'user',
+          content: pdfBlocks,
+        },
+        {
+          role: 'assistant',
+          content: 'PDF document context loaded.',
+          annotations: fileAnnotations,
+        } as any,
+        {
+          role: 'user',
+          content:
+            currentUserBlocks.length > 0
+              ? currentUserBlocks
+              : (userContent || 'Please respond to the attached PDF document context.'),
+        },
+      ];
+    }
+  }
 
   let userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
@@ -261,6 +317,18 @@ export async function POST(req: NextRequest) {
         };
 
         const priorResponses: PriorResponse[] = [];
+        const roundFileAnnotations: any[] = [];
+        const addFileAnnotations = (raw: any) => {
+          if (!raw) return;
+          const annList = Array.isArray(raw) ? raw : [raw];
+          for (const ann of annList) {
+            if (ann?.type === 'file' && ann?.file?.hash) {
+              if (!roundFileAnnotations.some((existing) => existing?.file?.hash === ann.file.hash)) {
+                roundFileAnnotations.push(ann);
+              }
+            }
+          }
+        };
 
         // Build active configured seats list dynamically from client seatOrder with secure server-side definitions
         let configuredSeats: SeatConfig[] = [];
@@ -297,12 +365,40 @@ export async function POST(req: NextRequest) {
               name: seat.name,
             });
 
+            const pdfAttachments = attachments?.filter((att: any) =>
+              att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
+            ) || [];
+            const hasPdf = pdfAttachments.length > 0;
+
+            // Only reuse when annotations have been captured for ALL PDF attachments in current request
+            const hasAllPdfAnnotations =
+              hasPdf &&
+              roundFileAnnotations.length >= pdfAttachments.length &&
+              pdfAttachments.every((pdf: any) =>
+                roundFileAnnotations.some(
+                  (ann: any) =>
+                    ann?.file?.hash &&
+                    (!pdf.filename || !ann?.file?.name || ann.file.name.toLowerCase() === pdf.filename.toLowerCase())
+                )
+              );
+
+            const isReusingAnnotations = hasAllPdfAnnotations;
+            const needsPdfParsing = hasPdf && !isReusingAnnotations;
+
+            console.log('[PDF Annotation Relay]', {
+              seatId: seat.seatId,
+              mode: hasPdf ? (isReusingAnnotations ? 'reusing' : 'parsing') : 'none',
+              annotationCount: roundFileAnnotations.length,
+              pdfCount: pdfAttachments.length,
+            });
+
             const seatMessages = buildPanelMessages(
               seat.name,
               prompt,
               priorResponses,
               discussionMemory,
-              attachments
+              attachments,
+              isReusingAnnotations ? roundFileAnnotations : null
             );
 
             if (seat.seatId === configuredSeats[0].seatId) {
@@ -311,10 +407,6 @@ export async function POST(req: NextRequest) {
             }
 
             try {
-              const hasPdf = attachments?.some((att: any) =>
-                att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
-              );
-
               const stream = await (openai.chat.completions.create as any)({
                 model: primaryModel,
                 models: models,
@@ -323,7 +415,7 @@ export async function POST(req: NextRequest) {
                 max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
-                ...((seat.seatId === 'gemini' || seat.seatId === 'claude' || seat.seatId === 'chatgpt') && hasPdf
+                ...(needsPdfParsing
                   ? {
                       plugins: [
                         {
@@ -348,27 +440,8 @@ export async function POST(req: NextRequest) {
                   seatUsage = (chunk as any).usage;
                 }
 
-                // [PDF Annotation Debug] Check if OpenRouter emits file parser annotations
-                const candidateAnnotations: [string, any][] = [
-                  ['chunk.annotations', (chunk as any).annotations],
-                  ['chunk.choices[0].annotations', (chunk.choices?.[0] as any)?.annotations],
-                  ['chunk.choices[0].delta.annotations', (chunk.choices?.[0]?.delta as any)?.annotations],
-                ];
-                for (const [location, annData] of candidateAnnotations) {
-                  if (annData) {
-                    const annList = Array.isArray(annData) ? annData : [annData];
-                    for (const ann of annList) {
-                      console.log('[PDF Annotation Debug]', {
-                        seatId: seat.seatId,
-                        location,
-                        type: ann?.type,
-                        fileHash: ann?.file?.hash,
-                        fileName: ann?.file?.name,
-                        contentCount: Array.isArray(ann?.file?.content) ? ann.file.content.length : undefined,
-                      });
-                    }
-                  }
-                }
+                // Capture file annotations from chunk.choices[0].delta.annotations (deduplicated by file.hash)
+                addFileAnnotations((chunk.choices?.[0]?.delta as any)?.annotations);
 
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
@@ -438,6 +511,10 @@ export async function POST(req: NextRequest) {
                 safeClose();
                 return;
               }
+
+              // Capture reusable file annotations from error path if present
+              addFileAnnotations(err?.error?.metadata?.file_annotations);
+
               console.error(`Error with ${seat.name}:`, err);
               sendEvent('error', {
                 seatId: seat.seatId,
