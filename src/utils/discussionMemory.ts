@@ -15,9 +15,145 @@ export interface Round {
   modelResponses: { name: string; content: string }[];
 }
 
+export interface DiscussionStructuredMemory {
+  _meta: {
+    last_summarized_user_message_id?: string;
+    summarized_rounds_count: number;
+  };
+  user_facts: string[];
+  topics_and_context: string[];
+  decisions_and_conclusions: string[];
+  panel_disagreements_and_nuance: string[];
+  unresolved_questions: string[];
+  likely_future_callbacks: string[];
+}
+
 export interface DiscussionMemoryResult {
   summary?: string;
   recentRounds: Round[];
+}
+
+export const SEMANTIC_KEYS = [
+  'user_facts',
+  'topics_and_context',
+  'decisions_and_conclusions',
+  'panel_disagreements_and_nuance',
+  'unresolved_questions',
+  'likely_future_callbacks',
+] as const;
+
+/**
+ * Distinguishes between valid structured JSON memory, legacy prose summary, and empty summary.
+ * Strict validation: requires all 6 semantic keys to exist as arrays of strings.
+ */
+export function parseDiscussionSummary(rawSummary?: string | null): {
+  structured: DiscussionStructuredMemory | null;
+  legacyProse: string | null;
+} {
+  if (!rawSummary || !rawSummary.trim()) {
+    return { structured: null, legacyProse: null };
+  }
+
+  const trimmed = rawSummary.trim();
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        let allValid = true;
+        for (const key of SEMANTIC_KEYS) {
+          if (!Array.isArray(parsed[key])) {
+            allValid = false;
+            break;
+          }
+          for (const item of parsed[key]) {
+            if (typeof item !== 'string') {
+              allValid = false;
+              break;
+            }
+          }
+          if (!allValid) break;
+        }
+
+        const meta = parsed._meta;
+        const isMetaValid =
+          meta &&
+          typeof meta === 'object' &&
+          !Array.isArray(meta) &&
+          typeof meta.summarized_rounds_count === 'number' &&
+          Number.isInteger(meta.summarized_rounds_count) &&
+          meta.summarized_rounds_count >= 0 &&
+          (meta.last_summarized_user_message_id === undefined ||
+            (typeof meta.last_summarized_user_message_id === 'string' &&
+              meta.last_summarized_user_message_id.trim() !== ''));
+
+        if (!isMetaValid) {
+          allValid = false;
+        }
+
+        if (allValid) {
+          return {
+            structured: {
+              _meta: {
+                summarized_rounds_count: meta.summarized_rounds_count,
+                ...(meta.last_summarized_user_message_id
+                  ? { last_summarized_user_message_id: meta.last_summarized_user_message_id }
+                  : {}),
+              },
+              user_facts: parsed.user_facts,
+              topics_and_context: parsed.topics_and_context,
+              decisions_and_conclusions: parsed.decisions_and_conclusions,
+              panel_disagreements_and_nuance: parsed.panel_disagreements_and_nuance,
+              unresolved_questions: parsed.unresolved_questions,
+              likely_future_callbacks: parsed.likely_future_callbacks,
+            },
+            legacyProse: null,
+          };
+        }
+      }
+    } catch {
+      // Not valid JSON, fall through to legacy prose
+    }
+  }
+
+  return { structured: null, legacyProse: trimmed };
+}
+
+/**
+ * Formats structured memory into human-readable compact text for panel context.
+ * Omit empty sections and NEVER injects _meta into prompt context.
+ */
+export function formatStructuredMemoryForContext(
+  memory: DiscussionStructuredMemory
+): string {
+  const sections: string[] = [];
+
+  if (memory.user_facts && memory.user_facts.length > 0) {
+    sections.push(`USER FACTS\n${memory.user_facts.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (memory.topics_and_context && memory.topics_and_context.length > 0) {
+    sections.push(`TOPICS & CONTEXT\n${memory.topics_and_context.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (memory.decisions_and_conclusions && memory.decisions_and_conclusions.length > 0) {
+    sections.push(`DECISIONS & CONCLUSIONS\n${memory.decisions_and_conclusions.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (memory.panel_disagreements_and_nuance && memory.panel_disagreements_and_nuance.length > 0) {
+    sections.push(
+      `PANEL DISAGREEMENTS & NUANCE\n${memory.panel_disagreements_and_nuance.map((item) => `- ${item}`).join('\n')}`
+    );
+  }
+
+  if (memory.unresolved_questions && memory.unresolved_questions.length > 0) {
+    sections.push(`UNRESOLVED QUESTIONS\n${memory.unresolved_questions.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  if (memory.likely_future_callbacks && memory.likely_future_callbacks.length > 0) {
+    sections.push(`CALLBACKS / RUNNING THREADS\n${memory.likely_future_callbacks.map((item) => `- ${item}`).join('\n')}`);
+  }
+
+  return sections.join('\n\n');
 }
 
 /**
@@ -124,15 +260,82 @@ export function groupMessagesIntoRounds(
   return rounds;
 }
 
+function validateAndCleanSemanticMemory(
+  parsed: any
+): Omit<DiscussionStructuredMemory, '_meta'> | null {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+
+  for (const key of SEMANTIC_KEYS) {
+    if (!Array.isArray(parsed[key])) {
+      return null;
+    }
+    for (const item of parsed[key]) {
+      if (typeof item !== 'string') {
+        return null;
+      }
+    }
+  }
+
+  return {
+    user_facts: (parsed.user_facts as string[]).map((s) => s.trim()).filter(Boolean),
+    topics_and_context: (parsed.topics_and_context as string[]).map((s) => s.trim()).filter(Boolean),
+    decisions_and_conclusions: (parsed.decisions_and_conclusions as string[]).map((s) => s.trim()).filter(Boolean),
+    panel_disagreements_and_nuance: (parsed.panel_disagreements_and_nuance as string[]).map((s) => s.trim()).filter(Boolean),
+    unresolved_questions: (parsed.unresolved_questions as string[]).map((s) => s.trim()).filter(Boolean),
+    likely_future_callbacks: (parsed.likely_future_callbacks as string[]).map((s) => s.trim()).filter(Boolean),
+  };
+}
+
 /**
- * Generates or updates a rolling summary of older discussion rounds using google/gemini-3.1-flash-lite.
+ * Generates or updates structured long-term discussion memory using google/gemini-3.1-flash-lite.
+ * Strictly outputs semantic JSON categories without _meta.
  */
-async function generateRollingSummary(
+async function generateStructuredMemory(
   openai: OpenAI,
   olderRounds: Round[],
-  existingSummary?: string
-): Promise<string> {
-  const olderRoundsFormatted = olderRounds
+  existingStructured: DiscussionStructuredMemory | null,
+  legacyProse: string | null
+): Promise<DiscussionStructuredMemory | null> {
+  let roundsToIncorporate = olderRounds;
+  let previousMemoryForPrompt: Record<string, string[]> | null = null;
+  let isIncremental = false;
+
+  if (existingStructured) {
+    const lastSummarizedId = existingStructured._meta?.last_summarized_user_message_id;
+    let lastIdx = -1;
+    if (lastSummarizedId) {
+      lastIdx = olderRounds.findIndex((r) => r.userMessageId === lastSummarizedId);
+    }
+
+    if (lastIdx !== -1) {
+      roundsToIncorporate = olderRounds.slice(lastIdx + 1);
+      isIncremental = true;
+      // Supply existing structured memory WITHOUT _meta
+      previousMemoryForPrompt = {
+        user_facts: existingStructured.user_facts,
+        topics_and_context: existingStructured.topics_and_context,
+        decisions_and_conclusions: existingStructured.decisions_and_conclusions,
+        panel_disagreements_and_nuance: existingStructured.panel_disagreements_and_nuance,
+        unresolved_questions: existingStructured.unresolved_questions,
+        likely_future_callbacks: existingStructured.likely_future_callbacks,
+      };
+    } else {
+      console.warn(
+        '[Memory] Could not find last_summarized_user_message_id in olderRounds, falling back to full rebuild'
+      );
+      roundsToIncorporate = olderRounds;
+      previousMemoryForPrompt = null;
+    }
+  }
+
+  // If incremental update and no new rounds have aged out, return existing without calling model
+  if (isIncremental && roundsToIncorporate.length === 0 && existingStructured) {
+    return existingStructured;
+  }
+
+  const olderRoundsFormatted = roundsToIncorporate
     .map((r, i) => {
       const isContinueUser = r.userPrompt.trim().toLowerCase() === 'continue';
       const userPart = isContinueUser ? '' : `User asked: "${r.userPrompt}"\n`;
@@ -143,32 +346,119 @@ async function generateRollingSummary(
     })
     .join('\n\n---\n\n');
 
-  const promptContent = existingSummary
-    ? `You are an expert synthesizer. Update the existing discussion summary by integrating the newly archived conversation rounds below.\n\nExisting Summary:\n"""\n${existingSummary}\n"""\n\nNew archived conversation rounds to add:\n"""\n${olderRoundsFormatted}\n"""\n\nProvide a concise 2-3 paragraph rolling summary preserving key discussion arguments, shared insights, and critical context.`
-    : `You are an expert synthesizer. Condense the following older conversation rounds into a concise 2-3 paragraph summary highlighting the main topics, key viewpoints, and core context.\n\nConversation rounds:\n"""\n${olderRoundsFormatted}\n"""`;
+  const systemPrompt = `You are an expert discussion-memory synthesizer. Maintain compact, high-precision structured long-term memory for an ongoing multi-assistant panel discussion.
+
+Output MUST be a JSON object with exactly these six keys:
+{
+  "user_facts": [],
+  "topics_and_context": [],
+  "decisions_and_conclusions": [],
+  "panel_disagreements_and_nuance": [],
+  "unresolved_questions": [],
+  "likely_future_callbacks": []
+}
+
+Strict Rules:
+1. Return JSON only. Do not include markdown code fences or conversational text.
+2. Do NOT generate any '_meta' key or internal metadata.
+3. Preserve specific names, numbers, constraints, decisions, and distinctions when materially useful.
+4. 'user_facts' may contain ONLY facts explicitly stated by the user.
+5. NEVER turn a panelist's inference, recommendation, or speculation into a user fact.
+6. NEVER treat roleplay, fictional personas, jokes, hypotheticals, or quoted examples as real-world user facts. Recurring roleplay or jokes may instead appear in 'likely_future_callbacks' when they have genuinely become a running thread.
+7. Preserve meaningful panel disagreements and attribute them accurately (e.g., "Claude favored X due to Y, while Gemini preferred Z"). Do not flatten disagreement into false consensus.
+8. Update or supersede stale conclusions when later conversation changes them.
+9. Remove unresolved questions once they have actually been resolved.
+10. Merge semantically duplicate entries rather than accumulating copies.
+11. Prioritize durable context, recurring themes, decisions, unresolved work, meaningful distinctions, and callbacks likely to matter later.
+12. 'likely_future_callbacks' must be grounded in something that actually recurred, was explicitly deferred, or was explicitly flagged for later. Do not invent predictions about what the user may discuss.
+13. Keep the entire structure compact because it is injected on every panel turn.`;
+
+  let userPrompt = '';
+  if (previousMemoryForPrompt) {
+    userPrompt = `Update the existing structured memory by incorporating the newly archived conversation rounds below.
+
+Existing structured memory to update:
+"""
+${JSON.stringify(previousMemoryForPrompt, null, 2)}
+"""
+
+New conversation rounds to incorporate:
+"""
+${olderRoundsFormatted}
+"""`;
+  } else if (legacyProse) {
+    userPrompt = `Convert and integrate the existing legacy prose summary and all older conversation rounds into the new structured semantic memory format.
+
+Existing legacy prose summary:
+"""
+${legacyProse}
+"""
+
+Older conversation rounds:
+"""
+${olderRoundsFormatted}
+"""`;
+  } else {
+    userPrompt = `Synthesize the following older conversation rounds into the structured semantic memory format:
+
+Conversation rounds:
+"""
+${olderRoundsFormatted}
+"""`;
+  }
 
   try {
     const res = await openai.chat.completions.create({
       model: 'google/gemini-3.1-flash-lite',
       messages: [
-        {
-          role: 'system',
-          content: 'You are an objective summarizer. Create a clear, concise summary of earlier discussion history.',
-        },
-        {
-          role: 'user',
-          content: promptContent,
-        },
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
       ],
-      max_tokens: 500,
-      temperature: 0.3,
+      response_format: { type: 'json_object' },
+      max_tokens: 800,
+      temperature: 0.2,
     });
 
-    const summary = res.choices[0]?.message?.content?.trim();
-    return summary || existingSummary || '';
+    const rawContent = res.choices[0]?.message?.content?.trim();
+    if (!rawContent) {
+      console.error('[Memory] Empty response received from summarizer model');
+      return null;
+    }
+
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch (parseErr) {
+      console.error('[Memory] Failed to JSON.parse summarizer model response:', parseErr);
+      return null;
+    }
+
+    const cleaned = validateAndCleanSemanticMemory(parsed);
+    if (!cleaned) {
+      console.error(
+        '[Memory] Summarizer output failed strict schema validation (missing or non-string array keys)'
+      );
+      return null;
+    }
+
+    const lastArchivedRound = olderRounds[olderRounds.length - 1];
+    const structuredResult: DiscussionStructuredMemory = {
+      _meta: {
+        last_summarized_user_message_id: lastArchivedRound?.userMessageId || undefined,
+        summarized_rounds_count: olderRounds.length,
+      },
+      user_facts: cleaned.user_facts,
+      topics_and_context: cleaned.topics_and_context,
+      decisions_and_conclusions: cleaned.decisions_and_conclusions,
+      panel_disagreements_and_nuance: cleaned.panel_disagreements_and_nuance,
+      unresolved_questions: cleaned.unresolved_questions,
+      likely_future_callbacks: cleaned.likely_future_callbacks,
+    };
+
+    return structuredResult;
   } catch (err) {
-    console.error('[Memory] Error generating rolling summary with gemini-3.1-flash-lite:', err);
-    return existingSummary || '';
+    console.error('[Memory] Error generating structured memory with gemini-3.1-flash-lite:', err);
+    return null;
   }
 }
 
@@ -231,7 +521,8 @@ export async function getScopedDiscussionMemory(
     const splitIndex = getRecentRoundsSplitIndex(allRounds, RECENT_MEMORY_TOKEN_BUDGET);
     const recentRounds = allRounds.slice(splitIndex);
     const olderRounds = allRounds.slice(0, splitIndex);
-    let summary = discussion?.summary || '';
+    const rawStoredSummary = discussion?.summary || '';
+    let parsedSummary = parseDiscussionSummary(rawStoredSummary);
 
     // Determine if rolling summary should be generated/updated:
     // Check older rounds count compared to prior state (before newest round)
@@ -242,26 +533,32 @@ export async function getScopedDiscussionMemory(
 
     const shouldRegenerateSummary =
       currentOlderCount > 0 &&
-      (!summary || Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5));
+      (!rawStoredSummary || Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5));
 
     if (shouldRegenerateSummary) {
-      console.log(`[Memory] Generating rolling summary for ${olderRounds.length} older rounds in discussion ${discussionId}...`);
-      const newSummary = await generateRollingSummary(openai, olderRounds, summary);
+      console.log(`[Memory] Generating structured memory for ${olderRounds.length} older rounds in discussion ${discussionId}...`);
+      const newStructured = await generateStructuredMemory(
+        openai,
+        olderRounds,
+        parsedSummary.structured,
+        parsedSummary.legacyProse
+      );
 
-      if (newSummary && newSummary !== summary) {
-        summary = newSummary;
+      if (newStructured) {
+        parsedSummary = { structured: newStructured, legacyProse: null };
+        const serializedJson = JSON.stringify(newStructured);
         // Persist rolling summary to discussions table strictly for this discussion_id
         // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
         try {
           const { error: updateErr } = await supabase
             .from('discussions')
-            .update({ summary: newSummary })
+            .update({ summary: serializedJson })
             .eq('id', discussionId);
 
           if (updateErr) {
             console.error('[Memory] Failed to save summary on discussions table:', updateErr, { discussion_id: discussionId });
           } else {
-            console.log(`[Memory] Successfully stored updated rolling summary on discussion ${discussionId}`);
+            console.log(`[Memory] Successfully stored updated structured summary on discussion ${discussionId}`);
           }
         } catch (updateEx) {
           console.error('[Memory] Exception updating summary on discussions table:', updateEx);
@@ -269,8 +566,12 @@ export async function getScopedDiscussionMemory(
       }
     }
 
+    const formattedSummary = parsedSummary.structured
+      ? formatStructuredMemoryForContext(parsedSummary.structured)
+      : (parsedSummary.legacyProse || undefined);
+
     return {
-      summary: summary || undefined,
+      summary: formattedSummary || undefined,
       recentRounds,
     };
   } catch (err) {
