@@ -386,19 +386,11 @@ export async function POST(req: NextRequest) {
                   );
                 } else {
                   const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
-                  const numericSimilarities = rawCandidates
-                    .map((row: any) => row?.semantic_similarity)
-                    .filter((val: any): val is number => typeof val === 'number');
-                  const bestSemanticSimilarity =
-                    numericSimilarities.length > 0 ? Math.max(...numericSimilarities) : null;
-
                   retrievedMemory = rawCandidates
                     .filter((row: any) => {
                       const hasSemanticMatch =
                         typeof row?.semantic_similarity === 'number' &&
-                        row.semantic_similarity >= 0.62 &&
-                        bestSemanticSimilarity !== null &&
-                        bestSemanticSimilarity - row.semantic_similarity <= 0.015;
+                        row.semantic_similarity >= 0.62;
                       const hasKeywordMatch =
                         row?.keyword_rank !== null && row?.keyword_rank !== undefined;
                       return hasSemanticMatch || hasKeywordMatch;
@@ -409,7 +401,6 @@ export async function POST(req: NextRequest) {
                     discussionId,
                     candidateCount: rawCandidates.length,
                     resultCount: retrievedMemory.length,
-                    bestSemanticSimilarity,
                     results: retrievedMemory.map((row: any) => ({
                       id: row?.id,
                       source_user_message_id: row?.source_user_message_id,
