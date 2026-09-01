@@ -506,7 +506,8 @@ export default function DashboardPage() {
     discussionId: string,
     activeSeatOrder: ModelId[],
     isContinueRound?: boolean,
-    attachments?: { url: string; filename: string }[] | null
+    attachments?: { url: string; filename: string }[] | null,
+    sourceUserMessageId?: string | null
   ) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -524,6 +525,7 @@ export default function DashboardPage() {
           seatOrder: activeSeatOrder,
           isContinueRound: isContinueRound || false,
           attachments: attachments || null,
+          sourceUserMessageId: sourceUserMessageId || null,
         }),
       });
 
@@ -934,6 +936,7 @@ export default function DashboardPage() {
     }
 
     // 3. Persist user message to Supabase messages table
+    let insertedUserMessageId: string | null = null;
     if (currentDiscussionId) {
       try {
         const { data: insertedUserMsg, error: insertUserErr } = await supabase.from('messages').insert({
@@ -951,6 +954,7 @@ export default function DashboardPage() {
           });
         } else {
           console.log('[Supabase Success] Inserted user message:', insertedUserMsg);
+          insertedUserMessageId = insertedUserMsg?.[0]?.id || null;
         }
       } catch (insertUserErr) {
         console.error('[Supabase Exception] Error persisting user message:', insertUserErr);
@@ -966,7 +970,7 @@ export default function DashboardPage() {
               filename: imageFiles[i]?.name || 'attachment',
             }))
           : null;
-      await runRelay(content, currentDiscussionId, activeSeatOrder, false, relayAttachments);
+      await runRelay(content, currentDiscussionId, activeSeatOrder, false, relayAttachments, insertedUserMessageId);
     }
   };
 

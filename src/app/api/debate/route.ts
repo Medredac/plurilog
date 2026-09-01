@@ -201,7 +201,7 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId, seatOrder, isContinueRound, attachments } = await req.json();
+    const { prompt, discussionId, seatOrder, isContinueRound, attachments, sourceUserMessageId } = await req.json();
 
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
