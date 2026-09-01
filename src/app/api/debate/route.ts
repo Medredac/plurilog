@@ -347,6 +347,29 @@ export async function POST(req: NextRequest) {
                 if ((chunk as any).usage) {
                   seatUsage = (chunk as any).usage;
                 }
+
+                // [PDF Annotation Debug] Check if OpenRouter emits file parser annotations
+                const candidateAnnotations: [string, any][] = [
+                  ['chunk.annotations', (chunk as any).annotations],
+                  ['chunk.choices[0].annotations', (chunk.choices?.[0] as any)?.annotations],
+                  ['chunk.choices[0].delta.annotations', (chunk.choices?.[0]?.delta as any)?.annotations],
+                ];
+                for (const [location, annData] of candidateAnnotations) {
+                  if (annData) {
+                    const annList = Array.isArray(annData) ? annData : [annData];
+                    for (const ann of annList) {
+                      console.log('[PDF Annotation Debug]', {
+                        seatId: seat.seatId,
+                        location,
+                        type: ann?.type,
+                        fileHash: ann?.file?.hash,
+                        fileName: ann?.file?.name,
+                        contentCount: Array.isArray(ann?.file?.content) ? ann.file.content.length : undefined,
+                      });
+                    }
+                  }
+                }
+
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
