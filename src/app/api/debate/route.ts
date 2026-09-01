@@ -524,6 +524,65 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Index completed text discussion round in discussion_memory_chunks (non-critical)
+          if (
+            discussionId &&
+            sourceUserMessageId &&
+            prompt &&
+            prompt.trim() &&
+            priorResponses.length > 0 &&
+            !req.signal.aborted
+          ) {
+            try {
+              let completedRoundText = `User said:\n"""\n${prompt}\n"""`;
+              for (const resp of priorResponses) {
+                completedRoundText += `\n\n${resp.name} said:\n"""\n${resp.response}\n"""`;
+              }
+
+              const embeddingResponse = await (openai.embeddings.create as any)(
+                {
+                  model: 'google/gemini-embedding-2',
+                  dimensions: 1536,
+                  input: completedRoundText,
+                },
+                {
+                  timeout: 10000,
+                  signal: req.signal,
+                }
+              );
+
+              const embedding = embeddingResponse?.data?.[0]?.embedding;
+              if (!Array.isArray(embedding) || embedding.length !== 1536) {
+                console.error('[Memory Index] Missing or invalid 1536-dimension embedding vector returned by model');
+              } else {
+                const { error: upsertErr } = await supabase
+                  .from('discussion_memory_chunks')
+                  .upsert(
+                    {
+                      discussion_id: discussionId,
+                      source_user_message_id: sourceUserMessageId,
+                      content: completedRoundText,
+                      embedding: embedding,
+                    },
+                    { onConflict: 'discussion_id,source_user_message_id' }
+                  );
+
+                if (upsertErr) {
+                  console.error('[Memory Index] Supabase upsert error:', upsertErr);
+                } else {
+                  console.log('[Memory Index] Stored round memory', {
+                    discussionId,
+                    sourceUserMessageId,
+                    characterCount: completedRoundText.length,
+                    successfulPanelResponses: priorResponses.length,
+                  });
+                }
+              }
+            } catch (memErr: any) {
+              console.error('[Memory Index] Error indexing round memory:', memErr);
+            }
+          }
+
           // Complete event
           sendEvent('council_done', {
             status: 'completed',
