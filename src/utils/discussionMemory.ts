@@ -46,6 +46,7 @@ export function estimateTokens(text: string): number {
 }
 
 export const RECENT_MEMORY_TOKEN_BUDGET = 4000;
+export const RETRIEVED_MEMORY_TOKEN_BUDGET = 2500;
 
 /**
  * Determines the split index in a rounds array so that the newest complete rounds backwards

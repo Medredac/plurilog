@@ -8,6 +8,8 @@ import {
   getScopedDiscussionMemory,
   DiscussionMemoryResult,
   formatRoundForContext,
+  estimateTokens,
+  RETRIEVED_MEMORY_TOKEN_BUDGET,
 } from '@/utils/discussionMemory';
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not respond as if you are the one being questioned, corrected, or apologized-for — you may still comment as an observer if genuinely relevant to the discussion, but do not claim responsibility, apologize, or answer as though you were the addressee, unless you actually are the one named.
@@ -402,27 +404,60 @@ export async function POST(req: NextRequest) {
                   }
 
                   const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
-                  retrievedMemory = rawCandidates
-                    .filter((row: any) => {
-                      if (
-                        row?.source_user_message_id &&
-                        recentUserMessageIds.has(row.source_user_message_id)
-                      ) {
-                        return false;
-                      }
-                      const hasSemanticMatch =
-                        typeof row?.semantic_similarity === 'number' &&
-                        row.semantic_similarity >= 0.62;
-                      const hasKeywordMatch =
-                        row?.keyword_rank !== null && row?.keyword_rank !== undefined;
-                      return hasSemanticMatch || hasKeywordMatch;
-                    })
-                    .slice(0, 3);
+                  const qualifyingCandidates = rawCandidates.filter((row: any) => {
+                    if (
+                      row?.source_user_message_id &&
+                      recentUserMessageIds.has(row.source_user_message_id)
+                    ) {
+                      return false;
+                    }
+                    const hasSemanticMatch =
+                      typeof row?.semantic_similarity === 'number' &&
+                      row.semantic_similarity >= 0.62;
+                    const hasKeywordMatch =
+                      row?.keyword_rank !== null && row?.keyword_rank !== undefined;
+                    return hasSemanticMatch || hasKeywordMatch;
+                  });
+
+                  // Select up to 3 retrieved rounds within RETRIEVED_MEMORY_TOKEN_BUDGET.
+                  // Note: The 2500-token budget is a target, not an absolute maximum,
+                  // because the highest-ranked usable result is always retained even if it alone exceeds the budget.
+                  const budgetedRetrievedMemory: any[] = [];
+                  let retrievedEstimatedTokens = 0;
+
+                  for (const candidate of qualifyingCandidates) {
+                    if (budgetedRetrievedMemory.length >= 3) break;
+
+                    const contentText =
+                      typeof candidate?.content === 'string' ? candidate.content.trim() : '';
+                    if (!contentText) continue;
+
+                    const candidateTokens = estimateTokens(contentText);
+
+                    if (budgetedRetrievedMemory.length === 0) {
+                      // Always include the first usable/highest-ranked qualifying retrieved round
+                      budgetedRetrievedMemory.push(candidate);
+                      retrievedEstimatedTokens += candidateTokens;
+                    } else if (
+                      retrievedEstimatedTokens + candidateTokens <=
+                      RETRIEVED_MEMORY_TOKEN_BUDGET
+                    ) {
+                      budgetedRetrievedMemory.push(candidate);
+                      retrievedEstimatedTokens += candidateTokens;
+                    } else {
+                      // Lower-ranked candidate does not fit; continue to inspect later candidates
+                      continue;
+                    }
+                  }
+
+                  retrievedMemory = budgetedRetrievedMemory;
 
                   console.log('[Memory Retrieval] Hybrid search completed', {
                     discussionId,
                     candidateCount: rawCandidates.length,
                     resultCount: retrievedMemory.length,
+                    retrievedEstimatedTokens,
+                    retrievedTokenBudget: RETRIEVED_MEMORY_TOKEN_BUDGET,
                     results: retrievedMemory.map((row: any) => ({
                       id: row?.id,
                       source_user_message_id: row?.source_user_message_id,
