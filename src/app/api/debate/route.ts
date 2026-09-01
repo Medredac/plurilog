@@ -246,24 +246,6 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // Get hardcoded fallback arrays for each seat
-    const seatFallbacks = getCouncilSeatFallbacks();
-
-    const openai = new OpenAI({
-      apiKey: apiKey.trim(),
-      baseURL: 'https://openrouter.ai/api/v1',
-      defaultHeaders: {
-        'HTTP-Referer': 'https://plurilog.app',
-        'X-Title': 'Plurilog',
-      },
-    });
-
-    // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
-    let discussionMemory: DiscussionMemoryResult | undefined;
-    if (discussionId) {
-      discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
-    }
-
     // Pre-flight balance check using session-authenticated Supabase client
     const { data: balanceRows, error: balanceError } = await supabase.rpc('get_my_balance');
     const balance = balanceRows?.[0];
@@ -286,6 +268,24 @@ export async function POST(req: NextRequest) {
         }),
         { status: 402, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    // Get hardcoded fallback arrays for each seat
+    const seatFallbacks = getCouncilSeatFallbacks();
+
+    const openai = new OpenAI({
+      apiKey: apiKey.trim(),
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'https://plurilog.app',
+        'X-Title': 'Plurilog',
+      },
+    });
+
+    // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
+    let discussionMemory: DiscussionMemoryResult | undefined;
+    if (discussionId) {
+      discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
     }
 
     const encoder = new TextEncoder();
