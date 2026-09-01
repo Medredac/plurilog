@@ -308,6 +308,10 @@ export async function POST(req: NextRequest) {
             }
 
             try {
+              const hasPdf = attachments?.some((att: any) =>
+                att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
+              );
+
               const stream = await (openai.chat.completions.create as any)({
                 model: primaryModel,
                 models: models,
@@ -316,6 +320,18 @@ export async function POST(req: NextRequest) {
                 max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
+                ...(seat.seatId === 'gemini' && hasPdf
+                  ? {
+                      plugins: [
+                        {
+                          id: 'file-parser',
+                          pdf: {
+                            engine: 'mistral-ocr',
+                          },
+                        },
+                      ],
+                    }
+                  : {}),
               });
 
               for await (const chunk of stream) {
