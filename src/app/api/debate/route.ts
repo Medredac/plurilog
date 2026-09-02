@@ -62,7 +62,15 @@ export function buildPanelMessages(
     }
   }
 
-  // 3. [recent exact conversation rounds within token budget]
+  // 3. [targeted chronological conversation history]
+  if (discussionMemory?.chronologicalMemory && discussionMemory.chronologicalMemory.content) {
+    const cm = discussionMemory.chronologicalMemory;
+    sections.push(
+      `Targeted conversation-history result:\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
+    );
+  }
+
+  // 4. [recent exact conversation rounds within token budget]
   if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
     const rawRoundsFormatted = discussionMemory.recentRounds
       .map(formatRoundForContext)
@@ -398,6 +406,9 @@ export async function POST(req: NextRequest) {
                         recentUserMessageIds.add(r.userMessageId);
                       }
                     }
+                  }
+                  if (discussionMemory?.chronologicalMemory?.roundUserMessageId) {
+                    recentUserMessageIds.add(discussionMemory.chronologicalMemory.roundUserMessageId);
                   }
                   if (sourceUserMessageId) {
                     recentUserMessageIds.add(sourceUserMessageId);

@@ -28,9 +28,18 @@ export interface DiscussionStructuredMemory {
   likely_future_callbacks: string[];
 }
 
+export interface ChronologicalMemoryResult {
+  roundUserMessageId?: string;
+  kind: 'user_prompt' | 'model_response';
+  speaker?: 'Claude' | 'Gemini' | 'ChatGPT' | 'User';
+  content: string;
+  label: string;
+}
+
 export interface DiscussionMemoryResult {
   summary?: string;
   recentRounds: Round[];
+  chronologicalMemory?: ChronologicalMemoryResult;
 }
 
 export const SEMANTIC_KEYS = [
@@ -267,6 +276,149 @@ export function groupMessagesIntoRounds(
   }
 
   return rounds;
+}
+
+export const ORDINAL_MAP: Record<string, number> = {
+  first: 0,
+  '1st': 0,
+  second: 1,
+  '2nd': 1,
+  third: 2,
+  '3rd': 2,
+  fourth: 3,
+  '4th': 3,
+  fifth: 4,
+  '5th': 4,
+  sixth: 5,
+  '6th': 5,
+  seventh: 6,
+  '7th': 6,
+  eighth: 7,
+  '8th': 7,
+  ninth: 8,
+  '9th': 8,
+  tenth: 9,
+  '10th': 9,
+};
+
+/**
+ * Resolves Stage A deterministic chronology intents from already-ordered allRounds:
+ * 1. User first/earliest
+ * 2. User ordinal (1st-10th)
+ * 3. Speaker latest/last (Claude, Gemini, ChatGPT)
+ * 4. Speaker first/earliest (Claude, Gemini, ChatGPT)
+ */
+export function resolveDeterministicChronology(
+  prompt: string,
+  allRounds: Round[]
+): ChronologicalMemoryResult | null {
+  if (!prompt || !allRounds || allRounds.length === 0) {
+    return null;
+  }
+
+  const trimmed = prompt.trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1. Speaker-specific chronology (literal panel names only)
+  let speaker: 'Claude' | 'Gemini' | 'ChatGPT' | null = null;
+  if (/\bclaude\b/i.test(lower)) speaker = 'Claude';
+  else if (/\bgemini\b/i.test(lower)) speaker = 'Gemini';
+  else if (/\bchatgpt\b/i.test(lower)) speaker = 'ChatGPT';
+
+  if (speaker) {
+    const speakerLower = speaker.toLowerCase();
+    const cleanPrompt = lower.replace(/[?.!]+$/, '').trim();
+
+    const isSpeakerFirst =
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what did ${speakerLower} (?:say|ask|reply|state) (?:first|initially)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was the (?:first|earliest|initial) thing ${speakerLower} (?:said|asked|stated|replied)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was ${speakerLower}('s|s)? (?:first|earliest|initial) (?:response|message|reply|statement)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was the (?:first|earliest|initial) (?:response|message|reply|statement) (?:from|by) ${speakerLower}$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:the )?(?:first|earliest|initial) thing ${speakerLower} (?:said|asked|stated|replied)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^${speakerLower}('s|s)? (?:first|earliest|initial) (?:response|message|reply|statement)$`, 'i').test(cleanPrompt);
+
+    const isSpeakerLast =
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what did ${speakerLower} (?:say|ask|reply|state) (?:last|most recently)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was the (?:last|latest|most recent) thing ${speakerLower} (?:said|asked|stated|replied)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was ${speakerLower}('s|s)? (?:last|latest|most recent) (?:response|message|reply|statement)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what was the (?:last|latest|most recent) (?:response|message|reply|statement) (?:from|by) ${speakerLower}$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^(?:the )?(?:last|latest|most recent) thing ${speakerLower} (?:said|asked|stated|replied)$`, 'i').test(cleanPrompt) ||
+      new RegExp(`^${speakerLower}('s|s)? (?:last|latest|most recent) (?:response|message|reply|statement)$`, 'i').test(cleanPrompt);
+
+    if (isSpeakerLast) {
+      // Walk backwards to find latest response from speaker
+      for (let i = allRounds.length - 1; i >= 0; i--) {
+        const resp = allRounds[i].modelResponses.find(
+          (m) => m.name.toLowerCase() === speaker!.toLowerCase()
+        );
+        if (resp && resp.content.trim()) {
+          return {
+            roundUserMessageId: allRounds[i].userMessageId,
+            kind: 'model_response',
+            speaker,
+            content: resp.content.trim(),
+            label: `${speaker}'s most recent response`,
+          };
+        }
+      }
+      return null;
+    }
+
+    if (isSpeakerFirst) {
+      // Walk forwards to find first response from speaker
+      for (let i = 0; i < allRounds.length; i++) {
+        const resp = allRounds[i].modelResponses.find(
+          (m) => m.name.toLowerCase() === speaker!.toLowerCase()
+        );
+        if (resp && resp.content.trim()) {
+          return {
+            roundUserMessageId: allRounds[i].userMessageId,
+            kind: 'model_response',
+            speaker,
+            content: resp.content.trim(),
+            label: `${speaker}'s first response`,
+          };
+        }
+      }
+      return null;
+    }
+  }
+
+  // 2. User ordinal / first / earliest queries
+  const ordinalMatch =
+    lower.match(
+      /\bwhat (?:was|did I (?:ask|say) in) (?:my |the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th) (?:thing|question|prompt|turn)\b/i
+    ) ||
+    lower.match(
+      /\bwhat did I (?:ask|say) (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b/i
+    ) ||
+    lower.match(
+      /\bwhat was (?:my |the )?(first|earliest) (?:thing|question|prompt|turn)(?: I (?:asked|said))?\b/i
+    ) ||
+    lower.match(
+      /\bwhat was the (first|earliest) thing I said\b/i
+    );
+
+  if (ordinalMatch) {
+    const rawOrdinal = ordinalMatch[1]?.toLowerCase();
+    const targetIndex = rawOrdinal === 'earliest' ? 0 : (rawOrdinal ? ORDINAL_MAP[rawOrdinal] : 0);
+
+    if (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex < allRounds.length) {
+      const targetRound = allRounds[targetIndex];
+      const ordinalWord = rawOrdinal === 'earliest' ? 'first' : rawOrdinal;
+      const capitalizedOrdinal = ordinalWord.charAt(0).toUpperCase() + ordinalWord.slice(1);
+      return {
+        roundUserMessageId: targetRound.userMessageId,
+        kind: 'user_prompt',
+        speaker: 'User',
+        content: targetRound.userPrompt.trim(),
+        label: `User's ${capitalizedOrdinal} question / statement`,
+      };
+    }
+    return null;
+  }
+
+  return null;
 }
 
 function validateAndCleanSemanticMemory(
@@ -634,6 +786,18 @@ export async function getScopedDiscussionMemory(
       }
     }
 
+    const chronologicalMemory = resolveDeterministicChronology(currentPrompt, allRounds);
+    if (chronologicalMemory) {
+      console.log(
+        `[Memory Chronology] Resolved deterministic chronology: ${chronologicalMemory.label}`,
+        {
+          kind: chronologicalMemory.kind,
+          speaker: chronologicalMemory.speaker,
+          roundUserMessageId: chronologicalMemory.roundUserMessageId,
+        }
+      );
+    }
+
     const formattedSummary = parsedSummary.structured
       ? formatStructuredMemoryForContext(parsedSummary.structured)
       : (parsedSummary.legacyProse || undefined);
@@ -641,6 +805,7 @@ export async function getScopedDiscussionMemory(
     return {
       summary: formattedSummary || undefined,
       recentRounds,
+      chronologicalMemory: chronologicalMemory || undefined,
     };
   } catch (err) {
     console.error('[Memory] Exception in getScopedDiscussionMemory:', err, { discussion_id: discussionId });
