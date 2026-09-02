@@ -335,6 +335,73 @@ export const ANCHOR_NOISE_WORDS = new Set([
 ]);
 
 /**
+ * Detects whether a prompt matches any supported Stage A or Stage B chronology query.
+ * Used to exclude chronology meta-queries from historical content-anchor matching.
+ */
+export function isChronologyQuery(prompt: string): boolean {
+  if (!prompt) return false;
+  const clean = prompt.trim().toLowerCase().replace(/[?.!]+$/, '').trim();
+
+  // 1. Stage B current-turn & relative intents
+  if (
+    /^(?:can you (?:please )?)?(?:tell me )?what did i (?:ask|say) (?:right|immediately|just) (?:before|after)\b/i.test(
+      clean
+    )
+  ) {
+    return true;
+  }
+  if (
+    /^(?:can you (?:please )?)?(?:tell me )?what did (?:claude|gemini|chatgpt) (?:say|ask|reply|state) (?:right|immediately|just) (?:before|after)\b/i.test(
+      clean
+    )
+  ) {
+    return true;
+  }
+
+  // 2. Stage A speaker first/last intents
+  const isSpeakerStageA =
+    /^(?:can you (?:please )?)?(?:tell me )?what did (?:claude|gemini|chatgpt) (?:say|ask|reply|state) (?:first|initially|last|most recently)$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what was the (?:first|earliest|initial|last|latest|most recent) thing (?:claude|gemini|chatgpt) (?:said|asked|stated|replied)$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what was (?:claude|gemini|chatgpt)('s|s)? (?:first|earliest|initial|last|latest|most recent) (?:response|message|reply|statement)$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what was the (?:first|earliest|initial|last|latest|most recent) (?:response|message|reply|statement) (?:from|by) (?:claude|gemini|chatgpt)$/i.test(
+      clean
+    ) ||
+    /^(?:the )?(?:first|earliest|initial|last|latest|most recent) thing (?:claude|gemini|chatgpt) (?:said|asked|stated|replied)$/i.test(
+      clean
+    ) ||
+    /^(?:claude|gemini|chatgpt)('s|s)? (?:first|earliest|initial|last|latest|most recent) (?:response|message|reply|statement)$/i.test(
+      clean
+    );
+
+  if (isSpeakerStageA) {
+    return true;
+  }
+
+  // 3. Stage A user ordinal / first / earliest intents (anchored full-query matching)
+  const isUserStageA =
+    /^(?:can you (?:please )?)?(?:tell me )?what (?:was|did i (?:ask|say) in) (?:my |the )?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th) (?:thing|question|prompt|turn)$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what did i (?:ask|say) (?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what was (?:my |the )?(?:first|earliest) (?:thing|question|prompt|turn)(?: i (?:asked|said))?$/i.test(
+      clean
+    ) ||
+    /^(?:can you (?:please )?)?(?:tell me )?what was the (?:first|earliest) thing i said$/i.test(
+      clean
+    );
+
+  return isUserStageA;
+}
+
+/**
  * Deterministically locates an anchor round in allRounds based on userPrompt matching only.
  * Returns the round index k, or null if 0 or >1 matches are found (no guessing on ties).
  */
@@ -364,6 +431,11 @@ export function findAnchorRoundIndex(rawAnchor: string, allRounds: Round[]): num
   const allTermsMatches: number[] = [];
 
   for (let i = 0; i < allRounds.length; i++) {
+    // Exclude prior chronology/navigation meta-queries from becoming substantive anchors
+    if (isChronologyQuery(allRounds[i].userPrompt)) {
+      continue;
+    }
+
     const promptNorm = allRounds[i].userPrompt
       .toLowerCase()
       .replace(/[-_]/g, ' ')
