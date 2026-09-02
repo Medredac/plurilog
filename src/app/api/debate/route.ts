@@ -568,6 +568,9 @@ export async function POST(req: NextRequest) {
                 max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
+                ...(discussionId
+                  ? { session_id: `${discussionId}:${seat.seatId}` }
+                  : {}),
                 ...(needsPdfParsing
                   ? {
                       plugins: [
