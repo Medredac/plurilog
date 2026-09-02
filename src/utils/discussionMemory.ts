@@ -301,12 +301,112 @@ export const ORDINAL_MAP: Record<string, number> = {
   '10th': 9,
 };
 
+export const ANCHOR_NOISE_WORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'my',
+  'our',
+  'question',
+  'questions',
+  'prompt',
+  'prompts',
+  'turn',
+  'turns',
+  'discussion',
+  'discussions',
+  'conversation',
+  'conversations',
+  'when',
+  'we',
+  'talked',
+  'talking',
+  'discussed',
+  'discussing',
+  'about',
+  'comparison',
+  'comparisons',
+  'i',
+  'made',
+  'asked',
+  'said',
+  'started',
+  'start',
+]);
+
 /**
- * Resolves Stage A deterministic chronology intents from already-ordered allRounds:
+ * Deterministically locates an anchor round in allRounds based on userPrompt matching only.
+ * Returns the round index k, or null if 0 or >1 matches are found (no guessing on ties).
+ */
+export function findAnchorRoundIndex(rawAnchor: string, allRounds: Round[]): number | null {
+  if (!rawAnchor || !allRounds || allRounds.length === 0) {
+    return null;
+  }
+
+  const normalizedRaw = rawAnchor
+    .toLowerCase()
+    .replace(/[-_]/g, ' ')
+    .replace(/[^\w\s]/g, '')
+    .trim();
+
+  const tokens = normalizedRaw.split(/\s+/).filter(Boolean);
+  const meaningfulTerms = tokens.filter(
+    (t) => !ANCHOR_NOISE_WORDS.has(t) && t.length >= 2
+  );
+
+  if (meaningfulTerms.length === 0) {
+    return null;
+  }
+
+  const phrase = meaningfulTerms.join(' ');
+
+  const phraseMatches: number[] = [];
+  const allTermsMatches: number[] = [];
+
+  for (let i = 0; i < allRounds.length; i++) {
+    const promptNorm = allRounds[i].userPrompt
+      .toLowerCase()
+      .replace(/[-_]/g, ' ')
+      .replace(/[^\w\s]/g, '');
+
+    if (promptNorm.includes(phrase)) {
+      phraseMatches.push(i);
+    }
+    const hasAllTerms = meaningfulTerms.every((term) => promptNorm.includes(term));
+    if (hasAllTerms) {
+      allTermsMatches.push(i);
+    }
+  }
+
+  // If there is exactly one contiguous phrase match, return it
+  if (phraseMatches.length === 1) {
+    return phraseMatches[0];
+  }
+  // If multiple contiguous phrase matches, tie -> return null
+  if (phraseMatches.length > 1) {
+    return null;
+  }
+
+  // If no contiguous phrase match, check if all meaningful terms appear in exactly one round
+  if (allTermsMatches.length === 1) {
+    return allTermsMatches[0];
+  }
+
+  // 0 or >1 matches -> return null
+  return null;
+}
+
+/**
+ * Resolves Stage A & Stage B deterministic chronology intents from already-ordered allRounds:
+ * Stage A:
  * 1. User first/earliest
  * 2. User ordinal (1st-10th)
  * 3. Speaker latest/last (Claude, Gemini, ChatGPT)
  * 4. Speaker first/earliest (Claude, Gemini, ChatGPT)
+ * Stage B v1 (Relative chronology):
+ * 5. Current-turn special case: "What did I ask right before this question?"
+ * 6. User-relative before/after: "What did I ask right/immediately/just before/after X?"
+ * 7. Speaker-relative before/after: "What did [Speaker] say right/immediately/just before/after X?"
  */
 export function resolveDeterministicChronology(
   prompt: string,
@@ -318,8 +418,133 @@ export function resolveDeterministicChronology(
 
   const trimmed = prompt.trim();
   const lower = trimmed.toLowerCase();
+  const cleanPrompt = lower.replace(/[?.!]+$/, '').trim();
 
-  // 1. Speaker-specific chronology (literal panel names only)
+  // Stage B v1. Current-turn special case: "What did I ask right/immediately/just before this question?"
+  const isCurrentTurnBefore =
+    /^(?:can you (?:please )?)?(?:tell me )?what did i (?:ask|say) (?:right|immediately|just) before (?:this|this question|this prompt|this turn)$/i.test(
+      cleanPrompt
+    );
+
+  if (isCurrentTurnBefore) {
+    if (allRounds.length === 0) {
+      return null;
+    }
+    const lastRoundIndex = allRounds.length - 1;
+    const lastRound = allRounds[lastRoundIndex];
+    return {
+      roundUserMessageId: lastRound.userMessageId,
+      kind: 'user_prompt',
+      speaker: 'User',
+      content: lastRound.userPrompt.trim(),
+      label: `User's question immediately before this question (Round ${lastRoundIndex + 1})`,
+    };
+  }
+
+  // Stage B v1. User-relative before / after: "What did I ask right/immediately/just before/after X?"
+  const userRelMatch = cleanPrompt.match(
+    /^(?:can you (?:please )?)?(?:tell me )?what did i (?:ask|say) (?:right|immediately|just) (before|after) (.+)$/i
+  );
+
+  if (userRelMatch) {
+    const direction = userRelMatch[1].toLowerCase() as 'before' | 'after';
+    const rawAnchor = userRelMatch[2].trim();
+    const anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+
+    if (anchorIndex !== null) {
+      const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
+      const anchorDisplay = origAnchorMatch
+        ? origAnchorMatch[1].replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim()
+        : rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
+
+      if (direction === 'before') {
+        const targetIndex = anchorIndex - 1;
+        if (targetIndex >= 0 && targetIndex < allRounds.length) {
+          const targetRound = allRounds[targetIndex];
+          return {
+            roundUserMessageId: targetRound.userMessageId,
+            kind: 'user_prompt',
+            speaker: 'User',
+            content: targetRound.userPrompt.trim(),
+            label: `User's question immediately before "${anchorDisplay}" (Round ${targetIndex + 1})`,
+          };
+        }
+      } else if (direction === 'after') {
+        const targetIndex = anchorIndex + 1;
+        if (targetIndex >= 0 && targetIndex < allRounds.length) {
+          const targetRound = allRounds[targetIndex];
+          return {
+            roundUserMessageId: targetRound.userMessageId,
+            kind: 'user_prompt',
+            speaker: 'User',
+            content: targetRound.userPrompt.trim(),
+            label: `User's question immediately after "${anchorDisplay}" (Round ${targetIndex + 1})`,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Stage B v1. Speaker-relative before / after: "What did [Speaker] say right/immediately/just before/after X?"
+  const speakerRelMatch = cleanPrompt.match(
+    /^(?:can you (?:please )?)?(?:tell me )?what did (claude|gemini|chatgpt) (?:say|ask|reply|state) (?:right|immediately|just) (before|after) (.+)$/i
+  );
+
+  if (speakerRelMatch) {
+    let relSpeaker: 'Claude' | 'Gemini' | 'ChatGPT';
+    const rawSpeakerName = speakerRelMatch[1].toLowerCase();
+    if (rawSpeakerName === 'claude') relSpeaker = 'Claude';
+    else if (rawSpeakerName === 'gemini') relSpeaker = 'Gemini';
+    else relSpeaker = 'ChatGPT';
+
+    const direction = speakerRelMatch[2].toLowerCase() as 'before' | 'after';
+    const rawAnchor = speakerRelMatch[3].trim();
+    const anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+
+    if (anchorIndex !== null) {
+      const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
+      const anchorDisplay = origAnchorMatch
+        ? origAnchorMatch[1].replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim()
+        : rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
+
+      if (direction === 'after') {
+        // Speaker response inside anchor round k (produced after user prompt k)
+        const anchorRound = allRounds[anchorIndex];
+        const resp = anchorRound.modelResponses.find(
+          (m) => m.name.toLowerCase() === relSpeaker.toLowerCase()
+        );
+        if (resp && resp.content.trim()) {
+          return {
+            roundUserMessageId: anchorRound.userMessageId,
+            kind: 'model_response',
+            speaker: relSpeaker,
+            content: resp.content.trim(),
+            label: `${relSpeaker}'s response to "${anchorDisplay}" (Round ${anchorIndex + 1})`,
+          };
+        }
+      } else if (direction === 'before') {
+        // Nearest completed response from that named speaker before anchor user prompt k
+        for (let j = anchorIndex - 1; j >= 0; j--) {
+          const resp = allRounds[j].modelResponses.find(
+            (m) => m.name.toLowerCase() === relSpeaker.toLowerCase()
+          );
+          if (resp && resp.content.trim()) {
+            return {
+              roundUserMessageId: allRounds[j].userMessageId,
+              kind: 'model_response',
+              speaker: relSpeaker,
+              content: resp.content.trim(),
+              label: `${relSpeaker}'s response prior to "${anchorDisplay}" (Round ${j + 1})`,
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Stage A. 1. Speaker-specific chronology (literal panel names only)
   let speaker: 'Claude' | 'Gemini' | 'ChatGPT' | null = null;
   if (/\bclaude\b/i.test(lower)) speaker = 'Claude';
   else if (/\bgemini\b/i.test(lower)) speaker = 'Gemini';
@@ -327,7 +552,6 @@ export function resolveDeterministicChronology(
 
   if (speaker) {
     const speakerLower = speaker.toLowerCase();
-    const cleanPrompt = lower.replace(/[?.!]+$/, '').trim();
 
     const isSpeakerFirst =
       new RegExp(`^(?:can you (?:please )?)?(?:tell me )?what did ${speakerLower} (?:say|ask|reply|state) (?:first|initially)$`, 'i').test(cleanPrompt) ||
