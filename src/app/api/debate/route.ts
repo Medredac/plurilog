@@ -202,24 +202,32 @@ export function buildPanelMessages(
       content: contentBlocks,
     };
   } else {
-    // Prompt Caching Implementation 1: ChatGPT Structured-Summary Breakpoint
-    const isChatGPT = currentModelName === 'ChatGPT';
-    const isEligibleForCache =
-      isChatGPT &&
-      Boolean(summarySection && summarySection.trim()) &&
-      estimateTokens(`${systemContent}\n\n${summarySection}`) >= 1100;
+    // Prompt Caching: Seat-specific structured-summary breakpoint
+    const hasSummary = Boolean(summarySection && summarySection.trim());
+    const estimatedPrefixTokens = hasSummary
+      ? estimateTokens(`${systemContent}\n\n${summarySection}`)
+      : 0;
 
-    if (isEligibleForCache && summarySection && userContent.startsWith(summarySection)) {
+    const isChatGptEligible =
+      currentModelName === 'ChatGPT' && hasSummary && estimatedPrefixTokens >= 1100;
+
+    const isClaudeEligible =
+      currentModelName === 'Claude' && hasSummary && estimatedPrefixTokens >= 1150;
+
+    if ((isChatGptEligible || isClaudeEligible) && summarySection && userContent.startsWith(summarySection)) {
       const followingContent = userContent.slice(summarySection.length);
-      const contentBlocks: any[] = [
-        {
-          type: 'text',
-          text: summarySection,
-          prompt_cache_breakpoint: {
-            mode: 'explicit',
-          },
-        },
-      ];
+      const block1: any = {
+        type: 'text',
+        text: summarySection,
+      };
+
+      if (isChatGptEligible) {
+        block1.prompt_cache_breakpoint = { mode: 'explicit' };
+      } else if (isClaudeEligible) {
+        block1.cache_control = { type: 'ephemeral' };
+      }
+
+      const contentBlocks: any[] = [block1];
 
       if (followingContent.length > 0) {
         contentBlocks.push({
