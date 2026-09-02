@@ -66,7 +66,7 @@ export function buildPanelMessages(
   if (discussionMemory?.chronologicalMemory && discussionMemory.chronologicalMemory.content) {
     const cm = discussionMemory.chronologicalMemory;
     sections.push(
-      `Targeted conversation-history result:\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
+      `Targeted conversation-history result (evaluated at the moment the user asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
     );
   }
 
@@ -82,12 +82,26 @@ export function buildPanelMessages(
     }
   }
 
-  // 3. [current round's prior seat responses, same format]
+  // 5. [current round's prior seat responses]
   if (priorResponses.length > 0) {
     const priorFormatted = priorResponses
       .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
       .join('');
-    sections.push(priorFormatted.trimEnd());
+
+    if (discussionMemory?.chronologicalMemory) {
+      sections.push(
+        `Current-round panelist responses generated after the user's question:\n${priorFormatted.trimEnd()}`
+      );
+    } else {
+      sections.push(priorFormatted.trimEnd());
+    }
+  }
+
+  // 6. [chronology-specific instruction before the current prompt]
+  if (discussionMemory?.chronologicalMemory) {
+    sections.push(
+      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment the user asked. Any current-round panelist responses shown above happened afterward. You may acknowledge those newer responses separately, but do not use them to replace or reinterpret the historical target.`
+    );
   }
 
   const trimmedPrompt = prompt.trim();
