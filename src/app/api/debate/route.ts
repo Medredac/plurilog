@@ -100,7 +100,7 @@ export function buildPanelMessages(
   // 6. [chronology-specific instruction before the current prompt]
   if (discussionMemory?.chronologicalMemory) {
     sections.push(
-      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment the user asked. Any current-round panelist responses shown above happened afterward. You may acknowledge those newer responses separately, but do not use them to replace or reinterpret the historical target.`
+      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment the user asked. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of the user's question, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
     );
   }
 
