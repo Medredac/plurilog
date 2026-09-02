@@ -468,6 +468,140 @@ export function findAnchorRoundIndex(rawAnchor: string, allRounds: Round[]): num
   return null;
 }
 
+export const MIN_ANCHOR_SEMANTIC_SIMILARITY = 0.68;
+export const MIN_ANCHOR_SEMANTIC_MARGIN = 0.025;
+
+export interface SemanticAnchorOptions {
+  supabase?: SupabaseClient;
+  openai?: OpenAI;
+  discussionId?: string;
+}
+
+/**
+ * Stage B v2: Semantic anchor fallback.
+ * Used ONLY when local deterministic anchor matching cannot uniquely resolve rawAnchor.
+ * Retrieves candidates via search_discussion_memory_hybrid, filters to eligible non-meta historical rounds,
+ * and requires strict semantic dominance (similarity >= 0.68 and top1 - top2 >= 0.025).
+ */
+export async function resolveSemanticAnchorRoundIndex(
+  rawAnchor: string,
+  allRounds: Round[],
+  options?: SemanticAnchorOptions
+): Promise<number | null> {
+  if (!rawAnchor || !allRounds || allRounds.length === 0) return null;
+  if (!options?.supabase || !options?.openai || !options?.discussionId) return null;
+
+  try {
+    const embRes = await (options.openai.embeddings.create as any)(
+      {
+        model: 'google/gemini-embedding-2',
+        dimensions: 1536,
+        input: rawAnchor,
+        encoding_format: 'float',
+      },
+      { timeout: 10000 }
+    );
+
+    const queryEmbedding = embRes?.data?.[0]?.embedding;
+    if (!Array.isArray(queryEmbedding) || queryEmbedding.length !== 1536) {
+      console.error('[Memory Chronology Semantic] Missing or invalid 1536-dimension embedding for anchor');
+      return null;
+    }
+
+    // Empirically chosen Stage B v2 candidate pool based on the current calibration
+    const { data: hybridRows, error: searchErr } = await options.supabase.rpc(
+      'search_discussion_memory_hybrid',
+      {
+        p_discussion_id: options.discussionId,
+        p_query_text: rawAnchor,
+        p_query_embedding: queryEmbedding,
+        p_match_count: 20,
+      }
+    );
+
+    if (searchErr || !Array.isArray(hybridRows) || hybridRows.length === 0) {
+      return null;
+    }
+
+    // Map source_user_message_id to historical round in allRounds and aggregate max semantic_similarity
+    const roundMap = new Map<number, { roundIndex: number; sourceId: string; maxSim: number }>();
+
+    for (const row of hybridRows) {
+      const srcId = row?.source_user_message_id;
+      if (!srcId) continue;
+
+      const roundIdx = allRounds.findIndex((r) => r.userMessageId === srcId);
+      if (roundIdx === -1) continue; // Discard results that do not map to allRounds
+
+      // Discard rounds where isChronologyQuery is true
+      if (isChronologyQuery(allRounds[roundIdx].userPrompt)) {
+        continue;
+      }
+
+      const sim = typeof row?.semantic_similarity === 'number' ? row.semantic_similarity : 0;
+      const existing = roundMap.get(roundIdx);
+      if (!existing) {
+        roundMap.set(roundIdx, { roundIndex: roundIdx, sourceId: srcId, maxSim: sim });
+      } else if (sim > existing.maxSim) {
+        existing.maxSim = sim;
+      }
+    }
+
+    const eligibleCandidates = Array.from(roundMap.values());
+    if (eligibleCandidates.length === 0) {
+      return null;
+    }
+
+    // Sort strictly by semantic_similarity DESC (hybrid_score and keyword_rank are not used for final decision)
+    eligibleCandidates.sort((a, b) => b.maxSim - a.maxSim);
+
+    const top1 = eligibleCandidates[0];
+    if (top1.maxSim < MIN_ANCHOR_SEMANTIC_SIMILARITY) {
+      return null;
+    }
+
+    const totalEligibleHistoricalRounds = allRounds.filter(
+      (r) => !isChronologyQuery(r.userPrompt)
+    ).length;
+
+    if (eligibleCandidates.length < 2) {
+      // If fewer than two eligible historical candidates survive, return null,
+      // unless the entire discussion genuinely contains only one eligible historical substantive round.
+      if (totalEligibleHistoricalRounds <= 1) {
+        console.log('[Memory Chronology Semantic] Resolved unique single-round anchor fallback', {
+          rawAnchor,
+          chosenSourceUserMessageId: top1.sourceId,
+          chosenSemanticSimilarity: top1.maxSim,
+          runnerUpSemanticSimilarity: null,
+          margin: null,
+        });
+        return top1.roundIndex;
+      }
+      return null;
+    }
+
+    const top2 = eligibleCandidates[1];
+    const margin = top1.maxSim - top2.maxSim;
+
+    if (margin < MIN_ANCHOR_SEMANTIC_MARGIN) {
+      return null;
+    }
+
+    console.log('[Memory Chronology Semantic] Resolved semantic fallback anchor', {
+      rawAnchor,
+      chosenSourceUserMessageId: top1.sourceId,
+      chosenSemanticSimilarity: top1.maxSim,
+      runnerUpSemanticSimilarity: top2.maxSim,
+      margin,
+    });
+
+    return top1.roundIndex;
+  } catch (err) {
+    console.error('[Memory Chronology Semantic] Exception during semantic anchor resolution:', err);
+    return null;
+  }
+}
+
 /**
  * Resolves Stage A & Stage B deterministic chronology intents from already-ordered allRounds:
  * Stage A:
@@ -479,11 +613,15 @@ export function findAnchorRoundIndex(rawAnchor: string, allRounds: Round[]): num
  * 5. Current-turn special case: "What did I ask right before this question?"
  * 6. User-relative before/after: "What did I ask right/immediately/just before/after X?"
  * 7. Speaker-relative before/after: "What did [Speaker] say right/immediately/just before/after X?"
+ * Stage B v2 (Semantic anchor fallback):
+ * - If local deterministic anchor matching returns null for 6 or 7, attempts semantic anchor fallback
+ *   to locate anchor round k, then executes deterministic adjacency navigation.
  */
-export function resolveDeterministicChronology(
+export async function resolveDeterministicChronology(
   prompt: string,
-  allRounds: Round[]
-): ChronologicalMemoryResult | null {
+  allRounds: Round[],
+  semanticOptions?: SemanticAnchorOptions
+): Promise<ChronologicalMemoryResult | null> {
   if (!prompt || !allRounds || allRounds.length === 0) {
     return null;
   }
@@ -513,21 +651,29 @@ export function resolveDeterministicChronology(
     };
   }
 
-  // Stage B v1. User-relative before / after: "What did I ask right/immediately/just before/after X?"
+  // Stage B. User-relative before / after: "What did I ask right/immediately/just before/after X?"
   const userRelMatch = cleanPrompt.match(
     /^(?:can you (?:please )?)?(?:tell me )?what did i (?:ask|say) (?:right|immediately|just) (before|after) (.+)$/i
   );
 
   if (userRelMatch) {
     const direction = userRelMatch[1].toLowerCase() as 'before' | 'after';
-    const rawAnchor = userRelMatch[2].trim();
-    const anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+    const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
+    const rawAnchor = origAnchorMatch ? origAnchorMatch[1].trim() : userRelMatch[2].trim();
+
+    let anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+    if (anchorIndex !== null) {
+      console.log('[Memory Chronology Local] Resolved local deterministic anchor', {
+        rawAnchor,
+        chosenSourceUserMessageId: allRounds[anchorIndex].userMessageId,
+        roundIndex: anchorIndex + 1,
+      });
+    } else if (semanticOptions) {
+      anchorIndex = await resolveSemanticAnchorRoundIndex(rawAnchor, allRounds, semanticOptions);
+    }
 
     if (anchorIndex !== null) {
-      const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
-      const anchorDisplay = origAnchorMatch
-        ? origAnchorMatch[1].replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim()
-        : rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
+      const anchorDisplay = rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
 
       if (direction === 'before') {
         const targetIndex = anchorIndex - 1;
@@ -558,7 +704,7 @@ export function resolveDeterministicChronology(
     return null;
   }
 
-  // Stage B v1. Speaker-relative before / after: "What did [Speaker] say right/immediately/just before/after X?"
+  // Stage B. Speaker-relative before / after: "What did [Speaker] say right/immediately/just before/after X?"
   const speakerRelMatch = cleanPrompt.match(
     /^(?:can you (?:please )?)?(?:tell me )?what did (claude|gemini|chatgpt) (?:say|ask|reply|state) (?:right|immediately|just) (before|after) (.+)$/i
   );
@@ -571,14 +717,22 @@ export function resolveDeterministicChronology(
     else relSpeaker = 'ChatGPT';
 
     const direction = speakerRelMatch[2].toLowerCase() as 'before' | 'after';
-    const rawAnchor = speakerRelMatch[3].trim();
-    const anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+    const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
+    const rawAnchor = origAnchorMatch ? origAnchorMatch[1].trim() : speakerRelMatch[3].trim();
+
+    let anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
+    if (anchorIndex !== null) {
+      console.log('[Memory Chronology Local] Resolved local deterministic anchor', {
+        rawAnchor,
+        chosenSourceUserMessageId: allRounds[anchorIndex].userMessageId,
+        roundIndex: anchorIndex + 1,
+      });
+    } else if (semanticOptions) {
+      anchorIndex = await resolveSemanticAnchorRoundIndex(rawAnchor, allRounds, semanticOptions);
+    }
 
     if (anchorIndex !== null) {
-      const origAnchorMatch = prompt.trim().replace(/[?.!]+$/, '').match(/(?:before|after)\s+(.+)$/i);
-      const anchorDisplay = origAnchorMatch
-        ? origAnchorMatch[1].replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim()
-        : rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
+      const anchorDisplay = rawAnchor.replace(/["'?.!]+$/g, '').replace(/^["']/g, '').trim();
 
       if (direction === 'after') {
         // Speaker response inside anchor round k (produced after user prompt k)
@@ -1082,7 +1236,11 @@ export async function getScopedDiscussionMemory(
       }
     }
 
-    const chronologicalMemory = resolveDeterministicChronology(currentPrompt, allRounds);
+    const chronologicalMemory = await resolveDeterministicChronology(currentPrompt, allRounds, {
+      supabase,
+      openai,
+      discussionId,
+    });
     if (chronologicalMemory) {
       console.log(
         `[Memory Chronology] Resolved deterministic chronology: ${chronologicalMemory.label}`,
