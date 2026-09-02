@@ -42,6 +42,15 @@ export const SEMANTIC_KEYS = [
   'likely_future_callbacks',
 ] as const;
 
+export const STRUCTURED_MEMORY_LIMITS = {
+  user_facts: 5,
+  topics_and_context: 8,
+  decisions_and_conclusions: 8,
+  panel_disagreements_and_nuance: 6,
+  unresolved_questions: 5,
+  likely_future_callbacks: 5,
+} as const;
+
 /**
  * Distinguishes between valid structured JSON memory, legacy prose summary, and empty summary.
  * Strict validation: requires all 6 semantic keys to exist as arrays of strings.
@@ -279,12 +288,30 @@ function validateAndCleanSemanticMemory(
   }
 
   return {
-    user_facts: (parsed.user_facts as string[]).map((s) => s.trim()).filter(Boolean),
-    topics_and_context: (parsed.topics_and_context as string[]).map((s) => s.trim()).filter(Boolean),
-    decisions_and_conclusions: (parsed.decisions_and_conclusions as string[]).map((s) => s.trim()).filter(Boolean),
-    panel_disagreements_and_nuance: (parsed.panel_disagreements_and_nuance as string[]).map((s) => s.trim()).filter(Boolean),
-    unresolved_questions: (parsed.unresolved_questions as string[]).map((s) => s.trim()).filter(Boolean),
-    likely_future_callbacks: (parsed.likely_future_callbacks as string[]).map((s) => s.trim()).filter(Boolean),
+    user_facts: (parsed.user_facts as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.user_facts),
+    topics_and_context: (parsed.topics_and_context as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.topics_and_context),
+    decisions_and_conclusions: (parsed.decisions_and_conclusions as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.decisions_and_conclusions),
+    panel_disagreements_and_nuance: (parsed.panel_disagreements_and_nuance as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.panel_disagreements_and_nuance),
+    unresolved_questions: (parsed.unresolved_questions as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.unresolved_questions),
+    likely_future_callbacks: (parsed.likely_future_callbacks as string[])
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, STRUCTURED_MEMORY_LIMITS.likely_future_callbacks),
   };
 }
 
@@ -371,8 +398,21 @@ Output MUST be a JSON object with exactly these six keys:
 Strict Rules:
 1. Return JSON only. Do not include markdown code fences or conversational text.
 2. Do NOT generate any '_meta' key or internal metadata.
-3. Preserve specific names, numbers, constraints, decisions, and distinctions when materially useful.
-4. 'user_facts' Rules:
+3. Category Item & Length Caps:
+   - 'user_facts': maximum 5 items
+   - 'topics_and_context': maximum 8 items
+   - 'decisions_and_conclusions': maximum 8 items
+   - 'panel_disagreements_and_nuance': maximum 6 items
+   - 'unresolved_questions': maximum 5 items
+   - 'likely_future_callbacks': maximum 5 items
+   - Each item should be 25 words or fewer whenever possible.
+   - Every category must be ordered from highest long-term importance to lowest.
+   - Merge overlapping entries rather than consuming multiple slots.
+   - Prefer preserving specific decisions, constraints, distinctions, unresolved issues, and durable context over conversational detail.
+   - When a category exceeds its allowance, retain only the highest-priority items.
+   - These caps apply to both full rebuilds and incremental updates.
+4. Preserve specific names, numbers, constraints, decisions, and distinctions when materially useful.
+5. 'user_facts' Rules:
    - 'user_facts' may contain ONLY real-world facts that the user explicitly states about themselves, their circumstances, preferences, goals, profession, technical/project environment, constraints, possessions, relationships, location, or similar personal/project facts.
    - A user merely asking about, discussing, requesting information about, or repeatedly returning to a topic is NOT evidence of an interest, preference, identity, occupation, expertise, belief, or personal fact.
    - Explicitly PROHIBITED derived statements: NEVER generate statements such as "User is interested in X", "User likes X", "User prefers X", "User wants to learn about X", or "User is knowledgeable about X" unless the user actually stated that fact about themselves.
@@ -380,14 +420,14 @@ Strict Rules:
    - If whether something qualifies as a user fact is uncertain, omit it. An empty user_facts array is preferable to an inferred fact.
    - During incremental updates, existing user_facts should normally be carried forward unchanged. Add, correct, supersede, or remove a user fact only when the newly supplied USER messages explicitly support that change. Do not try to infer the provenance of existing facts from their wording.
    - During a full rebuild, derive user_facts only from explicit statements in the supplied USER messages. Do not infer them from the topics of those messages.
-5. NEVER treat roleplay, fictional personas, jokes, hypotheticals, or quoted examples as real-world user facts. Recurring roleplay or jokes may instead appear in 'likely_future_callbacks' when they have genuinely become a running thread.
-6. Preserve meaningful panel disagreements and attribute them accurately (e.g., "Claude favored X due to Y, while Gemini preferred Z"). Do not flatten disagreement into false consensus.
-7. Update or supersede stale conclusions when later conversation changes them.
-8. Remove unresolved questions once they have actually been resolved.
-9. Merge semantically duplicate entries rather than accumulating copies.
-10. Prioritize durable context, recurring themes, decisions, unresolved work, meaningful distinctions, and callbacks likely to matter later.
-11. 'likely_future_callbacks' must be grounded in something that actually recurred, was explicitly deferred, or was explicitly flagged for later. Do not invent predictions about what the user may discuss.
-12. Keep the entire structure compact because it is injected on every panel turn.`;
+6. NEVER treat roleplay, fictional personas, jokes, hypotheticals, or quoted examples as real-world user facts. Recurring roleplay or jokes may instead appear in 'likely_future_callbacks' when they have genuinely become a running thread.
+7. Preserve meaningful panel disagreements and attribute them accurately (e.g., "Claude favored X due to Y, while Gemini preferred Z"). Do not flatten disagreement into false consensus.
+8. Update or supersede stale conclusions when later conversation changes them.
+9. Remove unresolved questions once they have actually been resolved.
+10. Merge semantically duplicate entries rather than accumulating copies.
+11. Prioritize durable context, recurring themes, decisions, unresolved work, meaningful distinctions, and callbacks likely to matter later.
+12. 'likely_future_callbacks' must be grounded in something that actually recurred, was explicitly deferred, or was explicitly flagged for later. Do not invent predictions about what the user may discuss.
+13. Keep the entire structure compact because it is injected on every panel turn.`;
 
   let userPrompt = '';
   if (previousMemoryForPrompt) {
@@ -431,7 +471,7 @@ ${olderRoundsFormatted}
         { role: 'user', content: userPrompt },
       ],
       response_format: { type: 'json_object' },
-      max_tokens: 2500,
+      max_tokens: 4000,
       temperature: 0.2,
     });
 
