@@ -46,8 +46,10 @@ export function buildPanelMessages(
   const sections: string[] = [];
 
   // 1. [rolling summary, if one exists for this discussion]
+  let summarySection = '';
   if (discussionMemory?.summary && discussionMemory.summary.trim()) {
-    sections.push(`Summary of earlier discussion history:\n"""\n${discussionMemory.summary.trim()}\n"""`);
+    summarySection = `Summary of earlier discussion history:\n"""\n${discussionMemory.summary.trim()}\n"""`;
+    sections.push(summarySection);
   }
 
   // 2. [hybrid-retrieved relevant earlier discussion rounds]
@@ -200,10 +202,42 @@ export function buildPanelMessages(
       content: contentBlocks,
     };
   } else {
-    userMessageParam = {
-      role: 'user',
-      content: userContent,
-    };
+    // Prompt Caching Implementation 1: ChatGPT Structured-Summary Breakpoint
+    const isChatGPT = currentModelName === 'ChatGPT';
+    const isEligibleForCache =
+      isChatGPT &&
+      Boolean(summarySection && summarySection.trim()) &&
+      estimateTokens(`${systemContent}\n\n${summarySection}`) >= 1100;
+
+    if (isEligibleForCache && summarySection && userContent.startsWith(summarySection)) {
+      const followingContent = userContent.slice(summarySection.length);
+      const contentBlocks: any[] = [
+        {
+          type: 'text',
+          text: summarySection,
+          prompt_cache_breakpoint: {
+            mode: 'explicit',
+          },
+        },
+      ];
+
+      if (followingContent.length > 0) {
+        contentBlocks.push({
+          type: 'text',
+          text: followingContent,
+        });
+      }
+
+      userMessageParam = {
+        role: 'user',
+        content: contentBlocks as any,
+      };
+    } else {
+      userMessageParam = {
+        role: 'user',
+        content: userContent,
+      };
+    }
   }
 
   return [
