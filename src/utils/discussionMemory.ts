@@ -1173,7 +1173,7 @@ export async function getScopedDiscussionMemory(
     }
 
     const allRounds = groupMessagesIntoRounds(rawMessages || [], currentPrompt);
-    console.log(`[Memory Debug] Grouped into ${allRounds.length} prior rounds:`, JSON.stringify(allRounds, null, 2));
+    console.log(`[Memory] Grouped into ${allRounds.length} prior rounds`);
     const totalRounds = allRounds.length;
 
     if (totalRounds === 0) {

@@ -559,11 +559,6 @@ export async function POST(req: NextRequest) {
               retrievedMemory
             );
 
-            if (seat.seatId === configuredSeats[0].seatId) {
-              console.log('[Memory Debug] API payload messages for Seat 1:');
-              console.log(JSON.stringify(seatMessages, null, 2));
-            }
-
             try {
               const stream = await (openai.chat.completions.create as any)({
                 model: primaryModel,
