@@ -66,7 +66,7 @@ export function buildPanelMessages(
   if (discussionMemory?.chronologicalMemory && discussionMemory.chronologicalMemory.content) {
     const cm = discussionMemory.chronologicalMemory;
     sections.push(
-      `Targeted conversation-history result (evaluated at the moment the user asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
+      `Targeted conversation-history result (evaluated at the moment you asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
     );
   }
 
@@ -90,7 +90,7 @@ export function buildPanelMessages(
 
     if (discussionMemory?.chronologicalMemory) {
       sections.push(
-        `Current-round panelist responses generated after the user's question:\n${priorFormatted.trimEnd()}`
+        `Current-round panelist responses generated after your question:\n${priorFormatted.trimEnd()}`
       );
     } else {
       sections.push(priorFormatted.trimEnd());
@@ -100,7 +100,7 @@ export function buildPanelMessages(
   // 6. [chronology-specific instruction before the current prompt]
   if (discussionMemory?.chronologicalMemory) {
     sections.push(
-      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment the user asked. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of the user's question, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
+      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment you asked. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of when you asked, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
     );
   }
 
