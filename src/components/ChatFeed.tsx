@@ -163,6 +163,15 @@ const markdownComponents: Components = {
   ),
 };
 
+export interface FailedTurnState {
+  uiMessageId: string;
+  sourceUserMessageId: string;
+  discussionId: string;
+  prompt: string;
+  attachments: { url: string; filename: string }[] | null;
+  seatOrder: ModelId[];
+}
+
 interface ChatFeedProps {
   messages: ChatMessage[];
   onPromptClick: (prompt: string) => void;
@@ -174,6 +183,9 @@ interface ChatFeedProps {
   onContinue?: () => void;
   activeDebateId?: string | null;
   isNewlyCreatedRef?: React.MutableRefObject<boolean>;
+  failedTurn?: FailedTurnState | null;
+  onRetryTurn?: (failedTurn: FailedTurnState) => void;
+  abandonedFailedTurnIds?: string[];
 }
 
 export const ChatFeed: React.FC<ChatFeedProps> = ({
@@ -191,6 +203,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onContinue,
   activeDebateId = null,
   isNewlyCreatedRef,
+  failedTurn = null,
+  onRetryTurn,
+  abandonedFailedTurnIds = [],
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
@@ -246,7 +261,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   return (
     <div className="px-4 sm:px-8 pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col">
-      {/* Error Notice */}
+      {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
         <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
@@ -289,7 +304,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <div 
               id={message.id}
               key={message.id} 
-              className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
+              className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
             >
               <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
                 <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
@@ -368,6 +383,29 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </div>
                 ) : null}
               </div>
+
+              {/* Inline Failed Turn State: Active failure (with Try again button) */}
+              {failedTurn && failedTurn.uiMessageId === message.id ? (
+                <div className="flex items-center justify-between gap-3 px-3.5 py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="font-normal text-stone-700">Something went wrong.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
+                    disabled={isDebating}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-50 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : abandonedFailedTurnIds.includes(message.id) ? (
+                /* Muted Abandoned Failure Marker (Session-only, no button) */
+                <div className="flex items-center gap-1.5 px-3 py-1.5 mt-2 rounded-lg text-[11px] text-zinc-400 font-normal select-none animate-in fade-in duration-150">
+                  <span>Failed to send</span>
+                </div>
+              ) : null}
             </div>
           );
         }

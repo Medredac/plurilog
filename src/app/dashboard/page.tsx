@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
-import { ChatFeed } from '../../components/ChatFeed';
+import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { LowCreditModal } from '../../components/LowCreditModal';
@@ -36,6 +36,7 @@ export default function DashboardPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentFetchIdRef = useRef<string | null>(null);
+  const retryInFlightRef = useRef(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([
@@ -52,6 +53,8 @@ export default function DashboardPage() {
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
+  const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
   const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
   const [remainingCents, setRemainingCents] = useState<number>(0);
@@ -223,6 +226,8 @@ export default function DashboardPage() {
       setMessages(formatted);
       setCanContinue(formatted.length > 0);
       setErrorMessage(null);
+      setFailedTurn(null);
+      setAbandonedFailedTurnIds([]);
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setIsDebating(false);
       setActiveSpeaker(null);
@@ -398,6 +403,8 @@ export default function DashboardPage() {
     setActiveDebateId(null);
     setMessages([]);
     setErrorMessage(null);
+    setFailedTurn(null);
+    setAbandonedFailedTurnIds([]);
     setSeatStatuses(INITIAL_SEAT_STATUSES);
     setIsDebating(false);
     setActiveSpeaker(null);
@@ -507,12 +514,15 @@ export default function DashboardPage() {
     activeSeatOrder: ModelId[],
     isContinueRound?: boolean,
     attachments?: { url: string; filename: string }[] | null,
-    sourceUserMessageId?: string | null
+    sourceUserMessageId?: string | null,
+    retrySnapshot?: FailedTurnState | null
   ) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
     let inProgressModelId: ModelId | null = null;
     let inProgressContent = '';
+    let completedSeatsCount = 0;
+    const currentAttemptModelMsgIds = new Set<string>();
 
     try {
       const response = await fetch('/api/debate', {
@@ -599,8 +609,11 @@ export default function DashboardPage() {
                 }));
 
                 const modelInfo = COUNCIL_MEMBERS[seatId];
+                const newMsgId = `msg-${seatId}-${Date.now()}`;
+                currentAttemptModelMsgIds.add(newMsgId);
+
                 const newMsg: ChatMessage = {
-                  id: `msg-${seatId}-${Date.now()}`,
+                  id: newMsgId,
                   discussionId: discussionId || undefined,
                   role: 'model',
                   modelId: seatId,
@@ -635,6 +648,7 @@ export default function DashboardPage() {
                 });
               }
             } else if (eventType === 'seat_done') {
+              completedSeatsCount++;
               const seatId = data.seatId as ModelId;
               const completedContent = data.content || inProgressContent || '';
               inProgressModelId = null;
@@ -690,13 +704,22 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'error') {
               if (isCurrentDiscussionActive) {
-                setErrorMessage(data.message || 'Error occurred during discussion.');
                 setIsDebating(false);
                 setActiveSpeaker(null);
-                setCanContinue(true);
-                setMessages((prev) =>
-                  prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
-                );
+                setSeatStatuses(INITIAL_SEAT_STATUSES);
+
+                if (completedSeatsCount === 0 && retrySnapshot) {
+                  // Zero-output turn failure: clean up placeholders for this attempt and set inline failedTurn state
+                  setMessages((prev) => prev.filter((m) => !currentAttemptModelMsgIds.has(m.id)));
+                  setFailedTurn(retrySnapshot);
+                  setCanContinue(false);
+                } else {
+                  // Partial-success: preserve successful responses and finalize streaming flags
+                  setMessages((prev) =>
+                    prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+                  );
+                  setCanContinue(true);
+                }
               }
             }
           } catch (jsonErr) {
@@ -742,16 +765,22 @@ export default function DashboardPage() {
             setIsOutOfCredits(true);
             setShowUpgradeModal(true);
             setRestoreDraft({ text: promptToSend, trigger: Date.now() });
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setMessages((prev) => prev.filter((m) => !currentAttemptModelMsgIds.has(m.id)));
+          } else if (completedSeatsCount === 0 && retrySnapshot) {
+            // Zero-output generation failure: remove placeholders and set inline failedTurn
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setMessages((prev) => prev.filter((m) => !currentAttemptModelMsgIds.has(m.id)));
+            setFailedTurn(retrySnapshot);
+            setCanContinue(false);
           } else {
-            setErrorMessage(
-              err?.message ||
-                'Failed to connect to relay. Please check OPENROUTER_API_KEY in .env.local.'
+            // Partial-success or fallback without snapshot
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setMessages((prev) =>
+              prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
             );
+            setCanContinue(true);
           }
-          setCanContinue(true);
-          setMessages((prev) =>
-            prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
-          );
         }
       }
     } finally {
@@ -776,6 +805,14 @@ export default function DashboardPage() {
 
     setCanContinue(false);
     setErrorMessage(null);
+    if (failedTurn) {
+      setAbandonedFailedTurnIds((prev) =>
+        prev.includes(failedTurn.uiMessageId)
+          ? prev
+          : [...prev, failedTurn.uiMessageId]
+      );
+    }
+    setFailedTurn(null);
     setIsDebating(true);
 
     const initialStatuses: Record<ModelId, SeatStatus> = {
@@ -961,7 +998,7 @@ export default function DashboardPage() {
       }
     }
 
-    // 4. Trigger sequential AI relay
+    // 4. Trigger sequential AI relay with retry snapshot
     if (currentDiscussionId) {
       const relayAttachments =
         realSignedUrls.length > 0 && imageFiles
@@ -970,7 +1007,75 @@ export default function DashboardPage() {
               filename: imageFiles[i]?.name || 'attachment',
             }))
           : null;
-      await runRelay(content, currentDiscussionId, activeSeatOrder, false, relayAttachments, insertedUserMessageId);
+
+      const retrySnapshot: FailedTurnState | null = insertedUserMessageId
+        ? {
+            uiMessageId: tempUserMsgId,
+            sourceUserMessageId: insertedUserMessageId,
+            discussionId: currentDiscussionId,
+            prompt: content,
+            attachments: relayAttachments,
+            seatOrder: activeSeatOrder,
+          }
+        : null;
+
+      await runRelay(
+        content,
+        currentDiscussionId,
+        activeSeatOrder,
+        false,
+        relayAttachments,
+        insertedUserMessageId,
+        retrySnapshot
+      );
+    }
+  };
+
+  // Triggered when user clicks "Try again" on an inline failed turn
+  const handleRetryTurn = async (snapshot: FailedTurnState) => {
+    const retrySeatOrder = snapshot.seatOrder;
+    if (
+      retryInFlightRef.current ||
+      isDebating ||
+      !userId ||
+      retrySeatOrder.length === 0
+    ) {
+      return;
+    }
+
+    if (isOutOfCredits) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
+    retryInFlightRef.current = true;
+    setFailedTurn(null);
+    setErrorMessage(null);
+    setCanContinue(false);
+    setIsDebating(true);
+
+    const initialStatuses: Record<ModelId, SeatStatus> = {
+      gemini: 'idle',
+      claude: 'idle',
+      chatgpt: 'idle',
+    };
+    retrySeatOrder.forEach((id) => {
+      initialStatuses[id] = 'waiting';
+    });
+    setSeatStatuses(initialStatuses);
+
+    try {
+      await runRelay(
+        snapshot.prompt,
+        snapshot.discussionId,
+        retrySeatOrder,
+        false,
+        snapshot.attachments,
+        snapshot.sourceUserMessageId,
+        snapshot
+      );
+    } finally {
+      retryInFlightRef.current = false;
     }
   };
 
@@ -986,6 +1091,7 @@ export default function DashboardPage() {
 
     setCanContinue(false);
     setErrorMessage(null);
+    setFailedTurn(null);
     setIsDebating(true);
 
     const initialStatuses: Record<ModelId, SeatStatus> = {
@@ -1162,6 +1268,9 @@ export default function DashboardPage() {
               onContinue={handleContinue}
               activeDebateId={activeDebateId}
               isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
+              failedTurn={failedTurn}
+              onRetryTurn={handleRetryTurn}
+              abandonedFailedTurnIds={abandonedFailedTurnIds}
             />
           )}
         </div>
