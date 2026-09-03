@@ -1757,3 +1757,146 @@ export async function ingestDiscussionDocuments(
 
   return result;
 }
+
+export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 1500;
+export const DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD = 0.60;
+
+export interface RetrievedDocumentExcerpt {
+  chunkId: string;
+  documentId: string;
+  filename: string;
+  chunkIndex: number;
+  content: string;
+  semanticSimilarity: number;
+  keywordRank: number | null;
+  filenameMatch: boolean;
+  hybridScore: number;
+}
+
+export interface RetrieveDiscussionDocumentsOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  queryText: string;
+  queryEmbedding?: number[] | null;
+  signal?: AbortSignal;
+}
+
+/**
+ * Retrieves relevant document chunks for a discussion using the dedicated document hybrid search RPC.
+ * Runs strictly with serviceSupabase after user discussion ownership has been verified.
+ * Fails non-critically and returns [] on any error or missing input.
+ */
+export async function retrieveDiscussionDocuments(
+  options: RetrieveDiscussionDocumentsOptions
+): Promise<RetrievedDocumentExcerpt[]> {
+  const { serviceSupabase, discussionId, queryText, queryEmbedding, signal } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !queryText ||
+    !queryText.trim() ||
+    !Array.isArray(queryEmbedding) ||
+    queryEmbedding.length !== 1536 ||
+    signal?.aborted
+  ) {
+    return [];
+  }
+
+  try {
+    const { data: rows, error } = await serviceSupabase.rpc(
+      'match_discussion_documents_hybrid',
+      {
+        p_discussion_id: discussionId,
+        p_query_text: queryText.trim(),
+        p_query_embedding: queryEmbedding,
+        p_match_count: 5,
+      }
+    );
+
+    if (error) {
+      console.error('[Doc Retrieval] Error calling match_discussion_documents_hybrid:', error);
+      return [];
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return [];
+    }
+
+    // Filter, deduplicate, and enforce DOCUMENT_RETRIEVAL_TOKEN_BUDGET (max 2 chunks)
+    const qualifying: RetrievedDocumentExcerpt[] = [];
+    const seenChunkKeys = new Set<string>();
+    let accumulatedTokens = 0;
+
+    for (const row of rows) {
+      if (qualifying.length >= 2) break;
+
+      const chunkId = String(row?.chunk_id || '');
+      const documentId = String(row?.document_id || '');
+      const filename = String(row?.filename || 'document.pdf');
+      const chunkIndex = Number(row?.chunk_index ?? 0);
+      const content = typeof row?.content === 'string' ? row.content.trim() : '';
+
+      if (!content) continue;
+
+      const dedupeKey = `${documentId}:${chunkIndex}`;
+      if (seenChunkKeys.has(dedupeKey)) continue;
+
+      const semanticSimilarity = typeof row?.semantic_similarity === 'number' ? row.semantic_similarity : 0.0;
+      const keywordRank = typeof row?.keyword_rank === 'number' ? row.keyword_rank : null;
+      const filenameMatch = Boolean(row?.filename_match);
+      const hybridScore = typeof row?.hybrid_score === 'number' ? row.hybrid_score : 0.0;
+
+      // Ensure candidate meets relevance threshold:
+      // 1. Semantic similarity meets or exceeds provisional threshold (0.58), OR
+      // 2. Exact keyword match occurred, OR
+      // 3. Explicit filename match occurred
+      if (
+        semanticSimilarity < DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD &&
+        keywordRank === null &&
+        !filenameMatch
+      ) {
+        continue;
+      }
+
+      const chunkTokens = estimateTokens(content);
+
+      if (qualifying.length === 0) {
+        // Always retain highest-ranked qualifying chunk
+        qualifying.push({
+          chunkId,
+          documentId,
+          filename,
+          chunkIndex,
+          content,
+          semanticSimilarity,
+          keywordRank,
+          filenameMatch,
+          hybridScore,
+        });
+        seenChunkKeys.add(dedupeKey);
+        accumulatedTokens += chunkTokens;
+      } else if (accumulatedTokens + chunkTokens <= DOCUMENT_RETRIEVAL_TOKEN_BUDGET) {
+        qualifying.push({
+          chunkId,
+          documentId,
+          filename,
+          chunkIndex,
+          content,
+          semanticSimilarity,
+          keywordRank,
+          filenameMatch,
+          hybridScore,
+        });
+        seenChunkKeys.add(dedupeKey);
+        accumulatedTokens += chunkTokens;
+      }
+    }
+
+    return qualifying;
+  } catch (err: any) {
+    console.error('[Doc Retrieval] Non-critical error retrieving discussion documents:', err);
+    return [];
+  }
+}
+
