@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -23,4 +24,31 @@ export async function createClient() {
       },
     }
   );
+}
+
+/**
+ * Verifies that the currently authenticated user owns the specified discussion.
+ * Uses the user-scoped authenticated Supabase client (subject to discussions RLS: user_id = auth.uid()).
+ * Never uses the service-role client to establish ownership.
+ */
+export async function verifyDiscussionOwnership(
+  userSupabase: SupabaseClient,
+  discussionId: string
+): Promise<boolean> {
+  if (!discussionId || !userSupabase) return false;
+
+  try {
+    const { data, error } = await userSupabase
+      .from('discussions')
+      .select('id')
+      .eq('id', discussionId)
+      .maybeSingle();
+
+    if (error || !data?.id) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }

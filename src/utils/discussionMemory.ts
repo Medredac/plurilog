@@ -1266,3 +1266,494 @@ export async function getScopedDiscussionMemory(
     return { recentRounds: [] };
   }
 }
+
+/**
+ * Extracts and cleans parsed document text from an OpenRouter FileAnnotation.
+ * Strips transport wrapper-only tags (<file ...> and </file>) and ignores image ContentParts.
+ */
+export function extractDocumentText(annotation: any): {
+  filename: string;
+  fileHash: string;
+  fullText: string;
+  contentPartsCount: number;
+} | null {
+  if (annotation?.type !== 'file' || !annotation?.file?.hash) {
+    return null;
+  }
+
+  const file = annotation.file;
+  const fileHash = String(file.hash).trim();
+  const filename = String(file.name || 'document.pdf').trim();
+
+  if (!fileHash || !Array.isArray(file.content) || file.content.length === 0) {
+    return null;
+  }
+
+  const textBlocks: string[] = [];
+  let contentPartsCount = 0;
+
+  for (const part of file.content) {
+    if (part?.type === 'text' && typeof part.text === 'string') {
+      const trimmed = part.text.trim();
+      if (!trimmed) continue;
+
+      // Strip wrapper-only <file ...> and </file> transport tags
+      if (/^<file(\s+[^>]*)?>$/i.test(trimmed) || /^<\/file>$/i.test(trimmed)) {
+        continue;
+      }
+
+      contentPartsCount++;
+      textBlocks.push(trimmed);
+    }
+  }
+
+  if (textBlocks.length === 0) {
+    return null;
+  }
+
+  const fullText = textBlocks.join('\n\n').trim();
+  if (!fullText) {
+    return null;
+  }
+
+  return {
+    filename,
+    fileHash,
+    fullText,
+    contentPartsCount,
+  };
+}
+
+/**
+ * Splits an oversized text block into smaller pieces adhering to targetTokenMax.
+ * Follows hierarchy: sentence -> line -> word -> hard slice.
+ */
+function splitOversizedText(
+  text: string,
+  targetTokenMax: number
+): string[] {
+  const totalTokens = estimateTokens(text);
+  if (totalTokens <= targetTokenMax) {
+    return [text];
+  }
+
+  // 1. Try splitting by sentence boundary (. ! ?)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  if (sentences.length > 1) {
+    const pieces: string[] = [];
+    let currentPiece: string[] = [];
+    let currentTokens = 0;
+
+    for (const sent of sentences) {
+      const sentTokens = estimateTokens(sent);
+      if (sentTokens > targetTokenMax) {
+        if (currentPiece.length > 0) {
+          pieces.push(currentPiece.join(' '));
+          currentPiece = [];
+          currentTokens = 0;
+        }
+        const subPieces = splitOversizedText(sent, targetTokenMax);
+        pieces.push(...subPieces);
+      } else if (currentTokens + sentTokens > targetTokenMax && currentPiece.length > 0) {
+        pieces.push(currentPiece.join(' '));
+        currentPiece = [sent];
+        currentTokens = sentTokens;
+      } else {
+        currentPiece.push(sent);
+        currentTokens += sentTokens;
+      }
+    }
+    if (currentPiece.length > 0) {
+      pieces.push(currentPiece.join(' '));
+    }
+    return pieces.filter((p) => p.trim().length > 0);
+  }
+
+  // 2. Try splitting by line breaks (\n)
+  const lines = text.split(/\n+/).filter(Boolean);
+  if (lines.length > 1) {
+    const pieces: string[] = [];
+    let currentPiece: string[] = [];
+    let currentTokens = 0;
+
+    for (const line of lines) {
+      const lineTokens = estimateTokens(line);
+      if (lineTokens > targetTokenMax) {
+        if (currentPiece.length > 0) {
+          pieces.push(currentPiece.join('\n'));
+          currentPiece = [];
+          currentTokens = 0;
+        }
+        const subPieces = splitOversizedText(line, targetTokenMax);
+        pieces.push(...subPieces);
+      } else if (currentTokens + lineTokens > targetTokenMax && currentPiece.length > 0) {
+        pieces.push(currentPiece.join('\n'));
+        currentPiece = [line];
+        currentTokens = lineTokens;
+      } else {
+        currentPiece.push(line);
+        currentTokens += lineTokens;
+      }
+    }
+    if (currentPiece.length > 0) {
+      pieces.push(currentPiece.join('\n'));
+    }
+    return pieces.filter((p) => p.trim().length > 0);
+  }
+
+  // 3. Try splitting by whitespace / words
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    const pieces: string[] = [];
+    let currentPiece: string[] = [];
+    let currentTokens = 0;
+
+    for (const word of words) {
+      const wordTokens = estimateTokens(word);
+      if (wordTokens > targetTokenMax) {
+        if (currentPiece.length > 0) {
+          pieces.push(currentPiece.join(' '));
+          currentPiece = [];
+          currentTokens = 0;
+        }
+        const charLimit = Math.max(100, targetTokenMax * 3);
+        for (let i = 0; i < word.length; i += charLimit) {
+          pieces.push(word.slice(i, i + charLimit));
+        }
+      } else if (currentTokens + wordTokens > targetTokenMax && currentPiece.length > 0) {
+        pieces.push(currentPiece.join(' '));
+        currentPiece = [word];
+        currentTokens = wordTokens;
+      } else {
+        currentPiece.push(word);
+        currentTokens += wordTokens;
+      }
+    }
+    if (currentPiece.length > 0) {
+      pieces.push(currentPiece.join(' '));
+    }
+    return pieces.filter((p) => p.trim().length > 0);
+  }
+
+  // 4. Final deterministic fallback: hard character slice
+  const charLimit = Math.max(100, targetTokenMax * 3);
+  const slices: string[] = [];
+  for (let i = 0; i < text.length; i += charLimit) {
+    slices.push(text.slice(i, i + charLimit));
+  }
+  return slices.filter((s) => s.trim().length > 0);
+}
+
+/**
+ * Chunks extracted document Markdown text into segments targeting 500-800 tokens.
+ * Respects headings, paragraphs, sentences, lines, and words, preserving deterministic document order.
+ */
+export function chunkDocumentText(
+  fullText: string,
+  targetTokenMin: number = 500,
+  targetTokenMax: number = 800
+): string[] {
+  const trimmed = fullText.trim();
+  if (!trimmed) return [];
+
+  const totalTokens = estimateTokens(trimmed);
+  if (totalTokens <= targetTokenMax) {
+    return [trimmed];
+  }
+
+  // Split by headings (#, ##, ###) or paragraph double newlines
+  const paragraphs = trimmed
+    .split(/\n\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const chunks: string[] = [];
+  let currentChunkParagraphs: string[] = [];
+  let currentChunkTokens = 0;
+
+  for (const para of paragraphs) {
+    const paraTokens = estimateTokens(para);
+
+    if (paraTokens > targetTokenMax) {
+      if (currentChunkParagraphs.length > 0) {
+        chunks.push(currentChunkParagraphs.join('\n\n'));
+        currentChunkParagraphs = [];
+        currentChunkTokens = 0;
+      }
+
+      const subPieces = splitOversizedText(para, targetTokenMax);
+      for (const piece of subPieces) {
+        chunks.push(piece);
+      }
+      continue;
+    }
+
+    if (currentChunkTokens + paraTokens > targetTokenMax && currentChunkParagraphs.length > 0) {
+      chunks.push(currentChunkParagraphs.join('\n\n'));
+      currentChunkParagraphs = [para];
+      currentChunkTokens = paraTokens;
+    } else {
+      currentChunkParagraphs.push(para);
+      currentChunkTokens += paraTokens;
+    }
+  }
+
+  if (currentChunkParagraphs.length > 0) {
+    chunks.push(currentChunkParagraphs.join('\n\n'));
+  }
+
+  return chunks.filter((c) => c.trim().length > 0);
+}
+
+export interface IngestDocumentsOptions {
+  serviceSupabase: SupabaseClient;
+  openai: OpenAI;
+  discussionId: string;
+  fileAnnotations: any[];
+  signal?: AbortSignal;
+}
+
+export interface IngestDocumentsResult {
+  ingestedCount: number;
+  skippedCount: number;
+  errors: { filename: string; fileHash: string; error: string }[];
+}
+
+/**
+ * Ingests all unique parsed PDF annotations into discussion_documents and discussion_document_chunks.
+ * Fully idempotent and atomic based on (discussion_id, file_hash) with partial index recovery and batch embeddings.
+ * Operates strictly via the privileged serviceSupabase client on backend-only tables.
+ */
+export async function ingestDiscussionDocuments(
+  options: IngestDocumentsOptions
+): Promise<IngestDocumentsResult> {
+  const { serviceSupabase, openai, discussionId, fileAnnotations, signal } = options;
+
+  const result: IngestDocumentsResult = {
+    ingestedCount: 0,
+    skippedCount: 0,
+    errors: [],
+  };
+
+  if (!discussionId || !Array.isArray(fileAnnotations) || fileAnnotations.length === 0 || !serviceSupabase) {
+    return result;
+  }
+
+  // Deduplicate annotations by file.hash
+  const uniqueAnnotations: any[] = [];
+  for (const ann of fileAnnotations) {
+    if (ann?.type === 'file' && ann?.file?.hash) {
+      if (!uniqueAnnotations.some((existing) => existing?.file?.hash === ann.file.hash)) {
+        uniqueAnnotations.push(ann);
+      }
+    }
+  }
+
+  for (const ann of uniqueAnnotations) {
+    if (signal?.aborted) break;
+
+    const extracted = extractDocumentText(ann);
+    if (!extracted) {
+      continue;
+    }
+
+    const { filename, fileHash, fullText } = extracted;
+
+    try {
+      // 1. Compute expected deterministic chunks first
+      const expectedChunks = chunkDocumentText(fullText);
+      if (expectedChunks.length === 0) {
+        result.skippedCount++;
+        continue;
+      }
+
+      // 2. Check existing document record
+      const { data: existingDoc, error: checkDocErr } = await serviceSupabase
+        .from('discussion_documents')
+        .select('id')
+        .eq('discussion_id', discussionId)
+        .eq('file_hash', fileHash)
+        .maybeSingle();
+
+      if (checkDocErr && checkDocErr.code !== 'PGRST116') {
+        console.warn('[Doc Ingest] Error checking existing document:', checkDocErr);
+      }
+
+      let documentId = existingDoc?.id;
+
+      if (documentId) {
+        // Robust completeness check: skip ONLY if existing chunk count matches expected chunk count exactly
+        const { count, error: chunkCountErr } = await serviceSupabase
+          .from('discussion_document_chunks')
+          .select('id', { count: 'exact', head: true })
+          .eq('document_id', documentId);
+
+        if (!chunkCountErr && typeof count === 'number' && count === expectedChunks.length) {
+          console.log('[Doc Ingest] Document already fully indexed, skipping:', {
+            discussionId,
+            fileHash,
+            filename,
+            expectedChunks: expectedChunks.length,
+            existingChunks: count,
+          });
+          result.skippedCount++;
+          continue;
+        }
+
+        console.log('[Doc Ingest] Document exists with incomplete chunks, rebuilding index:', {
+          discussionId,
+          documentId,
+          fileHash,
+          expectedChunks: expectedChunks.length,
+          existingChunks: count || 0,
+        });
+      } else {
+        // Insert new document record
+        const { data: insertedDoc, error: insertDocErr } = await serviceSupabase
+          .from('discussion_documents')
+          .insert({
+            discussion_id: discussionId,
+            file_hash: fileHash,
+            filename: filename,
+            full_text: fullText,
+          })
+          .select('id')
+          .single();
+
+        if (insertDocErr) {
+          const { data: retryDoc } = await serviceSupabase
+            .from('discussion_documents')
+            .select('id')
+            .eq('discussion_id', discussionId)
+            .eq('file_hash', fileHash)
+            .maybeSingle();
+
+          if (retryDoc?.id) {
+            documentId = retryDoc.id;
+          } else {
+            throw new Error(`Failed to insert document: ${insertDocErr.message}`);
+          }
+        } else {
+          documentId = insertedDoc.id;
+        }
+      }
+
+      if (signal?.aborted) {
+        console.warn('[Doc Ingest] Ingestion aborted before embedding generation');
+        break;
+      }
+
+      // 3. Generate embeddings using bounded batch embedding (up to 16 chunks per API request)
+      const EMBEDDING_BATCH_SIZE = 16;
+      const chunkInserts: {
+        document_id: string;
+        discussion_id: string;
+        chunk_index: number;
+        content: string;
+        embedding: number[];
+      }[] = [];
+
+      let hasAbortOrFailure = false;
+
+      for (let batchStart = 0; batchStart < expectedChunks.length; batchStart += EMBEDDING_BATCH_SIZE) {
+        if (signal?.aborted) {
+          hasAbortOrFailure = true;
+          break;
+        }
+
+        const batchEnd = Math.min(batchStart + EMBEDDING_BATCH_SIZE, expectedChunks.length);
+        const batchTexts = expectedChunks.slice(batchStart, batchEnd);
+
+        const embRes = await (openai.embeddings.create as any)(
+          {
+            model: 'google/gemini-embedding-2',
+            dimensions: 1536,
+            input: batchTexts,
+            encoding_format: 'float',
+          },
+          {
+            timeout: 10000,
+            signal,
+          }
+        );
+
+        if (signal?.aborted) {
+          hasAbortOrFailure = true;
+          break;
+        }
+
+        const returnedData = embRes?.data;
+        if (!Array.isArray(returnedData) || returnedData.length !== batchTexts.length) {
+          throw new Error(
+            `Batch embedding count mismatch: expected ${batchTexts.length}, received ${returnedData?.length || 0}`
+          );
+        }
+
+        for (let i = 0; i < returnedData.length; i++) {
+          const item = returnedData[i];
+          const embedding = item?.embedding;
+          const chunkIndex = batchStart + i;
+
+          if (!Array.isArray(embedding) || embedding.length !== 1536) {
+            throw new Error(
+              `Embedding generation returned invalid vector for chunk ${chunkIndex} of ${filename}`
+            );
+          }
+
+          chunkInserts.push({
+            document_id: documentId,
+            discussion_id: discussionId,
+            chunk_index: chunkIndex,
+            content: batchTexts[i],
+            embedding,
+          });
+        }
+      }
+
+      // 4. Atomic commit check: Only commit and increment if ALL expected chunks were generated without abort
+      if (hasAbortOrFailure || signal?.aborted || chunkInserts.length !== expectedChunks.length) {
+        console.warn('[Doc Ingest] Document embedding incomplete or aborted, skipping commit:', {
+          discussionId,
+          filename,
+          generatedChunks: chunkInserts.length,
+          expectedChunks: expectedChunks.length,
+          isAborted: Boolean(signal?.aborted),
+        });
+        continue;
+      }
+
+      // 5. Commit complete chunk set to database
+      const { error: insertChunksErr } = await serviceSupabase
+        .from('discussion_document_chunks')
+        .upsert(chunkInserts, { onConflict: 'document_id,chunk_index' });
+
+      if (insertChunksErr) {
+        throw new Error(`Failed to insert document chunks: ${insertChunksErr.message}`);
+      }
+
+      console.log('[Doc Ingest] Successfully ingested document:', {
+        discussionId,
+        documentId,
+        filename,
+        fileHash,
+        chunksCount: chunkInserts.length,
+        characterCount: fullText.length,
+      });
+
+      result.ingestedCount++;
+    } catch (err: any) {
+      console.error('[Doc Ingest] Error ingesting document:', {
+        filename,
+        fileHash,
+        error: err?.message || String(err),
+      });
+      result.errors.push({
+        filename,
+        fileHash,
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  return result;
+}

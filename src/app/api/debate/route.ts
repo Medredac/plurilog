@@ -10,7 +10,10 @@ import {
   formatRoundForContext,
   estimateTokens,
   RETRIEVED_MEMORY_TOKEN_BUDGET,
+  ingestDiscussionDocuments,
 } from '@/utils/discussionMemory';
+import { verifyDiscussionOwnership } from '@/utils/supabase/server';
+import { createServiceClient } from '@/utils/supabase/service';
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
 
@@ -723,6 +726,40 @@ export async function POST(req: NextRequest) {
                 message: `${seat.name}: ${err?.message || 'Model request failed'}`,
               });
               continue;
+            }
+          }
+
+          // Ingest any parsed PDF file annotations into discussion_documents & discussion_document_chunks (non-critical)
+          if (
+            discussionId &&
+            roundFileAnnotations.length > 0 &&
+            !req.signal.aborted
+          ) {
+            try {
+              // 1. Verify discussion ownership using the user-scoped authenticated client
+              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+              if (!isOwner) {
+                console.warn('[Doc Ingest] Discussion ownership verification failed for user session:', {
+                  discussionId,
+                });
+              } else {
+                // 2. Obtain privileged service-role client for backend-only document memory tables
+                const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+                if (!serviceRoleKey) {
+                  console.error('[Doc Ingest] SUPABASE_SERVICE_ROLE_KEY is not configured');
+                } else {
+                  const serviceClient = createServiceClient();
+                  await ingestDiscussionDocuments({
+                    serviceSupabase: serviceClient,
+                    openai,
+                    discussionId,
+                    fileAnnotations: roundFileAnnotations,
+                    signal: req.signal,
+                  });
+                }
+              }
+            } catch (docIngestErr: any) {
+              console.error('[Doc Ingest] Non-critical error during document ingestion:', docIngestErr);
             }
           }
 
