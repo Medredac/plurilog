@@ -131,10 +131,16 @@ export function buildPanelMessages(
   }
 
   const trimmedPrompt = prompt.trim();
-  let userContent = trimmedPrompt;
+  const hasAttachments = Boolean(attachments && attachments.length > 0);
+  const effectivePrompt =
+    !trimmedPrompt && hasAttachments
+      ? 'Please review and discuss the attached document(s).'
+      : trimmedPrompt;
+
+  let userContent = effectivePrompt;
   if (sections.length > 0) {
-    userContent = trimmedPrompt
-      ? `${sections.join('\n\n')}\n\n${trimmedPrompt}`
+    userContent = effectivePrompt
+      ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
       : sections.join('\n\n');
   }
 

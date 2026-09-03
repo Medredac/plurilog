@@ -182,7 +182,9 @@ export function formatRoundForContext(round: Round): string {
   const isContinueUser = round.userPrompt.trim().toLowerCase() === 'continue';
   const userPart = isContinueUser
     ? ''
-    : `User said:\n"""\n${round.userPrompt}\n"""`;
+    : round.userPrompt.trim()
+      ? `User said:\n"""\n${round.userPrompt}\n"""`
+      : 'User shared attachment(s) without a text prompt.';
   const modelParts = round.modelResponses
     .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
     .join('\n\n');
@@ -242,7 +244,7 @@ export function groupMessagesIntoRounds(
 
   for (const msg of messages) {
     if (msg.sender === 'user') {
-      if (currentRound && currentRound.userPrompt.trim()) {
+      if (currentRound && (currentRound.userPrompt.trim() || currentRound.modelResponses.length > 0)) {
         rounds.push(currentRound);
       }
       currentRound = {
@@ -264,7 +266,7 @@ export function groupMessagesIntoRounds(
     }
   }
 
-  if (currentRound && currentRound.userPrompt.trim()) {
+  if (currentRound && (currentRound.userPrompt.trim() || currentRound.modelResponses.length > 0)) {
     // If this round matches the active prompt (or is a continue round with prompt='') and has 0 model responses yet, it's the currently in-flight turn
     const isCurrentInFlight =
       currentRound.modelResponses.length === 0 &&
