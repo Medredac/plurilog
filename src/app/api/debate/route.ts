@@ -13,6 +13,8 @@ import {
   ingestDiscussionDocuments,
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
+  isVisualEvidenceQuery,
+  resolveVisualDocument,
 } from '@/utils/discussionMemory';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
@@ -51,7 +53,8 @@ export function buildPanelMessages(
   attachments?: { url: string; filename: string }[] | null,
   fileAnnotations?: any[] | null,
   retrievedMemory?: any[] | null,
-  retrievedDocuments?: RetrievedDocumentExcerpt[] | null
+  retrievedDocuments?: RetrievedDocumentExcerpt[] | null,
+  isVisualUnavailable?: boolean
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -107,7 +110,14 @@ export function buildPanelMessages(
     }
   }
 
-  // 5. [recent exact conversation rounds within token budget]
+  // 6. [visual unavailable fail-safe grounding]
+  if (isVisualUnavailable) {
+    sections.push(
+      `Visual inspection was requested for this question, but the relevant original PDF could not be made available for visual inspection on this turn. Do not guess visual/layout/colour/image facts from filenames, OCR text, or prior model claims. State clearly that the visual detail cannot currently be verified without the original file.`
+    );
+  }
+
+  // 7. [recent exact conversation rounds within token budget]
   if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
     const rawRoundsFormatted = discussionMemory.recentRounds
       .map(formatRoundForContext)
@@ -607,6 +617,57 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Visual Escalation: Check if the prompt requires visual/layout evidence from a known historical PDF
+          let visualAttachments: { url: string; filename: string }[] | null = null;
+          const isVisualQuery = isVisualEvidenceQuery(prompt);
+
+          if (isVisualQuery && (!attachments || attachments.length === 0) && discussionId) {
+            try {
+              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+              if (isOwner) {
+                const resolvedDoc = resolveVisualDocument(
+                  prompt,
+                  discussionMemory?.knownDocuments,
+                  retrievedDocuments,
+                  discussionMemory?.recentRounds
+                );
+
+                if (resolvedDoc && resolvedDoc.storagePath) {
+                  const serviceClient = createServiceClient();
+                  const { data: signedData, error: signErr } = await serviceClient.storage
+                    .from('message-images')
+                    .createSignedUrl(resolvedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+
+                  if (!signErr && signedData?.signedUrl) {
+                    visualAttachments = [
+                      {
+                        url: signedData.signedUrl,
+                        filename: resolvedDoc.filename,
+                      },
+                    ];
+                    console.log('[Visual Reinspection] Escalated to visual inspection for document:', {
+                      documentId: resolvedDoc.documentId,
+                      filename: resolvedDoc.filename,
+                      storagePath: resolvedDoc.storagePath,
+                    });
+                  } else {
+                    console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);
+                  }
+                } else {
+                  console.log('[Visual Reinspection] Ambiguous or unresolved document for visual query — proceeding with fail-safe text retrieval');
+                }
+              }
+            } catch (visualErr: any) {
+              console.error('[Visual Reinspection] Non-critical error during visual escalation:', visualErr);
+            }
+          }
+
+          const effectiveAttachments =
+            attachments && attachments.length > 0 ? attachments : visualAttachments;
+
+          const isVisualUnavailable =
+            isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0);
+
           // Sequential panel execution across configured seats in custom order
           for (const seat of configuredSeats) {
             if (req.signal.aborted) {
@@ -626,13 +687,19 @@ export async function POST(req: NextRequest) {
               name: seat.name,
             });
 
-            const pdfAttachments = attachments?.filter((att: any) =>
+            const pdfAttachments = effectiveAttachments?.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
             ) || [];
             const hasPdf = pdfAttachments.length > 0;
 
-            // Only reuse when annotations have been captured for ALL PDF attachments in current request
+            // When visual reinspection is active, every model seat must independently receive the visual PDF
+            // with engine: 'native' rather than using text-only OCR annotation reuse.
+            const isVisualInspectionActive =
+              hasPdf && (Boolean(visualAttachments && visualAttachments.length > 0) || isVisualQuery);
+
+            // Only reuse text annotations when not in visual inspection mode AND annotations captured for ALL PDFs
             const hasAllPdfAnnotations =
+              !isVisualInspectionActive &&
               hasPdf &&
               roundFileAnnotations.length >= pdfAttachments.length &&
               pdfAttachments.every((pdf: any) =>
@@ -644,11 +711,19 @@ export async function POST(req: NextRequest) {
               );
 
             const isReusingAnnotations = hasAllPdfAnnotations;
-            const needsPdfParsing = hasPdf && !isReusingAnnotations;
+            const needsPdfPlugin = hasPdf && !isReusingAnnotations;
+            const pdfEngine = isVisualInspectionActive ? 'native' : 'mistral-ocr';
 
-            console.log('[PDF Annotation Relay]', {
+            console.log('[PDF Relay Mode]', {
               seatId: seat.seatId,
-              mode: hasPdf ? (isReusingAnnotations ? 'reusing' : 'parsing') : 'none',
+              mode: hasPdf
+                ? isVisualInspectionActive
+                  ? 'visual-native'
+                  : isReusingAnnotations
+                    ? 'reusing-ocr'
+                    : 'parsing-ocr'
+                : 'none',
+              engine: hasPdf && needsPdfPlugin ? pdfEngine : 'none',
               annotationCount: roundFileAnnotations.length,
               pdfCount: pdfAttachments.length,
             });
@@ -658,10 +733,11 @@ export async function POST(req: NextRequest) {
               prompt,
               priorResponses,
               discussionMemory,
-              attachments,
+              effectiveAttachments,
               isReusingAnnotations ? roundFileAnnotations : null,
               retrievedMemory,
-              retrievedDocuments
+              retrievedDocuments,
+              isVisualUnavailable
             );
 
             try {
@@ -676,13 +752,13 @@ export async function POST(req: NextRequest) {
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
-                ...(needsPdfParsing
+                ...(needsPdfPlugin
                   ? {
                       plugins: [
                         {
                           id: 'file-parser',
                           pdf: {
-                            engine: 'mistral-ocr',
+                            engine: pdfEngine,
                           },
                         },
                       ],
@@ -788,7 +864,8 @@ export async function POST(req: NextRequest) {
           // Ingest any parsed PDF file annotations into discussion_documents & discussion_document_chunks (non-critical)
           if (
             discussionId &&
-            roundFileAnnotations.length > 0 &&
+            attachments &&
+            attachments.length > 0 &&
             !req.signal.aborted
           ) {
             try {
@@ -805,14 +882,81 @@ export async function POST(req: NextRequest) {
                   console.error('[Doc Ingest] SUPABASE_SERVICE_ROLE_KEY is not configured');
                 } else {
                   const serviceClient = createServiceClient();
-                  await ingestDiscussionDocuments({
-                    serviceSupabase: serviceClient,
-                    openai,
-                    discussionId,
-                    fileAnnotations: roundFileAnnotations,
-                    attachments,
-                    signal: req.signal,
-                  });
+
+                  let annotationsToIngest = roundFileAnnotations;
+
+                  // If native PDF vision was used for all seats (visual question on active upload),
+                  // roundFileAnnotations will be empty because native models do not emit OCR annotations.
+                  // Run a single dedicated background Mistral OCR extraction to ensure the PDF is durably indexed into memory!
+                  if (annotationsToIngest.length === 0) {
+                    const pdfAttachments = attachments.filter((att: any) =>
+                      att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
+                    );
+
+                    if (pdfAttachments.length > 0) {
+                      console.log('[Doc Ingest] Fetching Mistral OCR annotations for durable background indexing...');
+                      try {
+                        const ocrBlocks = pdfAttachments.map((att: any) => ({
+                          type: 'file',
+                          file: {
+                            filename: att.filename || 'attachment.pdf',
+                            file_data: att.url,
+                          },
+                        }));
+
+                        const stream = await (openai.chat.completions.create as any)({
+                          model: 'google/gemini-3.7-flash',
+                          messages: [
+                            {
+                              role: 'user',
+                              content: [
+                                ...ocrBlocks,
+                                { type: 'text', text: 'Extract index.' },
+                              ],
+                            },
+                          ],
+                          plugins: [
+                            {
+                              id: 'file-parser',
+                              pdf: { engine: 'mistral-ocr' },
+                            },
+                          ],
+                          stream: true,
+                          max_tokens: 10,
+                          signal: req.signal,
+                        });
+
+                        const captured: any[] = [];
+                        for await (const chunk of stream) {
+                          const anns = (chunk.choices?.[0]?.delta as any)?.annotations;
+                          if (anns) {
+                            const annList = Array.isArray(anns) ? anns : [anns];
+                            for (const a of annList) {
+                              if (a?.type === 'file' && a?.file?.hash) {
+                                if (!captured.some((existing) => existing?.file?.hash === a.file.hash)) {
+                                  captured.push(a);
+                                }
+                              }
+                            }
+                          }
+                        }
+                        annotationsToIngest = captured;
+                      } catch (ocrErr) {
+                        console.warn('[Doc Ingest] Non-critical warning during background OCR indexing:', ocrErr);
+                      }
+                    }
+                  }
+
+                  if (annotationsToIngest.length > 0) {
+                    await ingestDiscussionDocuments({
+                      serviceSupabase: serviceClient,
+                      openai,
+                      discussionId,
+                      fileAnnotations: annotationsToIngest,
+                      attachments,
+                      signal: req.signal,
+                    });
+                  }
                 }
               }
             } catch (docIngestErr: any) {

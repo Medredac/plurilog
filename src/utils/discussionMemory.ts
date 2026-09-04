@@ -2231,3 +2231,176 @@ export async function retrieveDiscussionDocuments(
   }
 }
 
+export interface ResolvedVisualDocument {
+  documentId?: string | null;
+  filename: string;
+  storagePath: string;
+}
+
+/**
+ * Deterministic lightweight visual query classifier.
+ * Detects questions that require visual inspection of original 2D layout, signatures, stamps, photos, colors, etc.
+ * Avoids false positives on generic words like "top", "bottom", "above", "below", or temporal "when was ... signed".
+ */
+export function isVisualEvidenceQuery(prompt?: string | null): boolean {
+  if (!prompt || typeof prompt !== 'string') return false;
+  const p = prompt.trim();
+  if (!p) return false;
+
+  // 1. Explicit spatial / layout position queries
+  if (
+    /\b(which|what|either)\s+(side|corner|margin|half|part|quadrant)\b/i.test(p) ||
+    /\b(left|right|top|bottom|upper|lower|center|centre|middle)\s*(-|\s)+(hand|side|corner|margin|aligned|alignment|edge|portion|half|quadrant|section)\b/i.test(p) ||
+    /\b(which\s+side|what\s+side|left\s+side|right\s+side|top\s+side|bottom\s+side)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 2. Relative visual positioning
+  if (
+    /\b(visually|positioned|located|placed|aligned|arranged)\s+(above|below|beside|under|underneath|next to|on top of|beneath)\b/i.test(p) ||
+    /\b(above|below|beside|under|underneath|next to)\s+(the\s+)?(signature|stamp|seal|photo|picture|header|footer|logo|line|box|table|cnie)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 3. Signature appearance, position, color, or handwriting
+  if (
+    /\b(signature|handwriting|handwritten)\b/i.test(p) &&
+    /\b(side|position|where|located|colour|color|ink|blue|black|red|appearance|look like|looks like|blurry|sharp|faded|clear|legible|overlap|overlapping)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 4. Stamp / Seal / Logo appearance or location
+  if (
+    /\b(stamp|stamped|seal|logo)\b/i.test(p) &&
+    /\b(side|position|where|located|colour|color|ink|appearance|look like|looks like|round|circular|square|overlap|overlapping)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 5. Photo / Image visual inspection (e.g. on ID/CNIE/passport)
+  if (
+    /\b(photo|picture|portrait|image)\b/i.test(p) &&
+    /\b(cnie|id|card|passport|document|page|blurry|sharp|glasses|clothing|background|face|wearing|color|colour|black and white|grayscale)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 6. Visual color / ink queries strictly anchored to document objects
+  if (
+    /\b(colour|color|ink)\b/i.test(p) &&
+    /\b(signature|handwriting|stamp|seal|logo|photo|picture|image|cnie|id|card|passport|document|page|scan|background|text|font|border|line)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 7. General document layout / visual appearance
+  if (
+    /\b(visual layout|page layout|2d layout|spatial layout|page orientation|landscape|portrait)\b/i.test(p) ||
+    /\b(is\s+the\s+scan\s+(blurry|sharp|crooked|clear|clean))\b/i.test(p) ||
+    /\b(does\s+the\s+.*(overlap|cover|cross))\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Deterministically resolves which candidate PDF document from the discussion should be reopened for visual inspection.
+ * Priority:
+ * 1. Explicit deterministic filename reference (outranks semantic retrieval)
+ * 2. Unambiguous retrieved document identity from hybrid search
+ * 3. Contextually recent single PDF attachment in history (strict uniqueness check)
+ * 4. Single known PDF with storage_path in discussion
+ * 5. Ambiguity -> never guess
+ */
+export function resolveVisualDocument(
+  prompt: string,
+  knownDocuments?: KnownDiscussionDocument[],
+  retrievedDocuments?: RetrievedDocumentExcerpt[],
+  recentRounds?: Round[]
+): ResolvedVisualDocument | null {
+  if (!Array.isArray(knownDocuments) || knownDocuments.length === 0) {
+    return null;
+  }
+
+  // 1. Explicit deterministic filename reference (highest priority)
+  const promptLower = prompt.toLowerCase();
+  const filenameMatches = knownDocuments.filter((d) => {
+    if (!d.storagePath || !d.filename) return false;
+    const normName = d.filename.toLowerCase();
+    const baseName = normName.replace(/\.pdf$/i, '');
+    return promptLower.includes(normName) || (baseName.length >= 4 && promptLower.includes(baseName));
+  });
+  if (filenameMatches.length === 1) {
+    const m = filenameMatches[0];
+    return {
+      documentId: m.id,
+      filename: m.filename,
+      storagePath: m.storagePath!,
+    };
+  }
+
+  // 2. Unambiguous retrieved document identity from hybrid search
+  if (Array.isArray(retrievedDocuments) && retrievedDocuments.length > 0) {
+    const docIds = Array.from(new Set(retrievedDocuments.map((d) => d.documentId).filter(Boolean)));
+    if (docIds.length === 1) {
+      const match = knownDocuments.find((d) => d.id === docIds[0] && d.storagePath);
+      if (match && match.storagePath) {
+        return {
+          documentId: match.id,
+          filename: match.filename,
+          storagePath: match.storagePath,
+        };
+      }
+    }
+  }
+
+  // 3. Contextually recent PDF attachments across recent history (strict uniqueness check)
+  if (Array.isArray(recentRounds) && recentRounds.length > 0) {
+    const recentPdfMap = new Map<string, ResolvedVisualDocument>();
+    for (const r of recentRounds) {
+      if (r.attachments && r.attachments.length > 0) {
+        for (const att of r.attachments) {
+          if (att.storagePath && att.filename.toLowerCase().endsWith('.pdf')) {
+            const key = att.documentId || att.storagePath;
+            if (!recentPdfMap.has(key)) {
+              recentPdfMap.set(key, {
+                documentId: att.documentId || null,
+                filename: att.filename,
+                storagePath: att.storagePath,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const distinctRecentPdfs = Array.from(recentPdfMap.values());
+    if (distinctRecentPdfs.length === 1) {
+      return distinctRecentPdfs[0];
+    }
+    if (distinctRecentPdfs.length > 1) {
+      // Multiple distinct PDFs in recent history without explicit name/search resolution: do not guess
+      return null;
+    }
+  }
+
+  // 4. Single known PDF with storage_path in discussion
+  const validDocs = knownDocuments.filter((d) => Boolean(d.storagePath));
+  if (validDocs.length === 1) {
+    return {
+      documentId: validDocs[0].id,
+      filename: validDocs[0].filename,
+      storagePath: validDocs[0].storagePath!,
+    };
+  }
+
+  // 5. Ambiguity -> never guess
+  return null;
+}
+
+
