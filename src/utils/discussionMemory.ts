@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import crypto from 'node:crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { createServiceClient } from '@/utils/supabase/service';
 
@@ -16,6 +17,7 @@ export interface KnownDiscussionDocument {
   id?: string | null;
   filename: string;
   storagePath?: string | null;
+  sourcePaths?: string[];
   createdAt?: string;
 }
 
@@ -203,7 +205,7 @@ export function isPdfUrl(url?: string | null, storagePath?: string | null): bool
 
 /**
  * Extracts clean attachment metadata (filename and storagePath) from a stored attachment URL or image URL.
- * Deterministically resolves documentId if knownDocuments is provided.
+ * Deterministically resolves documentId using canonical storagePath and source-alias paths if knownDocuments is provided.
  */
 export function extractAttachmentMetadata(
   url?: string | null,
@@ -232,7 +234,9 @@ export function extractAttachmentMetadata(
   if (isPdf && Array.isArray(knownDocuments) && knownDocuments.length > 0) {
     if (storagePath) {
       const matchByPath = knownDocuments.find(
-        (d) => d.storagePath && d.storagePath === storagePath && d.id
+        (d) =>
+          (d.storagePath && d.storagePath === storagePath && d.id) ||
+          (Array.isArray(d.sourcePaths) && d.sourcePaths.includes(storagePath) && d.id)
       );
       if (matchByPath && matchByPath.id) {
         documentId = matchByPath.id;
@@ -1328,13 +1332,38 @@ export async function getScopedDiscussionMemory(
           .eq('discussion_id', discussionId)
           .order('created_at', { ascending: true });
 
+        // Fetch source aliases from discussion_document_sources if available
+        let sourceAliases: { document_id: string; storage_path: string; filename: string }[] = [];
+        try {
+          const { data: aliasRows, error: aliasErr } = await serviceClient
+            .from('discussion_document_sources')
+            .select('document_id, storage_path, filename')
+            .eq('discussion_id', discussionId);
+          if (!aliasErr && Array.isArray(aliasRows)) {
+            sourceAliases = aliasRows;
+          }
+        } catch {
+          // Table may not exist prior to migration
+        }
+
         if (!docErr && Array.isArray(docRows)) {
           for (const d of docRows) {
-            const key = d.storage_path || `doc_${d.id}`;
-            docMap.set(key, {
+            const matchingAliases = sourceAliases
+              .filter((a) => a.document_id === d.id && a.storage_path)
+              .map((a) => a.storage_path);
+            const sourcePaths = Array.from(
+              new Set([
+                ...(d.storage_path ? [d.storage_path] : []),
+                ...matchingAliases,
+              ])
+            );
+
+            // Key by logical document UUID
+            docMap.set(`doc_${d.id}`, {
               id: d.id,
               filename: d.filename,
-              storagePath: d.storage_path || null,
+              storagePath: d.storage_path || sourcePaths[0] || null,
+              sourcePaths,
               createdAt: d.created_at,
             });
           }
@@ -1370,15 +1399,12 @@ export async function getScopedDiscussionMemory(
                 if (rawName) filename = decodeURIComponent(rawName);
               }
 
-              const key = storagePath || `name_${filename.toLowerCase()}`;
               let alreadyMatched = false;
-              if (storagePath && docMap.has(storagePath)) {
-                alreadyMatched = true;
-              } else {
+              if (storagePath) {
                 for (const existing of docMap.values()) {
                   if (
-                    (storagePath && existing.storagePath === storagePath) ||
-                    (!storagePath && existing.filename.toLowerCase() === filename.toLowerCase())
+                    existing.storagePath === storagePath ||
+                    (existing.sourcePaths && existing.sourcePaths.includes(storagePath))
                   ) {
                     alreadyMatched = true;
                     break;
@@ -1387,10 +1413,12 @@ export async function getScopedDiscussionMemory(
               }
 
               if (!alreadyMatched) {
+                const key = storagePath || `name_${filename.toLowerCase()}`;
                 docMap.set(key, {
                   id: null,
                   filename,
                   storagePath: storagePath || null,
+                  sourcePaths: storagePath ? [storagePath] : [],
                   createdAt: msg.created_at,
                 });
               }
@@ -1821,8 +1849,9 @@ export interface IngestDocumentsResult {
 }
 
 /**
- * Ingests all unique parsed PDF annotations into discussion_documents and discussion_document_chunks.
- * Fully idempotent and atomic based on (discussion_id, file_hash) with partial index recovery and batch embeddings.
+ * Ingests all unique parsed PDF annotations into discussion_documents, discussion_document_sources,
+ * and discussion_document_chunks using authoritative SHA-256 byte hashing.
+ * Fully idempotent and atomic based on (discussion_id, stable_sha256).
  * Operates strictly via the privileged serviceSupabase client on backend-only tables.
  */
 export async function ingestDiscussionDocuments(
@@ -1858,10 +1887,50 @@ export async function ingestDiscussionDocuments(
       continue;
     }
 
-    const { filename, fileHash, fullText } = extracted;
+    const { filename, fullText } = extracted;
+    const parserFileHash = extracted.fileHash;
+    let stableFileHash: string | null = null;
 
     // Resolve matching stable storage object path if available in request attachments
     const matchingStoragePath = resolveAttachmentStoragePath(filename, attachments);
+
+    // Compute authoritative cryptographic SHA-256 from actual PDF storage bytes
+    if (matchingStoragePath) {
+      try {
+        const { data: fileBlob, error: downloadErr } = await serviceSupabase.storage
+          .from('message-images')
+          .download(matchingStoragePath);
+
+        if (!downloadErr && fileBlob) {
+          const arrayBuffer = await fileBlob.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          stableFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+          console.log('[Doc Ingest] Computed authoritative SHA-256 for PDF bytes:', {
+            filename,
+            storagePath: matchingStoragePath,
+            sha256: stableFileHash,
+            byteSize: buffer.length,
+          });
+        } else {
+          console.warn('[Doc Ingest] Warning downloading storage object for SHA-256:', downloadErr);
+        }
+      } catch (hashEx) {
+        console.warn('[Doc Ingest] Exception computing byte SHA-256:', hashEx);
+      }
+    }
+
+    // STRICT INVARIANT: If stable byte identity could not be established, FAIL SAFE.
+    // Never persist unstable parser hashes as durable document records.
+    if (!stableFileHash) {
+      console.warn(
+        '[Doc Ingest] Skipping durable PDF indexing because stable byte identity could not be established:',
+        { filename, matchingStoragePath, parserFileHash }
+      );
+      result.skippedCount++;
+      continue;
+    }
+
+    const fileHash = stableFileHash;
 
     try {
       // 1. Compute expected deterministic chunks first
@@ -1871,10 +1940,10 @@ export async function ingestDiscussionDocuments(
         continue;
       }
 
-      // 2. Check existing document record
+      // 2. Check existing logical document record by (discussion_id, file_hash)
       const { data: existingDoc, error: checkDocErr } = await serviceSupabase
         .from('discussion_documents')
-        .select('id, storage_path')
+        .select('id, storage_path, full_text')
         .eq('discussion_id', discussionId)
         .eq('file_hash', fileHash)
         .maybeSingle();
@@ -1886,30 +1955,50 @@ export async function ingestDiscussionDocuments(
       let documentId = existingDoc?.id;
 
       if (documentId) {
-        // If existing record was missing storage_path, populate it from current upload
+        // CASE 2: Same logical document already exists
+        // If existing record was missing storage_path, backfill it
         if (matchingStoragePath && !existingDoc?.storage_path) {
           try {
             await serviceSupabase
               .from('discussion_documents')
               .update({ storage_path: matchingStoragePath })
               .eq('id', documentId);
-            console.log('[Doc Ingest] Backfilled missing storage_path on existing document:', {
-              documentId,
-              storagePath: matchingStoragePath,
-            });
           } catch (updatePathErr) {
             console.warn('[Doc Ingest] Non-critical error updating storage_path:', updatePathErr);
           }
         }
 
-        // Robust completeness check: skip ONLY if existing chunk count matches expected chunk count exactly
+        // Upsert durable source alias into discussion_document_sources
+        if (matchingStoragePath) {
+          try {
+            await serviceSupabase
+              .from('discussion_document_sources')
+              .upsert(
+                {
+                  discussion_id: discussionId,
+                  document_id: documentId,
+                  storage_path: matchingStoragePath,
+                  filename: filename,
+                },
+                { onConflict: 'discussion_id,storage_path' }
+              );
+            console.log('[Doc Ingest] Upserted source alias for existing logical document:', {
+              documentId,
+              storagePath: matchingStoragePath,
+            });
+          } catch (sourceAliasErr) {
+            // Non-critical if table not yet migrated
+          }
+        }
+
+        // Robust completeness check: skip embedding if existing chunk count matches expected chunk count exactly
         const { count, error: chunkCountErr } = await serviceSupabase
           .from('discussion_document_chunks')
           .select('id', { count: 'exact', head: true })
           .eq('document_id', documentId);
 
         if (!chunkCountErr && typeof count === 'number' && count === expectedChunks.length) {
-          console.log('[Doc Ingest] Document already fully indexed, skipping:', {
+          console.log('[Doc Ingest] Logical document already fully indexed, skipping embedding generation:', {
             discussionId,
             fileHash,
             filename,
@@ -1920,7 +2009,7 @@ export async function ingestDiscussionDocuments(
           continue;
         }
 
-        console.log('[Doc Ingest] Document exists with incomplete chunks, rebuilding index:', {
+        console.log('[Doc Ingest] Logical document exists with incomplete chunks, rebuilding index:', {
           discussionId,
           documentId,
           fileHash,
@@ -1928,7 +2017,7 @@ export async function ingestDiscussionDocuments(
           existingChunks: count || 0,
         });
       } else {
-        // Insert new document record
+        // CASE 1: Brand-new logical document
         const { data: insertedDoc, error: insertDocErr } = await serviceSupabase
           .from('discussion_documents')
           .insert({
@@ -1966,6 +2055,25 @@ export async function ingestDiscussionDocuments(
           }
         } else {
           documentId = insertedDoc.id;
+        }
+
+        // Upsert durable source alias into discussion_document_sources
+        if (matchingStoragePath && documentId) {
+          try {
+            await serviceSupabase
+              .from('discussion_document_sources')
+              .upsert(
+                {
+                  discussion_id: discussionId,
+                  document_id: documentId,
+                  storage_path: matchingStoragePath,
+                  filename: filename,
+                },
+                { onConflict: 'discussion_id,storage_path' }
+              );
+          } catch (sourceAliasErr) {
+            // Non-critical if table not yet migrated
+          }
         }
       }
 
@@ -2314,7 +2422,7 @@ export function isVisualEvidenceQuery(prompt?: string | null): boolean {
  * 1. Explicit deterministic filename reference (outranks semantic retrieval)
  * 2. Unambiguous retrieved document identity from hybrid search
  * 3. Contextually recent single PDF attachment in history (strict uniqueness check)
- * 4. Single known PDF with storage_path in discussion
+ * 4. Single known logical PDF with storage_path in discussion
  * 5. Ambiguity -> never guess
  */
 export function resolveVisualDocument(
@@ -2330,31 +2438,40 @@ export function resolveVisualDocument(
   // 1. Explicit deterministic filename reference (highest priority)
   const promptLower = prompt.toLowerCase();
   const filenameMatches = knownDocuments.filter((d) => {
-    if (!d.storagePath || !d.filename) return false;
+    const hasPath = Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0));
+    if (!hasPath || !d.filename) return false;
     const normName = d.filename.toLowerCase();
     const baseName = normName.replace(/\.pdf$/i, '');
     return promptLower.includes(normName) || (baseName.length >= 4 && promptLower.includes(baseName));
   });
   if (filenameMatches.length === 1) {
     const m = filenameMatches[0];
-    return {
-      documentId: m.id,
-      filename: m.filename,
-      storagePath: m.storagePath!,
-    };
+    const path = m.storagePath || (m.sourcePaths && m.sourcePaths[0]);
+    if (path) {
+      return {
+        documentId: m.id,
+        filename: m.filename,
+        storagePath: path,
+      };
+    }
   }
 
   // 2. Unambiguous retrieved document identity from hybrid search
   if (Array.isArray(retrievedDocuments) && retrievedDocuments.length > 0) {
     const docIds = Array.from(new Set(retrievedDocuments.map((d) => d.documentId).filter(Boolean)));
     if (docIds.length === 1) {
-      const match = knownDocuments.find((d) => d.id === docIds[0] && d.storagePath);
-      if (match && match.storagePath) {
-        return {
-          documentId: match.id,
-          filename: match.filename,
-          storagePath: match.storagePath,
-        };
+      const match = knownDocuments.find(
+        (d) => d.id === docIds[0] && (d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+      );
+      if (match) {
+        const path = match.storagePath || (match.sourcePaths && match.sourcePaths[0]);
+        if (path) {
+          return {
+            documentId: match.id,
+            filename: match.filename,
+            storagePath: path,
+          };
+        }
       }
     }
   }
@@ -2389,18 +2506,22 @@ export function resolveVisualDocument(
     }
   }
 
-  // 4. Single known PDF with storage_path in discussion
-  const validDocs = knownDocuments.filter((d) => Boolean(d.storagePath));
+  // 4. Single known logical PDF with storage_path in discussion
+  const validDocs = knownDocuments.filter((d) =>
+    Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+  );
   if (validDocs.length === 1) {
-    return {
-      documentId: validDocs[0].id,
-      filename: validDocs[0].filename,
-      storagePath: validDocs[0].storagePath!,
-    };
+    const d = validDocs[0];
+    const path = d.storagePath || (d.sourcePaths && d.sourcePaths[0]);
+    if (path) {
+      return {
+        documentId: d.id,
+        filename: d.filename,
+        storagePath: path,
+      };
+    }
   }
 
   // 5. Ambiguity -> never guess
   return null;
 }
-
-
