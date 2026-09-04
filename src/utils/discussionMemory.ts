@@ -1,17 +1,34 @@
 import OpenAI from 'openai';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { createServiceClient } from '@/utils/supabase/service';
 
 export interface HistoryMessage {
   id?: string;
   discussion_id: string;
   sender: string;
   content: string;
+  attachment_urls?: string[] | null;
+  image_url?: string | null;
   created_at?: string;
+}
+
+export interface KnownDiscussionDocument {
+  id?: string | null;
+  filename: string;
+  storagePath?: string | null;
+  createdAt?: string;
+}
+
+export interface RoundAttachment {
+  filename: string;
+  storagePath?: string | null;
+  documentId?: string | null;
 }
 
 export interface Round {
   userMessageId?: string;
   userPrompt: string;
+  attachments?: RoundAttachment[];
   modelResponses: { name: string; content: string }[];
 }
 
@@ -40,6 +57,7 @@ export interface DiscussionMemoryResult {
   summary?: string;
   recentRounds: Round[];
   chronologicalMemory?: ChronologicalMemoryResult;
+  knownDocuments?: KnownDiscussionDocument[];
 }
 
 export const SEMANTIC_KEYS = [
@@ -175,19 +193,108 @@ export function formatStructuredMemoryForContext(
 }
 
 /**
+ * Helper to determine if a URL or storage path points to a PDF.
+ */
+export function isPdfUrl(url?: string | null, storagePath?: string | null): boolean {
+  if (!url && !storagePath) return false;
+  const pathToCheck = (storagePath || url || '').split('?')[0].toLowerCase();
+  return pathToCheck.endsWith('.pdf');
+}
+
+/**
+ * Extracts clean attachment metadata (filename and storagePath) from a stored attachment URL or image URL.
+ * Deterministically resolves documentId if knownDocuments is provided.
+ */
+export function extractAttachmentMetadata(
+  url?: string | null,
+  knownDocuments?: KnownDiscussionDocument[]
+): RoundAttachment | null {
+  if (!url || typeof url !== 'string') return null;
+
+  const storagePath = extractStoragePathFromSignedUrl(url);
+  const isPdf = isPdfUrl(url, storagePath);
+  let filename = isPdf ? 'attachment.pdf' : 'attachment';
+
+  if (storagePath) {
+    const rawFilename = storagePath.split('/').pop() || '';
+    const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
+    if (cleaned) {
+      filename = decodeURIComponent(cleaned);
+    }
+  } else {
+    const rawName = url.split('?')[0].split('/').pop() || '';
+    if (rawName) {
+      filename = decodeURIComponent(rawName);
+    }
+  }
+
+  let documentId: string | null = null;
+  if (isPdf && Array.isArray(knownDocuments) && knownDocuments.length > 0) {
+    if (storagePath) {
+      const matchByPath = knownDocuments.find(
+        (d) => d.storagePath && d.storagePath === storagePath && d.id
+      );
+      if (matchByPath && matchByPath.id) {
+        documentId = matchByPath.id;
+      }
+    }
+
+    if (!documentId && filename) {
+      const normFilename = filename.toLowerCase().trim();
+      const matchByName = knownDocuments.filter(
+        (d) => d.filename && d.filename.toLowerCase().trim() === normFilename && d.id
+      );
+      if (matchByName.length === 1 && matchByName[0].id) {
+        documentId = matchByName[0].id;
+      }
+    }
+  }
+
+  return {
+    filename,
+    storagePath: storagePath || null,
+    documentId: documentId || null,
+  };
+}
+
+/**
  * Formats a Round into the exact textual representation used in model context.
  * Special handling: omits userPrompt if it is equal to 'continue'.
  */
 export function formatRoundForContext(round: Round): string {
   const isContinueUser = round.userPrompt.trim().toLowerCase() === 'continue';
-  const userPart = isContinueUser
-    ? ''
-    : round.userPrompt.trim()
-      ? `User said:\n"""\n${round.userPrompt}\n"""`
-      : 'User shared attachment(s) without a text prompt.';
+  if (isContinueUser) {
+    return round.modelResponses
+      .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
+      .join('\n\n');
+  }
+
+  const attachmentLines: string[] = [];
+  if (round.attachments && round.attachments.length > 0) {
+    for (const att of round.attachments) {
+      const docLabel = att.documentId ? `[doc_${att.documentId}] ` : '';
+      attachmentLines.push(`- ${docLabel}${att.filename}`);
+    }
+  }
+
+  let userPart = '';
+  if (attachmentLines.length > 0) {
+    const attachBlock = `User attached:\n${attachmentLines.join('\n')}`;
+    if (round.userPrompt.trim()) {
+      userPart = `${attachBlock}\n\nUser said:\n"""\n${round.userPrompt}\n"""`;
+    } else {
+      userPart = `${attachBlock}\n\nNo text prompt was provided.`;
+    }
+  } else if (round.userPrompt.trim()) {
+    userPart = `User said:\n"""\n${round.userPrompt}\n"""`;
+  } else {
+    userPart = 'User shared attachment(s) without a text prompt.';
+  }
+
   const modelParts = round.modelResponses
     .map((mr) => `${mr.name} said:\n"""\n${mr.content}\n"""`)
     .join('\n\n');
+
   if (!userPart) return modelParts;
   return modelParts ? `${userPart}\n\n${modelParts}` : userPart;
 }
@@ -237,19 +344,45 @@ export function getRecentRoundsSplitIndex(
  */
 export function groupMessagesIntoRounds(
   messages: HistoryMessage[],
-  currentPrompt: string
+  currentPrompt: string,
+  knownDocuments?: KnownDiscussionDocument[]
 ): Round[] {
   const rounds: Round[] = [];
   let currentRound: Round | null = null;
 
   for (const msg of messages) {
     if (msg.sender === 'user') {
-      if (currentRound && (currentRound.userPrompt.trim() || currentRound.modelResponses.length > 0)) {
+      if (
+        currentRound &&
+        (currentRound.userPrompt.trim() ||
+          currentRound.modelResponses.length > 0 ||
+          (currentRound.attachments && currentRound.attachments.length > 0))
+      ) {
         rounds.push(currentRound);
       }
+
+      const attachments: RoundAttachment[] = [];
+      const rawUrls: string[] = [];
+      if (Array.isArray(msg.attachment_urls)) {
+        for (const u of msg.attachment_urls) {
+          if (u) rawUrls.push(u);
+        }
+      }
+      if (msg.image_url && !rawUrls.includes(msg.image_url)) {
+        rawUrls.push(msg.image_url);
+      }
+
+      for (const url of rawUrls) {
+        const attMeta = extractAttachmentMetadata(url, knownDocuments);
+        if (attMeta) {
+          attachments.push(attMeta);
+        }
+      }
+
       currentRound = {
         userMessageId: msg.id,
         userPrompt: msg.content || '',
+        ...(attachments.length > 0 ? { attachments } : {}),
         modelResponses: [],
       };
     } else if (currentRound) {
@@ -266,7 +399,12 @@ export function groupMessagesIntoRounds(
     }
   }
 
-  if (currentRound && (currentRound.userPrompt.trim() || currentRound.modelResponses.length > 0)) {
+  if (
+    currentRound &&
+    (currentRound.userPrompt.trim() ||
+      currentRound.modelResponses.length > 0 ||
+      (currentRound.attachments && currentRound.attachments.length > 0))
+  ) {
     // If this round matches the active prompt (or is a continue round with prompt='') and has 0 model responses yet, it's the currently in-flight turn
     const isCurrentInFlight =
       currentRound.modelResponses.length === 0 &&
@@ -1174,7 +1312,97 @@ export async function getScopedDiscussionMemory(
       console.warn('[Memory] Warning fetching discussion summary:', discError, { discussion_id: discussionId });
     }
 
-    const allRounds = groupMessagesIntoRounds(rawMessages || [], currentPrompt);
+    // Security check: only proceed with service client document registry if authenticated user owns the discussion
+    const isOwner = Boolean(discussion?.id);
+    let knownDocuments: KnownDiscussionDocument[] = [];
+
+    if (isOwner) {
+      const docMap = new Map<string, KnownDiscussionDocument>();
+
+      // 3a. Fetch authoritative indexed documents from discussion_documents using service client
+      try {
+        const serviceClient = createServiceClient();
+        const { data: docRows, error: docErr } = await serviceClient
+          .from('discussion_documents')
+          .select('id, filename, storage_path, created_at')
+          .eq('discussion_id', discussionId)
+          .order('created_at', { ascending: true });
+
+        if (!docErr && Array.isArray(docRows)) {
+          for (const d of docRows) {
+            const key = d.storage_path || `doc_${d.id}`;
+            docMap.set(key, {
+              id: d.id,
+              filename: d.filename,
+              storagePath: d.storage_path || null,
+              createdAt: d.created_at,
+            });
+          }
+        }
+      } catch (docFetchErr) {
+        console.warn('[Memory] Non-critical warning fetching known documents:', docFetchErr);
+      }
+
+      // 3b. Merge authoritative PDF attachments from rawMessages to include any unparsed/failed-ingestion PDFs
+      if (Array.isArray(rawMessages)) {
+        for (const msg of rawMessages) {
+          if (msg.sender !== 'user') continue;
+          const urls: string[] = [];
+          if (Array.isArray(msg.attachment_urls)) {
+            for (const u of msg.attachment_urls) {
+              if (u) urls.push(u);
+            }
+          }
+          if (msg.image_url && !urls.includes(msg.image_url)) {
+            urls.push(msg.image_url);
+          }
+
+          for (const url of urls) {
+            const storagePath = extractStoragePathFromSignedUrl(url);
+            if (isPdfUrl(url, storagePath)) {
+              let filename = 'attachment.pdf';
+              if (storagePath) {
+                const rawFilename = storagePath.split('/').pop() || '';
+                const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
+                if (cleaned) filename = decodeURIComponent(cleaned);
+              } else {
+                const rawName = url.split('?')[0].split('/').pop() || '';
+                if (rawName) filename = decodeURIComponent(rawName);
+              }
+
+              const key = storagePath || `name_${filename.toLowerCase()}`;
+              let alreadyMatched = false;
+              if (storagePath && docMap.has(storagePath)) {
+                alreadyMatched = true;
+              } else {
+                for (const existing of docMap.values()) {
+                  if (
+                    (storagePath && existing.storagePath === storagePath) ||
+                    (!storagePath && existing.filename.toLowerCase() === filename.toLowerCase())
+                  ) {
+                    alreadyMatched = true;
+                    break;
+                  }
+                }
+              }
+
+              if (!alreadyMatched) {
+                docMap.set(key, {
+                  id: null,
+                  filename,
+                  storagePath: storagePath || null,
+                  createdAt: msg.created_at,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      knownDocuments = Array.from(docMap.values());
+    }
+
+    const allRounds = groupMessagesIntoRounds(rawMessages || [], currentPrompt, knownDocuments);
     console.log(`[Memory] Grouped into ${allRounds.length} prior rounds`);
     const totalRounds = allRounds.length;
 
@@ -1182,6 +1410,7 @@ export async function getScopedDiscussionMemory(
       return {
         summary: discussion?.summary || undefined,
         recentRounds: [],
+        knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
       };
     }
 
@@ -1262,6 +1491,7 @@ export async function getScopedDiscussionMemory(
       summary: formattedSummary || undefined,
       recentRounds,
       chronologicalMemory: chronologicalMemory || undefined,
+      knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
     };
   } catch (err) {
     console.error('[Memory] Exception in getScopedDiscussionMemory:', err, { discussion_id: discussionId });
