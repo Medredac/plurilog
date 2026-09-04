@@ -10,6 +10,7 @@ export interface HistoryMessage {
   content: string;
   attachment_urls?: string[] | null;
   image_url?: string | null;
+  visual_document_id?: string | null;
   created_at?: string;
 }
 
@@ -31,6 +32,7 @@ export interface Round {
   userMessageId?: string;
   userPrompt: string;
   attachments?: RoundAttachment[];
+  visualDocumentId?: string | null;
   modelResponses: { name: string; content: string }[];
 }
 
@@ -387,6 +389,7 @@ export function groupMessagesIntoRounds(
         userMessageId: msg.id,
         userPrompt: msg.content || '',
         ...(attachments.length > 0 ? { attachments } : {}),
+        visualDocumentId: msg.visual_document_id || null,
         modelResponses: [],
       };
     } else if (currentRound) {
@@ -1839,6 +1842,7 @@ export interface IngestDocumentsOptions {
   discussionId: string;
   fileAnnotations: any[];
   attachments?: { url: string; filename: string }[] | null;
+  sourceUserMessageId?: string | null;
   signal?: AbortSignal;
 }
 
@@ -1857,7 +1861,7 @@ export interface IngestDocumentsResult {
 export async function ingestDiscussionDocuments(
   options: IngestDocumentsOptions
 ): Promise<IngestDocumentsResult> {
-  const { serviceSupabase, openai, discussionId, fileAnnotations, attachments, signal } = options;
+  const { serviceSupabase, openai, discussionId, fileAnnotations, attachments, sourceUserMessageId, signal } = options;
 
   const result: IngestDocumentsResult = {
     ingestedCount: 0,
@@ -2005,6 +2009,16 @@ export async function ingestDiscussionDocuments(
             expectedChunks: expectedChunks.length,
             existingChunks: count,
           });
+          if (sourceUserMessageId && documentId && (!attachments || attachments.length === 1)) {
+            try {
+              await serviceSupabase
+                .from('messages')
+                .update({ visual_document_id: documentId })
+                .eq('id', sourceUserMessageId);
+            } catch (updateMsgErr) {
+              console.warn('[Doc Ingest] Non-critical error updating visual_document_id on message:', updateMsgErr);
+            }
+          }
           result.skippedCount++;
           continue;
         }
@@ -2178,6 +2192,17 @@ export async function ingestDiscussionDocuments(
         chunksCount: chunkInserts.length,
         characterCount: fullText.length,
       });
+
+      if (sourceUserMessageId && documentId && (!attachments || attachments.length === 1)) {
+        try {
+          await serviceSupabase
+            .from('messages')
+            .update({ visual_document_id: documentId })
+            .eq('id', sourceUserMessageId);
+        } catch (updateMsgErr) {
+          console.warn('[Doc Ingest] Non-critical error updating visual_document_id on message:', updateMsgErr);
+        }
+      }
 
       result.ingestedCount++;
     } catch (err: any) {
@@ -2399,7 +2424,7 @@ export function isVisualEvidenceQuery(prompt?: string | null): boolean {
   // 6. Visual color / ink queries strictly anchored to document objects
   if (
     /\b(colour|color|ink)\b/i.test(p) &&
-    /\b(signature|handwriting|stamp|seal|logo|photo|picture|image|cnie|id|card|passport|document|page|scan|background|text|font|border|line)\b/i.test(p)
+    /\b(signature|handwriting|stamp|seal|logo|photo|picture|image|cnie|id|card|passport|document|page|scan|background|text|font|border|line|box|header|footer|table)\b/i.test(p)
   ) {
     return true;
   }
@@ -2409,6 +2434,44 @@ export function isVisualEvidenceQuery(prompt?: string | null): boolean {
     /\b(visual layout|page layout|2d layout|spatial layout|page orientation|landscape|portrait)\b/i.test(p) ||
     /\b(is\s+the\s+scan\s+(blurry|sharp|crooked|clear|clean))\b/i.test(p) ||
     /\b(does\s+the\s+.*(overlap|cover|cross))\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detects whether a prompt is a short conversational verification/challenge follow-up
+ * (e.g. "are you sure?", "really?", "double check that", "look again", "I don't think so").
+ * Strictly returns false for continuations, explanations, or prompts with new subject matter.
+ */
+export function isVerificationFollowUpQuery(prompt?: string | null): boolean {
+  if (!prompt || typeof prompt !== 'string') return false;
+  const p = prompt.trim().toLowerCase().replace(/[?!.,;:]+$/, '').trim();
+  if (!p) return false;
+
+  // 1. Direct certainty / doubt questions
+  if (
+    /^(?:are you|r u)\s+(?:completely\s+|100%\s+|totally\s+|really\s+|absolutely\s+)?(?:sure|certain|positive|confident)(?:\s+about\s+(?:that|this|it))?$/i.test(p) ||
+    /^(?:really|for real|rly|seriously)$/i.test(p) ||
+    /^(?:is that|are you)\s+(?:really|actually|truly)?\s*(?:so|correct|accurate|the case|true|positive|confident)$/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 2. Re-inspection / re-verification imperatives
+  if (
+    /^(?:please\s+)?(?:check|double[- ]check|re[- ]check|recheck|verify|re[- ]verify|reverify|look|look closer|take another look)(?:\s+(?:that|this|it))?(?:\s+(?:again|one more time))?(?:\s+please)?$/i.test(p) ||
+    /^(?:can you|could you)\s+(?:please\s+)?(?:check|double[- ]check|re[- ]check|recheck|verify|re[- ]verify|reverify|look|look closer|take another look)(?:\s+(?:that|this|it))?(?:\s+(?:again|one more time))?(?:\s+please)?$/i.test(p) ||
+    /^(?:check\s+again|double\s+check\s+that|look\s+again|look\s+closer)$/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 3. Mild disagreement / skepticism challenging the previous answer
+  if (
+    /^(?:i don't think so|i doubt (?:that|it)|that doesn't (?:seem|look) (?:right|correct)|that seems (?:wrong|incorrect))$/i.test(p)
   ) {
     return true;
   }

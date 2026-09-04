@@ -14,6 +14,7 @@ import {
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
+  isVerificationFollowUpQuery,
   resolveVisualDocument,
 } from '@/utils/discussionMemory';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
@@ -617,56 +618,145 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Visual Escalation: Check if the prompt requires visual/layout evidence from a known historical PDF
+          // Visual Escalation & Verification Follow-Up Handling
           let visualAttachments: { url: string; filename: string }[] | null = null;
-          const isVisualQuery = isVisualEvidenceQuery(prompt);
+          let resolvedVisualDocId: string | null = null;
+          let isVisualUnavailable = false;
 
-          if (isVisualQuery && (!attachments || attachments.length === 0) && discussionId) {
-            try {
-              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
-              if (isOwner) {
-                const resolvedDoc = resolveVisualDocument(
-                  prompt,
-                  discussionMemory?.knownDocuments,
-                  retrievedDocuments,
-                  discussionMemory?.recentRounds
+          const isVisualQuery = isVisualEvidenceQuery(prompt);
+          const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
+
+          const lastRound =
+            discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0
+              ? discussionMemory.recentRounds[discussionMemory.recentRounds.length - 1]
+              : null;
+
+          if ((!attachments || attachments.length === 0) && discussionId) {
+            if (isVerificationFollowUp && lastRound) {
+              if (lastRound.visualDocumentId) {
+                // Case A: Preceding round had a successful visualDocumentId
+                const inheritedDocId = lastRound.visualDocumentId;
+                const matchedDoc = discussionMemory?.knownDocuments?.find(
+                  (d) => d.id === inheritedDocId
                 );
 
-                if (resolvedDoc && resolvedDoc.storagePath) {
-                  const serviceClient = createServiceClient();
-                  const { data: signedData, error: signErr } = await serviceClient.storage
-                    .from('message-images')
-                    .createSignedUrl(resolvedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+                const targetStoragePath = matchedDoc?.storagePath || matchedDoc?.sourcePaths?.[0];
+                if (matchedDoc && targetStoragePath) {
+                  try {
+                    const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                    if (isOwner) {
+                      const serviceClient = createServiceClient();
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(targetStoragePath, 900); // 15-minute headroom across sequential panel
 
-                  if (!signErr && signedData?.signedUrl) {
-                    visualAttachments = [
-                      {
-                        url: signedData.signedUrl,
-                        filename: resolvedDoc.filename,
-                      },
-                    ];
-                    console.log('[Visual Reinspection] Escalated to visual inspection for document:', {
-                      documentId: resolvedDoc.documentId,
-                      filename: resolvedDoc.filename,
-                      storagePath: resolvedDoc.storagePath,
-                    });
-                  } else {
-                    console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);
+                      if (!signErr && signedData?.signedUrl) {
+                        visualAttachments = [
+                          {
+                            url: signedData.signedUrl,
+                            filename: matchedDoc.filename,
+                          },
+                        ];
+                        resolvedVisualDocId = inheritedDocId;
+                        console.log('[Visual Follow-Up] Inherited visual document from previous turn:', {
+                          inheritedDocId,
+                          filename: matchedDoc.filename,
+                          storagePath: targetStoragePath,
+                        });
+                      } else {
+                        console.warn('[Visual Follow-Up] Failed to sign inherited document URL:', signErr);
+                        isVisualUnavailable = true;
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[Visual Follow-Up] Ownership or signing error:', err);
+                    isVisualUnavailable = true;
                   }
                 } else {
-                  console.log('[Visual Reinspection] Ambiguous or unresolved document for visual query — proceeding with fail-safe text retrieval');
+                  console.warn('[Visual Follow-Up] Inherited doc ID not found or missing storage path in knownDocuments:', inheritedDocId);
+                  isVisualUnavailable = true;
                 }
+              } else if (
+                isVisualEvidenceQuery(lastRound.userPrompt) ||
+                isVerificationFollowUpQuery(lastRound.userPrompt)
+              ) {
+                // Case B: Preceding round was visual query or verification follow-up with null visualDocumentId
+                isVisualUnavailable = true;
+                console.log('[Visual Follow-Up] Preceding visual round had null visualDocumentId; triggering isVisualUnavailable fail-safe');
+              } else {
+                // Case C: Preceding round was NOT visual -> normal non-visual turn
+                console.log('[Visual Follow-Up] Preceding round was non-visual; no visual escalation');
               }
-            } catch (visualErr: any) {
-              console.error('[Visual Reinspection] Non-critical error during visual escalation:', visualErr);
+            } else if (isVisualQuery) {
+              // Direct visual question on historical documents
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const resolvedDoc = resolveVisualDocument(
+                    prompt,
+                    discussionMemory?.knownDocuments,
+                    retrievedDocuments,
+                    discussionMemory?.recentRounds
+                  );
+
+                  if (resolvedDoc && resolvedDoc.storagePath) {
+                    const serviceClient = createServiceClient();
+                    const { data: signedData, error: signErr } = await serviceClient.storage
+                      .from('message-images')
+                      .createSignedUrl(resolvedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+
+                    if (!signErr && signedData?.signedUrl) {
+                      visualAttachments = [
+                        {
+                          url: signedData.signedUrl,
+                          filename: resolvedDoc.filename,
+                        },
+                      ];
+                      resolvedVisualDocId = resolvedDoc.documentId || null;
+                      console.log('[Visual Reinspection] Escalated to visual inspection for document:', {
+                        documentId: resolvedDoc.documentId,
+                        filename: resolvedDoc.filename,
+                        storagePath: resolvedDoc.storagePath,
+                      });
+                    } else {
+                      console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);
+                      isVisualUnavailable = true;
+                    }
+                  } else {
+                    console.log('[Visual Reinspection] Ambiguous or unresolved document for visual query — proceeding with fail-safe text retrieval');
+                    isVisualUnavailable = true;
+                  }
+                }
+              } catch (visualErr: any) {
+                console.error('[Visual Reinspection] Non-critical error during visual escalation:', visualErr);
+                isVisualUnavailable = true;
+              }
+            }
+          }
+
+          // Persist visual_document_id on current user message if visual escalation succeeded
+          if (resolvedVisualDocId && sourceUserMessageId) {
+            try {
+              const serviceClient = createServiceClient();
+              await serviceClient
+                .from('messages')
+                .update({ visual_document_id: resolvedVisualDocId })
+                .eq('id', sourceUserMessageId);
+              console.log('[Visual Escalation] Persisted visual_document_id on user message:', {
+                sourceUserMessageId,
+                resolvedVisualDocId,
+              });
+            } catch (persistErr) {
+              console.warn('[Visual Escalation] Non-critical error persisting visual_document_id:', persistErr);
             }
           }
 
           const effectiveAttachments =
             attachments && attachments.length > 0 ? attachments : visualAttachments;
 
-          const isVisualUnavailable =
-            isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0);
+          if (!isVisualUnavailable && isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0)) {
+            isVisualUnavailable = true;
+          }
 
           // Sequential panel execution across configured seats in custom order
           for (const seat of configuredSeats) {
@@ -954,6 +1044,7 @@ export async function POST(req: NextRequest) {
                       discussionId,
                       fileAnnotations: annotationsToIngest,
                       attachments,
+                      sourceUserMessageId,
                       signal: req.signal,
                     });
                   }
