@@ -1507,11 +1507,80 @@ export function chunkDocumentText(
   return chunks.filter((c) => c.trim().length > 0);
 }
 
+/**
+ * Extracts a clean, bucket-relative storage object path from a Supabase Storage URL.
+ * Example input:
+ * "https://<ref>.supabase.co/storage/v1/object/sign/message-images/c08361ba-.../1725401234567-0-a8x9z-document.pdf?token=..."
+ * Returns:
+ * "c08361ba-.../1725401234567-0-a8x9z-document.pdf"
+ */
+export function extractStoragePathFromSignedUrl(url?: string | null): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const bucketIndex = url.indexOf('message-images/');
+  if (bucketIndex === -1) return null;
+  const rawPath = url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
+  const decodedPath = decodeURIComponent(rawPath);
+  return decodedPath || null;
+}
+
+/**
+ * Deterministically resolves the bucket-relative storage path for a parsed PDF annotation.
+ * 
+ * Strict Fail-Safe:
+ * - If exactly 1 PDF attachment exists in the request, maps unambiguously.
+ * - If multiple PDF attachments exist, matches by normalized (case-insensitive & URL-decoded) filename.
+ * - If multiple attachments share the exact same filename or no match is found, returns NULL (never guesses).
+ */
+export function resolveAttachmentStoragePath(
+  filename: string,
+  attachments?: { url: string; filename: string }[] | null
+): string | null {
+  if (!filename || !Array.isArray(attachments) || attachments.length === 0) {
+    return null;
+  }
+
+  const pdfAttachments = attachments.filter((att) => {
+    if (!att?.url) return false;
+    const cleanUrl = att.url.split('?')[0].toLowerCase();
+    return cleanUrl.endsWith('.pdf');
+  });
+
+  if (pdfAttachments.length === 0) {
+    return null;
+  }
+
+  // Single PDF attachment in turn: unambiguous 1:1 mapping
+  if (pdfAttachments.length === 1) {
+    const single = pdfAttachments[0];
+    const normTarget = decodeURIComponent(filename).toLowerCase().trim();
+    const normSingle = decodeURIComponent(single.filename || '').toLowerCase().trim();
+    if (!normSingle || normSingle === normTarget || normSingle === 'attachment' || normSingle === 'attachment.pdf') {
+      return extractStoragePathFromSignedUrl(single.url);
+    }
+  }
+
+  // Multi-PDF turn: Match by normalized filename
+  const normTarget = decodeURIComponent(filename).toLowerCase().trim();
+  const exactMatches = pdfAttachments.filter((att) => {
+    const normAtt = decodeURIComponent(att.filename || '').toLowerCase().trim();
+    return normAtt === normTarget;
+  });
+
+  // Strict uniqueness requirement: exactly one attachment in this request must match this filename
+  if (exactMatches.length === 1) {
+    return extractStoragePathFromSignedUrl(exactMatches[0].url);
+  }
+
+  // Ambiguous (e.g. duplicate filenames in same turn) or no match: FAIL SAFE to null
+  return null;
+}
+
 export interface IngestDocumentsOptions {
   serviceSupabase: SupabaseClient;
   openai: OpenAI;
   discussionId: string;
   fileAnnotations: any[];
+  attachments?: { url: string; filename: string }[] | null;
   signal?: AbortSignal;
 }
 
@@ -1529,7 +1598,7 @@ export interface IngestDocumentsResult {
 export async function ingestDiscussionDocuments(
   options: IngestDocumentsOptions
 ): Promise<IngestDocumentsResult> {
-  const { serviceSupabase, openai, discussionId, fileAnnotations, signal } = options;
+  const { serviceSupabase, openai, discussionId, fileAnnotations, attachments, signal } = options;
 
   const result: IngestDocumentsResult = {
     ingestedCount: 0,
@@ -1561,6 +1630,9 @@ export async function ingestDiscussionDocuments(
 
     const { filename, fileHash, fullText } = extracted;
 
+    // Resolve matching stable storage object path if available in request attachments
+    const matchingStoragePath = resolveAttachmentStoragePath(filename, attachments);
+
     try {
       // 1. Compute expected deterministic chunks first
       const expectedChunks = chunkDocumentText(fullText);
@@ -1572,7 +1644,7 @@ export async function ingestDiscussionDocuments(
       // 2. Check existing document record
       const { data: existingDoc, error: checkDocErr } = await serviceSupabase
         .from('discussion_documents')
-        .select('id')
+        .select('id, storage_path')
         .eq('discussion_id', discussionId)
         .eq('file_hash', fileHash)
         .maybeSingle();
@@ -1584,6 +1656,22 @@ export async function ingestDiscussionDocuments(
       let documentId = existingDoc?.id;
 
       if (documentId) {
+        // If existing record was missing storage_path, populate it from current upload
+        if (matchingStoragePath && !existingDoc?.storage_path) {
+          try {
+            await serviceSupabase
+              .from('discussion_documents')
+              .update({ storage_path: matchingStoragePath })
+              .eq('id', documentId);
+            console.log('[Doc Ingest] Backfilled missing storage_path on existing document:', {
+              documentId,
+              storagePath: matchingStoragePath,
+            });
+          } catch (updatePathErr) {
+            console.warn('[Doc Ingest] Non-critical error updating storage_path:', updatePathErr);
+          }
+        }
+
         // Robust completeness check: skip ONLY if existing chunk count matches expected chunk count exactly
         const { count, error: chunkCountErr } = await serviceSupabase
           .from('discussion_document_chunks')
@@ -1618,6 +1706,7 @@ export async function ingestDiscussionDocuments(
             file_hash: fileHash,
             filename: filename,
             full_text: fullText,
+            storage_path: matchingStoragePath || null,
           })
           .select('id')
           .single();
@@ -1625,13 +1714,23 @@ export async function ingestDiscussionDocuments(
         if (insertDocErr) {
           const { data: retryDoc } = await serviceSupabase
             .from('discussion_documents')
-            .select('id')
+            .select('id, storage_path')
             .eq('discussion_id', discussionId)
             .eq('file_hash', fileHash)
             .maybeSingle();
 
           if (retryDoc?.id) {
             documentId = retryDoc.id;
+            if (matchingStoragePath && !retryDoc.storage_path) {
+              try {
+                await serviceSupabase
+                  .from('discussion_documents')
+                  .update({ storage_path: matchingStoragePath })
+                  .eq('id', documentId);
+              } catch (retryUpdateErr) {
+                console.warn('[Doc Ingest] Non-critical error updating storage_path on retry:', retryUpdateErr);
+              }
+            }
           } else {
             throw new Error(`Failed to insert document: ${insertDocErr.message}`);
           }

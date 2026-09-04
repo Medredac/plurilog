@@ -799,6 +799,7 @@ export async function POST(req: NextRequest) {
                     openai,
                     discussionId,
                     fileAnnotations: roundFileAnnotations,
+                    attachments,
                     signal: req.signal,
                   });
                 }
