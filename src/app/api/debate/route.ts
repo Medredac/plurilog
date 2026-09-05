@@ -45,7 +45,7 @@ Only treat a message as directed at a specific panelist if the user's CURRENT me
 
 Treat earlier panelist responses as contributions to evaluate, not conclusions to inherit. Form your own independent judgment about the user's question and about what earlier panelists have said; seeing another panelist's answer is never a reason to assume it is correct. Peer responses from other panelists are claims to evaluate, not source evidence. Never treat another model's confidence, repetition, or agreement as independent corroboration; agreement among multiple panelists is conversational consensus, not factual verification. If you do not independently know whether a peer's factual claim is accurate, do not repeat it as established fact merely because a peer stated it first. If an earlier response contains a material factual error, reasoning error, contradiction, unsupported assumption, hallucination, or missed user constraint, identify the problem naturally and correct it. If you genuinely disagree on a substantive point, state the disagreement clearly and explain why. If you independently agree, agreement is completely appropriate — do not manufacture disagreement or adopt contrarian stances merely for the sake of the panel format. Avoid rigid labels like CRITIQUE:, CORRECTION:, or AGREEMENT:; keep the conversation thoughtful, grounded, and human.
 
-Distinguish source-grounded facts from unverified model recall. You may rely only on evidence actually supplied in your context for this turn, such as current or reopened user documents, retrieved document excerpts, or tool results. Do not assume access to live web search, external databases, or other tools unless that tool or its results are actually available in your turn context. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. (A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true). On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim.
+Distinguish source-grounded facts from unverified model recall. You may rely only on evidence actually supplied in your context for this turn, such as current or reopened user documents, retrieved document excerpts, or tool results. Do not assume access to live web search, external databases, or other tools unless that tool or its results are actually available in your turn context. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. (A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true). On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 Contribute only as much as is genuinely useful. If you independently agree with earlier panelists and have nothing material to add, a brief agreement (e.g., "Agreed", "Yes, that matches my assessment") is completely acceptable — do not restate the answer or paraphrase earlier responses merely to generate content. Only add detail when introducing a distinct useful fact, correction, qualification, reasoning step, or perspective. Never paraphrase or summarize another panelist's response simply to generate content, and do not act as a narrator, moderator, or play-by-play commentator for what others have said. Do not speak merely because it is your turn, but do not force brevity when a substantive correction, disagreement, or novel insight requires explanation.
 
@@ -56,6 +56,26 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PriorResponse {
   name: string;
   response: string;
+}
+
+/**
+ * Sanitizes an image filename for model-facing textual context:
+ * - Extracts basename only
+ * - Removes CR/LF, null bytes, and non-printing control characters
+ * - Trims whitespace
+ * - Preserves Unicode, Japanese, spaces, hyphens, dots, normal punctuation
+ * - Caps at 120 characters
+ * - Falls back to 'image.jpg' if empty or invalid
+ */
+export function sanitizeModelFilename(filename?: string | null): string {
+  if (!filename || typeof filename !== 'string') return 'image.jpg';
+
+  const base = filename.split(/[/\\]/).pop() || '';
+  const noControl = base.replace(/[\x00-\x1F\x7F]/g, '');
+  const trimmed = noControl.trim();
+  if (!trimmed) return 'image.jpg';
+
+  return trimmed.slice(0, 120);
 }
 
 /**
@@ -207,6 +227,11 @@ export function buildPanelMessages(
           },
         });
       } else {
+        const cleanName = sanitizeModelFilename(attachment.filename);
+        nonPdfBlocks.push({
+          type: 'text',
+          text: `File: ${cleanName}`,
+        });
         nonPdfBlocks.push({
           type: 'image_url',
           image_url: { url: attachment.url },
@@ -265,6 +290,11 @@ export function buildPanelMessages(
           },
         });
       } else {
+        const cleanName = sanitizeModelFilename(attachment.filename);
+        contentBlocks.push({
+          type: 'text',
+          text: `File: ${cleanName}`,
+        });
         contentBlocks.push({
           type: 'image_url',
           image_url: { url: attachment.url },

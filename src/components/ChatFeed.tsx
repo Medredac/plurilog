@@ -18,6 +18,46 @@ import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
 
+// Safe extraction of clean display filename from stored/signed attachment URL
+export function getAttachmentDisplayFilename(url?: string | null): string {
+  if (!url || typeof url !== 'string') return 'attachment';
+
+  // A. Strip query string and fragment
+  const cleanUrl = url.split('?')[0].split('#')[0];
+  const isPdf = cleanUrl.toLowerCase().endsWith('.pdf');
+  const defaultFallback = isPdf ? 'document.pdf' : 'image.jpg';
+
+  // B. Take final path segment
+  const segments = cleanUrl.split('/');
+  const rawSegment = segments.pop() || '';
+  if (!rawSegment) return defaultFallback;
+
+  // C. Decode safely (handle malformed percent encoding gracefully)
+  let decodedSegment = rawSegment;
+  try {
+    decodedSegment = decodeURIComponent(rawSegment);
+  } catch {
+    decodedSegment = rawSegment;
+  }
+
+  // D. If it matches Plurilog's generated upload prefix:
+  // e.g. "1725555555555-0-abcde-IMG_1402.JPG" -> "IMG_1402.JPG"
+  // Prefix pattern: ^\d{10,14}-\d+-[a-zA-Z0-9]+-(.+)
+  const prefixMatch = decodedSegment.match(/^\d{10,14}-\d+-[a-zA-Z0-9]+-(.+)$/);
+  if (prefixMatch && prefixMatch[1]) {
+    return prefixMatch[1].trim() || defaultFallback;
+  }
+
+  const altPrefixMatch = decodedSegment.match(/^\d+-\d+-[a-zA-Z0-9]{3,10}-(.+)$/);
+  if (altPrefixMatch && altPrefixMatch[1]) {
+    return altPrefixMatch[1].trim() || defaultFallback;
+  }
+
+  // E. Otherwise preserve the basename unchanged
+  const trimmed = decodedSegment.trim();
+  return trimmed || defaultFallback;
+}
+
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
   children,
@@ -317,33 +357,42 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <div className="flex flex-wrap gap-2.5 mb-2.5">
                     {attachments.map((url, i) => {
                       const isPdf = url.split('?')[0].toLowerCase().endsWith('.pdf');
-                      return isPdf ? (
-                        <button
-                          key={`${url}-${i}`}
-                          type="button"
-                          onClick={() => window.open(url, '_blank')}
-                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                          title="Click to view PDF in new tab"
-                        >
-                          <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
-                          <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                            PDF
+                      const filename = getAttachmentDisplayFilename(url);
+                      return (
+                        <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
+                          {isPdf ? (
+                            <button
+                              type="button"
+                              onClick={() => window.open(url, '_blank')}
+                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                              title={`Click to view ${filename} in new tab`}
+                            >
+                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
+                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                PDF
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setLightboxImageUrl(url)}
+                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                              title={`Click to view ${filename}`}
+                            >
+                              <img
+                                src={url}
+                                alt={filename}
+                                className="w-full h-full object-cover"
+                              />
+                            </button>
+                          )}
+                          <span
+                            className="text-[10px] sm:text-[11px] font-mono text-stone-500 hover:text-stone-700 max-w-[96px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                            title={filename}
+                          >
+                            {filename}
                           </span>
-                        </button>
-                      ) : (
-                        <button
-                          key={`${url}-${i}`}
-                          type="button"
-                          onClick={() => setLightboxImageUrl(url)}
-                          className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-                          title="Click to view full image"
-                        >
-                          <img
-                            src={url}
-                            alt="Attached file"
-                            className="w-full h-full object-cover"
-                          />
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
