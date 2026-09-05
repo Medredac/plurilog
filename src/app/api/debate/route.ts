@@ -30,6 +30,7 @@ import {
   isImageUrl,
   KnownImageSource,
 } from '@/utils/discussionMemory';
+import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 
@@ -1025,12 +1026,17 @@ export async function POST(req: NextRequest) {
               pdfCount: pdfAttachments.length,
             });
 
+            const seatAttachments =
+              seat.seatId === 'gemini'
+                ? await prepareGeminiVisionAttachments(effectiveAttachments)
+                : effectiveAttachments;
+
             const seatMessages = buildPanelMessages(
               seat.name,
               prompt,
               priorResponses,
               discussionMemory,
-              effectiveAttachments,
+              seatAttachments,
               isReusingAnnotations ? roundFileAnnotations : null,
               retrievedMemory,
               retrievedDocuments,
