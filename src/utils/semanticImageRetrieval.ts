@@ -18,6 +18,19 @@ export interface SemanticCandidateMatch {
   similarity: number;
 }
 
+export interface LexicalCandidateMatch {
+  artifact_id: string;
+  lexical_rank: number;
+}
+
+export interface NormalizedLexicalQuery {
+  rawPrompt: string;
+  queryText: string;
+  terms: string[];
+  informativeTerms: string[];
+  eligibleForRescue: boolean;
+}
+
 export interface SemanticImageRetrievalOptions {
   serviceSupabase: SupabaseClient;
   discussionId: string;
@@ -33,6 +46,191 @@ export interface SemanticImageRetrievalResult {
   candidates: SemanticCandidateMatch[];
   topSimilarity: number;
   topGap: number | null;
+  decisionReason?: "semantic_clear" | "semantic_ambiguous" | "lexical_rescue";
+  lexicalRank?: number;
+}
+
+export const BROAD_VISUAL_TERMS = new Set([
+  "window",
+  "tree",
+  "building",
+  "wall",
+  "view",
+  "scene",
+  "photo",
+  "image",
+  "picture",
+  "screenshot",
+  "snapshot",
+]);
+
+export const RETRIEVAL_STOPWORDS = new Set([
+  "which",
+  "what",
+  "where",
+  "who",
+  "how",
+  "when",
+  "why",
+  "find",
+  "show",
+  "showed",
+  "showing",
+  "shows",
+  "open",
+  "reopen",
+  "pull",
+  "bring",
+  "inspect",
+  "display",
+  "get",
+  "look",
+  "check",
+  "examine",
+  "verify",
+  "tell",
+  "photo",
+  "picture",
+  "image",
+  "screenshot",
+  "snapshot",
+  "graphic",
+  "capture",
+  "diagram",
+  "illustration",
+  "drawing",
+  "one",
+  "the",
+  "that",
+  "this",
+  "these",
+  "those",
+  "a",
+  "an",
+  "any",
+  "with",
+  "in",
+  "on",
+  "at",
+  "by",
+  "for",
+  "from",
+  "of",
+  "through",
+  "about",
+  "under",
+  "over",
+  "between",
+  "had",
+  "has",
+  "have",
+  "having",
+  "contained",
+  "contains",
+  "containing",
+  "mention",
+  "mentions",
+  "mentioned",
+  "mentioning",
+  "said",
+  "says",
+  "saying",
+  "depicted",
+  "depicts",
+  "depicting",
+  "was",
+  "is",
+  "are",
+  "were",
+  "be",
+  "been",
+  "being",
+  "there",
+  "me",
+  "you",
+  "we",
+  "i",
+  "he",
+  "she",
+  "it",
+  "they",
+  "to",
+  "and",
+  "or",
+  "so",
+  "if",
+  "then",
+  "else",
+]);
+
+/**
+ * Normalizes a user prompt into cleaned lexical search terms and determines eligibility for Phase 3B.1 Lexical Rescue.
+ * 1. Strips conversational/retrieval framing and punctuation while preserving hyphens and alphanumeric identifiers.
+ * 2. Filters common retrieval stopwords.
+ * 3. Classifies terms into informative vs broad visual terms.
+ * 4. Determines eligibility:
+ *    - (A) >= 2 terms AND >= 1 informative/non-broad term, OR
+ *    - (B) Contains >= 1 distinctive token (has hyphen or digits, length >= 3).
+ *    - Rejects broad-only single words or broad-only pairs (e.g. "window", "tree", "window tree").
+ */
+export function normalizeImageLexicalQuery(prompt?: string | null): NormalizedLexicalQuery {
+  if (!prompt || typeof prompt !== "string") {
+    return {
+      rawPrompt: "",
+      queryText: "",
+      terms: [],
+      informativeTerms: [],
+      eligibleForRescue: false,
+    };
+  }
+
+  const rawPrompt = prompt.trim();
+  if (!rawPrompt) {
+    return {
+      rawPrompt: "",
+      queryText: "",
+      terms: [],
+      informativeTerms: [],
+      eligibleForRescue: false,
+    };
+  }
+
+  // Tokenize preserving alphanumeric characters, hyphens, and underscores
+  const rawTokens = rawPrompt
+    .replace(/[^\w\s\-]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  const terms: string[] = [];
+  let hasDistinctiveToken = false;
+
+  for (const token of rawTokens) {
+    const lower = token.toLowerCase();
+
+    // Check for distinctive token: contains hyphen (e.g., FIRE-FEU) or digit (e.g., 502, IMG_1402)
+    if (token.length >= 3 && (/^[a-z0-9]+-[a-z0-9]+$/i.test(token) || /\d/.test(token))) {
+      hasDistinctiveToken = true;
+    }
+
+    if (!RETRIEVAL_STOPWORDS.has(lower) && lower.length > 1) {
+      terms.push(lower);
+    }
+  }
+
+  const informativeTerms = terms.filter((t) => !BROAD_VISUAL_TERMS.has(t));
+
+  const eligibleForRescue =
+    (terms.length >= 2 && informativeTerms.length >= 1) ||
+    (hasDistinctiveToken && terms.length >= 1);
+
+  return {
+    rawPrompt,
+    queryText: terms.join(" "),
+    terms,
+    informativeTerms,
+    eligibleForRescue,
+  };
 }
 
 /**
@@ -209,12 +407,16 @@ export function rankSemanticImageCandidates(
 }
 
 /**
- * Executes Phase 3B Semantic Historical Image Retrieval:
+ * Executes Phase 3B Semantic Historical Image Retrieval with Phase 3B.1 Lexical Rescue:
  * 1. Checks deterministic precedence (resolveImageEvidence). If resolved -> bypasses with 0 embedding calls.
  * 2. Generates dedicated float[1536] query embedding via google/gemini-embedding-2.
  * 3. Invokes match_discussion_image_descriptors vector RPC.
- * 4. Applies calibrated ranking (0.36 min similarity, 0.05 gap, max 2).
- * 5. Resolves candidate artifact IDs to canonical KnownImageSource objects.
+ * 4. Logs raw vector candidates.
+ * 5. Applies calibrated ranking (0.36 min similarity, 0.05 gap, max 2).
+ * 6. If semantic ranking succeeds -> returns semantic results (authoritative).
+ * 7. If semantic ranking fails (S1 < 0.36) -> evaluates conservative lexical query normalization.
+ * 8. If eligible -> calls match_discussion_image_descriptors_lexical RPC, deduplicates, selects top <= 2.
+ * 9. Resolves candidate artifact IDs to canonical KnownImageSource objects.
  */
 export async function retrieveSemanticImageCandidates(
   options: SemanticImageRetrievalOptions
@@ -263,6 +465,14 @@ export async function retrieveSemanticImageCandidates(
 
     if (signal?.aborted) {
       return null;
+    }
+
+    // Build canonical earliest source map
+    const earliestSourceMap = new Map<string, KnownImageSource>();
+    for (const src of knownSources) {
+      if (!earliestSourceMap.has(src.artifactId)) {
+        earliestSourceMap.set(src.artifactId, src);
+      }
     }
 
     // 3. Dedicated Query Embedding Generation
@@ -322,62 +532,188 @@ export async function retrieveSemanticImageCandidates(
       return null;
     }
 
-    if (!Array.isArray(rpcRows) || rpcRows.length === 0) {
-      return null;
-    }
+    const candidateMatches: SemanticCandidateMatch[] = Array.isArray(rpcRows)
+      ? rpcRows
+          .filter(
+            (r) =>
+              r &&
+              typeof r.artifact_id === "string" &&
+              r.artifact_id.trim() !== "" &&
+              (typeof r.similarity === "number" || typeof r.similarity === "string")
+          )
+          .map((r: any) => ({
+            artifact_id: r.artifact_id,
+            similarity: typeof r.similarity === "number" ? r.similarity : parseFloat(r.similarity),
+          }))
+          .sort((a, b) => b.similarity - a.similarity)
+      : [];
 
-    // 5. Calibrated Ranking
-    const candidateMatches: SemanticCandidateMatch[] = rpcRows.map((r: any) => ({
-      artifact_id: r.artifact_id,
-      similarity: typeof r.similarity === "number" ? r.similarity : parseFloat(r.similarity),
-    }));
-
-    const rankingResult = rankSemanticImageCandidates(candidateMatches);
-    if (!rankingResult || rankingResult.selected.length === 0) {
-      return null;
-    }
-
-    // 6. Source Resolution
-    // Build canonical earliest source map
-    const earliestSourceMap = new Map<string, KnownImageSource>();
-    for (const src of knownSources) {
-      if (!earliestSourceMap.has(src.artifactId)) {
-        earliestSourceMap.set(src.artifactId, src);
-      }
-    }
-
-    const mappedSources: KnownImageSource[] = [];
-    for (const candidate of rankingResult.selected) {
-      const src = earliestSourceMap.get(candidate.artifact_id);
-      if (src && src.storagePath) {
-        mappedSources.push(src);
-      }
-    }
-
-    if (mappedSources.length === 0) {
-      return null;
-    }
-
-    // 7. Diagnostic Logging (Section 11)
-    // Log candidate metrics without exposing embeddings, signed URLs, descriptor text, or visible text
+    // Diagnostic log: raw vector candidates emitted unconditionally
     console.log(
-      "[Semantic Image Retrieval] candidates:",
+      "[Semantic Image Retrieval] raw vector candidates:",
       candidateMatches.slice(0, 5).map((c) => ({
         artifactId: c.artifact_id,
         similarity: Number(c.similarity.toFixed(4)),
       }))
     );
-    console.log("[Semantic Image Retrieval] selection summary:", {
-      selectedCount: mappedSources.length,
-      topSimilarity: Number(rankingResult.topSimilarity.toFixed(4)),
-      topGap: rankingResult.topGap !== null ? Number(rankingResult.topGap.toFixed(4)) : null,
+
+    // 5. Calibrated Semantic Ranking
+    const rankingResult = rankSemanticImageCandidates(candidateMatches);
+
+    if (rankingResult && rankingResult.selected.length > 0) {
+      const mappedSources: KnownImageSource[] = [];
+      for (const candidate of rankingResult.selected) {
+        const src = earliestSourceMap.get(candidate.artifact_id);
+        if (src && src.storagePath) {
+          mappedSources.push(src);
+        }
+      }
+
+      if (mappedSources.length > 0) {
+        const reason = rankingResult.selected.length === 1 ? "semantic_clear" : "semantic_ambiguous";
+        console.log("[Semantic Image Retrieval] resolution summary:", {
+          decisionReason: reason,
+          selectedCount: mappedSources.length,
+          topSimilarity: Number(rankingResult.topSimilarity.toFixed(4)),
+          topGap: rankingResult.topGap !== null ? Number(rankingResult.topGap.toFixed(4)) : null,
+          topLexicalRank: null,
+        });
+
+        return {
+          sources: mappedSources,
+          candidates: rankingResult.selected,
+          topSimilarity: rankingResult.topSimilarity,
+          topGap: rankingResult.topGap,
+          decisionReason: reason,
+        };
+      }
+    }
+
+    // 6. Phase 3B.1 Conservative Lexical Rescue Fallback
+    // Semantic threshold was not met (S1 < 0.36) or produced no matches
+    const norm = normalizeImageLexicalQuery(prompt);
+
+    console.log("[Semantic Image Retrieval] lexical query:", {
+      queryText: norm.queryText,
+      termCount: norm.terms.length,
+      informativeTermCount: norm.informativeTerms.length,
+      eligibleForRescue: norm.eligibleForRescue,
+    });
+
+    if (!norm.eligibleForRescue || !norm.queryText.trim() || signal?.aborted) {
+      console.log("[Semantic Image Retrieval] resolution summary:", {
+        decisionReason: "none",
+        selectedCount: 0,
+        topSimilarity: candidateMatches.length > 0 ? Number(candidateMatches[0].similarity.toFixed(4)) : 0,
+        topGap: null,
+        topLexicalRank: null,
+      });
+      return null;
+    }
+
+    // 7. Lexical RPC Execution
+    let lexicalRows: any[] | null = null;
+    try {
+      const { data, error } = await serviceSupabase.rpc("match_discussion_image_descriptors_lexical", {
+        p_discussion_id: discussionId,
+        p_query_text: norm.queryText,
+        p_match_count: SEMANTIC_IMAGE_RPC_MATCH_COUNT,
+      });
+
+      if (error) {
+        console.warn("[Semantic Image Retrieval] Lexical RPC execution error:", error);
+      } else {
+        lexicalRows = data;
+      }
+    } catch (lexErr: any) {
+      if (signal?.aborted) return null;
+      console.warn("[Semantic Image Retrieval] Lexical RPC call threw error:", lexErr?.message || lexErr);
+    }
+
+    const rawLexicalMatches: LexicalCandidateMatch[] = Array.isArray(lexicalRows)
+      ? lexicalRows
+          .filter((r) => r && typeof r.artifact_id === "string" && r.artifact_id.trim() !== "")
+          .map((r: any) => ({
+            artifact_id: r.artifact_id,
+            lexical_rank:
+              typeof r.lexical_rank === "number"
+                ? r.lexical_rank
+                : parseFloat(r.lexical_rank || "0"),
+          }))
+          .filter((r) => Number.isFinite(r.lexical_rank) && r.lexical_rank > 0)
+          .sort((a, b) => b.lexical_rank - a.lexical_rank)
+      : [];
+
+    console.log(
+      "[Semantic Image Retrieval] raw lexical candidates:",
+      rawLexicalMatches.slice(0, 5).map((m) => ({
+        artifactId: m.artifact_id,
+        lexicalRank: Number(m.lexical_rank.toFixed(4)),
+      }))
+    );
+
+    if (rawLexicalMatches.length === 0) {
+      console.log("[Semantic Image Retrieval] resolution summary:", {
+        decisionReason: "none",
+        selectedCount: 0,
+        topSimilarity: candidateMatches.length > 0 ? Number(candidateMatches[0].similarity.toFixed(4)) : 0,
+        topGap: null,
+        topLexicalRank: null,
+      });
+      return null;
+    }
+
+    // 8. Deduplicate and select top candidates (max SEMANTIC_IMAGE_MAX_CANDIDATES = 2)
+    const seenArtifactIds = new Set<string>();
+    const selectedLexicalCandidates: LexicalCandidateMatch[] = [];
+
+    for (const match of rawLexicalMatches) {
+      if (!seenArtifactIds.has(match.artifact_id)) {
+        seenArtifactIds.add(match.artifact_id);
+        selectedLexicalCandidates.push(match);
+        if (selectedLexicalCandidates.length >= SEMANTIC_IMAGE_MAX_CANDIDATES) {
+          break;
+        }
+      }
+    }
+
+    const lexicalMappedSources: KnownImageSource[] = [];
+    for (const cand of selectedLexicalCandidates) {
+      const src = earliestSourceMap.get(cand.artifact_id);
+      if (src && src.storagePath) {
+        lexicalMappedSources.push(src);
+      }
+    }
+
+    if (lexicalMappedSources.length === 0) {
+      console.log("[Semantic Image Retrieval] resolution summary:", {
+        decisionReason: "none",
+        selectedCount: 0,
+        topSimilarity: candidateMatches.length > 0 ? Number(candidateMatches[0].similarity.toFixed(4)) : 0,
+        topGap: null,
+        topLexicalRank: Number(selectedLexicalCandidates[0].lexical_rank.toFixed(4)),
+      });
+      return null;
+    }
+
+    console.log("[Semantic Image Retrieval] resolution summary:", {
+      decisionReason: "lexical_rescue",
+      selectedCount: lexicalMappedSources.length,
+      topSimilarity: candidateMatches.length > 0 ? Number(candidateMatches[0].similarity.toFixed(4)) : 0,
+      topGap: null,
+      topLexicalRank: Number(selectedLexicalCandidates[0].lexical_rank.toFixed(4)),
     });
 
     return {
-      sources: mappedSources,
-      candidates: rankingResult.selected,
-      topSimilarity: rankingResult.topSimilarity,
-      topGap: rankingResult.topGap,
+      sources: lexicalMappedSources,
+      candidates: selectedLexicalCandidates.map((c) => ({
+        artifact_id: c.artifact_id,
+        similarity: candidateMatches.find((cm) => cm.artifact_id === c.artifact_id)?.similarity ?? 0,
+      })),
+      topSimilarity: candidateMatches.length > 0 ? candidateMatches[0].similarity : 0,
+      topGap: null,
+      decisionReason: "lexical_rescue",
+      lexicalRank: selectedLexicalCandidates[0].lexical_rank,
     };
   } catch (err: any) {
     if (signal?.aborted) return null;
