@@ -13,11 +13,18 @@ import {
   ingestDiscussionDocuments,
   ingestDiscussionArtifacts,
   persistActiveImageEvidence,
+  fetchKnownImageSources,
+  fetchMessageVisualEvidence,
+  fetchRecentVisualEvidenceSets,
+  resolveImageEvidence,
+  persistResolvedImageEvidence,
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
   isVerificationFollowUpQuery,
   resolveVisualDocument,
+  isImageUrl,
+  KnownImageSource,
 } from '@/utils/discussionMemory';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
@@ -628,6 +635,7 @@ export async function POST(req: NextRequest) {
           let visualAttachments: { url: string; filename: string }[] | null = null;
           let resolvedVisualDocId: string | null = null;
           let isVisualUnavailable = false;
+          let pendingResolvedImageSources: KnownImageSource[] | null = null;
 
           const isVisualQuery = isVisualEvidenceQuery(prompt);
           const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
@@ -736,6 +744,73 @@ export async function POST(req: NextRequest) {
               } catch (visualErr: any) {
                 console.error('[Visual Reinspection] Non-critical error during visual escalation:', visualErr);
                 isVisualUnavailable = true;
+              }
+            }
+
+            // Standalone Image Historical Reopening (Phase 2B - ADDITIVE)
+            const hasCurrentImages = Array.isArray(attachments) && attachments.some((att: any) => isImageUrl(att?.url));
+
+            if (!hasCurrentImages && prompt && prompt.trim()) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                  const lastRoundEvidence = lastRound?.userMessageId
+                    ? await fetchMessageVisualEvidence(serviceClient, discussionId, lastRound.userMessageId)
+                    : [];
+                  const recentEvidenceSets = await fetchRecentVisualEvidenceSets(serviceClient, discussionId);
+
+                  const resolvedImage = resolveImageEvidence({
+                    prompt,
+                    knownSources,
+                    lastRoundEvidence,
+                    recentEvidenceSets,
+                  });
+
+                  if (resolvedImage && resolvedImage.sources.length > 0) {
+                    const successfulImageAttachments: { url: string; filename: string }[] = [];
+                    const successfulResolvedSources: typeof resolvedImage.sources = [];
+
+                    for (const src of resolvedImage.sources) {
+                      if (!src.storagePath) continue;
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(src.storagePath, 900); // 15-minute headroom across sequential panel
+
+                      if (!signErr && signedData?.signedUrl) {
+                        successfulImageAttachments.push({
+                          url: signedData.signedUrl,
+                          filename: src.filename || 'image.jpg',
+                        });
+                        successfulResolvedSources.push(src);
+                      } else {
+                        console.warn('[Image Reopening] Failed to sign image URL for source:', {
+                          sourceId: src.sourceId,
+                          storagePath: src.storagePath,
+                          error: signErr,
+                        });
+                      }
+                    }
+
+                    if (successfulImageAttachments.length > 0) {
+                      visualAttachments = [
+                        ...(visualAttachments || []),
+                        ...successfulImageAttachments,
+                      ];
+                      pendingResolvedImageSources = successfulResolvedSources;
+
+                      console.log('[Image Reopening] Reopened historical image evidence for turn:', {
+                        discussionId,
+                        sourceUserMessageId,
+                        reason: resolvedImage.reason,
+                        reopenedCount: successfulImageAttachments.length,
+                      });
+                    }
+                  }
+                }
+              } catch (imageReopenErr) {
+                console.warn('[Image Reopening] Non-critical error during historical image resolution:', imageReopenErr);
               }
             }
           }
@@ -1085,6 +1160,46 @@ export async function POST(req: NextRequest) {
               }
             } catch (docIngestErr: any) {
               console.error('[Doc Ingest] Non-critical error during document ingestion:', docIngestErr);
+            }
+          }
+
+          // Standalone image historical visual evidence persistence (Phase 2B - post-relay)
+          if (
+            discussionId &&
+            sourceUserMessageId &&
+            pendingResolvedImageSources &&
+            pendingResolvedImageSources.length > 0 &&
+            priorResponses.length > 0 &&
+            !req.signal.aborted
+          ) {
+            try {
+              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+              if (isOwner) {
+                const serviceClient = createServiceClient();
+                const persistResult = await persistResolvedImageEvidence({
+                  serviceSupabase: serviceClient,
+                  discussionId,
+                  sourceUserMessageId,
+                  resolvedSources: pendingResolvedImageSources,
+                  signal: req.signal,
+                });
+
+                if (persistResult.errors && persistResult.errors.length > 0) {
+                  console.warn('[Image Reopening] Diagnostic notes during historical evidence persistence:', {
+                    discussionId,
+                    sourceUserMessageId,
+                    errors: persistResult.errors,
+                  });
+                }
+
+                console.log('[Image Reopening] Persisted reopened image evidence post-relay:', {
+                  discussionId,
+                  sourceUserMessageId,
+                  persistedCount: persistResult.persistedCount,
+                });
+              }
+            } catch (evidenceErr) {
+              console.warn('[Image Reopening] Non-critical error during historical image evidence persistence:', evidenceErr);
             }
           }
 

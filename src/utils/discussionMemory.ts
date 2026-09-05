@@ -3087,3 +3087,774 @@ export async function persistActiveImageEvidence(
   }
 }
 
+export interface KnownImageSource {
+  sourceId: string;
+  artifactId: string;
+  discussionId: string;
+  storagePath: string;
+  filename: string;
+  sourceMessageId: string | null;
+  attachmentIndex: number;
+  createdAt: string;
+}
+
+export interface MessageVisualEvidenceItem {
+  id: string;
+  messageId: string;
+  sourceId: string;
+  artifactId: string;
+  ordinal: number;
+  storagePath: string;
+  filename: string;
+  createdAt: string;
+}
+
+export interface ResolveImageEvidenceOptions {
+  prompt: string;
+  knownSources: KnownImageSource[];
+  lastRoundEvidence?: MessageVisualEvidenceItem[];
+  recentEvidenceSets?: MessageVisualEvidenceItem[][];
+}
+
+export interface ResolvedImageEvidenceResult {
+  sources: KnownImageSource[];
+  reason:
+    | 'verification_inheritance'
+    | 'discussion_chronology'
+    | 'exact_filename'
+    | 'comparative_subset'
+    | 'recent_ordinal'
+    | 'singleton_inheritance';
+}
+
+/**
+ * Fetches all registered image source aliases for a discussion ordered by user-message upload chronology.
+ * Strictly verifies discussion_artifacts.artifact_type = 'image'.
+ */
+export async function fetchKnownImageSources(
+  serviceSupabase: SupabaseClient,
+  discussionId: string
+): Promise<KnownImageSource[]> {
+  if (!serviceSupabase || !discussionId) return [];
+
+  try {
+    const { data: sourceRows, error: srcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path, filename, source_message_id, attachment_index, created_at')
+      .eq('discussion_id', discussionId);
+
+    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) {
+      return [];
+    }
+
+    // 1. Fetch canonical artifact types to strictly filter artifact_type = 'image'
+    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
+    if (artifactIds.length === 0) return [];
+
+    const { data: artifactRows, error: artErr } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    if (artErr || !Array.isArray(artifactRows)) return [];
+
+    const imageArtifactIdSet = new Set(
+      artifactRows.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    // 2. Fetch source user messages to establish authoritative user upload chronology
+    const messageIds = Array.from(new Set(sourceRows.map((s: any) => s.source_message_id).filter(Boolean)));
+    const messageCreatedAtMap = new Map<string, string>();
+    if (messageIds.length > 0) {
+      const { data: messageRows } = await serviceSupabase
+        .from('messages')
+        .select('id, created_at')
+        .in('id', messageIds);
+
+      if (Array.isArray(messageRows)) {
+        for (const m of messageRows) {
+          if (m.id && m.created_at) {
+            messageCreatedAtMap.set(m.id, m.created_at);
+          }
+        }
+      }
+    }
+
+    const result: KnownImageSource[] = [];
+    for (const s of sourceRows) {
+      if (s.discussion_id !== discussionId) continue;
+      if (imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
+        const messageCreatedAt = (s.source_message_id && messageCreatedAtMap.get(s.source_message_id)) || s.created_at;
+        result.push({
+          sourceId: s.id,
+          artifactId: s.artifact_id,
+          discussionId: s.discussion_id,
+          storagePath: s.storage_path,
+          filename: s.filename || 'attachment',
+          sourceMessageId: s.source_message_id || null,
+          attachmentIndex: s.attachment_index ?? 0,
+          createdAt: messageCreatedAt,
+        });
+      }
+    }
+
+    // Sort by user message upload chronology: message createdAt -> attachmentIndex -> source row createdAt -> sourceId
+    result.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      if (a.attachmentIndex !== b.attachmentIndex) return a.attachmentIndex - b.attachmentIndex;
+      return a.sourceId.localeCompare(b.sourceId);
+    });
+
+    return result;
+  } catch (err) {
+    console.warn('[Fetch Known Images] Error fetching known image sources:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetches the ordered image evidence set for a specific user message from message_visual_evidence.
+ * Strictly verifies discussion_artifacts.artifact_type = 'image' and discussion scoping.
+ */
+export async function fetchMessageVisualEvidence(
+  serviceSupabase: SupabaseClient,
+  discussionId: string,
+  messageId: string
+): Promise<MessageVisualEvidenceItem[]> {
+  if (!serviceSupabase || !discussionId || !messageId) return [];
+
+  try {
+    const { data: evidenceRows, error: evErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .select('id, message_id, source_id, ordinal, created_at, discussion_id')
+      .eq('discussion_id', discussionId)
+      .eq('message_id', messageId)
+      .order('ordinal', { ascending: true });
+
+    if (evErr || !Array.isArray(evidenceRows) || evidenceRows.length === 0) {
+      return [];
+    }
+
+    const sourceIds = Array.from(new Set(evidenceRows.map((e: any) => e.source_id).filter(Boolean)));
+    if (sourceIds.length === 0) return [];
+
+    const { data: sourceRows, error: srcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path, filename, created_at')
+      .in('id', sourceIds);
+
+    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) return [];
+
+    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
+    const { data: artifactRows } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    const imageArtifactIdSet = new Set(
+      (artifactRows || []).filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    const sourceMap = new Map<string, any>();
+    for (const s of sourceRows) {
+      if (s.discussion_id === discussionId && imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
+        sourceMap.set(s.id, s);
+      }
+    }
+
+    const items: MessageVisualEvidenceItem[] = [];
+    for (const e of evidenceRows) {
+      if (e.discussion_id !== discussionId) continue;
+      const src = sourceMap.get(e.source_id);
+      if (src) {
+        items.push({
+          id: e.id,
+          messageId: e.message_id,
+          sourceId: e.source_id,
+          artifactId: src.artifact_id,
+          ordinal: e.ordinal,
+          storagePath: src.storage_path,
+          filename: src.filename || 'attachment',
+          createdAt: e.created_at,
+        });
+      }
+    }
+
+    // Validate exact contiguous 0..N-1 sequence
+    if (items.length > 0) {
+      const isContiguous = items.every((item, idx) => item.ordinal === idx);
+      if (!isContiguous) {
+        console.warn('[Fetch Message Evidence] Malformed non-contiguous evidence set for message:', {
+          discussionId,
+          messageId,
+          ordinals: items.map((i) => i.ordinal),
+        });
+        return [];
+      }
+    }
+
+    return items;
+  } catch (err) {
+    console.warn('[Fetch Message Evidence] Error fetching message visual evidence:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetches recent historical visual evidence sets for a discussion,
+ * ordered by user message chronology (newest message first -> oldest message).
+ * Strictly validates discussion scoping, artifact_type = 'image', and contiguous 0..N-1 ordinals.
+ */
+export async function fetchRecentVisualEvidenceSets(
+  serviceSupabase: SupabaseClient,
+  discussionId: string,
+  limit = 10
+): Promise<MessageVisualEvidenceItem[][]> {
+  if (!serviceSupabase || !discussionId) return [];
+
+  try {
+    const { data: evidenceRows, error: evErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .select('id, message_id, source_id, ordinal, created_at, discussion_id')
+      .eq('discussion_id', discussionId);
+
+    if (evErr || !Array.isArray(evidenceRows) || evidenceRows.length === 0) {
+      return [];
+    }
+
+    const messageIds = Array.from(new Set(evidenceRows.map((e: any) => e.message_id).filter(Boolean)));
+    if (messageIds.length === 0) return [];
+
+    const { data: messageRows, error: msgErr } = await serviceSupabase
+      .from('messages')
+      .select('id, discussion_id, created_at, sender')
+      .in('id', messageIds);
+
+    if (msgErr || !Array.isArray(messageRows) || messageRows.length === 0) return [];
+
+    const messageMap = new Map<string, { createdAt: string; sender: string }>();
+    for (const m of messageRows) {
+      if (m.discussion_id === discussionId && m.sender === 'user') {
+        messageMap.set(m.id, { createdAt: m.created_at, sender: m.sender });
+      }
+    }
+
+    const sourceIds = Array.from(new Set(evidenceRows.map((e: any) => e.source_id).filter(Boolean)));
+    if (sourceIds.length === 0) return [];
+
+    const { data: sourceRows, error: srcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path, filename, created_at')
+      .in('id', sourceIds);
+
+    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) return [];
+
+    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
+    const { data: artifactRows } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    const imageArtifactIdSet = new Set(
+      (artifactRows || []).filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    const sourceMap = new Map<string, any>();
+    for (const s of sourceRows) {
+      if (s.discussion_id === discussionId && imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
+        sourceMap.set(s.id, s);
+      }
+    }
+
+    // Group items by message_id
+    const setsByMessageId = new Map<string, MessageVisualEvidenceItem[]>();
+    for (const e of evidenceRows) {
+      if (e.discussion_id !== discussionId) continue;
+      if (!messageMap.has(e.message_id)) continue;
+      const src = sourceMap.get(e.source_id);
+      if (!src) continue;
+
+      const item: MessageVisualEvidenceItem = {
+        id: e.id,
+        messageId: e.message_id,
+        sourceId: e.source_id,
+        artifactId: src.artifact_id,
+        ordinal: e.ordinal,
+        storagePath: src.storage_path,
+        filename: src.filename || 'attachment',
+        createdAt: e.created_at,
+      };
+
+      if (!setsByMessageId.has(e.message_id)) {
+        setsByMessageId.set(e.message_id, []);
+      }
+      setsByMessageId.get(e.message_id)!.push(item);
+    }
+
+    // Sort items within each set by ordinal ASC and verify contiguous 0..N-1
+    const groupedSets: { messageId: string; createdAt: string; items: MessageVisualEvidenceItem[] }[] = [];
+    for (const [msgId, items] of setsByMessageId.entries()) {
+      if (items.length > 0) {
+        items.sort((a, b) => a.ordinal - b.ordinal);
+        const isContiguous = items.every((item, idx) => item.ordinal === idx);
+        if (!isContiguous) {
+          console.warn('[Fetch Recent Evidence Sets] Excluding malformed non-contiguous evidence set:', {
+            discussionId,
+            messageId: msgId,
+            ordinals: items.map((i) => i.ordinal),
+          });
+          continue;
+        }
+        const msgInfo = messageMap.get(msgId)!;
+        groupedSets.push({
+          messageId: msgId,
+          createdAt: msgInfo.createdAt,
+          items,
+        });
+      }
+    }
+
+    // Sort sets by user message createdAt DESC (newest -> oldest)
+    groupedSets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return groupedSets.slice(0, limit).map((g) => g.items);
+  } catch (err) {
+    console.warn('[Fetch Recent Evidence Sets] Error fetching evidence sets:', err);
+    return [];
+  }
+}
+
+export interface PersistResolvedImageEvidenceOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  sourceUserMessageId: string;
+  resolvedSources: KnownImageSource[];
+  signal?: AbortSignal;
+}
+
+export interface PersistResolvedImageEvidenceResult {
+  persistedCount: number;
+  errors: string[];
+}
+
+/**
+ * Persists the resolved historical image evidence set for the current user turn.
+ * Validates actual database records for all sources and user message before inserting.
+ * Establishes contiguous ordinals (0..N-1) in message_visual_evidence.
+ */
+export async function persistResolvedImageEvidence(
+  options: PersistResolvedImageEvidenceOptions
+): Promise<PersistResolvedImageEvidenceResult> {
+  const result: PersistResolvedImageEvidenceResult = {
+    persistedCount: 0,
+    errors: [],
+  };
+
+  const { serviceSupabase, discussionId, sourceUserMessageId, resolvedSources, signal } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !sourceUserMessageId ||
+    !Array.isArray(resolvedSources) ||
+    resolvedSources.length === 0 ||
+    signal?.aborted
+  ) {
+    return result;
+  }
+
+  try {
+    // 1. Verify user message exists, belongs to discussionId, and has sender = 'user'
+    const { data: messageRow, error: msgErr } = await serviceSupabase
+      .from('messages')
+      .select('id, discussion_id, sender')
+      .eq('id', sourceUserMessageId)
+      .maybeSingle();
+
+    if (msgErr || !messageRow) {
+      result.errors.push(msgErr?.message || `User message not found: ${sourceUserMessageId}`);
+      return result;
+    }
+
+    if (messageRow.discussion_id !== discussionId) {
+      result.errors.push(`Message discussion mismatch: ${messageRow.discussion_id} !== ${discussionId}`);
+      return result;
+    }
+
+    if (messageRow.sender !== 'user') {
+      result.errors.push(`Non-user message sender rejected: ${messageRow.sender}`);
+      return result;
+    }
+
+    // 2. Validate requested sources against actual database records
+    const sourceIds = resolvedSources.map((s) => s.sourceId).filter(Boolean);
+    if (sourceIds.length === 0) return result;
+
+    const { data: dbSources, error: srcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path')
+      .in('id', sourceIds);
+
+    if (srcErr || !Array.isArray(dbSources) || dbSources.length === 0) {
+      result.errors.push(srcErr?.message || 'Failed to verify source aliases in DB');
+      return result;
+    }
+
+    const artifactIds = Array.from(new Set(dbSources.map((s: any) => s.artifact_id).filter(Boolean)));
+    const { data: dbArtifacts, error: artErr } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    if (artErr || !Array.isArray(dbArtifacts)) {
+      result.errors.push(artErr?.message || 'Failed to verify artifact types in DB');
+      return result;
+    }
+
+    const validImageArtifactIds = new Set(
+      dbArtifacts.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    const validSourceMap = new Map<string, any>();
+    for (const s of dbSources) {
+      if (s.discussion_id === discussionId && validImageArtifactIds.has(s.artifact_id) && s.storage_path) {
+        validSourceMap.set(s.id, s);
+      }
+    }
+
+    const validSources: KnownImageSource[] = [];
+    for (const s of resolvedSources) {
+      if (validSourceMap.has(s.sourceId)) {
+        validSources.push(s);
+      } else {
+        result.errors.push(`Invalid, cross-discussion, or non-image source rejected: ${s.sourceId}`);
+      }
+    }
+
+    // All-or-nothing integrity requirement: every supplied source must validate
+    if (validSources.length !== resolvedSources.length) {
+      result.errors.push(
+        `All-or-nothing evidence validation failed: ${validSources.length} of ${resolvedSources.length} sources valid`
+      );
+      return result;
+    }
+
+    if (validSources.length === 0) return result;
+
+    // 3. Non-destructive idempotency check
+    const { data: existingEvidence, error: existErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .select('id, source_id, ordinal')
+      .eq('message_id', sourceUserMessageId)
+      .order('ordinal', { ascending: true });
+
+    if (existErr) {
+      result.errors.push(existErr.message || 'Failed to check existing evidence');
+      return result;
+    }
+
+    if (Array.isArray(existingEvidence) && existingEvidence.length > 0) {
+      const isExactMatch =
+        existingEvidence.length === validSources.length &&
+        existingEvidence.every(
+          (e: any, idx: number) =>
+            e.source_id === validSources[idx].sourceId && e.ordinal === idx
+        );
+
+      if (isExactMatch) {
+        result.persistedCount = existingEvidence.length;
+        return result;
+      } else {
+        result.errors.push('Pre-existing evidence differs from resolved set; existing evidence preserved.');
+        result.persistedCount = existingEvidence.length;
+        return result;
+      }
+    }
+
+    // 4. Insert resolved evidence with contiguous ordinals 0..N-1
+    const rowsToInsert = validSources.map((source, ordinal) => ({
+      discussion_id: discussionId,
+      message_id: sourceUserMessageId,
+      source_id: source.sourceId,
+      ordinal: ordinal,
+    }));
+
+    const { data: insertedData, error: insertErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .insert(rowsToInsert)
+      .select('id, ordinal');
+
+    if (insertErr) {
+      result.errors.push(insertErr.message || 'Insert resolved visual evidence failed');
+    } else {
+      result.persistedCount = insertedData?.length || rowsToInsert.length;
+    }
+
+    return result;
+  } catch (err: any) {
+    result.errors.push(err?.message || String(err));
+    return result;
+  }
+}
+
+/**
+ * Deterministically resolves historical image evidence for follow-up questions, ordinals, comparative subsets, filenames, and chronology.
+ * Zero AI calls, zero embeddings, zero OCR, zero source fabrication.
+ */
+export function resolveImageEvidence(
+  options: ResolveImageEvidenceOptions
+): ResolvedImageEvidenceResult | null {
+  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets } = options;
+  if (!prompt || typeof prompt !== 'string') return null;
+  const p = prompt.trim();
+  if (!p) return null; // Continue / empty prompt
+
+  const pLower = p.toLowerCase();
+
+  // 1. Explicit Discussion-Wide Chronology (strictly requires explicit visual noun and upload/sent reference)
+  const isExplicitDiscussionUploadQuery =
+    /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|earliest|initial)\s+(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
+    /\b(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning)\b/i.test(pLower) ||
+    /\b(?:latest|most recent|last)\s+(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
+    /\b(?:the\s+)?(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently)\b/i.test(pLower);
+
+  if (isExplicitDiscussionUploadQuery && Array.isArray(knownSources) && knownSources.length > 0) {
+    if (/\b(earliest|initial)\b/i.test(pLower) || /\b(first|1st)\b/i.test(pLower)) {
+      return { sources: [knownSources[0]], reason: 'discussion_chronology' };
+    }
+    if (/\b(second|2nd)\b/i.test(pLower)) {
+      if (knownSources.length >= 2) {
+        return { sources: [knownSources[1]], reason: 'discussion_chronology' };
+      }
+      return null;
+    }
+    if (/\b(third|3rd)\b/i.test(pLower)) {
+      if (knownSources.length >= 3) {
+        return { sources: [knownSources[2]], reason: 'discussion_chronology' };
+      }
+      return null;
+    }
+    if (/\b(fourth|4th)\b/i.test(pLower)) {
+      if (knownSources.length >= 4) {
+        return { sources: [knownSources[3]], reason: 'discussion_chronology' };
+      }
+      return null;
+    }
+    if (/\b(fifth|5th)\b/i.test(pLower)) {
+      if (knownSources.length >= 5) {
+        return { sources: [knownSources[4]], reason: 'discussion_chronology' };
+      }
+      return null;
+    }
+    if (/\b(latest|most recent|last)\b/i.test(pLower)) {
+      return { sources: [knownSources[knownSources.length - 1]], reason: 'discussion_chronology' };
+    }
+  }
+
+  // 2. Explicit Filename
+  if (Array.isArray(knownSources) && knownSources.length > 0) {
+    const filenameMatches = knownSources.filter((s) => {
+      if (!s.filename) return false;
+      const fnLower = s.filename.toLowerCase();
+      const baseName = fnLower.replace(/\.[a-z0-9]+$/i, '');
+      return pLower.includes(fnLower) || (baseName.length >= 4 && pLower.includes(baseName));
+    });
+
+    if (filenameMatches.length > 0) {
+      const distinctArtifactIds = Array.from(new Set(filenameMatches.map((m) => m.artifactId)));
+      if (distinctArtifactIds.length === 1) {
+        const latestMatch = filenameMatches[filenameMatches.length - 1];
+        return { sources: [latestMatch], reason: 'exact_filename' };
+      }
+      return null;
+    }
+  }
+
+  // 3. Explicit Recent Ordinal / Comparative Subsets
+  // Candidate sets sequence: immediate set first, then earlier sets newest -> oldest
+  const candidateEvidenceSets: MessageVisualEvidenceItem[][] = [];
+  if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
+    candidateEvidenceSets.push(lastRoundEvidence);
+  }
+  if (Array.isArray(recentEvidenceSets)) {
+    for (const set of recentEvidenceSets) {
+      if (Array.isArray(set) && set.length > 0) {
+        const isSameAsFirst =
+          candidateEvidenceSets.length > 0 &&
+          candidateEvidenceSets[0].length === set.length &&
+          candidateEvidenceSets[0].every((item, i) => item.sourceId === set[i]?.sourceId);
+        if (!isSameAsFirst) {
+          candidateEvidenceSets.push(set);
+        }
+      }
+    }
+  }
+
+  if (candidateEvidenceSets.length > 0) {
+    const isSubsetQuery =
+      /\b(compare|between|vs|versus|better than|worse than|differ|difference)\b/i.test(pLower) ||
+      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:and|or|vs)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\b/i.test(pLower) ||
+      /\b(last two|first two)\b/i.test(pLower);
+
+    if (isSubsetQuery) {
+      if (/\b(last two)\b/i.test(pLower)) {
+        for (const evSet of candidateEvidenceSets) {
+          if (evSet.length >= 2) {
+            const selected = evSet.slice(-2);
+            const mapped: KnownImageSource[] = [];
+            let allFound = true;
+            for (const ev of selected) {
+              const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+              if (!matched) {
+                allFound = false;
+                break;
+              }
+              mapped.push(matched);
+            }
+            if (allFound && mapped.length === 2) {
+              return { sources: mapped, reason: 'comparative_subset' };
+            }
+          }
+        }
+        return null;
+      }
+
+      if (/\b(first two)\b/i.test(pLower)) {
+        for (const evSet of candidateEvidenceSets) {
+          if (evSet.length >= 2) {
+            const selected = evSet.slice(0, 2);
+            const mapped: KnownImageSource[] = [];
+            let allFound = true;
+            for (const ev of selected) {
+              const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+              if (!matched) {
+                allFound = false;
+                break;
+              }
+              mapped.push(matched);
+            }
+            if (allFound && mapped.length === 2) {
+              return { sources: mapped, reason: 'comparative_subset' };
+            }
+          }
+        }
+        return null;
+      }
+
+      const requestedOrdinals: number[] = [];
+      if (/\b(first|1st)\b/i.test(pLower)) requestedOrdinals.push(0);
+      if (/\b(second|2nd)\b/i.test(pLower)) requestedOrdinals.push(1);
+      if (/\b(third|3rd)\b/i.test(pLower)) requestedOrdinals.push(2);
+      if (/\b(fourth|4th)\b/i.test(pLower)) requestedOrdinals.push(3);
+      if (/\b(fifth|5th)\b/i.test(pLower)) requestedOrdinals.push(4);
+
+      if (requestedOrdinals.length >= 2) {
+        const uniqueOrdinals = Array.from(new Set(requestedOrdinals)).sort((a, b) => a - b);
+        for (const evSet of candidateEvidenceSets) {
+          const allExist = uniqueOrdinals.every((ord) => ord < evSet.length);
+          if (allExist) {
+            const mapped: KnownImageSource[] = [];
+            let allFound = true;
+            for (const ord of uniqueOrdinals) {
+              const ev = evSet[ord];
+              const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+              if (!matched) {
+                allFound = false;
+                break;
+              }
+              mapped.push(matched);
+            }
+            if (allFound && mapped.length === uniqueOrdinals.length) {
+              return { sources: mapped, reason: 'comparative_subset' };
+            }
+          }
+        }
+        return null;
+      }
+    }
+
+    // Recent Evidence-Set Single Ordinals (including "second one", "are you sure about the second one", "what about the last image?")
+    const isRecentOrdinalQuery =
+      /\b(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)\s+(?:one|image|picture|photo)\b/i.test(pLower) ||
+      /\bwhat about (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
+      /\blook at (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
+      /\b(?:are you sure about|check|double[- ]?check)\s+(?:about\s+)?(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
+      /\b(?:image|picture|photo)\s+(1|2|3|4|5)\b/i.test(pLower);
+
+    if (isRecentOrdinalQuery) {
+      const isLast = /\blast\b/i.test(pLower);
+      let targetOrd = -1;
+      if (/\b(first|1st)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+1\b/i.test(pLower)) targetOrd = 0;
+      else if (/\b(second|2nd)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+2\b/i.test(pLower)) targetOrd = 1;
+      else if (/\b(third|3rd)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+3\b/i.test(pLower)) targetOrd = 2;
+      else if (/\b(fourth|4th)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+4\b/i.test(pLower)) targetOrd = 3;
+      else if (/\b(fifth|5th)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+5\b/i.test(pLower)) targetOrd = 4;
+
+      for (const evSet of candidateEvidenceSets) {
+        const ordToCheck = isLast ? evSet.length - 1 : targetOrd;
+        if (ordToCheck >= 0 && ordToCheck < evSet.length) {
+          const ev = evSet[ordToCheck];
+          const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+          if (matched) {
+            return { sources: [matched], reason: 'recent_ordinal' };
+          }
+        }
+      }
+      return null;
+    }
+  } else if (Array.isArray(knownSources) && knownSources.length > 0) {
+    // If no recent evidence set exists, a clearly temporal "latest image" or "last image" safely falls back to discussion chronology
+    const isFallbackLatestQuery = /\b(?:the\s+)?(?:latest|most recent|last)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower);
+    if (isFallbackLatestQuery) {
+      return { sources: [knownSources[knownSources.length - 1]], reason: 'discussion_chronology' };
+    }
+  }
+
+  // 4. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
+  // CRITICAL: Does NOT search backward. Inherits ONLY immediate lastRoundEvidence.
+  if (isVerificationFollowUpQuery(p)) {
+    if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
+      const sources: KnownImageSource[] = [];
+      for (const ev of lastRoundEvidence) {
+        const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+        if (!matched) return null; // Unresolvable authoritative source -> fail safe
+        sources.push(matched);
+      }
+      return {
+        sources,
+        reason: 'verification_inheritance',
+      };
+    }
+    return null;
+  }
+
+  // 5. Safe Singleton Inheritance / Pronoun-like references
+  const isSingletonQuery =
+    /\b(?:that|this|the)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
+    /\b(?:how about|what about)\s+(?:the\s+)?(?:color|colour|layout|appearance|look)\b/i.test(pLower) ||
+    /\bcheck\s+(?:the|that)\s+(?:photo|picture|image)\s*(?:again)?\b/i.test(pLower) ||
+    /\bwhat\s+(?:colour|color)\s+was\s+(?:it|the\s+image|the\s+photo|the\s+picture)\b/i.test(pLower);
+
+  if (isSingletonQuery) {
+    if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length === 1) {
+      const ev = lastRoundEvidence[0];
+      const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+      if (!matched) return null;
+      return { sources: [matched], reason: 'singleton_inheritance' };
+    }
+
+    if (
+      (!Array.isArray(lastRoundEvidence) || lastRoundEvidence.length === 0) &&
+      Array.isArray(knownSources) &&
+      knownSources.length === 1
+    ) {
+      return { sources: [knownSources[0]], reason: 'singleton_inheritance' };
+    }
+
+    return null;
+  }
+
+  return null;
+}
