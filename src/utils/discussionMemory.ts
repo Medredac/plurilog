@@ -3122,6 +3122,9 @@ export interface ResolvedImageEvidenceResult {
     | 'verification_inheritance'
     | 'discussion_chronology'
     | 'exact_filename'
+    | 'multiple_exact_filenames'
+    | 'unique_filename_shorthand'
+    | 'multiple_filename_shorthands'
     | 'comparative_subset'
     | 'recent_ordinal'
     | 'singleton_inheritance';
@@ -3653,22 +3656,360 @@ export function resolveImageEvidence(
     }
   }
 
-  // 2. Explicit Filename
+  // 2. Explicit Filename & Unique Numeric Shorthand Resolution
   if (Array.isArray(knownSources) && knownSources.length > 0) {
-    const filenameMatches = knownSources.filter((s) => {
-      if (!s.filename) return false;
+    // 2a. Precompute metadata for ALL source aliases
+    interface SourceAliasMeta {
+      source: KnownImageSource;
+      artifactId: string;
+      fnLower: string;
+      baseName: string;
+      numericSegments: string[];
+    }
+
+    const allAliases: SourceAliasMeta[] = [];
+    for (const s of knownSources) {
+      if (!s.filename || !s.artifactId) continue;
       const fnLower = s.filename.toLowerCase();
       const baseName = fnLower.replace(/\.[a-z0-9]+$/i, '');
-      return pLower.includes(fnLower) || (baseName.length >= 4 && pLower.includes(baseName));
-    });
 
-    if (filenameMatches.length > 0) {
-      const distinctArtifactIds = Array.from(new Set(filenameMatches.map((m) => m.artifactId)));
-      if (distinctArtifactIds.length === 1) {
-        const latestMatch = filenameMatches[filenameMatches.length - 1];
-        return { sources: [latestMatch], reason: 'exact_filename' };
+      // Extract discrete numeric segments of length >= 3 from basename
+      // e.g. "IMG_1400.jpg" -> ["1400"], "Screenshot_1400_v2" -> ["1400"]
+      const parts = baseName.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+      const numericSegments: string[] = [];
+      for (const part of parts) {
+        const subParts = part.match(/[a-zA-Z]+|\d+/g);
+        if (subParts) {
+          for (const sp of subParts) {
+            if (/^\d{3,}$/.test(sp)) {
+              numericSegments.push(sp);
+            }
+          }
+        }
       }
+
+      allAliases.push({
+        source: s,
+        artifactId: s.artifactId,
+        fnLower,
+        baseName,
+        numericSegments,
+      });
+    }
+
+    // 2b. Detect exact full-filename or basename matches in prompt across all aliases
+    interface RawAliasMatch {
+      start: number;
+      end: number;
+      matchedText: string;
+      alias: SourceAliasMeta;
+      isFullFilename: boolean;
+    }
+
+    const rawMatches: RawAliasMatch[] = [];
+
+    for (const alias of allAliases) {
+      // Match full filename (e.g. "img_1400.jpg")
+      let idx = 0;
+      while ((idx = pLower.indexOf(alias.fnLower, idx)) !== -1) {
+        rawMatches.push({
+          start: idx,
+          end: idx + alias.fnLower.length,
+          matchedText: alias.fnLower,
+          alias,
+          isFullFilename: true,
+        });
+        idx += alias.fnLower.length;
+      }
+
+      // Match full basename with word boundary (e.g. "img_1400") if basename length >= 4
+      if (alias.baseName.length >= 4) {
+        const baseRegex = new RegExp(`\\b${alias.baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+        let m: RegExpExecArray | null;
+        while ((m = baseRegex.exec(pLower)) !== null) {
+          rawMatches.push({
+            start: m.index,
+            end: m.index + m[0].length,
+            matchedText: m[0],
+            alias,
+            isFullFilename: false,
+          });
+        }
+      }
+    }
+
+    interface ResolvedMatch {
+      artifactId: string;
+      source: KnownImageSource;
+      mentionIndex: number;
+      matchType: 'exact' | 'shorthand';
+      matchedText: string;
+    }
+
+    const matchedArtifacts: ResolvedMatch[] = [];
+    const matchedRanges: { start: number; end: number }[] = [];
+
+    if (rawMatches.length > 0) {
+      // Sort raw matches by start index, then longer length first
+      rawMatches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+
+      // Cluster overlapping matches into distinct textual reference slots
+      interface MatchSlot {
+        start: number;
+        end: number;
+        matches: RawAliasMatch[];
+      }
+      const slots: MatchSlot[] = [];
+
+      for (const rm of rawMatches) {
+        const overlappingSlot = slots.find(
+          (s) => !(rm.end <= s.start || rm.start >= s.end)
+        );
+        if (overlappingSlot) {
+          overlappingSlot.matches.push(rm);
+          overlappingSlot.start = Math.min(overlappingSlot.start, rm.start);
+          overlappingSlot.end = Math.max(overlappingSlot.end, rm.end);
+        } else {
+          slots.push({
+            start: rm.start,
+            end: rm.end,
+            matches: [rm],
+          });
+        }
+      }
+
+      // Evaluate ambiguity and resolution per textual reference slot
+      for (const slot of slots) {
+        const hasFullFn = slot.matches.some((m) => m.isFullFilename);
+        const relevantMatches = hasFullFn
+          ? slot.matches.filter((m) => m.isFullFilename)
+          : slot.matches;
+
+        const distinctArtifactIds = Array.from(
+          new Set(relevantMatches.map((m) => m.alias.artifactId))
+        );
+
+        if (distinctArtifactIds.length > 1) {
+          // One textual filename/basename reference matches more than one DISTINCT artifact -> AMBIGUOUS
+          return null;
+        }
+
+        if (distinctArtifactIds.length === 1) {
+          const targetArtifactId = distinctArtifactIds[0];
+          const artMatches = relevantMatches.filter((m) => m.alias.artifactId === targetArtifactId);
+          const bestMatch = artMatches[artMatches.length - 1];
+
+          matchedArtifacts.push({
+            artifactId: targetArtifactId,
+            source: bestMatch.alias.source,
+            mentionIndex: slot.start,
+            matchType: 'exact',
+            matchedText: bestMatch.matchedText,
+          });
+          matchedRanges.push({ start: slot.start, end: slot.end });
+        }
+      }
+    }
+
+    // 2c. Check for unknown explicit filename patterns in prompt (e.g. "IMG_9999.JPG")
+    // If prompt explicitly mentions filenames with image extensions that do not match any known source, fail-safe
+    const promptFilenameRegex = /\b[a-zA-Z0-9_.-]+\.(?:png|jpe?g|webp|gif)\b/gi;
+    let fileMatch: RegExpExecArray | null;
+    let hasUnknownExplicitFilename = false;
+    while ((fileMatch = promptFilenameRegex.exec(pLower)) !== null) {
+      const fnInPrompt = fileMatch[0].toLowerCase();
+      const matchStart = fileMatch.index;
+      const matchEnd = matchStart + fnInPrompt.length;
+      const isCoveredByExactMatch = matchedRanges.some(
+        (r) =>
+          (matchStart >= r.start && matchStart < r.end) ||
+          (matchEnd > r.start && matchEnd <= r.end) ||
+          (r.start >= matchStart && r.end <= matchEnd)
+      );
+      const isKnownDirectly = allAliases.some(
+        (alias) => alias.fnLower === fnInPrompt || fnInPrompt.endsWith(alias.fnLower)
+      );
+      if (!isCoveredByExactMatch && !isKnownDirectly) {
+        hasUnknownExplicitFilename = true;
+        break;
+      }
+    }
+
+    if (hasUnknownExplicitFilename) {
       return null;
+    }
+
+    // 2d. Evaluate candidate numeric shorthand tokens (>= 3 digits) from reference-intent patterns
+    const hasImmediateVisualContext = Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0;
+
+    interface CandidateShorthand {
+      token: string;
+      index: number;
+    }
+
+    const candidateShorthands: CandidateShorthand[] = [];
+    const seenTokenIndices = new Set<number>();
+
+    function addCandidate(token: string, index: number) {
+      if (!/^\d{3,}$/.test(token)) return;
+      if (seenTokenIndices.has(index)) return;
+      // Skip if inside an exact filename match range
+      const isInsideExact = matchedRanges.some(
+        (r) => index >= r.start && index + token.length <= r.end
+      );
+      if (isInsideExact) return;
+      seenTokenIndices.add(index);
+      candidateShorthands.push({ token, index });
+    }
+
+    // Pattern 1: Explicit visual/file noun preceding or following the number (e.g. "photo 1400", "image #1402", "Which photo was 1400?")
+    const nounBeforeRegex = /\b(?:image|picture|photo|screenshot|pic|file)s?(?:\s+(?:no\.?|number|#|was|showing|with|of))?\s+(\d{3,})\b/gi;
+    let patternMatch: RegExpExecArray | null;
+    while ((patternMatch = nounBeforeRegex.exec(pLower)) !== null) {
+      const token = patternMatch[1];
+      const tokenIdx = patternMatch.index + patternMatch[0].lastIndexOf(token);
+      addCandidate(token, tokenIdx);
+    }
+
+    const nounAfterRegex = /\b(\d{3,})\s+(?:image|picture|photo|screenshot|pic|file)s?\b/gi;
+    while ((patternMatch = nounAfterRegex.exec(pLower)) !== null) {
+      const token = patternMatch[1];
+      addCandidate(token, patternMatch.index);
+    }
+
+    // Pattern 2: Explicit multi-number visual noun comparison (e.g. "Compare photos 1400 and 1402", "images 1400 and 1402")
+    const multiNounRegex = /\b(?:image|picture|photo|screenshot|pic|file)s?\s+(\d{3,})\s+(?:and|or|vs|versus|with|to)\s+(\d{3,})\b/gi;
+    while ((patternMatch = multiNounRegex.exec(pLower)) !== null) {
+      const tok1 = patternMatch[1];
+      const tok2 = patternMatch[2];
+      const idx1 = patternMatch.index + patternMatch[0].indexOf(tok1);
+      const idx2 = patternMatch.index + patternMatch[0].lastIndexOf(tok2);
+      addCandidate(tok1, idx1);
+      addCandidate(tok2, idx2);
+    }
+
+    // Pattern 3: Elliptical inquiry patterns with IMMEDIATE visual context (lastRoundEvidence)
+    if (hasImmediateVisualContext) {
+      // 3a: "What about 1406?", "Look at 1400", "Check 1400", "Show 1402", "Reopen 1400"
+      const ellipticalActionRegex = /\b(?:what about|how about|what of|look at|check|show|view|reopen|open|inspect|examine)\s+(?:the\s+)?(\d{3,})\b/gi;
+      while ((patternMatch = ellipticalActionRegex.exec(pLower)) !== null) {
+        const token = patternMatch[1];
+        const tokenIdx = patternMatch.index + patternMatch[0].lastIndexOf(token);
+        addCandidate(token, tokenIdx);
+      }
+
+      // 3b: "What does 1400 show?", "What did 1400 depict?", "How is 1402 different?"
+      const ellipticalQuestionRegex = /\b(?:what\s+does|what\s+did|how\s+is)\s+(\d{3,})\s+(?:show|have|depict|contain|look\s+like|different)\b/gi;
+      while ((patternMatch = ellipticalQuestionRegex.exec(pLower)) !== null) {
+        const token = patternMatch[1];
+        const tokenIdx = patternMatch.index + patternMatch[0].indexOf(token);
+        addCandidate(token, tokenIdx);
+      }
+
+      // 3c: "what are the differences between 1400 and 1402?", "Compare 1400 and 1402", "1400 vs 1402"
+      const comparativeNumbersRegex = /\b(?:compare|between|vs|versus|differ|difference|differences|contrast)\s+(?:the\s+)?(\d{3,})\s+(?:and|or|vs|versus|with|to)\s+(?:the\s+)?(\d{3,})\b/gi;
+      while ((patternMatch = comparativeNumbersRegex.exec(pLower)) !== null) {
+        const tok1 = patternMatch[1];
+        const tok2 = patternMatch[2];
+        const idx1 = patternMatch.index + patternMatch[0].indexOf(tok1);
+        const idx2 = patternMatch.index + patternMatch[0].lastIndexOf(tok2);
+        addCandidate(tok1, idx1);
+        addCandidate(tok2, idx2);
+      }
+    }
+
+    // Pattern 4: Comparison between an exact matched filename and a number
+    // e.g. "Compare IMG_1400.JPG and 1402", "Compare 1400 and IMG_1402.JPG", "IMG_1400.JPG vs 1402"
+    if (matchedArtifacts.length > 0) {
+      const isComparativeContext =
+        /\b(compare|between|vs|versus|differ|difference|differences|contrast)\b/i.test(pLower);
+      if (isComparativeContext) {
+        const compareWithExactRegex = /\b(?:compare|between|contrast|vs|versus|and|with|to)\s+(?:the\s+)?(\d{3,})\b/gi;
+        while ((patternMatch = compareWithExactRegex.exec(pLower)) !== null) {
+          const token = patternMatch[1];
+          const tokenIdx = patternMatch.index + patternMatch[0].lastIndexOf(token);
+          addCandidate(token, tokenIdx);
+        }
+      }
+    }
+
+    let hasAmbiguousShorthand = false;
+    let hasUnknownShorthand = false;
+    const shorthandMatches: ResolvedMatch[] = [];
+
+    if (candidateShorthands.length > 0) {
+      for (const { token, index: tokenIdx } of candidateShorthands) {
+        // Find all source aliases across all artifacts that contain this exact numeric segment
+        const matchingAliases = allAliases.filter((alias) =>
+          alias.numericSegments.includes(token)
+        );
+
+        // Group by distinct canonical artifactId to evaluate uniqueness
+        const distinctArtifactIds = Array.from(
+          new Set(matchingAliases.map((a) => a.artifactId))
+        );
+
+        if (distinctArtifactIds.length === 1) {
+          const targetArtifactId = distinctArtifactIds[0];
+          // Select the latest matching source alias for this artifact
+          const matchingForArt = matchingAliases.filter((a) => a.artifactId === targetArtifactId);
+          const bestAlias = matchingForArt[matchingForArt.length - 1];
+
+          const alreadyMatched = matchedArtifacts.some((m) => m.artifactId === targetArtifactId);
+          if (!alreadyMatched) {
+            shorthandMatches.push({
+              artifactId: targetArtifactId,
+              source: bestAlias.source,
+              mentionIndex: tokenIdx,
+              matchType: 'shorthand',
+              matchedText: token,
+            });
+          }
+        } else if (distinctArtifactIds.length > 1) {
+          // Ambiguous shorthand across distinct artifacts
+          hasAmbiguousShorthand = true;
+        } else {
+          // Unknown numeric token
+          hasUnknownShorthand = true;
+        }
+      }
+
+      // Safety Rule 2: If any explicitly requested shorthand candidate is unresolved or ambiguous,
+      // fail this deterministic resolution with null (do not partially resolve, do not fall through).
+      if (hasUnknownShorthand || hasAmbiguousShorthand) {
+        return null;
+      }
+    }
+
+    // 2e. Combine resolved exact and shorthand matches
+    const allResolved = [...matchedArtifacts, ...shorthandMatches];
+
+    if (allResolved.length > 0) {
+      // Sort by textual mention order in user's prompt
+      allResolved.sort((a, b) => a.mentionIndex - b.mentionIndex);
+
+      // Deduplicate by artifactId while preserving first mention order and matched source alias
+      const seenArtifactIds = new Set<string>();
+      const finalSources: KnownImageSource[] = [];
+      let hasShorthand = false;
+      let hasExact = false;
+
+      for (const res of allResolved) {
+        if (!seenArtifactIds.has(res.artifactId)) {
+          seenArtifactIds.add(res.artifactId);
+          finalSources.push(res.source);
+          if (res.matchType === 'shorthand') hasShorthand = true;
+          if (res.matchType === 'exact') hasExact = true;
+        }
+      }
+
+      if (finalSources.length === 1) {
+        const reason = hasExact ? 'exact_filename' : 'unique_filename_shorthand';
+        return { sources: finalSources, reason };
+      } else if (finalSources.length > 1) {
+        const reason = !hasShorthand ? 'multiple_exact_filenames' : 'multiple_filename_shorthands';
+        return { sources: finalSources, reason };
+      }
     }
   }
 
