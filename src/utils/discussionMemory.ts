@@ -206,6 +206,15 @@ export function isPdfUrl(url?: string | null, storagePath?: string | null): bool
 }
 
 /**
+ * Helper to determine if a URL or storage path points to a Microsoft Word DOCX document.
+ */
+export function isDocxUrl(url?: string | null, storagePath?: string | null): boolean {
+  if (!url && !storagePath) return false;
+  const pathToCheck = (storagePath || url || '').split('?')[0].toLowerCase();
+  return pathToCheck.endsWith('.docx');
+}
+
+/**
  * Supported standalone image file extensions reliably accepted across visual model seats.
  */
 export const SUPPORTED_IMAGE_EXTENSIONS = [
@@ -250,7 +259,9 @@ export function extractAttachmentMetadata(
 
   const storagePath = extractStoragePathFromSignedUrl(url);
   const isPdf = isPdfUrl(url, storagePath);
-  let filename = isPdf ? 'attachment.pdf' : 'attachment';
+  const isDocx = isDocxUrl(url, storagePath);
+  const isDoc = isPdf || isDocx;
+  let filename = isPdf ? 'attachment.pdf' : isDocx ? 'attachment.docx' : 'attachment';
 
   if (storagePath) {
     const rawFilename = storagePath.split('/').pop() || '';
@@ -266,7 +277,7 @@ export function extractAttachmentMetadata(
   }
 
   let documentId: string | null = null;
-  if (isPdf && Array.isArray(knownDocuments) && knownDocuments.length > 0) {
+  if (isDoc && Array.isArray(knownDocuments) && knownDocuments.length > 0) {
     if (storagePath) {
       const matchByPath = knownDocuments.find(
         (d) =>
@@ -1424,8 +1435,10 @@ export async function getScopedDiscussionMemory(
 
           for (const url of urls) {
             const storagePath = extractStoragePathFromSignedUrl(url);
-            if (isPdfUrl(url, storagePath)) {
-              let filename = 'attachment.pdf';
+            const isPdf = isPdfUrl(url, storagePath);
+            const isDocx = isDocxUrl(url, storagePath);
+            if (isPdf || isDocx) {
+              let filename = isPdf ? 'attachment.pdf' : 'attachment.docx';
               if (storagePath) {
                 const rawFilename = storagePath.split('/').pop() || '';
                 const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
@@ -2042,16 +2055,6 @@ export async function ingestDiscussionDocuments(
             expectedChunks: expectedChunks.length,
             existingChunks: count,
           });
-          if (sourceUserMessageId && documentId && (!attachments || attachments.length === 1)) {
-            try {
-              await serviceSupabase
-                .from('messages')
-                .update({ visual_document_id: documentId })
-                .eq('id', sourceUserMessageId);
-            } catch (updateMsgErr) {
-              console.warn('[Doc Ingest] Non-critical error updating visual_document_id on message:', updateMsgErr);
-            }
-          }
           result.skippedCount++;
           continue;
         }
@@ -2226,17 +2229,6 @@ export async function ingestDiscussionDocuments(
         characterCount: fullText.length,
       });
 
-      if (sourceUserMessageId && documentId && (!attachments || attachments.length === 1)) {
-        try {
-          await serviceSupabase
-            .from('messages')
-            .update({ visual_document_id: documentId })
-            .eq('id', sourceUserMessageId);
-        } catch (updateMsgErr) {
-          console.warn('[Doc Ingest] Non-critical error updating visual_document_id on message:', updateMsgErr);
-        }
-      }
-
       result.ingestedCount++;
     } catch (err: any) {
       console.error('[Doc Ingest] Error ingesting document:', {
@@ -2250,6 +2242,368 @@ export async function ingestDiscussionDocuments(
         error: err?.message || String(err),
       });
     }
+  }
+
+  return result;
+}
+
+export interface IngestParsedDocumentOptions {
+  serviceSupabase: SupabaseClient | any;
+  openai: OpenAI | any;
+  discussionId: string;
+  filename: string;
+  fullText: string;
+  fileBytes?: Buffer | ArrayBuffer | Uint8Array | null;
+  storagePath?: string | null;
+  sourceUserMessageId?: string | null;
+  signal?: AbortSignal;
+}
+
+/**
+ * Ingests a single parsed document (e.g. DOCX) into discussion_documents, discussion_document_sources,
+ * and discussion_document_chunks using authoritative SHA-256 byte hashing computed from original file bytes.
+ * Fully idempotent and atomic based on (discussion_id, stable_sha256).
+ */
+export async function ingestParsedDocument(
+  options: IngestParsedDocumentOptions
+): Promise<IngestDocumentsResult> {
+  const {
+    serviceSupabase,
+    openai,
+    discussionId,
+    filename,
+    fullText,
+    fileBytes,
+    storagePath,
+    sourceUserMessageId,
+    signal,
+  } = options;
+
+  const result: IngestDocumentsResult = {
+    ingestedCount: 0,
+    skippedCount: 0,
+    errors: [],
+  };
+
+  if (!discussionId || !serviceSupabase || !openai) {
+    return result;
+  }
+
+  if (signal?.aborted) return result;
+
+  let stableFileHash: string | null = null;
+
+  // 1. Compute authoritative SHA-256 from original file bytes if provided directly
+  if (fileBytes) {
+    try {
+      const buffer = Buffer.isBuffer(fileBytes) ? fileBytes : Buffer.from(fileBytes as any);
+      stableFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+      console.log('[Doc Ingest] Computed authoritative SHA-256 from provided document bytes:', {
+        filename,
+        storagePath: storagePath || null,
+        sha256: stableFileHash,
+        byteSize: buffer.length,
+      });
+    } catch (hashEx) {
+      console.warn('[Doc Ingest] Exception computing byte SHA-256 from provided bytes:', hashEx);
+    }
+  }
+
+  // 2. If not provided or failed, download storage bytes from Supabase
+  if (!stableFileHash && storagePath) {
+    try {
+      const { data: fileBlob, error: downloadErr } = await serviceSupabase.storage
+        .from('message-images')
+        .download(storagePath);
+
+      if (!downloadErr && fileBlob) {
+        const arrayBuffer = await fileBlob.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        stableFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+        console.log('[Doc Ingest] Computed authoritative SHA-256 from downloaded storage bytes:', {
+          filename,
+          storagePath,
+          sha256: stableFileHash,
+          byteSize: buffer.length,
+        });
+      } else {
+        console.warn('[Doc Ingest] Warning downloading storage object for SHA-256:', downloadErr);
+      }
+    } catch (hashEx) {
+      console.warn('[Doc Ingest] Exception downloading storage object for SHA-256:', hashEx);
+    }
+  }
+
+  // STRICT INVARIANT: If stable byte identity could not be established, FAIL SAFE.
+  if (!stableFileHash) {
+    console.warn(
+      '[Doc Ingest] Skipping durable document indexing because stable byte identity could not be established:',
+      { filename, storagePath }
+    );
+    result.skippedCount++;
+    return result;
+  }
+
+  const fileHash = stableFileHash;
+
+  try {
+    // 1. Compute expected deterministic chunks
+    const expectedChunks = chunkDocumentText(fullText);
+    if (expectedChunks.length === 0) {
+      result.skippedCount++;
+      return result;
+    }
+
+    // 2. Check existing logical document record by (discussion_id, file_hash)
+    const { data: existingDoc, error: checkDocErr } = await serviceSupabase
+      .from('discussion_documents')
+      .select('id, storage_path, full_text')
+      .eq('discussion_id', discussionId)
+      .eq('file_hash', fileHash)
+      .maybeSingle();
+
+    if (checkDocErr && checkDocErr.code !== 'PGRST116') {
+      console.warn('[Doc Ingest] Error checking existing document:', checkDocErr);
+    }
+
+    let documentId = existingDoc?.id;
+
+    if (documentId) {
+      // CASE 2: Same logical document already exists
+      if (storagePath && !existingDoc?.storage_path) {
+        try {
+          await serviceSupabase
+            .from('discussion_documents')
+            .update({ storage_path: storagePath })
+            .eq('id', documentId);
+        } catch (updatePathErr) {
+          console.warn('[Doc Ingest] Non-critical error updating storage_path:', updatePathErr);
+        }
+      }
+
+      // Upsert durable source alias into discussion_document_sources
+      if (storagePath) {
+        try {
+          await serviceSupabase
+            .from('discussion_document_sources')
+            .upsert(
+              {
+                discussion_id: discussionId,
+                document_id: documentId,
+                storage_path: storagePath,
+                filename: filename,
+              },
+              { onConflict: 'discussion_id,storage_path' }
+            );
+          console.log('[Doc Ingest] Upserted source alias for existing logical document:', {
+            documentId,
+            storagePath,
+          });
+        } catch (sourceAliasErr) {
+          // Non-critical if table not yet migrated
+        }
+      }
+
+      // Robust completeness check: skip embedding if existing chunk count matches expected chunk count exactly
+      const { count, error: chunkCountErr } = await serviceSupabase
+        .from('discussion_document_chunks')
+        .select('id', { count: 'exact', head: true })
+        .eq('document_id', documentId);
+
+      if (!chunkCountErr && typeof count === 'number' && count === expectedChunks.length) {
+        console.log('[Doc Ingest] Logical document already fully indexed, skipping embedding generation:', {
+          discussionId,
+          fileHash,
+          filename,
+          expectedChunks: expectedChunks.length,
+          existingChunks: count,
+        });
+        result.skippedCount++;
+        return result;
+      }
+
+      console.log('[Doc Ingest] Logical document exists with incomplete chunks, rebuilding index:', {
+        discussionId,
+        documentId,
+        fileHash,
+        expectedChunks: expectedChunks.length,
+        existingChunks: count || 0,
+      });
+    } else {
+      // CASE 1: Brand-new logical document
+      const { data: insertedDoc, error: insertDocErr } = await serviceSupabase
+        .from('discussion_documents')
+        .insert({
+          discussion_id: discussionId,
+          file_hash: fileHash,
+          filename: filename,
+          full_text: fullText,
+          storage_path: storagePath || null,
+        })
+        .select('id')
+        .single();
+
+      if (insertDocErr) {
+        const { data: retryDoc } = await serviceSupabase
+          .from('discussion_documents')
+          .select('id, storage_path')
+          .eq('discussion_id', discussionId)
+          .eq('file_hash', fileHash)
+          .maybeSingle();
+
+        if (retryDoc?.id) {
+          documentId = retryDoc.id;
+          if (storagePath && !retryDoc.storage_path) {
+            try {
+              await serviceSupabase
+                .from('discussion_documents')
+                .update({ storage_path: storagePath })
+                .eq('id', documentId);
+            } catch (retryUpdateErr) {
+              console.warn('[Doc Ingest] Non-critical error updating storage_path on retry:', retryUpdateErr);
+            }
+          }
+        } else {
+          throw new Error(`Failed to insert document: ${insertDocErr.message}`);
+        }
+      } else {
+        documentId = insertedDoc.id;
+      }
+
+      // Upsert durable source alias into discussion_document_sources
+      if (storagePath && documentId) {
+        try {
+          await serviceSupabase
+            .from('discussion_document_sources')
+            .upsert(
+              {
+                discussion_id: discussionId,
+                document_id: documentId,
+                storage_path: storagePath,
+                filename: filename,
+              },
+              { onConflict: 'discussion_id,storage_path' }
+            );
+        } catch (sourceAliasErr) {
+          // Non-critical if table not yet migrated
+        }
+      }
+    }
+
+    if (signal?.aborted) {
+      console.warn('[Doc Ingest] Ingestion aborted before embedding generation');
+      return result;
+    }
+
+    // 3. Generate embeddings using bounded batch embedding (up to 16 chunks per API request)
+    const EMBEDDING_BATCH_SIZE = 16;
+    const chunkInserts: {
+      document_id: string;
+      discussion_id: string;
+      chunk_index: number;
+      content: string;
+      embedding: number[];
+    }[] = [];
+
+    let hasAbortOrFailure = false;
+
+    for (let batchStart = 0; batchStart < expectedChunks.length; batchStart += EMBEDDING_BATCH_SIZE) {
+      if (signal?.aborted) {
+        hasAbortOrFailure = true;
+        break;
+      }
+
+      const batchEnd = Math.min(batchStart + EMBEDDING_BATCH_SIZE, expectedChunks.length);
+      const batchTexts = expectedChunks.slice(batchStart, batchEnd);
+
+      const embRes = await (openai.embeddings.create as any)(
+        {
+          model: 'google/gemini-embedding-2',
+          dimensions: 1536,
+          input: batchTexts,
+          encoding_format: 'float',
+        },
+        {
+          timeout: 10000,
+          signal,
+        }
+      );
+
+      if (signal?.aborted) {
+        hasAbortOrFailure = true;
+        break;
+      }
+
+      const returnedData = embRes?.data;
+      if (!Array.isArray(returnedData) || returnedData.length !== batchTexts.length) {
+        throw new Error(
+          `Batch embedding count mismatch: expected ${batchTexts.length}, received ${returnedData?.length || 0}`
+        );
+      }
+
+      for (let i = 0; i < returnedData.length; i++) {
+        const item = returnedData[i];
+        const embedding = item?.embedding;
+        const chunkIndex = batchStart + i;
+
+        if (!Array.isArray(embedding) || embedding.length !== 1536) {
+          throw new Error(
+            `Embedding generation returned invalid vector for chunk ${chunkIndex} of ${filename}`
+          );
+        }
+
+        chunkInserts.push({
+          document_id: documentId,
+          discussion_id: discussionId,
+          chunk_index: chunkIndex,
+          content: batchTexts[i],
+          embedding,
+        });
+      }
+    }
+
+    // 4. Atomic commit check
+    if (hasAbortOrFailure || signal?.aborted || chunkInserts.length !== expectedChunks.length) {
+      console.warn('[Doc Ingest] Document embedding incomplete or aborted, skipping commit:', {
+        discussionId,
+        filename,
+        generatedChunks: chunkInserts.length,
+        expectedChunks: expectedChunks.length,
+        isAborted: Boolean(signal?.aborted),
+      });
+      return result;
+    }
+
+    // 5. Commit complete chunk set to database
+    const { error: insertChunksErr } = await serviceSupabase
+      .from('discussion_document_chunks')
+      .upsert(chunkInserts, { onConflict: 'document_id,chunk_index' });
+
+    if (insertChunksErr) {
+      throw new Error(`Failed to insert document chunks: ${insertChunksErr.message}`);
+    }
+
+    console.log('[Doc Ingest] Successfully ingested document:', {
+      discussionId,
+      documentId,
+      filename,
+      fileHash,
+      chunksCount: chunkInserts.length,
+      characterCount: fullText.length,
+    });
+
+    result.ingestedCount++;
+  } catch (err: any) {
+    console.error('[Doc Ingest] Error ingesting document:', {
+      filename,
+      fileHash,
+      error: err?.message || String(err),
+    });
+    result.errors.push({
+      filename,
+      fileHash,
+      error: err?.message || String(err),
+    });
   }
 
   return result;

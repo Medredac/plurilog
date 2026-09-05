@@ -73,11 +73,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
+    const legacyDocFiles: string[] = [];
     const invalidFiles: string[] = [];
     const validFiles: File[] = [];
 
     for (const file of files) {
-      const isValid = file.type.startsWith('image/') || file.type === 'application/pdf';
+      const lowerName = file.name.toLowerCase();
+      if (lowerName.endsWith('.doc') || file.type === 'application/msword') {
+        legacyDocFiles.push(file.name);
+        continue;
+      }
+
+      const isDocx =
+        lowerName.endsWith('.docx') ||
+        file.type ===
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const isValid =
+        file.type.startsWith('image/') ||
+        file.type === 'application/pdf' ||
+        lowerName.endsWith('.pdf') ||
+        isDocx;
+
       if (!isValid) {
         invalidFiles.push(file.name);
       } else {
@@ -103,9 +119,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     // Construct combined alert message if needed
     const alertMessages: string[] = [];
+    if (legacyDocFiles.length > 0) {
+      alertMessages.push(
+        `Legacy .doc files aren't supported. Please save the file as .docx and try again: ${legacyDocFiles.join(', ')}`
+      );
+    }
     if (invalidFiles.length > 0) {
       alertMessages.push(
-        `The following file(s) are not supported images or PDFs and were skipped: ${invalidFiles.join(', ')}`
+        `The following file(s) are not supported images, PDFs, or DOCX documents and were skipped: ${invalidFiles.join(', ')}`
       );
     }
     if (limitExceeded) {
@@ -186,7 +207,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <input
         type="file"
         ref={docInputRef}
-        accept=".pdf,application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept=".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -199,44 +220,63 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {/* Attached Files Preview Row */}
         {attachedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2.5 pt-0.5 animate-in fade-in zoom-in-95 duration-150">
-            {attachedFiles.map((item) => (
-              <div key={item.id} className="relative self-start group">
-                {item.file.type === 'application/pdf' ? (
+            {attachedFiles.map((item) => {
+              const lowerName = item.file.name.toLowerCase();
+              const isPdf = item.file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+              const isDocx =
+                lowerName.endsWith('.docx') ||
+                item.file.type ===
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+              return (
+                <div key={item.id} className="relative self-start group">
+                  {isPdf ? (
+                    <button
+                      type="button"
+                      onClick={() => window.open(item.previewUrl, '_blank')}
+                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
+                      title={`Click to view ${item.file.name} in new tab`}
+                    >
+                      <FileText className="w-5 h-5 text-red-500" />
+                      <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
+                        PDF
+                      </span>
+                    </button>
+                  ) : isDocx ? (
+                    <div
+                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
+                      title={item.file.name}
+                    >
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
+                        DOCX
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxImageUrl(item.previewUrl)}
+                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                      title={`Click to view ${item.file.name}`}
+                    >
+                      <img
+                        src={item.previewUrl}
+                        alt={item.file.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={() => window.open(item.previewUrl, '_blank')}
-                    className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
-                    title={`Click to view ${item.file.name} in new tab`}
+                    onClick={() => handleRemoveAttachment(item.id)}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 transition-colors cursor-pointer z-10"
+                    title="Remove attachment"
                   >
-                    <FileText className="w-5 h-5 text-red-500" />
-                    <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
-                      PDF
-                    </span>
+                    <X className="w-3 h-3" />
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setLightboxImageUrl(item.previewUrl)}
-                    className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-                    title={`Click to view ${item.file.name}`}
-                  >
-                    <img
-                      src={item.previewUrl}
-                      alt={item.file.name}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveAttachment(item.id)}
-                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 transition-colors cursor-pointer z-10"
-                  title="Remove attachment"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
 
