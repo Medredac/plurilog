@@ -11,6 +11,7 @@ import {
   estimateTokens,
   RETRIEVED_MEMORY_TOKEN_BUDGET,
   ingestDiscussionDocuments,
+  ingestDiscussionArtifacts,
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
@@ -1051,6 +1052,19 @@ export async function POST(req: NextRequest) {
                       sourceUserMessageId,
                       signal: req.signal,
                     });
+                  }
+
+                  // 2. Standalone image artifact ingestion (Phase 1)
+                  try {
+                    await ingestDiscussionArtifacts({
+                      serviceSupabase: serviceClient,
+                      discussionId,
+                      attachments,
+                      sourceUserMessageId,
+                      signal: req.signal,
+                    });
+                  } catch (imgIngestErr) {
+                    console.warn('[Image Artifact Ingest] Non-critical error during image artifact ingestion:', imgIngestErr);
                   }
                 }
               }

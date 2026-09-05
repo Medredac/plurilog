@@ -206,6 +206,39 @@ export function isPdfUrl(url?: string | null, storagePath?: string | null): bool
 }
 
 /**
+ * Supported standalone image file extensions reliably accepted across visual model seats.
+ */
+export const SUPPORTED_IMAGE_EXTENSIONS = [
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+] as const;
+
+/**
+ * Deterministically checks if a URL or storage path refers to a supported standalone image file.
+ * Explicitly excludes PDFs, DOCX, XLSX, etc.
+ */
+export function isImageUrl(url?: string | null, storagePath?: string | null): boolean {
+  if (!url && !storagePath) return false;
+  const pathToCheck = (storagePath || url || '').split('?')[0].toLowerCase();
+  // Ensure PDFs, Word, Excel, and non-image documents are never matched
+  if (
+    pathToCheck.endsWith('.pdf') ||
+    pathToCheck.endsWith('.docx') ||
+    pathToCheck.endsWith('.doc') ||
+    pathToCheck.endsWith('.xlsx') ||
+    pathToCheck.endsWith('.xls') ||
+    pathToCheck.endsWith('.txt') ||
+    pathToCheck.endsWith('.csv')
+  ) {
+    return false;
+  }
+  return SUPPORTED_IMAGE_EXTENSIONS.some((ext) => pathToCheck.endsWith(ext));
+}
+
+/**
  * Extracts clean attachment metadata (filename and storagePath) from a stored attachment URL or image URL.
  * Deterministically resolves documentId using canonical storagePath and source-alias paths if knownDocuments is provided.
  */
@@ -2215,6 +2248,244 @@ export async function ingestDiscussionDocuments(
         filename,
         fileHash,
         error: err?.message || String(err),
+      });
+    }
+  }
+
+  return result;
+}
+
+export interface IngestArtifactsOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  attachments?: { url: string; filename: string }[] | null;
+  sourceUserMessageId?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface IngestArtifactsResult {
+  ingestedCount: number;
+  skippedCount: number;
+  errors: {
+    filename?: string;
+    storagePath?: string;
+    error: string;
+  }[];
+}
+
+/**
+ * Ingests standalone image attachments into canonical discussion_artifacts and physical discussion_artifact_sources.
+ * Invariants:
+ * 1. Same exact image bytes uploaded multiple times in same discussion -> 1 canonical artifact, multiple physical source aliases.
+ * 2. Same filename but different bytes -> separate canonical artifacts.
+ * 3. Preserves original attachment_index from the full request attachments array.
+ * 4. Zero paid AI calls (crypto hashing + storage only).
+ * 5. Partial failure semantics: successful ingestion requires BOTH canonical artifact AND source alias upsert.
+ * 6. Non-critical fail-safe: errors do not throw or disrupt callers.
+ */
+export async function ingestDiscussionArtifacts(
+  options: IngestArtifactsOptions
+): Promise<IngestArtifactsResult> {
+  const result: IngestArtifactsResult = {
+    ingestedCount: 0,
+    skippedCount: 0,
+    errors: [],
+  };
+
+  const { serviceSupabase, discussionId, attachments, sourceUserMessageId, signal } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !Array.isArray(attachments) ||
+    attachments.length === 0 ||
+    signal?.aborted
+  ) {
+    return result;
+  }
+
+  for (let i = 0; i < attachments.length; i++) {
+    if (signal?.aborted) break;
+
+    const attachment = attachments[i];
+    const url = attachment?.url;
+    if (!url || typeof url !== 'string') {
+      result.skippedCount++;
+      continue;
+    }
+
+    let storagePath: string | null = null;
+    try {
+      try {
+        storagePath = extractStoragePathFromSignedUrl(url);
+      } catch (pathErr: any) {
+        console.warn('[Artifact Ingest] Error extracting storage path from URL:', {
+          url,
+          error: pathErr?.message || pathErr,
+        });
+        result.errors.push({
+          filename: attachment.filename || 'attachment',
+          error: `Failed to extract storage path: ${pathErr?.message || String(pathErr)}`,
+        });
+        continue;
+      }
+
+      // Strictly check if attachment is a supported image (explicitly excluding PDF, DOCX, XLSX, etc.)
+      if (!isImageUrl(url, storagePath)) {
+        result.skippedCount++;
+        continue;
+      }
+
+      if (!storagePath) {
+        console.warn('[Artifact Ingest] Missing storage_path for image attachment; skipping:', {
+          url,
+          filename: attachment.filename,
+        });
+        result.skippedCount++;
+        continue;
+      }
+
+      // Clean filename fail-safely inside per-item try/catch
+      let filename = attachment.filename || 'attachment';
+      const rawFilename = storagePath.split('/').pop() || '';
+      const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
+      if (cleaned) {
+        try {
+          filename = decodeURIComponent(cleaned);
+        } catch {
+          filename = cleaned || filename;
+        }
+      }
+
+      // 1. Download raw image bytes from Supabase storage using serviceSupabase
+      const { data: fileBlob, error: downloadErr } = await serviceSupabase.storage
+        .from('message-images')
+        .download(storagePath);
+
+      if (downloadErr || !fileBlob) {
+        console.warn('[Artifact Ingest] Error downloading storage object for image:', {
+          storagePath,
+          error: downloadErr?.message || downloadErr,
+        });
+        result.errors.push({
+          filename,
+          storagePath,
+          error: downloadErr?.message || 'Storage download failed',
+        });
+        continue;
+      }
+
+      // 2. Compute authoritative SHA-256 byte hash & byte size
+      const arrayBuffer = await fileBlob.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
+      const byteSize = buffer.length;
+
+      // 3. Upsert / retrieve canonical record from discussion_artifacts
+      let artifactId: string | null = null;
+
+      const { data: existingArtifact } = await serviceSupabase
+        .from('discussion_artifacts')
+        .select('id')
+        .eq('discussion_id', discussionId)
+        .eq('file_hash', fileHash)
+        .maybeSingle();
+
+      if (existingArtifact?.id) {
+        artifactId = existingArtifact.id;
+      } else {
+        const { data: insertedArtifact, error: insertErr } = await serviceSupabase
+          .from('discussion_artifacts')
+          .insert({
+            discussion_id: discussionId,
+            artifact_type: 'image',
+            file_hash: fileHash,
+            byte_size: byteSize,
+            metadata: {},
+          })
+          .select('id')
+          .single();
+
+        if (insertErr) {
+          // Handle potential concurrent insert race condition gracefully
+          const { data: retryArtifact } = await serviceSupabase
+            .from('discussion_artifacts')
+            .select('id')
+            .eq('discussion_id', discussionId)
+            .eq('file_hash', fileHash)
+            .maybeSingle();
+
+          artifactId = retryArtifact?.id || null;
+          if (!artifactId) {
+            console.warn('[Artifact Ingest] Non-critical warning inserting discussion_artifact:', insertErr);
+            result.errors.push({
+              filename,
+              storagePath,
+              error: insertErr.message || 'Failed to insert canonical discussion_artifact',
+            });
+            continue;
+          }
+        } else {
+          artifactId = insertedArtifact?.id || null;
+        }
+      }
+
+      if (!artifactId) {
+        result.errors.push({
+          filename,
+          storagePath,
+          error: 'Canonical artifact ID could not be established',
+        });
+        continue;
+      }
+
+      // 4. Upsert physical source alias into discussion_artifact_sources preserving original array index
+      const { error: sourceErr } = await serviceSupabase
+        .from('discussion_artifact_sources')
+        .upsert(
+          {
+            discussion_id: discussionId,
+            artifact_id: artifactId,
+            storage_path: storagePath,
+            filename: filename,
+            source_message_id: sourceUserMessageId || null,
+            attachment_index: i,
+          },
+          { onConflict: 'discussion_id,storage_path' }
+        );
+
+      if (sourceErr) {
+        console.warn('[Artifact Ingest] Source alias upsert failed for image artifact:', {
+          discussionId,
+          artifactId,
+          storagePath,
+          error: sourceErr.message,
+        });
+        result.errors.push({
+          filename,
+          storagePath,
+          error: sourceErr.message || 'Failed to upsert discussion_artifact_sources alias',
+        });
+        continue;
+      }
+
+      console.log('[Artifact Ingest] Successfully indexed canonical image artifact:', {
+        discussionId,
+        artifactId,
+        fileHash,
+        byteSize,
+        storagePath,
+        filename,
+        attachmentIndex: i,
+      });
+
+      result.ingestedCount++;
+    } catch (itemErr: any) {
+      console.warn('[Artifact Ingest] Non-critical error processing image artifact:', itemErr);
+      result.errors.push({
+        filename: attachment?.filename || 'attachment',
+        storagePath: storagePath || undefined,
+        error: itemErr?.message || String(itemErr),
       });
     }
   }
