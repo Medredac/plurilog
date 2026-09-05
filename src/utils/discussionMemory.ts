@@ -2859,3 +2859,231 @@ export function resolveVisualDocument(
   // 5. Ambiguity -> never guess
   return null;
 }
+
+export interface PersistActiveImageEvidenceOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  sourceUserMessageId: string;
+  signal?: AbortSignal;
+}
+
+export interface PersistActiveImageEvidenceResult {
+  persistedCount: number;
+  errors: string[];
+}
+
+/**
+ * Persists contiguous visual evidence ordinals (0..N-1) in message_visual_evidence for current-turn image uploads.
+ * Invariants:
+ * 1. Verifies that sourceUserMessageId exists, belongs to discussionId, and has sender = 'user'.
+ * 2. Filters strictly for canonical artifacts where artifact_type = 'image'.
+ * 3. Ordinals are contiguous 0..N-1 based on original attachment_index ASC order among images.
+ * 4. Non-destructive idempotency:
+ *    - If no evidence exists: inserts calculated current-upload image evidence set (0..N-1).
+ *    - If existing evidence matches ordered source_id set: idempotent success / no-op.
+ *    - If existing evidence differs (e.g. established earlier or combined): preserves existing evidence, never deletes or overwrites.
+ * 5. Enforces discussion consistency (rejects cross-discussion sources).
+ * 6. Partial failure semantics: only successfully indexed image sources become evidence; non-critical fail-safe.
+ */
+export async function persistActiveImageEvidence(
+  options: PersistActiveImageEvidenceOptions
+): Promise<PersistActiveImageEvidenceResult> {
+  const result: PersistActiveImageEvidenceResult = {
+    persistedCount: 0,
+    errors: [],
+  };
+
+  const { serviceSupabase, discussionId, sourceUserMessageId, signal } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !sourceUserMessageId ||
+    signal?.aborted
+  ) {
+    return result;
+  }
+
+  try {
+    // 1. Verify user message exists, belongs to discussionId, and has sender = 'user'
+    const { data: messageRow, error: msgErr } = await serviceSupabase
+      .from('messages')
+      .select('id, discussion_id, sender')
+      .eq('id', sourceUserMessageId)
+      .maybeSingle();
+
+    if (msgErr || !messageRow) {
+      console.warn('[Image Evidence Persist] User message verification failed (message not found or query error):', {
+        discussionId,
+        sourceUserMessageId,
+        error: msgErr?.message || msgErr,
+      });
+      result.errors.push(msgErr?.message || `User message not found: ${sourceUserMessageId}`);
+      return result;
+    }
+
+    if (messageRow.discussion_id !== discussionId) {
+      console.warn('[Image Evidence Persist] User message discussion mismatch rejected:', {
+        expectedDiscussionId: discussionId,
+        messageDiscussionId: messageRow.discussion_id,
+        sourceUserMessageId,
+      });
+      result.errors.push(`Message discussion mismatch: ${messageRow.discussion_id} !== ${discussionId}`);
+      return result;
+    }
+
+    if (messageRow.sender !== 'user') {
+      console.warn('[Image Evidence Persist] Non-user message rejected for active user evidence persistence:', {
+        sourceUserMessageId,
+        sender: messageRow.sender,
+      });
+      result.errors.push(`Non-user message sender rejected: ${messageRow.sender}`);
+      return result;
+    }
+
+    // 2. Fetch physical source aliases recorded for this message in this discussion
+    const { data: sourceRows, error: fetchErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, attachment_index, created_at')
+      .eq('discussion_id', discussionId)
+      .eq('source_message_id', sourceUserMessageId)
+      .order('attachment_index', { ascending: true });
+
+    if (fetchErr) {
+      console.warn('[Image Evidence Persist] Error fetching source aliases for message:', fetchErr);
+      result.errors.push(fetchErr.message || 'Failed to fetch source aliases');
+      return result;
+    }
+
+    if (!Array.isArray(sourceRows) || sourceRows.length === 0) {
+      return result;
+    }
+
+    // 3. Fetch canonical artifact types to strictly filter artifact_type = 'image' (excluding future docx, xlsx, etc.)
+    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
+    if (artifactIds.length === 0) {
+      return result;
+    }
+
+    const { data: artifactRows, error: artErr } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    if (artErr) {
+      console.warn('[Image Evidence Persist] Error fetching artifact types:', artErr);
+      result.errors.push(artErr.message || 'Failed to verify artifact types');
+      return result;
+    }
+
+    const imageArtifactIdSet = new Set(
+      (artifactRows || [])
+        .filter((a: any) => a.artifact_type === 'image')
+        .map((a: any) => a.id)
+    );
+
+    // 4. Filter valid image sources and enforce discussion consistency
+    const validImageSources: typeof sourceRows = [];
+    for (const s of sourceRows) {
+      if (s.discussion_id !== discussionId) {
+        console.warn('[Image Evidence Persist] Rejected cross-discussion source alias:', {
+          expectedDiscussionId: discussionId,
+          sourceDiscussionId: s.discussion_id,
+          sourceId: s.id,
+        });
+        result.errors.push(`Cross-discussion source rejected: ${s.id}`);
+        continue;
+      }
+
+      if (imageArtifactIdSet.has(s.artifact_id)) {
+        validImageSources.push(s);
+      }
+    }
+
+    if (validImageSources.length === 0) {
+      return result;
+    }
+
+    // 5. Sort by original attachment_index ASC to establish contiguous visual evidence order (0..N-1)
+    validImageSources.sort((a: any, b: any) => (a.attachment_index ?? 0) - (b.attachment_index ?? 0));
+
+    // 6. Non-destructive idempotency check against existing evidence for this message
+    const { data: existingEvidence, error: existErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .select('id, source_id, ordinal')
+      .eq('message_id', sourceUserMessageId)
+      .order('ordinal', { ascending: true });
+
+    if (existErr) {
+      console.warn('[Image Evidence Persist] Error checking existing message evidence:', existErr);
+      result.errors.push(existErr.message || 'Failed to check existing evidence');
+      return result;
+    }
+
+    if (Array.isArray(existingEvidence) && existingEvidence.length > 0) {
+      const isExactMatch =
+        existingEvidence.length === validImageSources.length &&
+        existingEvidence.every(
+          (e: any, idx: number) =>
+            e.source_id === validImageSources[idx].id && e.ordinal === idx
+        );
+
+      if (isExactMatch) {
+        // Case B: Idempotent match/no-op
+        result.persistedCount = existingEvidence.length;
+        console.log('[Image Evidence Persist] Idempotent match: existing evidence preserved:', {
+          discussionId,
+          sourceUserMessageId,
+          evidenceCount: existingEvidence.length,
+        });
+        return result;
+      } else {
+        // Case C: Existing evidence differs (e.g. combined/mixed evidence established earlier) -> DO NOT DELETE OR OVERWRITE
+        console.warn('[Image Evidence Persist] Pre-existing evidence differs from active upload set; preserving existing evidence:', {
+          discussionId,
+          sourceUserMessageId,
+          existingEvidenceCount: existingEvidence.length,
+          calculatedImageCount: validImageSources.length,
+        });
+        result.errors.push('Pre-existing evidence differs from active upload set; existing evidence preserved.');
+        result.persistedCount = existingEvidence.length;
+        return result;
+      }
+    }
+
+    // Case A: No existing evidence rows -> insert fresh contiguous evidence items (0..N-1)
+    const rowsToInsert = validImageSources.map((source: any, ordinal: number) => ({
+      discussion_id: discussionId,
+      message_id: sourceUserMessageId,
+      source_id: source.id,
+      ordinal: ordinal,
+    }));
+
+    const { data: insertedData, error: insertErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .insert(rowsToInsert)
+      .select('id, ordinal');
+
+    if (insertErr) {
+      console.warn('[Image Evidence Persist] Error inserting visual evidence items:', insertErr);
+      result.errors.push(insertErr.message || 'Insert visual evidence failed');
+    } else {
+      result.persistedCount = insertedData?.length || rowsToInsert.length;
+    }
+
+    console.log('[Image Evidence Persist] Persisted active image evidence set:', {
+      discussionId,
+      sourceUserMessageId,
+      totalSources: sourceRows.length,
+      validImageSources: validImageSources.length,
+      persistedCount: result.persistedCount,
+    });
+
+    return result;
+  } catch (err: any) {
+    console.warn('[Image Evidence Persist] Non-critical unexpected error persisting active image evidence:', err);
+    result.errors.push(err?.message || String(err));
+    return result;
+  }
+}
+

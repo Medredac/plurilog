@@ -12,6 +12,7 @@ import {
   RETRIEVED_MEMORY_TOKEN_BUDGET,
   ingestDiscussionDocuments,
   ingestDiscussionArtifacts,
+  persistActiveImageEvidence,
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
@@ -1065,6 +1066,20 @@ export async function POST(req: NextRequest) {
                     });
                   } catch (imgIngestErr) {
                     console.warn('[Image Artifact Ingest] Non-critical error during image artifact ingestion:', imgIngestErr);
+                  }
+
+                  // 3. Standalone image visual evidence persistence (Phase 2A)
+                  if (sourceUserMessageId) {
+                    try {
+                      await persistActiveImageEvidence({
+                        serviceSupabase: serviceClient,
+                        discussionId,
+                        sourceUserMessageId,
+                        signal: req.signal,
+                      });
+                    } catch (evidenceErr) {
+                      console.warn('[Image Evidence Persist] Non-critical error during active image evidence persistence:', evidenceErr);
+                    }
                   }
                 }
               }
