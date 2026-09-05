@@ -2948,9 +2948,73 @@ export function isDocumentSectionQuery(prompt?: string | null): DocumentSectionQ
 }
 
 /**
+ * Normalizes text for robust token matching:
+ * - Replaces curly/smart apostrophes and quotes with standard ASCII apostrophe
+ * - Removes possessive endings ('s, 's, ’, ’s) at word boundaries
+ * - Replaces non-alphanumeric characters with spaces
+ * - Normalizes whitespace and converts to lowercase
+ */
+export function normalizeTextForMatching(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/[’‘`´]/g, "'")
+    .replace(/'s\b/gi, '')
+    .replace(/'\b/gi, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9àâäéèêëîïôöùûüç\s]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Computes the Levenshtein distance between two strings.
+ */
+export function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1];
+      } else {
+        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+  }
+
+  return dp[m][n];
+}
+
+/**
+ * Checks if two tokens match via conservative single-character terminal omission/addition:
+ * - One token is an exact prefix of the other
+ * - Lengths differ by exactly 1
+ * - Minimum token length >= 5
+ * (e.g. charle <-> charles, patric <-> patrice, but NOT charges <-> charles, charlie <-> charles, matrice <-> patrice)
+ */
+export function isTerminalNearMatch(tokenA: string, tokenB: string): boolean {
+  if (!tokenA || !tokenB) return false;
+  const lenA = tokenA.length;
+  const lenB = tokenB.length;
+  if (lenA < 5 || lenB < 5) return false;
+  if (Math.abs(lenA - lenB) !== 1) return false;
+
+  if (lenA < lenB) {
+    return tokenB.startsWith(tokenA);
+  } else {
+    return tokenA.startsWith(tokenB);
+  }
+}
+
+/**
  * Extracts person name search tokens from a document filename.
  */
-function extractDocumentNameTokens(filename: string): string[] {
+export function extractDocumentNameTokens(filename: string): string[] {
   const clean = filename
     .replace(/\.[a-zA-Z0-9]+$/, '')
     .replace(/^E\d+\s+/i, '')
@@ -3046,10 +3110,12 @@ export function parseMandateSections(fullText: string): MandateSection[] {
 /**
  * Deterministically resolves a complete mandate section from stored document full_text.
  * Applies conservative document targeting:
- * 1. Explicit filename in prompt
- * 2. Explicit person name in prompt
- * 3. Unique referent in recent conversation context
- * 4. Single known document in discussion
+ * Priority 1: Explicit filename in current prompt
+ * Priority 2: Explicit person name in current prompt (EXACT token match on normalized text)
+ * Priority 3: Conservative unique near-match in current prompt (terminal omission/addition for token length >= 5)
+ * Priority 4: Deterministic unique-section-presence across documents (for explicit numbered mandates)
+ * Priority 5: Recent conversation context (working backwards)
+ * Priority 6: Single known document in discussion
  * Fails safe and returns null on ambiguity.
  */
 export async function resolveDocumentSection(
@@ -3080,7 +3146,7 @@ export async function resolveDocumentSection(
 
   const promptLower = prompt.toLowerCase();
 
-  // 1a. Explicit filename in prompt
+  // Priority 1: Explicit filename in prompt
   const filenameMatches = knownDocuments.filter((d) => {
     if (!d.filename) return false;
     const normName = d.filename.toLowerCase();
@@ -3099,19 +3165,31 @@ export async function resolveDocumentSection(
     return null;
   }
 
-  // 1b. Explicit person name in prompt
+  // Priority 2: Explicit person name in current prompt (EXACT match on normalized text)
   if (!targetDoc) {
-    const docScores = knownDocuments.map((doc) => {
+    const normPrompt = normalizeTextForMatching(prompt);
+    const promptTokens = normPrompt.split(/\s+/).filter(Boolean);
+
+    const docMatches = knownDocuments.map((doc) => {
       const tokens = extractDocumentNameTokens(doc.filename);
-      let matchCount = 0;
-      tokens.forEach((t) => {
-        const regex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-        if (regex.test(prompt)) matchCount += 1;
-      });
-      return { doc, matchCount };
+      let matched = false;
+      for (const t of tokens) {
+        if (t.includes(' ')) {
+          if (normPrompt.includes(t)) {
+            matched = true;
+            break;
+          }
+        } else {
+          if (promptTokens.includes(t)) {
+            matched = true;
+            break;
+          }
+        }
+      }
+      return { doc, matched };
     });
 
-    const matchingDocs = docScores.filter((ds) => ds.matchCount > 0);
+    const matchingDocs = docMatches.filter((dm) => dm.matched);
     if (matchingDocs.length === 1) {
       targetDoc = matchingDocs[0].doc;
       resolutionReason = 'explicit_person_name';
@@ -3124,7 +3202,89 @@ export async function resolveDocumentSection(
     }
   }
 
-  // 1c. Recent conversation context (working backwards)
+  // Priority 3: Conservative unique near-match in current prompt (terminal omission/addition for tokens length >= 5)
+  if (!targetDoc) {
+    const normPrompt = normalizeTextForMatching(prompt);
+    const promptTokens = normPrompt.split(/\s+/).filter(Boolean);
+
+    const docNearMatches = knownDocuments.map((doc) => {
+      const tokens = extractDocumentNameTokens(doc.filename);
+      let matched = false;
+      for (const docTok of tokens) {
+        if (docTok.includes(' ')) {
+          const compTokens = docTok.split(/\s+/).filter(Boolean);
+          for (const cTok of compTokens) {
+            for (const pTok of promptTokens) {
+              if (isTerminalNearMatch(cTok, pTok)) {
+                matched = true;
+                break;
+              }
+            }
+            if (matched) break;
+          }
+        } else {
+          for (const pTok of promptTokens) {
+            if (isTerminalNearMatch(docTok, pTok)) {
+              matched = true;
+              break;
+            }
+          }
+        }
+        if (matched) break;
+      }
+      return { doc, matched };
+    });
+
+    const matchingDocs = docNearMatches.filter((dm) => dm.matched);
+    if (matchingDocs.length === 1) {
+      targetDoc = matchingDocs[0].doc;
+      resolutionReason = 'conservative_near_match';
+    } else if (matchingDocs.length > 1) {
+      // Ambiguous near-match: person matching cannot choose, allow downstream section presence to resolve
+      console.log('[Document Section Retrieval] Ambiguous near-match in prompt across multiple documents, proceeding to downstream resolution');
+    }
+  }
+
+  // Priority 4: Deterministic unique section presence across documents
+  // (Applicable ONLY for explicit numbered mandate queries, NOT for latest/last)
+  let cachedFullText: string | null = null;
+  let cachedSections: MandateSection[] | null = null;
+
+  if (!targetDoc && sectionQuery.type === 'numbered' && sectionQuery.mandateNumber != null) {
+    const docsWithSection: { doc: KnownDiscussionDocument; fullText: string; sections: MandateSection[] }[] = [];
+    let allInspected = true;
+
+    for (const doc of knownDocuments) {
+      if (!doc.id) {
+        allInspected = false;
+        break;
+      }
+      const { data: docRow, error: docErr } = await serviceSupabase
+        .from('discussion_documents')
+        .select('id, filename, full_text')
+        .eq('id', doc.id)
+        .single();
+
+      if (docErr || !docRow?.full_text) {
+        allInspected = false;
+        break;
+      }
+
+      const docSections = parseMandateSections(docRow.full_text);
+      if (docSections.some((s) => s.mandateNum === sectionQuery.mandateNumber)) {
+        docsWithSection.push({ doc, fullText: docRow.full_text, sections: docSections });
+      }
+    }
+
+    if (allInspected && docsWithSection.length === 1) {
+      targetDoc = docsWithSection[0].doc;
+      resolutionReason = 'unique_section_presence';
+      cachedFullText = docsWithSection[0].fullText;
+      cachedSections = docsWithSection[0].sections;
+    }
+  }
+
+  // Priority 5: Recent conversation context (working backwards)
   if (!targetDoc && Array.isArray(recentRounds) && recentRounds.length > 0) {
     for (let i = recentRounds.length - 1; i >= 0; i--) {
       const round = recentRounds[i];
@@ -3133,13 +3293,18 @@ export async function resolveDocumentSection(
         ...round.modelResponses.map((mr) => mr.content || ''),
       ].join(' ');
 
+      const normCombined = normalizeTextForMatching(combinedText);
+      const combinedTokens = normCombined.split(/\s+/).filter(Boolean);
+
       const docScores = knownDocuments.map((doc) => {
         const tokens = extractDocumentNameTokens(doc.filename);
         let count = 0;
         tokens.forEach((t) => {
-          const regex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-          const matches = combinedText.match(regex);
-          if (matches) count += matches.length;
+          if (t.includes(' ')) {
+            if (normCombined.includes(t)) count += 1;
+          } else {
+            count += combinedTokens.filter((ct) => ct === t).length;
+          }
         });
         return { doc, count };
       });
@@ -3150,13 +3315,12 @@ export async function resolveDocumentSection(
         resolutionReason = `recent_round_context_round_${i}`;
         break;
       } else if (activeDocs.length > 1) {
-        // Multiple documents actively discussed in this round: do not guess
         break;
       }
     }
   }
 
-  // 1d. Single known document in discussion
+  // Priority 6: Single known document in discussion
   if (!targetDoc && knownDocuments.length === 1) {
     targetDoc = knownDocuments[0];
     resolutionReason = 'single_known_document';
@@ -3170,24 +3334,37 @@ export async function resolveDocumentSection(
     return null;
   }
 
-  // 2. Fetch full_text for the target document
-  const { data: docRow, error: docErr } = await serviceSupabase
-    .from('discussion_documents')
-    .select('id, filename, full_text')
-    .eq('id', targetDoc.id)
-    .single();
+  // 2. Fetch full_text for the target document (if not already cached)
+  let fullText = cachedFullText;
+  let sections = cachedSections;
 
-  if (docErr || !docRow?.full_text) {
-    console.log('[Document Section Retrieval]', {
-      resolved: false,
-      reason: 'document_text_unavailable',
-      documentId: targetDoc.id,
-    });
+  if (!fullText) {
+    const { data: docRow, error: docErr } = await serviceSupabase
+      .from('discussion_documents')
+      .select('id, filename, full_text')
+      .eq('id', targetDoc.id)
+      .single();
+
+    if (docErr || !docRow?.full_text) {
+      console.log('[Document Section Retrieval]', {
+        resolved: false,
+        reason: 'document_text_unavailable',
+        documentId: targetDoc.id,
+      });
+      return null;
+    }
+    fullText = docRow.full_text;
+  }
+
+  if (!fullText) {
     return null;
   }
 
-  // 3. Parse mandate sections
-  const sections = parseMandateSections(docRow.full_text);
+  // 3. Parse mandate sections (if not already cached)
+  if (!sections) {
+    sections = parseMandateSections(fullText);
+  }
+
   if (sections.length === 0) {
     console.log('[Document Section Retrieval]', {
       resolved: false,
