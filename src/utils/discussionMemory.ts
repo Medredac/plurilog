@@ -3858,3 +3858,357 @@ export function resolveImageEvidence(
 
   return null;
 }
+
+export interface ExpectedCurrentImageSource {
+  attachmentIndex: number;
+  storagePath: string;
+  filename: string;
+}
+
+export interface ResolveMixedHistoricalReferencesOptions {
+  prompt: string;
+  currentImageCount: number;
+  knownSources: KnownImageSource[];
+  lastRoundEvidence: MessageVisualEvidenceItem[];
+  recentEvidenceSets?: MessageVisualEvidenceItem[][];
+}
+
+export interface ResolveMixedHistoricalReferencesResult {
+  sources: KnownImageSource[];
+  reason: string;
+}
+
+/**
+ * Deterministically resolves historical image evidence for mixed turns where current images are also attached.
+ * 
+ * Rules:
+ * 1. Requires active current images (currentImageCount > 0) and non-empty prompt.
+ * 2. Ambiguity Protection: If currentImageCount > 1, singular references ("this image", "this photo", "compare this with...")
+ *    without plural or specific index are ambiguous as to which current image is compared -> returns null.
+ * 3. Bare Current Ordinals: Bare ordinals ("look at the second image") without comparison/historical keywords
+ *    refer to current attachments -> returns null.
+ * 4. Comparative Subsets & Historical Selectors: Resolves historical counterpart using authoritative Phase 2B resolution.
+ */
+export function resolveMixedHistoricalReferences(
+  options: ResolveMixedHistoricalReferencesOptions
+): ResolveMixedHistoricalReferencesResult | null {
+  const { prompt, currentImageCount, knownSources, lastRoundEvidence, recentEvidenceSets } = options;
+  if (!prompt || typeof prompt !== 'string') return null;
+  const p = prompt.trim();
+  if (!p || currentImageCount === 0 || !Array.isArray(knownSources) || knownSources.length === 0) {
+    return null;
+  }
+
+  const pLower = p.toLowerCase();
+
+  // 1. Ambiguity Guard: multiple current images + ambiguous singular "this" comparison
+  if (currentImageCount > 1) {
+    const isPluralReference =
+      /\b(?:these|both|all)\s+(?:images|photos|pictures|screenshots)\b/i.test(pLower) ||
+      /\b(?:these|both)\b/i.test(pLower);
+
+    const isAmbiguousSingular =
+      (/\b(?:this|that|the)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
+        /\b(?:compare|check|contrast)\s+this\b/i.test(pLower)) &&
+      !isPluralReference;
+
+    if (isAmbiguousSingular) {
+      return null;
+    }
+  }
+
+  // 2. Bare Ordinal Guard: bare "first/second/third image" without comparison or historical indicators
+  // refers to the current uploaded attachments
+  const isComparative =
+    /\b(compare|contrast|between|vs|versus|differ|difference|better than|worse than|against)\b/i.test(pLower);
+  const isExplicitHistoricalTemporal =
+    /\b(earlier|previous|before|past|prior|already|uploaded|sent|provided|shared)\b/i.test(pLower);
+  const hasFilename = knownSources.some((s) => {
+    if (!s.filename) return false;
+    const fnLower = s.filename.toLowerCase();
+    const baseName = fnLower.replace(/\.[a-z0-9]+$/i, '');
+    return pLower.includes(fnLower) || (baseName.length >= 4 && pLower.includes(baseName));
+  });
+
+  if (!isComparative && !isExplicitHistoricalTemporal && !hasFilename) {
+    // Bare ordinal reference like "look at the second image" or "check the first picture"
+    return null;
+  }
+
+  // 3. Resolve historical counterpart using authoritative Phase 2B resolver
+  const resolved = resolveImageEvidence({
+    prompt: p,
+    knownSources,
+    lastRoundEvidence,
+    recentEvidenceSets,
+  });
+
+  if (resolved && resolved.sources.length > 0) {
+    return {
+      sources: resolved.sources,
+      reason: `mixed_${resolved.reason}`,
+    };
+  }
+
+  return null;
+}
+
+export interface PersistMixedImageEvidenceOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  sourceUserMessageId: string;
+  expectedCurrentImageSources: ExpectedCurrentImageSource[];
+  resolvedHistoricalSources: KnownImageSource[];
+  signal?: AbortSignal;
+}
+
+export interface PersistMixedImageEvidenceResult {
+  persistedCount: number;
+  errors: string[];
+}
+
+/**
+ * Persists the final composite visual evidence set for a true mixed-delivery turn (current uploads + historical reopened images).
+ * 
+ * Semantic Requirements:
+ * 1. Current images come FIRST (in exact upload attachment_index order), historical images follow.
+ * 2. Matches current image source aliases strictly by 1-to-1 exact storage_path + attachment_index + discussion_id + source_message_id.
+ * 3. Revalidates all historical sources against DB (artifact_type='image', correct discussion, storage_path).
+ * 4. All-or-nothing: if any expected current source or historical source fails validation, persists ZERO rows.
+ * 5. Non-destructive idempotency: exact match -> no-op; differing pre-existing evidence -> preserved unchanged (no DELETE/overwrite).
+ * 6. Contiguous ordinals 0..N-1.
+ */
+export async function persistMixedImageEvidence(
+  options: PersistMixedImageEvidenceOptions
+): Promise<PersistMixedImageEvidenceResult> {
+  const result: PersistMixedImageEvidenceResult = {
+    persistedCount: 0,
+    errors: [],
+  };
+
+  const {
+    serviceSupabase,
+    discussionId,
+    sourceUserMessageId,
+    expectedCurrentImageSources,
+    resolvedHistoricalSources,
+    signal,
+  } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !sourceUserMessageId ||
+    !Array.isArray(expectedCurrentImageSources) ||
+    expectedCurrentImageSources.length === 0 ||
+    !Array.isArray(resolvedHistoricalSources) ||
+    resolvedHistoricalSources.length === 0 ||
+    signal?.aborted
+  ) {
+    return result;
+  }
+
+  try {
+    // 1. Verify user message exists, belongs to discussionId, and has sender = 'user'
+    const { data: messageRow, error: msgErr } = await serviceSupabase
+      .from('messages')
+      .select('id, discussion_id, sender')
+      .eq('id', sourceUserMessageId)
+      .maybeSingle();
+
+    if (msgErr || !messageRow) {
+      result.errors.push(msgErr?.message || `User message not found: ${sourceUserMessageId}`);
+      return result;
+    }
+
+    if (messageRow.discussion_id !== discussionId) {
+      result.errors.push(`Message discussion mismatch: ${messageRow.discussion_id} !== ${discussionId}`);
+      return result;
+    }
+
+    if (messageRow.sender !== 'user') {
+      result.errors.push(`Non-user message sender rejected: ${messageRow.sender}`);
+      return result;
+    }
+
+    // 2. Fetch current turn source aliases for this message
+    const { data: sourceRows, error: srcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path, attachment_index, filename, source_message_id, created_at')
+      .eq('discussion_id', discussionId)
+      .eq('source_message_id', sourceUserMessageId);
+
+    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) {
+      result.errors.push(srcErr?.message || 'No source aliases found for current message in DB');
+      return result;
+    }
+
+    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
+    const { data: artifactRows, error: artErr } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', artifactIds);
+
+    if (artErr || !Array.isArray(artifactRows)) {
+      result.errors.push(artErr?.message || 'Failed to verify artifact types in DB');
+      return result;
+    }
+
+    const imageArtifactIdSet = new Set(
+      artifactRows.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    // 1-to-1 exact matching for every expected current image
+    const validatedCurrentSources: KnownImageSource[] = [];
+    for (const exp of expectedCurrentImageSources) {
+      const matches = sourceRows.filter(
+        (s: any) =>
+          s.discussion_id === discussionId &&
+          s.storage_path === exp.storagePath &&
+          s.attachment_index === exp.attachmentIndex &&
+          imageArtifactIdSet.has(s.artifact_id)
+      );
+
+      if (matches.length !== 1) {
+        result.errors.push(
+          `Current image 1-to-1 mapping failed for index ${exp.attachmentIndex} (found ${matches.length} matches)`
+        );
+        return result; // All-or-nothing: abort immediately
+      }
+
+      const match = matches[0];
+      validatedCurrentSources.push({
+        sourceId: match.id,
+        artifactId: match.artifact_id,
+        discussionId: match.discussion_id,
+        storagePath: match.storage_path,
+        filename: match.filename || exp.filename || 'image.jpg',
+        sourceMessageId: match.source_message_id || sourceUserMessageId,
+        attachmentIndex: match.attachment_index,
+        createdAt: match.created_at || new Date().toISOString(),
+      });
+    }
+
+    // 3. Revalidate all historical sources against DB (all-or-nothing)
+    const historicalSourceIds = resolvedHistoricalSources.map((s) => s.sourceId).filter(Boolean);
+    if (historicalSourceIds.length !== resolvedHistoricalSources.length) {
+      result.errors.push('Historical source ID missing');
+      return result;
+    }
+
+    const { data: dbHistSources, error: histSrcErr } = await serviceSupabase
+      .from('discussion_artifact_sources')
+      .select('id, discussion_id, artifact_id, storage_path, filename, created_at')
+      .in('id', historicalSourceIds);
+
+    if (histSrcErr || !Array.isArray(dbHistSources) || dbHistSources.length !== historicalSourceIds.length) {
+      result.errors.push(histSrcErr?.message || 'Failed to verify all historical source aliases in DB');
+      return result;
+    }
+
+    const histArtifactIds = Array.from(new Set(dbHistSources.map((s: any) => s.artifact_id).filter(Boolean)));
+    const { data: dbHistArtifacts, error: histArtErr } = await serviceSupabase
+      .from('discussion_artifacts')
+      .select('id, artifact_type')
+      .in('id', histArtifactIds);
+
+    if (histArtErr || !Array.isArray(dbHistArtifacts)) {
+      result.errors.push(histArtErr?.message || 'Failed to verify historical artifact types in DB');
+      return result;
+    }
+
+    const histImageArtifactIdSet = new Set(
+      dbHistArtifacts.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
+    );
+
+    const validHistMap = new Map<string, any>();
+    for (const s of dbHistSources) {
+      if (s.discussion_id === discussionId && histImageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
+        validHistMap.set(s.id, s);
+      }
+    }
+
+    const validatedHistoricalSources: KnownImageSource[] = [];
+    for (const s of resolvedHistoricalSources) {
+      if (validHistMap.has(s.sourceId)) {
+        validatedHistoricalSources.push(s);
+      } else {
+        result.errors.push(`Historical source validation failed for: ${s.sourceId}`);
+      }
+    }
+
+    if (validatedHistoricalSources.length !== resolvedHistoricalSources.length) {
+      result.errors.push(
+        `All-or-nothing historical validation failed: ${validatedHistoricalSources.length} of ${resolvedHistoricalSources.length} valid`
+      );
+      return result;
+    }
+
+    // 4. Compose final ordered evidence set: Current images FIRST, then historical images
+    const finalSources: KnownImageSource[] = [
+      ...validatedCurrentSources,
+      ...validatedHistoricalSources,
+    ];
+
+    // 5. Non-destructive idempotency check
+    const { data: existingEvidence, error: existErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .select('id, source_id, ordinal')
+      .eq('message_id', sourceUserMessageId)
+      .order('ordinal', { ascending: true });
+
+    if (existErr) {
+      result.errors.push(existErr.message || 'Failed to check existing evidence');
+      return result;
+    }
+
+    if (Array.isArray(existingEvidence) && existingEvidence.length > 0) {
+      const isExactMatch =
+        existingEvidence.length === finalSources.length &&
+        existingEvidence.every(
+          (e: any, idx: number) =>
+            e.source_id === finalSources[idx].sourceId && e.ordinal === idx
+        );
+
+      if (isExactMatch) {
+        result.persistedCount = existingEvidence.length;
+        return result;
+      } else {
+        result.errors.push('Pre-existing evidence differs from mixed set; existing evidence preserved.');
+        result.persistedCount = existingEvidence.length;
+        return result;
+      }
+    }
+
+    // 6. Insert mixed evidence with contiguous ordinals 0..N-1
+    const rowsToInsert = finalSources.map((source, ordinal) => ({
+      discussion_id: discussionId,
+      message_id: sourceUserMessageId,
+      source_id: source.sourceId,
+      ordinal: ordinal,
+    }));
+
+    const { data: insertedData, error: insertErr } = await serviceSupabase
+      .from('message_visual_evidence')
+      .insert(rowsToInsert)
+      .select('id, ordinal');
+
+    if (insertErr) {
+      result.errors.push(insertErr.message || 'Insert mixed visual evidence failed');
+    } else {
+      result.persistedCount = insertedData?.length || rowsToInsert.length;
+      console.log('[Mixed Evidence Persist] Successfully persisted mixed image evidence:', {
+        discussionId,
+        sourceUserMessageId,
+        currentCount: validatedCurrentSources.length,
+        historicalCount: validatedHistoricalSources.length,
+        totalPersisted: result.persistedCount,
+      });
+    }
+
+    return result;
+  } catch (err: any) {
+    result.errors.push(err?.message || String(err));
+    return result;
+  }
+}

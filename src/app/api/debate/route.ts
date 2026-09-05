@@ -18,6 +18,10 @@ import {
   fetchRecentVisualEvidenceSets,
   resolveImageEvidence,
   persistResolvedImageEvidence,
+  resolveMixedHistoricalReferences,
+  persistMixedImageEvidence,
+  ExpectedCurrentImageSource,
+  extractStoragePathFromSignedUrl,
   retrieveDiscussionDocuments,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
@@ -632,10 +636,42 @@ export async function POST(req: NextRequest) {
           }
 
           // Visual Escalation & Verification Follow-Up Handling
-          let visualAttachments: { url: string; filename: string }[] | null = null;
+          let visualAttachments: any[] | null = null;
+          let pendingResolvedImageSources: KnownImageSource[] | null = null;
+          let hadSuccessfulHistoricalImageDelivery = false;
+          let mixedHistoricalAttachments: { url: string; filename: string }[] = [];
+          let pendingMixedHistoricalSources: KnownImageSource[] | null = null;
+          let hadSuccessfulMixedHistoricalImageDelivery = false;
           let resolvedVisualDocId: string | null = null;
           let isVisualUnavailable = false;
-          let pendingResolvedImageSources: KnownImageSource[] | null = null;
+
+          // Identify current standalone image presence and persistent storage identity separately
+          const currentImageAttachments = Array.isArray(attachments)
+            ? attachments
+                .map((att: any, attachmentIndex: number) => ({ att, attachmentIndex }))
+                .filter(({ att }) => isImageUrl(att?.url))
+            : [];
+
+          const hasCurrentImages = currentImageAttachments.length > 0;
+
+          const expectedCurrentImageSources: ExpectedCurrentImageSource[] = [];
+          for (const { att, attachmentIndex } of currentImageAttachments) {
+            try {
+              const storagePath = extractStoragePathFromSignedUrl(att?.url);
+              if (storagePath) {
+                expectedCurrentImageSources.push({
+                  attachmentIndex,
+                  storagePath,
+                  filename: att?.filename || 'image.jpg',
+                });
+              }
+            } catch (pathErr) {
+              console.warn('[Image Identity] Non-critical error extracting storage path:', pathErr);
+            }
+          }
+
+          const currentImageIdentityComplete =
+            hasCurrentImages && expectedCurrentImageSources.length === currentImageAttachments.length;
 
           const isVisualQuery = isVisualEvidenceQuery(prompt);
           const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
@@ -645,37 +681,33 @@ export async function POST(req: NextRequest) {
               ? discussionMemory.recentRounds[discussionMemory.recentRounds.length - 1]
               : null;
 
-          if ((!attachments || attachments.length === 0) && discussionId) {
+          if (discussionId) {
             if (isVerificationFollowUp && lastRound) {
-              if (lastRound.visualDocumentId) {
-                // Case A: Preceding round had a successful visualDocumentId
-                const inheritedDocId = lastRound.visualDocumentId;
-                const matchedDoc = discussionMemory?.knownDocuments?.find(
-                  (d) => d.id === inheritedDocId
-                );
-
-                const targetStoragePath = matchedDoc?.storagePath || matchedDoc?.sourcePaths?.[0];
-                if (matchedDoc && targetStoragePath) {
+              const inheritedDocId = lastRound.visualDocumentId;
+              if (inheritedDocId) {
+                // Case A: Preceding round had an active visual document
+                const inheritedDoc = discussionMemory?.knownDocuments?.find((d) => d.id === inheritedDocId);
+                if (inheritedDoc && inheritedDoc.storagePath) {
                   try {
                     const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                     if (isOwner) {
                       const serviceClient = createServiceClient();
                       const { data: signedData, error: signErr } = await serviceClient.storage
                         .from('message-images')
-                        .createSignedUrl(targetStoragePath, 900); // 15-minute headroom across sequential panel
+                        .createSignedUrl(inheritedDoc.storagePath, 900); // 15-minute headroom across sequential panel
 
                       if (!signErr && signedData?.signedUrl) {
                         visualAttachments = [
                           {
                             url: signedData.signedUrl,
-                            filename: matchedDoc.filename,
+                            filename: inheritedDoc.filename,
                           },
                         ];
                         resolvedVisualDocId = inheritedDocId;
-                        console.log('[Visual Follow-Up] Inherited visual document from previous turn:', {
-                          inheritedDocId,
-                          filename: matchedDoc.filename,
-                          storagePath: targetStoragePath,
+                        console.log('[Visual Follow-Up] Inherited visual document from preceding round:', {
+                          visualDocumentId: inheritedDoc.id,
+                          filename: inheritedDoc.filename,
+                          storagePath: inheritedDoc.storagePath,
                         });
                       } else {
                         console.warn('[Visual Follow-Up] Failed to sign inherited document URL:', signErr);
@@ -748,8 +780,6 @@ export async function POST(req: NextRequest) {
             }
 
             // Standalone Image Historical Reopening (Phase 2B - ADDITIVE)
-            const hasCurrentImages = Array.isArray(attachments) && attachments.some((att: any) => isImageUrl(att?.url));
-
             if (!hasCurrentImages && prompt && prompt.trim()) {
               try {
                 const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
@@ -799,6 +829,7 @@ export async function POST(req: NextRequest) {
                         ...successfulImageAttachments,
                       ];
                       pendingResolvedImageSources = successfulResolvedSources;
+                      hadSuccessfulHistoricalImageDelivery = true;
 
                       console.log('[Image Reopening] Reopened historical image evidence for turn:', {
                         discussionId,
@@ -811,6 +842,95 @@ export async function POST(req: NextRequest) {
                 }
               } catch (imageReopenErr) {
                 console.warn('[Image Reopening] Non-critical error during historical image resolution:', imageReopenErr);
+              }
+            }
+
+            // Standalone Image Mixed Historical Reopening (Phase 2C - ADDITIVE)
+            if (hasCurrentImages && currentImageIdentityComplete && prompt && prompt.trim()) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                  const recentEvidenceSets = await fetchRecentVisualEvidenceSets(serviceClient, discussionId);
+
+                  // Exclude the current message from its own historical scope (for retries / Try Again)
+                  const historicalKnownSources = sourceUserMessageId
+                    ? knownSources.filter((s) => s.sourceMessageId !== sourceUserMessageId)
+                    : knownSources;
+
+                  const rounds = discussionMemory?.recentRounds || [];
+                  const currentRoundIndex = sourceUserMessageId
+                    ? rounds.findIndex((r) => r.userMessageId === sourceUserMessageId)
+                    : -1;
+
+                  let historicalPrecedingRound = null;
+                  if (currentRoundIndex > 0) {
+                    // Retry where M is already represented in recentRounds
+                    historicalPrecedingRound = rounds[currentRoundIndex - 1];
+                  } else if (currentRoundIndex === -1) {
+                    // Fresh/in-flight execution where M is not yet a completed round
+                    historicalPrecedingRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+                  }
+
+                  const historicalLastRoundEvidence = historicalPrecedingRound?.userMessageId
+                    ? await fetchMessageVisualEvidence(serviceClient, discussionId, historicalPrecedingRound.userMessageId)
+                    : [];
+
+                  const historicalRecentEvidenceSets = sourceUserMessageId
+                    ? recentEvidenceSets.filter((set) => !set.some((item) => item.messageId === sourceUserMessageId))
+                    : recentEvidenceSets;
+
+                  const mixedResolution = resolveMixedHistoricalReferences({
+                    prompt,
+                    currentImageCount: expectedCurrentImageSources.length,
+                    knownSources: historicalKnownSources,
+                    lastRoundEvidence: historicalLastRoundEvidence,
+                    recentEvidenceSets: historicalRecentEvidenceSets,
+                  });
+
+                  if (mixedResolution && mixedResolution.sources.length > 0) {
+                    const successfulHistoricalAttachments: { url: string; filename: string }[] = [];
+                    const successfulHistoricalSources: typeof mixedResolution.sources = [];
+
+                    for (const src of mixedResolution.sources) {
+                      if (!src.storagePath) continue;
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(src.storagePath, 900); // 15-minute headroom across sequential panel
+
+                      if (!signErr && signedData?.signedUrl) {
+                        successfulHistoricalAttachments.push({
+                          url: signedData.signedUrl,
+                          filename: src.filename || 'image.jpg',
+                        });
+                        successfulHistoricalSources.push(src);
+                      } else {
+                        console.warn('[Mixed Reopening] Failed to sign historical image URL for source:', {
+                          sourceId: src.sourceId,
+                          storagePath: src.storagePath,
+                          error: signErr,
+                        });
+                      }
+                    }
+
+                    if (successfulHistoricalAttachments.length > 0) {
+                      mixedHistoricalAttachments = successfulHistoricalAttachments;
+                      pendingMixedHistoricalSources = successfulHistoricalSources;
+                      hadSuccessfulMixedHistoricalImageDelivery = true;
+
+                      console.log('[Mixed Reopening] Reopened historical image evidence for mixed turn:', {
+                        discussionId,
+                        sourceUserMessageId,
+                        reason: mixedResolution.reason,
+                        currentCount: expectedCurrentImageSources.length,
+                        historicalCount: successfulHistoricalAttachments.length,
+                      });
+                    }
+                  }
+                }
+              } catch (mixedReopenErr) {
+                console.warn('[Mixed Reopening] Non-critical error during mixed historical image resolution:', mixedReopenErr);
               }
             }
           }
@@ -832,8 +952,14 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          const effectiveAttachments =
-            attachments && attachments.length > 0 ? attachments : visualAttachments;
+          const effectiveAttachments = hadSuccessfulMixedHistoricalImageDelivery
+            ? [
+                ...(attachments || []),
+                ...mixedHistoricalAttachments,
+              ]
+            : attachments && attachments.length > 0
+              ? attachments
+              : visualAttachments;
 
           if (!isVisualUnavailable && isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0)) {
             isVisualUnavailable = true;
@@ -1143,8 +1269,47 @@ export async function POST(req: NextRequest) {
                     console.warn('[Image Artifact Ingest] Non-critical error during image artifact ingestion:', imgIngestErr);
                   }
 
-                  // 3. Standalone image visual evidence persistence (Phase 2A)
-                  if (sourceUserMessageId) {
+                  // 3. Standalone image mixed visual evidence persistence (Phase 2C - true mixed turns)
+                  if (
+                    hadSuccessfulMixedHistoricalImageDelivery &&
+                    sourceUserMessageId &&
+                    pendingMixedHistoricalSources &&
+                    pendingMixedHistoricalSources.length > 0
+                  ) {
+                    try {
+                      const persistResult = await persistMixedImageEvidence({
+                        serviceSupabase: serviceClient,
+                        discussionId,
+                        sourceUserMessageId,
+                        expectedCurrentImageSources,
+                        resolvedHistoricalSources: pendingMixedHistoricalSources,
+                        signal: req.signal,
+                      });
+
+                      if (persistResult.errors && persistResult.errors.length > 0) {
+                        console.warn('[Mixed Evidence Persist] Diagnostic notes during mixed persistence:', {
+                          discussionId,
+                          sourceUserMessageId,
+                          errors: persistResult.errors,
+                        });
+                      }
+
+                      console.log('[Mixed Evidence Persist] Persisted mixed image evidence post-relay:', {
+                        discussionId,
+                        sourceUserMessageId,
+                        persistedCount: persistResult.persistedCount,
+                      });
+                    } catch (mixedEvidenceErr) {
+                      console.warn('[Mixed Evidence Persist] Non-critical error during mixed image evidence persistence:', mixedEvidenceErr);
+                    }
+                  }
+
+                  // 4. Standalone image visual evidence persistence (Phase 2A - current-only turns, skipped on true mixed turns)
+                  if (
+                    sourceUserMessageId &&
+                    hasCurrentImages &&
+                    !hadSuccessfulMixedHistoricalImageDelivery
+                  ) {
                     try {
                       await persistActiveImageEvidence({
                         serviceSupabase: serviceClient,
