@@ -32,6 +32,10 @@ import {
 } from '@/utils/discussionMemory';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
+import {
+  isSemanticVisualQuery,
+  retrieveSemanticImageCandidates,
+} from '@/utils/semanticImageRetrieval';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 
@@ -933,6 +937,81 @@ export async function POST(req: NextRequest) {
                 }
               } catch (mixedReopenErr) {
                 console.warn('[Mixed Reopening] Non-critical error during mixed historical image resolution:', mixedReopenErr);
+              }
+            }
+
+            // Standalone Image Semantic Historical Retrieval (Phase 3B - ADDITIVE)
+            if (
+              !hasCurrentImages &&
+              !hadSuccessfulHistoricalImageDelivery &&
+              (!visualAttachments || visualAttachments.length === 0) &&
+              prompt &&
+              prompt.trim() &&
+              !req.signal.aborted &&
+              isSemanticVisualQuery(prompt)
+            ) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const lastRoundEvidence = lastRound?.userMessageId
+                    ? await fetchMessageVisualEvidence(serviceClient, discussionId, lastRound.userMessageId)
+                    : [];
+
+                  const semanticResult = await retrieveSemanticImageCandidates({
+                    serviceSupabase: serviceClient,
+                    discussionId,
+                    prompt,
+                    openai,
+                    signal: req.signal,
+                    lastRoundEvidence,
+                  });
+
+                  if (semanticResult && semanticResult.sources.length > 0) {
+                    const successfulSemanticAttachments: { url: string; filename: string }[] = [];
+                    const successfulSemanticSources: typeof semanticResult.sources = [];
+
+                    for (const src of semanticResult.sources) {
+                      if (!src.storagePath) continue;
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(src.storagePath, 900); // 15-minute headroom across sequential panel
+
+                      if (!signErr && signedData?.signedUrl) {
+                        successfulSemanticAttachments.push({
+                          url: signedData.signedUrl,
+                          filename: src.filename || 'image.jpg',
+                        });
+                        successfulSemanticSources.push(src);
+                      } else {
+                        console.warn('[Semantic Image Retrieval] Failed to sign semantic image URL for source:', {
+                          sourceId: src.sourceId,
+                          storagePath: src.storagePath,
+                          error: signErr,
+                        });
+                      }
+                    }
+
+                    if (successfulSemanticAttachments.length > 0) {
+                      visualAttachments = [
+                        ...(visualAttachments || []),
+                        ...successfulSemanticAttachments,
+                      ];
+                      pendingResolvedImageSources = successfulSemanticSources;
+                      hadSuccessfulHistoricalImageDelivery = true;
+
+                      console.log('[Semantic Image Retrieval] Reopened historical image evidence for turn:', {
+                        discussionId,
+                        sourceUserMessageId,
+                        topSimilarity: semanticResult.topSimilarity,
+                        topGap: semanticResult.topGap,
+                        reopenedCount: successfulSemanticAttachments.length,
+                      });
+                    }
+                  }
+                }
+              } catch (semanticErr) {
+                console.warn('[Semantic Image Retrieval] Non-critical error during semantic image resolution:', semanticErr);
               }
             }
           }
