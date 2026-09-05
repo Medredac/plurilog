@@ -2848,6 +2848,7 @@ export async function ingestDiscussionArtifacts(
 }
 
 export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 1500;
+export const DOCUMENT_SECTION_TOKEN_BUDGET = 2500;
 export const DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD = 0.60;
 
 export interface RetrievedDocumentExcerpt {
@@ -2860,6 +2861,429 @@ export interface RetrievedDocumentExcerpt {
   keywordRank: number | null;
   filenameMatch: boolean;
   hybridScore: number;
+}
+
+export interface DocumentSectionQueryInfo {
+  isSectionQuery: boolean;
+  type?: 'numbered' | 'latest';
+  mandateNumber?: number | null;
+}
+
+export interface MandateSection {
+  mandateNum: number;
+  startIndex: number;
+  endIndex: number;
+  content: string;
+  tokens: number;
+}
+
+export interface ResolvedDocumentSection {
+  documentId: string;
+  filename: string;
+  sectionTitle: string;
+  content: string;
+  estimatedTokens: number;
+  truncated: boolean;
+  resolutionReason: string;
+}
+
+export interface ResolveDocumentSectionOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  prompt: string;
+  knownDocuments?: KnownDiscussionDocument[];
+  recentRounds?: Round[];
+  signal?: AbortSignal;
+}
+
+/**
+ * Lightweight deterministic classifier for explicit mandate section requests.
+ * Detects numbered mandate requests (e.g. "Mandat 11", "11th mandat", "11e mandat")
+ * and latest/last mandate requests (e.g. "latest mandate", "dernier mandat").
+ * Does NOT classify bare "next" or "continue" as section navigation.
+ */
+export function isDocumentSectionQuery(prompt?: string | null): DocumentSectionQueryInfo {
+  if (!prompt || typeof prompt !== 'string') {
+    return { isSectionQuery: false };
+  }
+  const p = prompt.trim();
+  if (!p) {
+    return { isSectionQuery: false };
+  }
+
+  // 1. Numbered mandate: "mandat #11", "mandate 11", "mandat no 11", "mandat no. 11"
+  const numberedMatch1 = p.match(/\b(?:mandat|mandate)\s*(?:no\.?|n°|#)?\s*(\d+)\b/i);
+  if (numberedMatch1 && numberedMatch1[1]) {
+    return {
+      isSectionQuery: true,
+      type: 'numbered',
+      mandateNumber: parseInt(numberedMatch1[1], 10),
+    };
+  }
+
+  // 2. Numbered mandate ordinal: "11th mandate", "11th mandat", "11e mandat", "11ème mandat", "1st mandate"
+  const numberedMatch2 = p.match(/\b(\d+)(?:st|nd|rd|th|e|ème|eme)\s+(?:mandat|mandate)\b/i);
+  if (numberedMatch2 && numberedMatch2[1]) {
+    return {
+      isSectionQuery: true,
+      type: 'numbered',
+      mandateNumber: parseInt(numberedMatch2[1], 10),
+    };
+  }
+
+  // 3. Latest / last mandate requests
+  if (
+    /\b(?:latest|last|most\s+recent)\s+(?:mandat|mandate)\b/i.test(p) ||
+    /\b(?:dernier|plus\s+r[eé]cent)\s+mandat\b/i.test(p) ||
+    /\bmandat\s+(?:le\s+plus\s+r[eé]cent|dernier)\b/i.test(p)
+  ) {
+    return {
+      isSectionQuery: true,
+      type: 'latest',
+      mandateNumber: null,
+    };
+  }
+
+  return { isSectionQuery: false };
+}
+
+/**
+ * Extracts person name search tokens from a document filename.
+ */
+function extractDocumentNameTokens(filename: string): string[] {
+  const clean = filename
+    .replace(/\.[a-zA-Z0-9]+$/, '')
+    .replace(/^E\d+\s+/i, '')
+    .replace(/\s+pour\s+.*$/i, '')
+    .replace(/\(\d+\)/g, '')
+    .trim()
+    .toLowerCase();
+
+  const parts = clean.split(/\s+/).filter((p) => p.length >= 3);
+  const tokens: string[] = [];
+  if (clean.length >= 4) tokens.push(clean);
+  parts.forEach((p) => {
+    if (!tokens.includes(p)) tokens.push(p);
+  });
+  return tokens;
+}
+
+/**
+ * Parses all detailed mandate blocks from stored full_text.
+ * Identifies start boundaries (headings and table-based markers) and continues
+ * until the next mandate section start or top-level post-mandate heading.
+ */
+export function parseMandateSections(fullText: string): MandateSection[] {
+  if (!fullText || typeof fullText !== 'string') return [];
+
+  const sections: MandateSection[] = [];
+
+  // Match detailed mandate headers:
+  // - Table style: | No : | 11 |
+  // - Heading style: # MANDAT #10, ## MANDAT #1, MANDAT #10
+  const regex = /(?:(?:^|\n)\s*\|\s*No\s*:\s*\|\s*(\d+)\s*\|)|(?:(?:^|\n)\s*#{1,3}\s*MANDAT\s*(?:NO\.?|N°|#)?\s*(\d+)\b)|(?:(?:^|\n)\s*MANDAT\s*(?:NO\.?|N°|#)\s*(\d+)\b)/gi;
+
+  const matches: { mandateNum: number; startIndex: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(fullText)) !== null) {
+    const numStr = m[1] || m[2] || m[3];
+    const mandateNum = parseInt(numStr, 10);
+    if (isNaN(mandateNum)) continue;
+
+    let startIndex = m.index;
+    if (fullText[startIndex] === '\n') startIndex += 1;
+
+    // Check if there is a client/date header or table header right before this line
+    const beforeText = fullText.slice(Math.max(0, startIndex - 200), startIndex);
+    const tableHeaderMatch = beforeText.match(/(?:(?:\n|^)[^\n]+ \d{4} à \d{4}\s*\n+)?\|\s*\|\s*\|\s*\n\s*\|\s*---\s*\|\s*---\s*\|\s*$/i);
+    if (tableHeaderMatch) {
+      startIndex = startIndex - tableHeaderMatch[0].length;
+      if (startIndex < 0) startIndex = 0;
+    }
+
+    matches.push({
+      mandateNum,
+      startIndex,
+    });
+  }
+
+  // Top-level post-mandate headings that terminate the last mandate section
+  const postMandateRegex = /(?:^|\n)\s*#{1,3}\s*(?:EXP[EÉ]RIENCES?\s+ANT[EÉ]RIEURES?|AUTRES?\s+EXP[EÉ]RIENCES?|FORMATION|Sommaire|Profil|Perfectionnement|Langues)\b/gi;
+  const postMatches: number[] = [];
+  let pm: RegExpExecArray | null;
+  while ((pm = postMandateRegex.exec(fullText)) !== null) {
+    let pIdx = pm.index;
+    if (fullText[pIdx] === '\n') pIdx += 1;
+    postMatches.push(pIdx);
+  }
+
+  for (let i = 0; i < matches.length; i++) {
+    const cur = matches[i];
+    let endIndex = fullText.length;
+
+    if (i < matches.length - 1) {
+      endIndex = matches[i + 1].startIndex;
+    } else {
+      const nextPost = postMatches.find((idx) => idx > cur.startIndex);
+      if (nextPost) {
+        endIndex = nextPost;
+      }
+    }
+
+    const rawContent = fullText.slice(cur.startIndex, endIndex).trim();
+    sections.push({
+      mandateNum: cur.mandateNum,
+      startIndex: cur.startIndex,
+      endIndex,
+      content: rawContent,
+      tokens: estimateTokens(rawContent),
+    });
+  }
+
+  return sections;
+}
+
+/**
+ * Deterministically resolves a complete mandate section from stored document full_text.
+ * Applies conservative document targeting:
+ * 1. Explicit filename in prompt
+ * 2. Explicit person name in prompt
+ * 3. Unique referent in recent conversation context
+ * 4. Single known document in discussion
+ * Fails safe and returns null on ambiguity.
+ */
+export async function resolveDocumentSection(
+  options: ResolveDocumentSectionOptions
+): Promise<ResolvedDocumentSection | null> {
+  const { serviceSupabase, discussionId, prompt, knownDocuments, recentRounds, signal } = options;
+
+  if (!serviceSupabase || !discussionId || !prompt || !prompt.trim() || signal?.aborted) {
+    return null;
+  }
+
+  const sectionQuery = isDocumentSectionQuery(prompt);
+  if (!sectionQuery.isSectionQuery) {
+    return null;
+  }
+
+  if (!Array.isArray(knownDocuments) || knownDocuments.length === 0) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'no_known_documents',
+    });
+    return null;
+  }
+
+  // 1. Target Document Identification
+  let targetDoc: KnownDiscussionDocument | null = null;
+  let resolutionReason = '';
+
+  const promptLower = prompt.toLowerCase();
+
+  // 1a. Explicit filename in prompt
+  const filenameMatches = knownDocuments.filter((d) => {
+    if (!d.filename) return false;
+    const normName = d.filename.toLowerCase();
+    const baseName = normName.replace(/\.[a-zA-Z0-9]+$/i, '');
+    return promptLower.includes(normName) || (baseName.length >= 4 && promptLower.includes(baseName));
+  });
+
+  if (filenameMatches.length === 1) {
+    targetDoc = filenameMatches[0];
+    resolutionReason = 'explicit_filename';
+  } else if (filenameMatches.length > 1) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'ambiguous_filename_matches',
+    });
+    return null;
+  }
+
+  // 1b. Explicit person name in prompt
+  if (!targetDoc) {
+    const docScores = knownDocuments.map((doc) => {
+      const tokens = extractDocumentNameTokens(doc.filename);
+      let matchCount = 0;
+      tokens.forEach((t) => {
+        const regex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+        if (regex.test(prompt)) matchCount += 1;
+      });
+      return { doc, matchCount };
+    });
+
+    const matchingDocs = docScores.filter((ds) => ds.matchCount > 0);
+    if (matchingDocs.length === 1) {
+      targetDoc = matchingDocs[0].doc;
+      resolutionReason = 'explicit_person_name';
+    } else if (matchingDocs.length > 1) {
+      console.log('[Document Section Retrieval]', {
+        resolved: false,
+        reason: 'ambiguous_person_name_in_prompt',
+      });
+      return null;
+    }
+  }
+
+  // 1c. Recent conversation context (working backwards)
+  if (!targetDoc && Array.isArray(recentRounds) && recentRounds.length > 0) {
+    for (let i = recentRounds.length - 1; i >= 0; i--) {
+      const round = recentRounds[i];
+      const combinedText = [
+        round.userPrompt || '',
+        ...round.modelResponses.map((mr) => mr.content || ''),
+      ].join(' ');
+
+      const docScores = knownDocuments.map((doc) => {
+        const tokens = extractDocumentNameTokens(doc.filename);
+        let count = 0;
+        tokens.forEach((t) => {
+          const regex = new RegExp(`\\b${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+          const matches = combinedText.match(regex);
+          if (matches) count += matches.length;
+        });
+        return { doc, count };
+      });
+
+      const activeDocs = docScores.filter((ds) => ds.count > 0);
+      if (activeDocs.length === 1) {
+        targetDoc = activeDocs[0].doc;
+        resolutionReason = `recent_round_context_round_${i}`;
+        break;
+      } else if (activeDocs.length > 1) {
+        // Multiple documents actively discussed in this round: do not guess
+        break;
+      }
+    }
+  }
+
+  // 1d. Single known document in discussion
+  if (!targetDoc && knownDocuments.length === 1) {
+    targetDoc = knownDocuments[0];
+    resolutionReason = 'single_known_document';
+  }
+
+  if (!targetDoc || !targetDoc.id) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'ambiguous_document',
+    });
+    return null;
+  }
+
+  // 2. Fetch full_text for the target document
+  const { data: docRow, error: docErr } = await serviceSupabase
+    .from('discussion_documents')
+    .select('id, filename, full_text')
+    .eq('id', targetDoc.id)
+    .single();
+
+  if (docErr || !docRow?.full_text) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'document_text_unavailable',
+      documentId: targetDoc.id,
+    });
+    return null;
+  }
+
+  // 3. Parse mandate sections
+  const sections = parseMandateSections(docRow.full_text);
+  if (sections.length === 0) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'no_mandate_sections_found',
+      documentId: targetDoc.id,
+      filename: targetDoc.filename,
+    });
+    return null;
+  }
+
+  let selectedSection: MandateSection | null = null;
+  if (sectionQuery.type === 'numbered' && sectionQuery.mandateNumber != null) {
+    selectedSection = sections.find((s) => s.mandateNum === sectionQuery.mandateNumber) || null;
+  } else if (sectionQuery.type === 'latest') {
+    const nums = sections.map((s) => s.mandateNum);
+    let isDescending = true;
+    let isAscending = true;
+
+    for (let i = 0; i < nums.length - 1; i++) {
+      if (nums[i] <= nums[i + 1]) isDescending = false;
+      if (nums[i] >= nums[i + 1]) isAscending = false;
+    }
+
+    if (isDescending) {
+      // Descending order (e.g. 12, 11, 10, ...): first detailed mandate block is the latest
+      selectedSection = sections[0];
+    } else if (isAscending) {
+      // Ascending order (e.g. 1, 2, 3, ...): last detailed mandate block is the latest
+      selectedSection = sections[sections.length - 1];
+    } else {
+      // Ambiguous / non-monotonic sequence: do not guess -> fail safe to semantic retrieval
+      console.log('[Document Section Retrieval]', {
+        resolved: false,
+        reason: 'non_monotonic_mandate_ordering',
+        mandateNumbers: nums,
+        documentId: targetDoc.id,
+        filename: targetDoc.filename,
+      });
+      return null;
+    }
+  }
+
+  if (!selectedSection) {
+    console.log('[Document Section Retrieval]', {
+      resolved: false,
+      reason: 'section_not_found',
+      documentId: targetDoc.id,
+      filename: targetDoc.filename,
+      requested: sectionQuery.type === 'numbered' ? `Mandat #${sectionQuery.mandateNumber}` : 'latest mandate',
+    });
+    return null;
+  }
+
+  // 4. Token Budget Enforcing
+  const TRUNCATION_MARKER = '\n\n[Section truncated due to token budget limit]';
+  const estTokens = estimateTokens(selectedSection.content);
+  let finalContent = selectedSection.content;
+  let truncated = false;
+
+  if (estTokens > DOCUMENT_SECTION_TOKEN_BUDGET) {
+    truncated = true;
+    const markerTokens = estimateTokens(TRUNCATION_MARKER);
+    const maxBodyTokens = Math.max(0, DOCUMENT_SECTION_TOKEN_BUDGET - markerTokens);
+    let sliceLen = maxBodyTokens * 4;
+    let body = selectedSection.content.slice(0, sliceLen);
+    finalContent = body + TRUNCATION_MARKER;
+
+    while (estimateTokens(finalContent) > DOCUMENT_SECTION_TOKEN_BUDGET && sliceLen > 0) {
+      sliceLen = Math.max(0, sliceLen - 4);
+      body = selectedSection.content.slice(0, sliceLen);
+      finalContent = body + TRUNCATION_MARKER;
+    }
+  }
+
+  const finalEstimatedTokens = estimateTokens(finalContent);
+
+  console.log('[Document Section Retrieval]', {
+    discussionId,
+    documentId: targetDoc.id,
+    filename: targetDoc.filename,
+    requestedSection: sectionQuery.type === 'numbered' ? `Mandat #${sectionQuery.mandateNumber}` : 'latest mandate',
+    resolvedSection: `Mandat #${selectedSection.mandateNum}`,
+    estimatedTokens: finalEstimatedTokens,
+    truncated,
+    resolutionReason,
+  });
+
+  return {
+    documentId: targetDoc.id,
+    filename: targetDoc.filename,
+    sectionTitle: `Mandat #${selectedSection.mandateNum}`,
+    content: finalContent,
+    estimatedTokens: finalEstimatedTokens,
+    truncated,
+    resolutionReason,
+  };
 }
 
 export interface RetrieveDiscussionDocumentsOptions {

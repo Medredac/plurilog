@@ -25,6 +25,7 @@ import {
   ExpectedCurrentImageSource,
   extractStoragePathFromSignedUrl,
   retrieveDiscussionDocuments,
+  resolveDocumentSection,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
   isVerificationFollowUpQuery,
@@ -562,6 +563,44 @@ export async function POST(req: NextRequest) {
           let retrievedMemory: any[] = [];
           let retrievedDocuments: RetrievedDocumentExcerpt[] = [];
           if (discussionId && prompt && prompt.trim() && !req.signal.aborted) {
+            // 1. Attempt deterministic structured section resolution first (does NOT require embedding)
+            try {
+              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+              if (isOwner) {
+                const serviceClient = createServiceClient();
+                const resolvedSection = await resolveDocumentSection({
+                  serviceSupabase: serviceClient,
+                  discussionId,
+                  prompt,
+                  knownDocuments: discussionMemory?.knownDocuments,
+                  recentRounds: discussionMemory?.recentRounds,
+                  signal: req.signal,
+                });
+
+                if (resolvedSection) {
+                  retrievedDocuments = [
+                    {
+                      chunkId: `section-${resolvedSection.documentId}`,
+                      documentId: resolvedSection.documentId,
+                      filename: resolvedSection.filename,
+                      chunkIndex: 0,
+                      content: resolvedSection.content,
+                      semanticSimilarity: 1.0,
+                      keywordRank: 1,
+                      filenameMatch: true,
+                      hybridScore: 1.0,
+                    },
+                  ];
+                }
+              }
+            } catch (sectionErr: any) {
+              console.error(
+                '[Document Section Retrieval] Non-critical retrieval failure:',
+                sectionErr
+              );
+            }
+
+            // 2. Query embedding for semantic document search (if section not resolved) and conversation memory
             try {
               const queryEmbeddingRes = await (openai.embeddings.create as any)(
                 {
@@ -582,24 +621,26 @@ export async function POST(req: NextRequest) {
                   '[Memory Retrieval] Missing or invalid 1536-dimension query embedding vector returned by model'
                 );
               } else {
-                // Attempt durable document retrieval reusing the same queryEmbedding (non-critical)
-                try {
-                  const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
-                  if (isOwner) {
-                    const serviceClient = createServiceClient();
-                    retrievedDocuments = await retrieveDiscussionDocuments({
-                      serviceSupabase: serviceClient,
-                      discussionId,
-                      queryText: prompt,
-                      queryEmbedding,
-                      signal: req.signal,
-                    });
+                // If section was not resolved, attempt semantic document hybrid search
+                if (retrievedDocuments.length === 0) {
+                  try {
+                    const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                    if (isOwner) {
+                      const serviceClient = createServiceClient();
+                      retrievedDocuments = await retrieveDiscussionDocuments({
+                        serviceSupabase: serviceClient,
+                        discussionId,
+                        queryText: prompt,
+                        queryEmbedding,
+                        signal: req.signal,
+                      });
+                    }
+                  } catch (docErr: any) {
+                    console.error(
+                      '[Document Retrieval] Non-critical retrieval failure:',
+                      docErr
+                    );
                   }
-                } catch (docErr: any) {
-                  console.error(
-                    '[Document Retrieval] Non-critical retrieval failure:',
-                    docErr
-                  );
                 }
 
                 const { data: hybridRows, error: searchErr } = await supabase.rpc(
