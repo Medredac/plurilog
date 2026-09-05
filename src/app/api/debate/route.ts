@@ -31,6 +31,7 @@ import {
   KnownImageSource,
 } from '@/utils/discussionMemory';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
+import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 
@@ -1325,6 +1326,21 @@ export async function POST(req: NextRequest) {
                       });
                     } catch (evidenceErr) {
                       console.warn('[Image Evidence Persist] Non-critical error during active image evidence persistence:', evidenceErr);
+                    }
+                  }
+
+                  // 5. Standalone image semantic descriptor & embedding indexing (Phase 3A - post-relay)
+                  if (hasCurrentImages && !req.signal.aborted) {
+                    try {
+                      await indexDiscussionImageArtifacts({
+                        serviceSupabase: serviceClient,
+                        openai,
+                        discussionId,
+                        attachments,
+                        signal: req.signal,
+                      });
+                    } catch (indexErr) {
+                      console.warn('[Visual Indexer] Non-critical error during visual descriptor indexing:', indexErr);
                     }
                   }
                 }
