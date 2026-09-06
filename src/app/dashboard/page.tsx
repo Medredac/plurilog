@@ -23,6 +23,13 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
 const CONTINUE_INSTRUCTION =
   "Respond directly to what was just said in the previous round — agree, push back, or add to it, the same way you would in an ongoing conversation.";
 
+interface ActiveDiscussionState {
+  controller: AbortController;
+  liveSeatMessage: ChatMessage | null;
+  seatStatuses: Record<ModelId, SeatStatus>;
+  activeSpeaker: ModelId | null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const params = useParams();
@@ -34,6 +41,7 @@ export default function DashboardPage() {
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const activeDebateIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeGenerationsRef = useRef<Map<string, ActiveDiscussionState>>(new Map());
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
@@ -223,14 +231,30 @@ export default function DashboardPage() {
       // Atomic swap: update discussion ID, messages, and state together once data arrives
       activeDebateIdRef.current = discussionId;
       setActiveDebateId(discussionId);
-      setMessages(formatted);
-      setCanContinue(formatted.length > 0);
-      setErrorMessage(null);
-      setFailedTurn(null);
-      setAbandonedFailedTurnIds([]);
-      setSeatStatuses(INITIAL_SEAT_STATUSES);
-      setIsDebating(false);
-      setActiveSpeaker(null);
+
+      const activeGen = activeGenerationsRef.current.get(discussionId);
+      if (activeGen) {
+        const combinedMessages = activeGen.liveSeatMessage
+          ? [...formatted, { ...activeGen.liveSeatMessage }]
+          : formatted;
+        setMessages(combinedMessages);
+        setCanContinue(false);
+        setErrorMessage(null);
+        setFailedTurn(null);
+        setAbandonedFailedTurnIds([]);
+        setSeatStatuses({ ...activeGen.seatStatuses });
+        setIsDebating(true);
+        setActiveSpeaker(activeGen.activeSpeaker);
+      } else {
+        setMessages(formatted);
+        setCanContinue(formatted.length > 0);
+        setErrorMessage(null);
+        setFailedTurn(null);
+        setAbandonedFailedTurnIds([]);
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setIsDebating(false);
+        setActiveSpeaker(null);
+      }
     } catch (err) {
       if (currentFetchIdRef.current === discussionId) {
         console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
@@ -502,6 +526,12 @@ export default function DashboardPage() {
 
   // Stop / Cancel currently in-progress debate relay
   const handleStop = () => {
+    const currentId = activeDebateIdRef.current;
+    const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
+    if (activeGen) {
+      activeGen.controller.abort();
+      return;
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -536,7 +566,38 @@ export default function DashboardPage() {
       currentAttemptModelMsgIds.add(optimisticPlaceholder.msgId);
     }
 
+    const initialStatuses: Record<ModelId, SeatStatus> = { ...INITIAL_SEAT_STATUSES };
+    activeSeatOrder.forEach((id, index) => {
+      initialStatuses[id] = index === 0 ? 'thinking' : 'waiting';
+    });
+
+    const initialLiveSeatMsg: ChatMessage | null =
+      optimisticPlaceholder?.firstSeatId && optimisticPlaceholder?.msgId
+        ? {
+            id: optimisticPlaceholder.msgId,
+            discussionId: discussionId || undefined,
+            role: 'model',
+            modelId: optimisticPlaceholder.firstSeatId,
+            authorName: COUNCIL_MEMBERS[optimisticPlaceholder.firstSeatId]?.name || 'AI',
+            content: '',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isStreaming: true,
+          }
+        : null;
+
+    if (discussionId) {
+      activeGenerationsRef.current.set(discussionId, {
+        controller,
+        liveSeatMessage: initialLiveSeatMsg,
+        seatStatuses: initialStatuses,
+        activeSpeaker: optimisticPlaceholder?.firstSeatId || null,
+      });
+    }
+
     if (controller.signal.aborted) {
+      if (discussionId) {
+        activeGenerationsRef.current.delete(discussionId);
+      }
       if (activeDebateIdRef.current === discussionId) {
         setSeatStatuses(INITIAL_SEAT_STATUSES);
         setActiveSpeaker(null);
@@ -626,6 +687,43 @@ export default function DashboardPage() {
               inProgressModelId = seatId;
               inProgressContent = '';
 
+              const modelInfo = COUNCIL_MEMBERS[seatId];
+              const msgId =
+                !adoptedFirstSeat &&
+                optimisticPlaceholder &&
+                optimisticPlaceholder.firstSeatId === seatId
+                  ? optimisticPlaceholder.msgId
+                  : `msg-${seatId}-${Date.now()}`;
+
+              if (!adoptedFirstSeat && optimisticPlaceholder && optimisticPlaceholder.firstSeatId !== seatId) {
+                currentAttemptModelMsgIds.delete(optimisticPlaceholder.msgId);
+              }
+              currentAttemptModelMsgIds.add(msgId);
+              adoptedFirstSeat = true;
+
+              const newMsg: ChatMessage = {
+                id: msgId,
+                discussionId: discussionId || undefined,
+                role: 'model',
+                modelId: seatId,
+                authorName: modelInfo?.name || data.name || 'AI',
+                content: '',
+                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                isStreaming: true,
+              };
+
+              if (discussionId) {
+                const activeGen = activeGenerationsRef.current.get(discussionId);
+                if (activeGen) {
+                  activeGen.liveSeatMessage = { ...newMsg };
+                  activeGen.seatStatuses = {
+                    ...activeGen.seatStatuses,
+                    [seatId]: 'thinking',
+                  };
+                  activeGen.activeSpeaker = seatId;
+                }
+              }
+
               if (isCurrentDiscussionActive) {
                 setActiveSpeaker(seatId);
                 setSeatStatuses((prev) => ({
@@ -633,15 +731,8 @@ export default function DashboardPage() {
                   [seatId]: 'thinking',
                 }));
 
-                const modelInfo = COUNCIL_MEMBERS[seatId];
-
-                if (
-                  !adoptedFirstSeat &&
-                  optimisticPlaceholder &&
-                  optimisticPlaceholder.firstSeatId === seatId
-                ) {
+                if (optimisticPlaceholder && optimisticPlaceholder.firstSeatId === seatId) {
                   // Adopt the exact optimistic placeholder pre-created at request start
-                  adoptedFirstSeat = true;
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === optimisticPlaceholder.msgId
@@ -654,7 +745,7 @@ export default function DashboardPage() {
                     )
                   );
                 } else {
-                  if (!adoptedFirstSeat && optimisticPlaceholder) {
+                  if (optimisticPlaceholder) {
                     // Backend seat mismatch safety: remove unused placeholder
                     console.warn(
                       `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder.firstSeatId}", received "${seatId}". Removing placeholder.`
@@ -662,23 +753,7 @@ export default function DashboardPage() {
                     setMessages((prev) =>
                       prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
                     );
-                    currentAttemptModelMsgIds.delete(optimisticPlaceholder.msgId);
-                    adoptedFirstSeat = true;
                   }
-
-                  const newMsgId = `msg-${seatId}-${Date.now()}`;
-                  currentAttemptModelMsgIds.add(newMsgId);
-
-                  const newMsg: ChatMessage = {
-                    id: newMsgId,
-                    discussionId: discussionId || undefined,
-                    role: 'model',
-                    modelId: seatId,
-                    authorName: modelInfo?.name || data.name,
-                    content: '',
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isStreaming: true,
-                  };
 
                   setMessages((prev) => [...prev, newMsg]);
                 }
@@ -687,6 +762,22 @@ export default function DashboardPage() {
               const seatId = data.seatId as ModelId;
               const chunk = data.text || '';
               inProgressContent += chunk;
+
+              if (discussionId) {
+                const activeGen = activeGenerationsRef.current.get(discussionId);
+                if (activeGen) {
+                  activeGen.seatStatuses = {
+                    ...activeGen.seatStatuses,
+                    [seatId]: 'speaking',
+                  };
+                  if (activeGen.liveSeatMessage && activeGen.liveSeatMessage.modelId === seatId) {
+                    activeGen.liveSeatMessage = {
+                      ...activeGen.liveSeatMessage,
+                      content: activeGen.liveSeatMessage.content + chunk,
+                    };
+                  }
+                }
+              }
 
               if (isCurrentDiscussionActive) {
                 setSeatStatuses((prev) =>
@@ -711,6 +802,17 @@ export default function DashboardPage() {
               const completedContent = data.content || inProgressContent || '';
               inProgressModelId = null;
               inProgressContent = '';
+
+              if (discussionId) {
+                const activeGen = activeGenerationsRef.current.get(discussionId);
+                if (activeGen) {
+                  activeGen.seatStatuses = {
+                    ...activeGen.seatStatuses,
+                    [seatId]: 'done',
+                  };
+                  activeGen.liveSeatMessage = null;
+                }
+              }
 
               if (isCurrentDiscussionActive) {
                 setSeatStatuses((prev) => ({
@@ -753,6 +855,9 @@ export default function DashboardPage() {
                 }
               }
             } else if (eventType === 'council_done') {
+              if (discussionId) {
+                activeGenerationsRef.current.delete(discussionId);
+              }
               if (isCurrentDiscussionActive) {
                 setActiveSpeaker(null);
                 setIsDebating(false);
@@ -764,6 +869,9 @@ export default function DashboardPage() {
                 touchDiscussion(discussionId);
               }
             } else if (eventType === 'error') {
+              if (discussionId) {
+                activeGenerationsRef.current.delete(discussionId);
+              }
               if (isCurrentDiscussionActive) {
                 setIsDebating(false);
                 setActiveSpeaker(null);
@@ -791,6 +899,9 @@ export default function DashboardPage() {
         }
       }
     } catch (err: any) {
+      if (discussionId) {
+        activeGenerationsRef.current.delete(discussionId);
+      }
       const isAborted = controller.signal.aborted || err?.name === 'AbortError';
 
       if (isAborted) {
@@ -851,7 +962,12 @@ export default function DashboardPage() {
         }
       }
     } finally {
-      abortControllerRef.current = null;
+      if (discussionId) {
+        activeGenerationsRef.current.delete(discussionId);
+      }
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       if (activeDebateIdRef.current === discussionId) {
         setIsDebating(false);
         setActiveSpeaker(null);
