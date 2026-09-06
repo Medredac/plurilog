@@ -17,6 +17,7 @@ import {
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
+import { isTextFileUrl, getTextFileDisplayBadge } from '@/utils/textFileParser';
 
 // Safe extraction of clean display filename from stored/signed attachment URL
 export function getAttachmentDisplayFilename(url?: string | null): string {
@@ -26,7 +27,14 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
   const cleanUrl = url.split('?')[0].split('#')[0];
   const isPdf = cleanUrl.toLowerCase().endsWith('.pdf');
   const isDocx = cleanUrl.toLowerCase().endsWith('.docx');
-  const defaultFallback = isPdf ? 'document.pdf' : isDocx ? 'document.docx' : 'image.jpg';
+  const isText = isTextFileUrl(cleanUrl);
+  const defaultFallback = isPdf
+    ? 'document.pdf'
+    : isDocx
+      ? 'document.docx'
+      : isText
+        ? 'document.txt'
+        : 'image.jpg';
 
   // B. Take final path segment
   const segments = cleanUrl.split('/');
@@ -360,6 +368,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       const cleanLower = url.split('?')[0].toLowerCase();
                       const isPdf = cleanLower.endsWith('.pdf');
                       const isDocx = cleanLower.endsWith('.docx');
+                      const isText = isTextFileUrl(cleanLower);
                       const filename = getAttachmentDisplayFilename(url);
                       return (
                         <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
@@ -385,6 +394,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
                               <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
                                 DOCX
+                              </span>
+                            </button>
+                          ) : isText ? (
+                            <button
+                              type="button"
+                              onClick={() => window.open(url, '_blank')}
+                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                              title={`Click to view ${filename} in new tab`}
+                            >
+                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-600" />
+                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                {getTextFileDisplayBadge(filename)}
                               </span>
                             </button>
                           ) : (

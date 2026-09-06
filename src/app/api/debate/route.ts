@@ -34,6 +34,7 @@ import {
   KnownImageSource,
 } from '@/utils/discussionMemory';
 import { parseDocx } from '@/utils/docxParser';
+import { parseTextFile, isTextFileUrl, isTextFileName } from '@/utils/textFileParser';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
 import {
@@ -91,7 +92,8 @@ export function sanitizeModelFilename(filename?: string | null): string {
  * 3. [current round's prior seat responses, same format]
  * 4. [current user prompt]
  */
-export const DOCX_TURN1_TOKEN_BUDGET = 12000;
+export const DOCUMENT_TURN1_TOKEN_BUDGET = 12000;
+export const DOCX_TURN1_TOKEN_BUDGET = DOCUMENT_TURN1_TOKEN_BUDGET;
 
 export function buildPanelMessages(
   currentModelName: string,
@@ -238,9 +240,10 @@ export function buildPanelMessages(
     const nonPdfBlocks: any[] = [];
 
     for (const attachment of attachments) {
-      const cleanUrl = attachment.url.split('?')[0].toLowerCase();
+      const cleanUrl = attachment.url.split('?')[0].split('#')[0].toLowerCase();
       const isPdf = cleanUrl.endsWith('.pdf');
       const isDocx = cleanUrl.endsWith('.docx');
+      const isText = isTextFileUrl(cleanUrl);
       if (isPdf) {
         pdfBlocks.push({
           type: 'file',
@@ -249,8 +252,8 @@ export function buildPanelMessages(
             file_data: attachment.url,
           },
         });
-      } else if (isDocx) {
-        // DOCX is provided as structured text in document context / userContent.
+      } else if (isDocx || isText) {
+        // DOCX and Text files are provided as structured text in document context / userContent.
         continue;
       } else {
         const cleanName = sanitizeModelFilename(attachment.filename);
@@ -306,9 +309,10 @@ export function buildPanelMessages(
     }
 
     for (const attachment of attachments) {
-      const cleanUrl = attachment.url.split('?')[0].toLowerCase();
+      const cleanUrl = attachment.url.split('?')[0].split('#')[0].toLowerCase();
       const isPdf = cleanUrl.endsWith('.pdf');
       const isDocx = cleanUrl.endsWith('.docx');
+      const isText = isTextFileUrl(cleanUrl);
       if (isPdf) {
         contentBlocks.push({
           type: 'file',
@@ -317,8 +321,8 @@ export function buildPanelMessages(
             file_data: attachment.url,
           },
         });
-      } else if (isDocx) {
-        // DOCX is provided as structured text in document context / userContent.
+      } else if (isDocx || isText) {
+        // DOCX and Text files are provided as structured text in document context / userContent.
         continue;
       } else {
         const cleanName = sanitizeModelFilename(attachment.filename);
@@ -749,28 +753,30 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // DOCX Turn-1 Pre-Seat Single Parse & Document Evidence Delivery
-          const parsedDocxToIngest: {
+          // DOCX & Text Files V1 Turn-1 Pre-Seat Single Parse & Document Evidence Delivery
+          const parsedDocsToIngest: {
             filename: string;
             fullText: string;
             fileBytes: Buffer;
             storagePath: string | null;
           }[] = [];
 
-          let currentTurnDocxEvidence: { filename: string; content: string }[] = [];
+          let currentTurnDocuments: { filename: string; content: string }[] = [];
 
           if (attachments && attachments.length > 0) {
-            const docxAttachments = attachments.filter((att: any) =>
-              att?.url && att.url.split('?')[0].toLowerCase().endsWith('.docx')
-            );
+            const documentAttachments = attachments.filter((att: any) => {
+              if (!att?.url) return false;
+              const clean = att.url.split('?')[0].split('#')[0].toLowerCase();
+              return clean.endsWith('.docx') || isTextFileUrl(clean);
+            });
 
-            if (docxAttachments.length > 0) {
+            if (documentAttachments.length > 0) {
               try {
                 const serviceClient = createServiceClient();
                 const parsedDocuments: { filename: string; fullText: string; chunks: string[] }[] = [];
 
-                for (const docxAtt of docxAttachments) {
-                  const storagePath = extractStoragePathFromSignedUrl(docxAtt.url);
+                for (const docAtt of documentAttachments) {
+                  const storagePath = extractStoragePathFromSignedUrl(docAtt.url);
                   let fileBuffer: Buffer | null = null;
 
                   if (storagePath) {
@@ -782,59 +788,71 @@ export async function POST(req: NextRequest) {
                         const arrayBuf = await fileBlob.arrayBuffer();
                         fileBuffer = Buffer.from(arrayBuf);
                       } else if (downloadErr) {
-                        console.warn('[DOCX Parse] Storage download warning:', downloadErr);
+                        console.warn('[Doc Parse] Storage download warning:', downloadErr);
                       }
                     } catch (dlEx) {
-                      console.warn('[DOCX Parse] Error downloading from storagePath:', dlEx);
+                      console.warn('[Doc Parse] Error downloading from storagePath:', dlEx);
                     }
                   }
 
-                  if (!fileBuffer && docxAtt.url) {
+                  if (!fileBuffer && docAtt.url) {
                     try {
-                      const res = await fetch(docxAtt.url);
+                      const res = await fetch(docAtt.url);
                       if (res.ok) {
                         const arrayBuf = await res.arrayBuffer();
                         fileBuffer = Buffer.from(arrayBuf);
                       }
                     } catch (fetchEx) {
-                      console.warn('[DOCX Parse] Error fetching from signed URL:', fetchEx);
+                      console.warn('[Doc Parse] Error fetching from signed URL:', fetchEx);
                     }
                   }
 
                   if (fileBuffer) {
                     try {
-                      const parsed = await parseDocx(fileBuffer);
-                      if (parsed && parsed.markdown && parsed.markdown.trim()) {
-                        const docxFilename = docxAtt.filename || 'document.docx';
+                      const cleanUrl = docAtt.url.split('?')[0].split('#')[0].toLowerCase();
+                      const isDocx = cleanUrl.endsWith('.docx');
+                      const docFilename =
+                        docAtt.filename || (isDocx ? 'document.docx' : 'document.txt');
+
+                      let parsedMarkdown = '';
+                      if (isDocx) {
+                        const parsed = await parseDocx(fileBuffer);
+                        parsedMarkdown = parsed?.markdown || '';
+                      } else {
+                        const parsed = await parseTextFile(fileBuffer, docFilename);
+                        parsedMarkdown = parsed?.markdown || '';
+                      }
+
+                      if (parsedMarkdown && parsedMarkdown.trim()) {
                         // Complete untruncated Markdown preserved for durable ingestion
-                        parsedDocxToIngest.push({
-                          filename: docxFilename,
-                          fullText: parsed.markdown,
+                        parsedDocsToIngest.push({
+                          filename: docFilename,
+                          fullText: parsedMarkdown,
                           fileBytes: fileBuffer,
                           storagePath: storagePath || null,
                         });
 
-                        const docChunks = chunkDocumentText(parsed.markdown);
+                        const docChunks = chunkDocumentText(parsedMarkdown);
                         parsedDocuments.push({
-                          filename: docxFilename,
-                          fullText: parsed.markdown,
-                          chunks: docChunks.length > 0 ? docChunks : [parsed.markdown],
+                          filename: docFilename,
+                          fullText: parsedMarkdown,
+                          chunks: docChunks.length > 0 ? docChunks : [parsedMarkdown],
                         });
 
-                        console.log('[DOCX Parse] Successfully parsed Turn-1 DOCX document:', {
-                          filename: docxFilename,
+                        console.log('[Doc Parse] Successfully parsed Turn-1 document:', {
+                          filename: docFilename,
                           storagePath,
                           byteSize: fileBuffer.length,
-                          characterCount: parsed.markdown.length,
+                          characterCount: parsedMarkdown.length,
                         });
                       }
                     } catch (parseEx) {
-                      console.warn('[DOCX Parse] Non-critical warning parsing DOCX:', parseEx);
+                      console.warn('[Doc Parse] Non-critical warning parsing document:', parseEx);
                     }
                   }
                 }
 
-                // Build bounded Turn-1 model evidence across all current DOCX attachments within DOCX_TURN1_TOKEN_BUDGET
+                // Build bounded Turn-1 model evidence across all current document attachments within DOCUMENT_TURN1_TOKEN_BUDGET
                 if (parsedDocuments.length > 0) {
                   let totalExtractedTokens = 0;
                   let totalSuppliedTokens = 0;
@@ -846,7 +864,7 @@ export async function POST(req: NextRequest) {
                     totalExtractedTokens += estimateTokens(doc.fullText);
                   }
 
-                  let remainingBudget = DOCX_TURN1_TOKEN_BUDGET;
+                  let remainingBudget = DOCUMENT_TURN1_TOKEN_BUDGET;
 
                   for (const doc of parsedDocuments) {
                     if (remainingBudget <= 0) {
@@ -857,7 +875,11 @@ export async function POST(req: NextRequest) {
                     const selectedChunks: string[] = [];
                     for (const chunk of doc.chunks) {
                       const chunkTokens = estimateTokens(chunk);
-                      if (selectedChunks.length === 0 && remainingBudget === DOCX_TURN1_TOKEN_BUDGET && chunkTokens > remainingBudget) {
+                      if (
+                        selectedChunks.length === 0 &&
+                        remainingBudget === DOCUMENT_TURN1_TOKEN_BUDGET &&
+                        chunkTokens > remainingBudget
+                      ) {
                         // First chunk edge case: safely include the single chunk
                         selectedChunks.push(chunk);
                         totalSuppliedTokens += chunkTokens;
@@ -880,7 +902,7 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  currentTurnDocxEvidence = parsedDocuments
+                  currentTurnDocuments = parsedDocuments
                     .map((doc) => {
                       const chunks = evidencePerDoc.get(doc.filename) || [];
                       if (chunks.length === 0) return null;
@@ -891,15 +913,15 @@ export async function POST(req: NextRequest) {
                     })
                     .filter((item): item is { filename: string; content: string } => item !== null);
 
-                  console.log('[DOCX Turn1 Evidence]', {
+                  console.log('[Document Turn1 Evidence]', {
                     documentCount: parsedDocuments.length,
                     fullExtractedTokens: totalExtractedTokens,
                     suppliedTokens: totalSuppliedTokens,
                     truncated: isTruncated,
                   });
                 }
-              } catch (docxErr) {
-                console.warn('[DOCX Parse] Non-critical error processing DOCX attachments:', docxErr);
+              } catch (docErr) {
+                console.warn('[Doc Parse] Non-critical error processing document attachments:', docErr);
               }
             }
           }
@@ -1384,7 +1406,7 @@ export async function POST(req: NextRequest) {
               retrievedMemory,
               retrievedDocuments,
               isVisualUnavailable,
-              currentTurnDocxEvidence
+              currentTurnDocuments
             );
 
             try {
@@ -1606,22 +1628,22 @@ export async function POST(req: NextRequest) {
                     });
                   }
 
-                  // 1b. DOCX document ingestion using authoritative original bytes
-                  if (parsedDocxToIngest.length > 0) {
-                    for (const docxItem of parsedDocxToIngest) {
+                  // 1b. DOCX & Text Files V1 document ingestion using authoritative original bytes
+                  if (parsedDocsToIngest.length > 0) {
+                    for (const docItem of parsedDocsToIngest) {
                       try {
                         await ingestParsedDocument({
                           serviceSupabase: serviceClient,
                           openai,
                           discussionId,
-                          filename: docxItem.filename,
-                          fullText: docxItem.fullText,
-                          fileBytes: docxItem.fileBytes,
-                          storagePath: docxItem.storagePath,
+                          filename: docItem.filename,
+                          fullText: docItem.fullText,
+                          fileBytes: docItem.fileBytes,
+                          storagePath: docItem.storagePath,
                           sourceUserMessageId,
                         });
-                      } catch (docxIngestErr) {
-                        console.warn('[Doc Ingest] Non-critical warning ingesting DOCX document:', docxIngestErr);
+                      } catch (docIngestErr) {
+                        console.warn('[Doc Ingest] Non-critical warning ingesting document:', docIngestErr);
                       }
                     }
                   }

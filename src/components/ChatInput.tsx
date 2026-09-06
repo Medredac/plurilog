@@ -4,6 +4,7 @@ import React, { useState, useRef } from 'react';
 import { ArrowUp, Paperclip, X, Square, FileText } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
+import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
@@ -88,11 +89,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         lowerName.endsWith('.docx') ||
         file.type ===
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      const isTextFile = isTextFileName(file.name);
       const isValid =
         file.type.startsWith('image/') ||
         file.type === 'application/pdf' ||
         lowerName.endsWith('.pdf') ||
-        isDocx;
+        isDocx ||
+        isTextFile;
 
       if (!isValid) {
         invalidFiles.push(file.name);
@@ -126,7 +129,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
     if (invalidFiles.length > 0) {
       alertMessages.push(
-        `The following file(s) are not supported images, PDFs, or DOCX documents and were skipped: ${invalidFiles.join(', ')}`
+        `The following file(s) are not supported images, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
       );
     }
     if (limitExceeded) {
@@ -207,7 +210,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <input
         type="file"
         ref={docInputRef}
-        accept=".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept=".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -227,6 +230,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 lowerName.endsWith('.docx') ||
                 item.file.type ===
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+              const isTextFile = isTextFileName(item.file.name);
 
               return (
                 <div key={item.id} className="relative self-start group">
@@ -250,6 +254,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       <FileText className="w-5 h-5 text-blue-600" />
                       <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
                         DOCX
+                      </span>
+                    </div>
+                  ) : isTextFile ? (
+                    <div
+                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
+                      title={item.file.name}
+                    >
+                      <FileText className="w-5 h-5 text-emerald-600" />
+                      <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
+                        {getTextFileDisplayBadge(item.file.name)}
                       </span>
                     </div>
                   ) : (

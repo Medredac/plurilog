@@ -214,6 +214,9 @@ export function isDocxUrl(url?: string | null, storagePath?: string | null): boo
   return pathToCheck.endsWith('.docx');
 }
 
+import { isTextFileUrl, SUPPORTED_TEXT_EXTENSIONS } from './textFileParser';
+export { isTextFileUrl };
+
 /**
  * Supported standalone image file extensions reliably accepted across visual model seats.
  */
@@ -227,20 +230,19 @@ export const SUPPORTED_IMAGE_EXTENSIONS = [
 
 /**
  * Deterministically checks if a URL or storage path refers to a supported standalone image file.
- * Explicitly excludes PDFs, DOCX, XLSX, etc.
+ * Explicitly excludes PDFs, DOCX, XLSX, Text files, etc.
  */
 export function isImageUrl(url?: string | null, storagePath?: string | null): boolean {
   if (!url && !storagePath) return false;
-  const pathToCheck = (storagePath || url || '').split('?')[0].toLowerCase();
-  // Ensure PDFs, Word, Excel, and non-image documents are never matched
+  const pathToCheck = (storagePath || url || '').split('?')[0].split('#')[0].toLowerCase();
+  // Ensure PDFs, Word, Excel, and text-based documents are never matched as images
   if (
     pathToCheck.endsWith('.pdf') ||
     pathToCheck.endsWith('.docx') ||
     pathToCheck.endsWith('.doc') ||
     pathToCheck.endsWith('.xlsx') ||
     pathToCheck.endsWith('.xls') ||
-    pathToCheck.endsWith('.txt') ||
-    pathToCheck.endsWith('.csv')
+    SUPPORTED_TEXT_EXTENSIONS.some((ext) => pathToCheck.endsWith(ext))
   ) {
     return false;
   }
@@ -260,8 +262,15 @@ export function extractAttachmentMetadata(
   const storagePath = extractStoragePathFromSignedUrl(url);
   const isPdf = isPdfUrl(url, storagePath);
   const isDocx = isDocxUrl(url, storagePath);
-  const isDoc = isPdf || isDocx;
-  let filename = isPdf ? 'attachment.pdf' : isDocx ? 'attachment.docx' : 'attachment';
+  const isTextDoc = isTextFileUrl(url, storagePath);
+  const isDoc = isPdf || isDocx || isTextDoc;
+  let filename = isPdf
+    ? 'attachment.pdf'
+    : isDocx
+      ? 'attachment.docx'
+      : isTextDoc
+        ? 'attachment.txt'
+        : 'attachment';
 
   if (storagePath) {
     const rawFilename = storagePath.split('/').pop() || '';
@@ -1437,8 +1446,13 @@ export async function getScopedDiscussionMemory(
             const storagePath = extractStoragePathFromSignedUrl(url);
             const isPdf = isPdfUrl(url, storagePath);
             const isDocx = isDocxUrl(url, storagePath);
-            if (isPdf || isDocx) {
-              let filename = isPdf ? 'attachment.pdf' : 'attachment.docx';
+            const isTextDoc = isTextFileUrl(url, storagePath);
+            if (isPdf || isDocx || isTextDoc) {
+              let filename = isPdf
+                ? 'attachment.pdf'
+                : isDocx
+                  ? 'attachment.docx'
+                  : 'attachment.txt';
               if (storagePath) {
                 const rawFilename = storagePath.split('/').pop() || '';
                 const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
