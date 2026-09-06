@@ -687,24 +687,15 @@ export default function DashboardPage() {
               inProgressModelId = seatId;
               inProgressContent = '';
 
-              const isFirstSeatStart = !adoptedFirstSeat;
-              const shouldAdoptOptimisticPlaceholder = Boolean(
-                isFirstSeatStart &&
+              const modelInfo = COUNCIL_MEMBERS[seatId];
+              const msgId =
+                !adoptedFirstSeat &&
                 optimisticPlaceholder &&
                 optimisticPlaceholder.firstSeatId === seatId
-              );
-              const shouldDiscardOptimisticPlaceholder = Boolean(
-                isFirstSeatStart &&
-                optimisticPlaceholder &&
-                optimisticPlaceholder.firstSeatId !== seatId
-              );
+                  ? optimisticPlaceholder.msgId
+                  : `msg-${seatId}-${Date.now()}`;
 
-              const modelInfo = COUNCIL_MEMBERS[seatId];
-              const msgId = shouldAdoptOptimisticPlaceholder && optimisticPlaceholder
-                ? optimisticPlaceholder.msgId
-                : `msg-${seatId}-${Date.now()}`;
-
-              if (shouldDiscardOptimisticPlaceholder && optimisticPlaceholder) {
+              if (!adoptedFirstSeat && optimisticPlaceholder && optimisticPlaceholder.firstSeatId !== seatId) {
                 currentAttemptModelMsgIds.delete(optimisticPlaceholder.msgId);
               }
               currentAttemptModelMsgIds.add(msgId);
@@ -740,7 +731,7 @@ export default function DashboardPage() {
                   [seatId]: 'thinking',
                 }));
 
-                if (shouldAdoptOptimisticPlaceholder && optimisticPlaceholder) {
+                if (optimisticPlaceholder && optimisticPlaceholder.firstSeatId === seatId) {
                   // Adopt the exact optimistic placeholder pre-created at request start
                   setMessages((prev) =>
                     prev.map((m) =>
@@ -753,17 +744,17 @@ export default function DashboardPage() {
                         : m
                     )
                   );
-                } else if (shouldDiscardOptimisticPlaceholder && optimisticPlaceholder) {
-                  // Backend seat mismatch safety on initial seat: remove unused placeholder and append real first seat
-                  console.warn(
-                    `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder.firstSeatId}", received "${seatId}". Removing placeholder.`
-                  );
-                  setMessages((prev) => [
-                    ...prev.filter((m) => m.id !== optimisticPlaceholder.msgId),
-                    newMsg,
-                  ]);
                 } else {
-                  // Later seats (Seat 2, Seat 3, etc.) or initial seats without placeholders
+                  if (optimisticPlaceholder) {
+                    // Backend seat mismatch safety: remove unused placeholder
+                    console.warn(
+                      `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder.firstSeatId}", received "${seatId}". Removing placeholder.`
+                    );
+                    setMessages((prev) =>
+                      prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
+                    );
+                  }
+
                   setMessages((prev) => [...prev, newMsg]);
                 }
               }
