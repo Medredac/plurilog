@@ -50,7 +50,13 @@ Only treat a message as directed at a specific panelist if the user's CURRENT me
 
 Treat earlier panelist responses as contributions to evaluate, not conclusions to inherit. Form your own independent judgment about the user's question and about what earlier panelists have said; seeing another panelist's answer is never a reason to assume it is correct. Peer responses from other panelists are claims to evaluate, not source evidence. Never treat another model's confidence, repetition, or agreement as independent corroboration; agreement among multiple panelists is conversational consensus, not factual verification. If you do not independently know whether a peer's factual claim is accurate, do not repeat it as established fact merely because a peer stated it first. If an earlier response contains a material factual error, reasoning error, contradiction, unsupported assumption, hallucination, or missed user constraint, identify the problem naturally and correct it. If you genuinely disagree on a substantive point, state the disagreement clearly and explain why. If you independently agree, agreement is completely appropriate — do not manufacture disagreement or adopt contrarian stances merely for the sake of the panel format. Avoid rigid labels like CRITIQUE:, CORRECTION:, or AGREEMENT:; keep the conversation thoughtful, grounded, and human.
 
-Distinguish source-grounded facts from unverified model recall. You may rely only on evidence actually supplied in your context for this turn, such as current or reopened user documents, retrieved document excerpts, or tool results. Do not assume access to live web search, external databases, or other tools unless that tool or its results are actually available in your turn context. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. (A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true). On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
+Distinguish source-grounded facts from unverified model recall. You may rely only on evidence actually supplied in your context for this turn, such as current or reopened user documents, retrieved document excerpts, or tool results. You have access to a web search tool (openrouter:web_search) to look up fresh external information.
+Search policy:
+- SEARCH when the user explicitly asks to search, browse, look up, or verify online; when asked about current, latest, recent, or today's events/people/status; when an answer materially depends on facts that may have changed; or when external verification materially improves reliability. If the user explicitly asks to search the web or check current information, do NOT answer purely from memory without searching.
+- DO NOT SEARCH when answering stable common knowledge (e.g. basic math, well-known historical facts, definitions), performing creative or rewriting tasks, summarizing or analyzing text provided directly in the prompt, or when uploaded/retrieved documents already contain the necessary information. Do not search merely because the tool is available or because another panelist searched.
+- Search efficiently: normally a single targeted search query is sufficient; search again only when genuinely necessary to resolve or verify the question.
+- Do not add inline source URLs or Markdown citation links to your prose. Plurilog collects and displays web sources automatically.
+- Evidence hierarchy: Web search results and user-supplied documents are external source evidence. Peer responses from other council panelists remain conversational contributions and claims to evaluate, never source evidence. Agreement or repetition among panelists is not verification. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. (A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true). On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 Contribute only as much as is genuinely useful. If you independently agree with earlier panelists and have nothing material to add, a brief agreement (e.g., "Agreed", "Yes, that matches my assessment") is completely acceptable — do not restate the answer or paraphrase earlier responses merely to generate content. Only add detail when introducing a distinct useful fact, correction, qualification, reasoning step, or perspective. Never paraphrase or summarize another panelist's response simply to generate content, and do not act as a narrator, moderator, or play-by-play commentator for what others have said. Do not speak merely because it is your turn, but do not force brevity when a substantive correction, disagreement, or novel insight requires explanation.
 
@@ -61,6 +67,89 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PriorResponse {
   name: string;
   response: string;
+}
+
+/**
+ * Sanitizes peer response text to isolate same-round panelists from web-search citation URLs,
+ * preventing citation anchoring while preserving all conversational text and non-citation URLs.
+ */
+function sanitizePeerResponseForWebCitations(
+  text: string,
+  webCitations: { url: string; title: string }[]
+): string {
+  if (!text || !webCitations || webCitations.length === 0) {
+    return text;
+  }
+
+  const normalize = (uStr: string): string => {
+    try {
+      const u = new URL(uStr.trim());
+      const path = u.pathname.replace(/\/+$/, '');
+      return `${u.protocol}//${u.host}${path}${u.search}`;
+    } catch {
+      return uStr.trim().replace(/\/+$/, '');
+    }
+  };
+
+  const knownCitationSet = new Set<string>();
+  for (const c of webCitations) {
+    if (c.url) {
+      knownCitationSet.add(normalize(c.url));
+      knownCitationSet.add(c.url.trim());
+      try {
+        knownCitationSet.add(normalize(decodeURI(c.url)));
+      } catch {}
+    }
+  }
+
+  const isKnownUrl = (testUrl: string): boolean => {
+    const norm = normalize(testUrl);
+    if (knownCitationSet.has(norm) || knownCitationSet.has(testUrl.trim())) {
+      return true;
+    }
+    try {
+      if (knownCitationSet.has(normalize(decodeURI(testUrl)))) {
+        return true;
+      }
+    } catch {}
+    return false;
+  };
+
+  // 1. Replace Markdown links [Text](http...) where the URL matches a known citation with Text
+  let result = text.replace(
+    /\[([^\]]*)\]\((https?:\/\/[^\s\)]+)\)/gi,
+    (match, linkText, linkUrl) => {
+      if (isKnownUrl(linkUrl)) {
+        return linkText || '';
+      }
+      return match;
+    }
+  );
+
+  // 2. Remove bare citation URLs matching known citations
+  result = result.replace(
+    /\bhttps?:\/\/[^\s\)\"\'<>]+/gi,
+    (match) => {
+      let cleanUrl = match;
+      let trailingPunct = '';
+      while (/[.,;:!?]$/.test(cleanUrl)) {
+        trailingPunct = cleanUrl.slice(-1) + trailingPunct;
+        cleanUrl = cleanUrl.slice(0, -1);
+      }
+      if (isKnownUrl(cleanUrl)) {
+        return trailingPunct;
+      }
+      return match;
+    }
+  );
+
+  // 3. Clean up empty parentheticals left over from stripped inline citations, e.g. " ()"
+  result = result
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return result;
 }
 
 /**
@@ -1409,6 +1498,52 @@ export async function POST(req: NextRequest) {
               currentTurnDocuments
             );
 
+            const seatWebCitations: { url: string; title: string }[] = [];
+            const seenCitationUrls = new Set<string>();
+
+            const addWebCitations = (raw: any) => {
+              if (!raw) return;
+              const annList = Array.isArray(raw) ? raw : [raw];
+              for (const ann of annList) {
+                if (ann?.type === 'url_citation' && ann?.url_citation?.url) {
+                  const rawUrl = String(ann.url_citation.url).trim();
+                  if (!rawUrl) continue;
+
+                  try {
+                    const parsed = new URL(rawUrl);
+                    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                      continue;
+                    }
+
+                    // Escape parentheses in URL to guarantee clean Markdown link formatting
+                    const safeUrl = parsed.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+                    if (seenCitationUrls.has(safeUrl)) {
+                      continue;
+                    }
+                    seenCitationUrls.add(safeUrl);
+
+                    let rawTitle =
+                      typeof ann.url_citation.title === 'string'
+                        ? ann.url_citation.title.trim()
+                        : '';
+                    if (!rawTitle) {
+                      rawTitle = parsed.hostname.replace(/^www\./, '') || 'Source';
+                    }
+
+                    // Escape backslashes, opening brackets, and closing brackets in display title
+                    const safeTitle = rawTitle
+                      .replace(/\\/g, '\\\\')
+                      .replace(/\[/g, '\\[')
+                      .replace(/\]/g, '\\]');
+
+                    seatWebCitations.push({ url: safeUrl, title: safeTitle });
+                  } catch {
+                    // Ignore malformed or invalid URLs
+                  }
+                }
+              }
+            };
+
             try {
               const stream = await (openai.chat.completions.create as any)({
                 model: primaryModel,
@@ -1418,6 +1553,15 @@ export async function POST(req: NextRequest) {
                 max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
+                tools: [
+                  {
+                    type: 'openrouter:web_search',
+                    parameters: {
+                      max_results: 3,
+                      max_total_results: 6,
+                    },
+                  },
+                ],
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
@@ -1446,8 +1590,12 @@ export async function POST(req: NextRequest) {
                   seatUsage = (chunk as any).usage;
                 }
 
-                // Capture file annotations from chunk.choices[0].delta.annotations (deduplicated by file.hash)
-                addFileAnnotations((chunk.choices?.[0]?.delta as any)?.annotations);
+                // Capture file annotations and web url_citation annotations from chunk.choices[0].delta.annotations
+                const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
+                if (deltaAnnotations) {
+                  addFileAnnotations(deltaAnnotations);
+                  addWebCitations(deltaAnnotations);
+                }
 
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
@@ -1464,8 +1612,26 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
+              // Capture conversational peer response text sanitized against web-search citation URLs
+              const peerResponseText = sanitizePeerResponseForWebCitations(
+                seatResponse,
+                seatWebCitations
+              );
+
+              // Append formatted Markdown sources list if web citations were returned
+              if (seatWebCitations.length > 0) {
+                const sourcesBlock =
+                  `\n\nSources:\n` +
+                  seatWebCitations.map((c) => `- [${c.title}](${c.url})`).join('\n');
+                seatResponse += sourcesBlock;
+                sendEvent('seat_chunk', {
+                  seatId: seat.seatId,
+                  text: sourcesBlock,
+                });
+              }
+
               console.log(
-                `[Model Route] Provider: ${seat.providerPrefix} | Primary Requested: ${primaryModel} | Responding Model: ${respondingModel}`
+                `[Model Route] Provider: ${seat.providerPrefix} | Primary Requested: ${primaryModel} | Responding Model: ${respondingModel} | Citations: ${seatWebCitations.length}`
               );
 
               if (!seatResponse.trim()) {
@@ -1479,9 +1645,11 @@ export async function POST(req: NextRequest) {
               });
 
               if (seatUsage) {
+                const searchCount = (seatUsage as any)?.server_tool_use_details?.web_search_requests;
                 console.log(
                   `[Spend Tracking Debug] Raw seatUsage for ${seat.name}:`,
-                  JSON.stringify(seatUsage, null, 2)
+                  JSON.stringify(seatUsage, null, 2),
+                  searchCount ? `| Searches: ${searchCount}` : ''
                 );
               }
 
@@ -1507,10 +1675,10 @@ export async function POST(req: NextRequest) {
                 );
               }
 
-              // Record in prior responses for subsequent speakers
+              // Record in prior responses for subsequent speakers (untainted by synthetic Sources footer)
               priorResponses.push({
                 name: seat.name,
-                response: seatResponse,
+                response: peerResponseText,
               });
             } catch (err: any) {
               if (req.signal.aborted || err?.name === 'AbortError') {
