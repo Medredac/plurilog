@@ -745,17 +745,30 @@ export default function DashboardPage() {
                     )
                   );
                 } else {
-                  if (optimisticPlaceholder) {
-                    // Backend seat mismatch safety: remove unused placeholder
-                    console.warn(
-                      `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder.firstSeatId}", received "${seatId}". Removing placeholder.`
-                    );
-                    setMessages((prev) =>
-                      prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
-                    );
-                  }
+                  setMessages((prev) => {
+                    const placeholder = optimisticPlaceholder
+                      ? prev.find((m) => m.id === optimisticPlaceholder.msgId)
+                      : undefined;
 
-                  setMessages((prev) => [...prev, newMsg]);
+                    const isActuallyUnusedPlaceholder = Boolean(
+                      placeholder &&
+                      placeholder.isStreaming &&
+                      !placeholder.content.trim()
+                    );
+
+                    if (isActuallyUnusedPlaceholder) {
+                      console.warn(
+                        `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder?.firstSeatId}", received "${seatId}". Removing unused placeholder.`
+                      );
+                    }
+
+                    const base =
+                      isActuallyUnusedPlaceholder && optimisticPlaceholder
+                        ? prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
+                        : prev;
+
+                    return [...base, newMsg];
+                  });
                 }
               }
             } else if (eventType === 'seat_chunk') {
