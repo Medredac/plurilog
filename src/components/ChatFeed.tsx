@@ -92,6 +92,56 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
   return trimmed || defaultFallback;
 }
 
+interface ParsedSource {
+  title: string;
+  url: string;
+}
+
+interface ParsedMessageSources {
+  mainContent: string;
+  sources: ParsedSource[] | null;
+}
+
+// Display-only helper to recognize Plurilog-generated trailing Sources block
+function parseTrailingSources(rawContent: string): ParsedMessageSources {
+  if (!rawContent || typeof rawContent !== 'string') {
+    return { mainContent: rawContent || '', sources: null };
+  }
+
+  const marker = '\n\nSources:\n';
+  const lastIndex = rawContent.lastIndexOf(marker);
+  if (lastIndex === -1) {
+    return { mainContent: rawContent, sources: null };
+  }
+
+  const potentialMain = rawContent.slice(0, lastIndex);
+  const potentialSourcesBlock = rawContent.slice(lastIndex + marker.length).trim();
+
+  const lines = potentialSourcesBlock.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return { mainContent: rawContent, sources: null };
+  }
+
+  const parsedSources: ParsedSource[] = [];
+  const itemRegex = /^-\s*\[(.+)\]\((https?:\/\/[^\s\)]+)\)$/;
+
+  for (const line of lines) {
+    const itemMatch = itemRegex.exec(line);
+    if (!itemMatch) {
+      return { mainContent: rawContent, sources: null };
+    }
+    const cleanTitle = itemMatch[1].replace(/\\([\[\]\\])/g, '$1').trim();
+    parsedSources.push({
+      title: cleanTitle || 'Source',
+      url: itemMatch[2].trim(),
+    });
+  }
+
+  return {
+    mainContent: potentialMain,
+    sources: parsedSources,
+  };
+}
 
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
@@ -618,20 +668,53 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   Thinking...
                 </span>
               </div>
-            ) : (
-              /* Message Body with real ReactMarkdown rendering */
-              <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={markdownComponents}
-                >
-                  {message.content}
-                </ReactMarkdown>
-                {message.isStreaming && (
-                  <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
-                )}
-              </div>
-            )}
+            ) : (() => {
+              const { mainContent, sources } = parseTrailingSources(message.content);
+              return (
+                <div className="space-y-3.5">
+                  {/* Message Body with real ReactMarkdown rendering */}
+                  <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={markdownComponents}
+                    >
+                      {mainContent}
+                    </ReactMarkdown>
+                    {message.isStreaming && (
+                      <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
+                    )}
+                  </div>
+
+                  {/* Sources Area */}
+                  {sources && sources.length > 0 && (
+                    <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2">
+                      <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
+                        Sources
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {sources.map((source, i) => (
+                          <a
+                            key={`${source.url}-${i}`}
+                            href={source.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full"
+                            title={source.title}
+                          >
+                            <span className="truncate max-w-[220px] sm:max-w-[300px]">
+                              {source.title}
+                            </span>
+                            <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
+                              ↗
+                            </span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
             {!isThinking && (
