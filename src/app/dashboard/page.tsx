@@ -20,6 +20,42 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'chatgpt': 'idle',
 };
 
+const DEFAULT_SEAT_ORDER: ModelId[] = [
+  'chatgpt',
+  'claude',
+  'gemini',
+];
+
+function validateSeatOrder(raw: unknown): ModelId[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_SEAT_ORDER];
+  }
+
+  const validIds = new Set<ModelId>(DEFAULT_SEAT_ORDER);
+  const seen = new Set<ModelId>();
+  const result: ModelId[] = [];
+
+  for (const value of raw) {
+    if (
+      typeof value === 'string' &&
+      validIds.has(value as ModelId) &&
+      !seen.has(value as ModelId)
+    ) {
+      const id = value as ModelId;
+      seen.add(id);
+      result.push(id);
+    }
+  }
+
+  for (const id of DEFAULT_SEAT_ORDER) {
+    if (!seen.has(id)) {
+      result.push(id);
+    }
+  }
+
+  return result;
+}
+
 const CONTINUE_INSTRUCTION =
   "Respond directly to what was just said in the previous round — agree, push back, or add to it, the same way you would in an ongoing conversation.";
 
@@ -47,11 +83,7 @@ export default function DashboardPage() {
   const retryInFlightRef = useRef(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [seatOrder, setSeatOrder] = useState<ModelId[]>([
-    'gemini',
-    'claude',
-    'chatgpt',
-  ]);
+  const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([
     'gemini',
     'claude',
@@ -324,6 +356,21 @@ export default function DashboardPage() {
         setUserAvatarUrl(metadata?.avatar_url || undefined);
         refreshCreditStatus();
 
+        if (session.user?.id) {
+          try {
+            const savedRaw = localStorage.getItem(`plurilog-seat-order:${session.user.id}`);
+            if (savedRaw) {
+              const parsed = JSON.parse(savedRaw);
+              setSeatOrder(validateSeatOrder(parsed));
+            } else {
+              setSeatOrder([...DEFAULT_SEAT_ORDER]);
+            }
+          } catch (storageErr) {
+            console.warn('[Storage Error] Failed to restore seat order preference:', storageErr);
+            setSeatOrder([...DEFAULT_SEAT_ORDER]);
+          }
+        }
+
         if (!hasInitializedRef.current) {
           hasInitializedRef.current = true;
           await fetchDiscussions(session.user.id);
@@ -353,6 +400,21 @@ export default function DashboardPage() {
         setUserDisplayName(metadata?.display_name || metadata?.full_name || undefined);
         setUserAvatarUrl(metadata?.avatar_url || undefined);
         refreshCreditStatus();
+
+        if (session.user?.id) {
+          try {
+            const savedRaw = localStorage.getItem(`plurilog-seat-order:${session.user.id}`);
+            if (savedRaw) {
+              const parsed = JSON.parse(savedRaw);
+              setSeatOrder(validateSeatOrder(parsed));
+            } else {
+              setSeatOrder([...DEFAULT_SEAT_ORDER]);
+            }
+          } catch (storageErr) {
+            console.warn('[Storage Error] Failed to restore seat order preference:', storageErr);
+            setSeatOrder([...DEFAULT_SEAT_ORDER]);
+          }
+        }
       }
     });
 
@@ -414,6 +476,24 @@ export default function DashboardPage() {
         return [...prev, id];
       }
     });
+  };
+
+  const handleReorderSeats = (newOrder: ModelId[]) => {
+    const validatedOrder = validateSeatOrder(newOrder);
+    setSeatOrder(validatedOrder);
+
+    if (!userId) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        `plurilog-seat-order:${userId}`,
+        JSON.stringify(validatedOrder)
+      );
+    } catch (err) {
+      console.warn('[Storage Error] Failed to save seat order:', err);
+    }
   };
 
   // Reset to fresh blank discussion state without triggering any fetch
@@ -1535,7 +1615,7 @@ export default function DashboardPage() {
         {/* Simplified Header */}
         <CouncilHeader
           seatOrder={seatOrder}
-          onReorderSeats={setSeatOrder}
+          onReorderSeats={handleReorderSeats}
           activeModels={activeModels}
           onToggleModel={handleToggleModel}
           isDebating={isDebating}
