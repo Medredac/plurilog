@@ -313,6 +313,159 @@ interface ChatFeedProps {
   abandonedFailedTurnIds?: string[];
 }
 
+/**
+ * Presentation-only hook that smoothly and progressively reveals newly arriving text chunks.
+ * Throttles React re-renders to ~25-40ms (approx 25-40 FPS) with adaptive catch-up stepping.
+ * Immediately returns full authoritative text when not streaming or when completed.
+ */
+function useSmoothReveal(targetText: string, isStreaming?: boolean): string {
+  // Initial state: If mounted with existing content (e.g. user navigating back to active generation),
+  // start directly at current targetText.length so we do NOT replay from 0!
+  const [displayedLength, setDisplayedLength] = useState(() => targetText.length);
+
+  const targetLengthRef = useRef(targetText.length);
+  targetLengthRef.current = targetText.length;
+
+  const displayedLengthRef = useRef(displayedLength);
+  displayedLengthRef.current = displayedLength;
+
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
+
+  useEffect(() => {
+    // If target text shrunk (e.g. reset/retry), snap immediately
+    if (displayedLengthRef.current > targetText.length) {
+      setDisplayedLength(targetText.length);
+      displayedLengthRef.current = targetText.length;
+      return;
+    }
+
+    if (!isStreaming) {
+      setDisplayedLength(targetText.length);
+      displayedLengthRef.current = targetText.length;
+      return;
+    }
+
+    let rafId: number | null = null;
+    let lastTime = 0;
+
+    const tick = (now: number) => {
+      if (!isStreamingRef.current) {
+        setDisplayedLength(targetLengthRef.current);
+        displayedLengthRef.current = targetLengthRef.current;
+        return;
+      }
+
+      const current = displayedLengthRef.current;
+      const target = targetLengthRef.current;
+
+      if (current >= target) {
+        // Up to date; wait for new text without scheduling unnecessary renders
+        rafId = null;
+        return;
+      }
+
+      // Throttle visible state updates to ~28ms (approx 35 FPS) to keep Markdown rendering smooth
+      if (now - lastTime >= 28) {
+        lastTime = now;
+        const lag = target - current;
+
+        let step = 1;
+        if (lag <= 8) {
+          step = 1; // silky smooth typing pace for small lag
+        } else if (lag <= 25) {
+          step = 2; // steady reading pace
+        } else if (lag <= 60) {
+          step = 4; // brisk catch-up
+        } else if (lag <= 120) {
+          step = 8; // aggressive catch-up
+        } else {
+          step = Math.ceil(lag / 4); // rapid catch-up for massive burst arrivals
+        }
+
+        const nextLen = Math.min(target, current + step);
+        displayedLengthRef.current = nextLen;
+        setDisplayedLength(nextLen);
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    // If there is lag to reveal, start or continue the RAF loop
+    if (displayedLengthRef.current < targetText.length) {
+      rafId = requestAnimationFrame(tick);
+    }
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [targetText.length, isStreaming]);
+
+  if (!isStreaming) {
+    return targetText;
+  }
+
+  return targetText.slice(0, Math.min(displayedLength, targetText.length));
+}
+
+interface StreamingMessageBodyProps {
+  content: string;
+  isStreaming?: boolean;
+}
+
+const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, isStreaming }) => {
+  // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
+  const { mainContent, sources } = parseTrailingSources(content);
+  const displayedMainContent = useSmoothReveal(mainContent, isStreaming);
+
+  return (
+    <div className="space-y-3.5">
+      {/* Message Body with real ReactMarkdown rendering */}
+      <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={markdownComponents}
+        >
+          {displayedMainContent}
+        </ReactMarkdown>
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
+        )}
+      </div>
+
+      {/* Sources Area */}
+      {sources && sources.length > 0 && (
+        <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2">
+          <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
+            Sources
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {sources.map((source, i) => (
+              <a
+                key={`${source.url}-${i}`}
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full"
+                title={source.title}
+              >
+                <span className="truncate max-w-[220px] sm:max-w-[300px]">
+                  {source.title}
+                </span>
+                <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
+                  ↗
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ChatFeed: React.FC<ChatFeedProps> = ({
   messages,
   onPromptClick,
@@ -668,53 +821,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   Thinking...
                 </span>
               </div>
-            ) : (() => {
-              const { mainContent, sources } = parseTrailingSources(message.content);
-              return (
-                <div className="space-y-3.5">
-                  {/* Message Body with real ReactMarkdown rendering */}
-                  <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={markdownComponents}
-                    >
-                      {mainContent}
-                    </ReactMarkdown>
-                    {message.isStreaming && (
-                      <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
-                    )}
-                  </div>
-
-                  {/* Sources Area */}
-                  {sources && sources.length > 0 && (
-                    <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2">
-                      <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
-                        Sources
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {sources.map((source, i) => (
-                          <a
-                            key={`${source.url}-${i}`}
-                            href={source.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full"
-                            title={source.title}
-                          >
-                            <span className="truncate max-w-[220px] sm:max-w-[300px]">
-                              {source.title}
-                            </span>
-                            <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
-                              ↗
-                            </span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            ) : (
+              <StreamingMessageBody
+                content={message.content}
+                isStreaming={message.isStreaming}
+              />
+            )}
 
             {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
             {!isThinking && (
