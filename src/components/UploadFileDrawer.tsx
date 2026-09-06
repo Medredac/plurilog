@@ -40,15 +40,19 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
     };
   }, [isOpen, onClose, triggerRef]);
 
-  if (!isOpen) return null;
-
   return (
     <div
       ref={menuRef}
-      className="absolute bottom-full left-0 mb-2 w-44 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-0.5"
+      aria-hidden={!isOpen}
+      className={`absolute bottom-full left-0 mb-2 w-44 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 space-y-0.5 origin-bottom-left transition-all duration-150 ease-out ${
+        isOpen
+          ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
+          : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
+      }`}
     >
       <button
         type="button"
+        tabIndex={isOpen ? 0 : -1}
         onClick={() => {
           onUploadImageClick();
           onClose();
@@ -61,6 +65,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
 
       <button
         type="button"
+        tabIndex={isOpen ? 0 : -1}
         onClick={() => {
           onUploadFileClick();
           onClose();

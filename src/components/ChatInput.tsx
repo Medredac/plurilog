@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
-import { ArrowUp, Paperclip, X, Square, FileText } from 'lucide-react';
+import { ArrowUp, Plus, X, Square, FileText } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
@@ -301,10 +301,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               ref={triggerRef}
               type="button"
               onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
-              title="Attach file"
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors flex items-center justify-center cursor-pointer"
+              title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
+              className={`p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer ${
+                isUploadDrawerOpen
+                  ? 'text-zinc-700 bg-zinc-100'
+                  : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
+              }`}
             >
-              <Paperclip className="w-4 h-4" />
+              <Plus
+                className={`w-4 h-4 transition-transform duration-150 ease-out ${
+                  isUploadDrawerOpen ? 'rotate-45 text-zinc-700' : 'rotate-0'
+                }`}
+              />
             </button>
 
             {/* Upload File Popover */}
