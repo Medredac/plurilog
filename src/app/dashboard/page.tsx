@@ -507,6 +507,11 @@ export default function DashboardPage() {
     }
   };
 
+  interface OptimisticPlaceholder {
+    firstSeatId: ModelId;
+    msgId: string;
+  }
+
   // Executes sequential SSE relay stream for either new user message or continue round
   const runRelay = async (
     promptToSend: string,
@@ -515,14 +520,34 @@ export default function DashboardPage() {
     isContinueRound?: boolean,
     attachments?: { url: string; filename: string }[] | null,
     sourceUserMessageId?: string | null,
-    retrySnapshot?: FailedTurnState | null
+    retrySnapshot?: FailedTurnState | null,
+    optimisticPlaceholder?: OptimisticPlaceholder | null,
+    existingController?: AbortController | null
   ) => {
-    const controller = new AbortController();
+    const controller = existingController || new AbortController();
     abortControllerRef.current = controller;
     let inProgressModelId: ModelId | null = null;
     let inProgressContent = '';
     let completedSeatsCount = 0;
+    let adoptedFirstSeat = false;
     const currentAttemptModelMsgIds = new Set<string>();
+
+    if (optimisticPlaceholder?.msgId) {
+      currentAttemptModelMsgIds.add(optimisticPlaceholder.msgId);
+    }
+
+    if (controller.signal.aborted) {
+      if (activeDebateIdRef.current === discussionId) {
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setActiveSpeaker(null);
+        setIsDebating(false);
+        setCanContinue(true);
+        if (optimisticPlaceholder?.msgId) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimisticPlaceholder.msgId));
+        }
+      }
+      return;
+    }
 
     try {
       const response = await fetch('/api/debate', {
@@ -609,21 +634,54 @@ export default function DashboardPage() {
                 }));
 
                 const modelInfo = COUNCIL_MEMBERS[seatId];
-                const newMsgId = `msg-${seatId}-${Date.now()}`;
-                currentAttemptModelMsgIds.add(newMsgId);
 
-                const newMsg: ChatMessage = {
-                  id: newMsgId,
-                  discussionId: discussionId || undefined,
-                  role: 'model',
-                  modelId: seatId,
-                  authorName: modelInfo?.name || data.name,
-                  content: '',
-                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                  isStreaming: true,
-                };
+                if (
+                  !adoptedFirstSeat &&
+                  optimisticPlaceholder &&
+                  optimisticPlaceholder.firstSeatId === seatId
+                ) {
+                  // Adopt the exact optimistic placeholder pre-created at request start
+                  adoptedFirstSeat = true;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === optimisticPlaceholder.msgId
+                        ? {
+                            ...m,
+                            discussionId: discussionId || m.discussionId,
+                            authorName: modelInfo?.name || data.name || m.authorName,
+                          }
+                        : m
+                    )
+                  );
+                } else {
+                  if (!adoptedFirstSeat && optimisticPlaceholder) {
+                    // Backend seat mismatch safety: remove unused placeholder
+                    console.warn(
+                      `[Plurilog] Seat mismatch: expected initial seat "${optimisticPlaceholder.firstSeatId}", received "${seatId}". Removing placeholder.`
+                    );
+                    setMessages((prev) =>
+                      prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
+                    );
+                    currentAttemptModelMsgIds.delete(optimisticPlaceholder.msgId);
+                    adoptedFirstSeat = true;
+                  }
 
-                setMessages((prev) => [...prev, newMsg]);
+                  const newMsgId = `msg-${seatId}-${Date.now()}`;
+                  currentAttemptModelMsgIds.add(newMsgId);
+
+                  const newMsg: ChatMessage = {
+                    id: newMsgId,
+                    discussionId: discussionId || undefined,
+                    role: 'model',
+                    modelId: seatId,
+                    authorName: modelInfo?.name || data.name,
+                    content: '',
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isStreaming: true,
+                  };
+
+                  setMessages((prev) => [...prev, newMsg]);
+                }
               }
             } else if (eventType === 'seat_chunk') {
               const seatId = data.seatId as ModelId;
@@ -688,7 +746,10 @@ export default function DashboardPage() {
                     console.log(`[Supabase Success] Inserted ${seatId} message:`, insertedModelMsg);
                   }
                 } catch (persistModelErr) {
-                  console.error(`[Supabase Exception] Error persisting message from ${seatId}:`, persistModelErr);
+                  console.error(
+                    `[Supabase Exception] Error persisting message from ${seatId}:`,
+                    persistModelErr
+                  );
                 }
               }
             } else if (eventType === 'council_done') {
@@ -716,7 +777,9 @@ export default function DashboardPage() {
                 } else {
                   // Partial-success: preserve successful responses and finalize streaming flags
                   setMessages((prev) =>
-                    prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+                    prev
+                      .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
+                      .map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
                   );
                   setCanContinue(true);
                 }
@@ -751,7 +814,9 @@ export default function DashboardPage() {
           setActiveSpeaker(null);
           setCanContinue(true);
           setMessages((prev) =>
-            prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+            prev
+              .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
+              .map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
           );
         }
 
@@ -777,7 +842,9 @@ export default function DashboardPage() {
             // Partial-success or fallback without snapshot
             setSeatStatuses(INITIAL_SEAT_STATUSES);
             setMessages((prev) =>
-              prev.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
+              prev
+                .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
+                .map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m))
             );
             setCanContinue(true);
           }
@@ -803,6 +870,9 @@ export default function DashboardPage() {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setCanContinue(false);
     setErrorMessage(null);
     if (failedTurn) {
@@ -815,15 +885,19 @@ export default function DashboardPage() {
     setFailedTurn(null);
     setIsDebating(true);
 
+    const firstSeatId = activeSeatOrder[0];
     const initialStatuses: Record<ModelId, SeatStatus> = {
       gemini: 'idle',
       claude: 'idle',
       chatgpt: 'idle',
     };
-    activeSeatOrder.forEach((id) => {
-      initialStatuses[id] = 'waiting';
+    activeSeatOrder.forEach((id, index) => {
+      initialStatuses[id] = index === 0 ? 'thinking' : 'waiting';
     });
     setSeatStatuses(initialStatuses);
+    if (firstSeatId) {
+      setActiveSpeaker(firstSeatId);
+    }
 
     let currentDiscussionId = activeDebateId;
     const nowIso = new Date().toISOString();
@@ -846,13 +920,42 @@ export default function DashboardPage() {
       attachment_urls: tempObjectUrls.length > 0 ? tempObjectUrls : null,
     };
 
-    // Instant optimistic UI update: immediately append user message to chat
-    setMessages((prev) => [...prev, userMsg]);
+    // Pre-create ONLY the first model seat bubble immediately
+    const optimisticFirstModelMsgId = firstSeatId ? `msg-${firstSeatId}-${Date.now()}` : null;
+    const initialModelMsg: ChatMessage | null =
+      firstSeatId && optimisticFirstModelMsgId
+        ? {
+            id: optimisticFirstModelMsgId,
+            discussionId: currentDiscussionId || undefined,
+            role: 'model',
+            modelId: firstSeatId,
+            authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
+            content: '',
+            timestamp: nowTimeStr,
+            isStreaming: true,
+          }
+        : null;
+
+    // Instant optimistic UI update: immediately append user message and first model thinking placeholder to chat
+    setMessages((prev) =>
+      initialModelMsg ? [...prev, userMsg, initialModelMsg] : [...prev, userMsg]
+    );
 
     const rollbackOptimistic = () => {
-      setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
+      setMessages((prev) =>
+        prev.filter((m) => m.id !== tempUserMsgId && m.id !== optimisticFirstModelMsgId)
+      );
       tempObjectUrls.forEach((url) => URL.revokeObjectURL(url.split('#')[0]));
     };
+
+    if (controller.signal.aborted) {
+      rollbackOptimistic();
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(true);
+      return;
+    }
 
     // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
     if (!currentDiscussionId) {
@@ -922,11 +1025,29 @@ export default function DashboardPage() {
       touchDiscussion(currentDiscussionId, content.slice(0, 70) + (content.length > 70 ? '...' : ''));
     }
 
+    if (controller.signal.aborted) {
+      rollbackOptimistic();
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(true);
+      return;
+    }
+
     // 2. Handle files upload to Supabase Storage in background if present
     const realSignedUrls: string[] = [];
     if (imageFiles && imageFiles.length > 0) {
       try {
         for (let i = 0; i < imageFiles.length; i++) {
+          if (controller.signal.aborted) {
+            rollbackOptimistic();
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
+            setIsDebating(false);
+            setCanContinue(true);
+            return;
+          }
+
           const file = imageFiles[i];
           const randomSuffix = Math.random().toString(36).slice(2, 7);
           const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}-${file.name}`;
@@ -975,6 +1096,15 @@ export default function DashboardPage() {
       }
     }
 
+    if (controller.signal.aborted) {
+      rollbackOptimistic();
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(true);
+      return;
+    }
+
     // 3. Persist user message to Supabase messages table
     let insertedUserMessageId: string | null = null;
     if (currentDiscussionId) {
@@ -1001,6 +1131,21 @@ export default function DashboardPage() {
       }
     }
 
+    if (controller.signal.aborted) {
+      if (insertedUserMessageId) {
+        if (optimisticFirstModelMsgId) {
+          setMessages((prev) => prev.filter((m) => m.id !== optimisticFirstModelMsgId));
+        }
+      } else {
+        rollbackOptimistic();
+      }
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(true);
+      return;
+    }
+
     // 4. Trigger sequential AI relay with retry snapshot
     if (currentDiscussionId) {
       const relayAttachments =
@@ -1022,6 +1167,11 @@ export default function DashboardPage() {
           }
         : null;
 
+      const optimisticPlaceholder =
+        firstSeatId && optimisticFirstModelMsgId
+          ? { firstSeatId, msgId: optimisticFirstModelMsgId }
+          : null;
+
       await runRelay(
         content,
         currentDiscussionId,
@@ -1029,7 +1179,9 @@ export default function DashboardPage() {
         false,
         relayAttachments,
         insertedUserMessageId,
-        retrySnapshot
+        retrySnapshot,
+        optimisticPlaceholder,
+        controller
       );
     }
   };
@@ -1051,6 +1203,10 @@ export default function DashboardPage() {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const firstSeatId = retrySeatOrder[0];
     retryInFlightRef.current = true;
     setFailedTurn(null);
     setErrorMessage(null);
@@ -1062,10 +1218,38 @@ export default function DashboardPage() {
       claude: 'idle',
       chatgpt: 'idle',
     };
-    retrySeatOrder.forEach((id) => {
-      initialStatuses[id] = 'waiting';
+    retrySeatOrder.forEach((id, index) => {
+      initialStatuses[id] = index === 0 ? 'thinking' : 'waiting';
     });
     setSeatStatuses(initialStatuses);
+    if (firstSeatId) {
+      setActiveSpeaker(firstSeatId);
+    }
+
+    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const optimisticFirstModelMsgId = firstSeatId ? `msg-${firstSeatId}-${Date.now()}` : null;
+    const initialModelMsg: ChatMessage | null =
+      firstSeatId && optimisticFirstModelMsgId
+        ? {
+            id: optimisticFirstModelMsgId,
+            discussionId: snapshot.discussionId || undefined,
+            role: 'model',
+            modelId: firstSeatId,
+            authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
+            content: '',
+            timestamp: nowTimeStr,
+            isStreaming: true,
+          }
+        : null;
+
+    if (initialModelMsg) {
+      setMessages((prev) => [...prev, initialModelMsg]);
+    }
+
+    const optimisticPlaceholder =
+      firstSeatId && optimisticFirstModelMsgId
+        ? { firstSeatId, msgId: optimisticFirstModelMsgId }
+        : null;
 
     try {
       await runRelay(
@@ -1075,7 +1259,9 @@ export default function DashboardPage() {
         false,
         snapshot.attachments,
         snapshot.sourceUserMessageId,
-        snapshot
+        snapshot,
+        optimisticPlaceholder,
+        controller
       );
     } finally {
       retryInFlightRef.current = false;
@@ -1092,6 +1278,10 @@ export default function DashboardPage() {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const firstSeatId = activeSeatOrder[0];
     setCanContinue(false);
     setErrorMessage(null);
     setFailedTurn(null);
@@ -1102,13 +1292,18 @@ export default function DashboardPage() {
       claude: 'idle',
       chatgpt: 'idle',
     };
-    activeSeatOrder.forEach((id) => {
-      initialStatuses[id] = 'waiting';
+    activeSeatOrder.forEach((id, index) => {
+      initialStatuses[id] = index === 0 ? 'thinking' : 'waiting';
     });
     setSeatStatuses(initialStatuses);
+    if (firstSeatId) {
+      setActiveSpeaker(firstSeatId);
+    }
 
     // Re-sort discussion to top immediately
     touchDiscussion(activeDebateId);
+
+    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // 1. Insert visible "Continue" user bubble into the conversation (DISPLAY-ONLY)
     const tempUserMsgId = `msg-user-${Date.now()}`;
@@ -1118,10 +1313,28 @@ export default function DashboardPage() {
       role: 'user',
       authorName: 'You',
       content: 'Continue',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: nowTimeStr,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Pre-create first model seat placeholder for continue round
+    const optimisticFirstModelMsgId = firstSeatId ? `msg-${firstSeatId}-${Date.now()}` : null;
+    const initialModelMsg: ChatMessage | null =
+      firstSeatId && optimisticFirstModelMsgId
+        ? {
+            id: optimisticFirstModelMsgId,
+            discussionId: activeDebateId,
+            role: 'model',
+            modelId: firstSeatId,
+            authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
+            content: '',
+            timestamp: nowTimeStr,
+            isStreaming: true,
+          }
+        : null;
+
+    setMessages((prev) =>
+      initialModelMsg ? [...prev, userMsg, initialModelMsg] : [...prev, userMsg]
+    );
 
     try {
       await supabase.from('messages').insert({
@@ -1133,8 +1346,24 @@ export default function DashboardPage() {
       console.error('[Supabase Exception] Error persisting continue message:', err);
     }
 
-    // 2. Trigger relay with empty string prompt and isContinueRound flag
-    await runRelay('', activeDebateId, activeSeatOrder, true, null);
+    if (controller.signal.aborted) {
+      if (optimisticFirstModelMsgId) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticFirstModelMsgId));
+      }
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(true);
+      return;
+    }
+
+    const optimisticPlaceholder =
+      firstSeatId && optimisticFirstModelMsgId
+        ? { firstSeatId, msgId: optimisticFirstModelMsgId }
+        : null;
+
+    // 2. Trigger relay with empty string prompt, isContinueRound flag, and optimisticPlaceholder
+    await runRelay('', activeDebateId, activeSeatOrder, true, null, null, null, optimisticPlaceholder, controller);
   };
 
   if (isLoadingAuth) {
