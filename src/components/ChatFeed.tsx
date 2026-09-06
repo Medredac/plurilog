@@ -17,13 +17,33 @@ import {
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
-import { isTextFileUrl, getTextFileDisplayBadge } from '@/utils/textFileParser';
+import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
+import { isImageUrl } from '@/utils/discussionMemory';
 
-// Safe extraction of clean display filename from stored/signed attachment URL
+// Safe extraction of clean display filename from stored/signed attachment URL or optimistic blob URL
 export function getAttachmentDisplayFilename(url?: string | null): string {
   if (!url || typeof url !== 'string') return 'attachment';
 
-  // A. Strip query string and fragment
+  // A. Check fragment for explicit filename (e.g. optimistic blob URLs with #filename=...)
+  const hashIndex = url.indexOf('#');
+  if (hashIndex !== -1) {
+    const hashPart = url.slice(hashIndex + 1);
+    const filenameParam = hashPart.startsWith('filename=')
+      ? hashPart.slice(9)
+      : hashPart.startsWith('name=')
+        ? hashPart.slice(5)
+        : hashPart;
+    if (filenameParam) {
+      try {
+        const decoded = decodeURIComponent(filenameParam).trim();
+        if (decoded) return decoded;
+      } catch {
+        // ignore decoding failure and fallback
+      }
+    }
+  }
+
+  // B. Strip query string and fragment
   const cleanUrl = url.split('?')[0].split('#')[0];
   const isPdf = cleanUrl.toLowerCase().endsWith('.pdf');
   const isDocx = cleanUrl.toLowerCase().endsWith('.docx');
@@ -34,14 +54,14 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
       ? 'document.docx'
       : isText
         ? 'document.txt'
-        : 'image.jpg';
+        : 'attachment';
 
-  // B. Take final path segment
+  // C. Take final path segment
   const segments = cleanUrl.split('/');
   const rawSegment = segments.pop() || '';
   if (!rawSegment) return defaultFallback;
 
-  // C. Decode safely (handle malformed percent encoding gracefully)
+  // D. Decode safely (handle malformed percent encoding gracefully)
   let decodedSegment = rawSegment;
   try {
     decodedSegment = decodeURIComponent(rawSegment);
@@ -49,7 +69,7 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
     decodedSegment = rawSegment;
   }
 
-  // D. If it matches Plurilog's generated upload prefix:
+  // E. If it matches Plurilog's generated upload prefix:
   // e.g. "1725555555555-0-abcde-IMG_1402.JPG" -> "IMG_1402.JPG"
   // Prefix pattern: ^\d{10,14}-\d+-[a-zA-Z0-9]+-(.+)
   const prefixMatch = decodedSegment.match(/^\d{10,14}-\d+-[a-zA-Z0-9]+-(.+)$/);
@@ -62,10 +82,16 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
     return altPrefixMatch[1].trim() || defaultFallback;
   }
 
-  // E. Otherwise preserve the basename unchanged
+  // F. If it is an opaque blob URL without an extension, fallback to defaultFallback
   const trimmed = decodedSegment.trim();
+  if (cleanUrl.startsWith('blob:') && !trimmed.includes('.')) {
+    return defaultFallback;
+  }
+
+  // G. Otherwise preserve the basename unchanged
   return trimmed || defaultFallback;
 }
+
 
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
@@ -365,11 +391,15 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 {attachments.length > 0 && (
                   <div className="flex flex-wrap gap-2.5 mb-2.5">
                     {attachments.map((url, i) => {
-                      const cleanLower = url.split('?')[0].toLowerCase();
-                      const isPdf = cleanLower.endsWith('.pdf');
-                      const isDocx = cleanLower.endsWith('.docx');
-                      const isText = isTextFileUrl(cleanLower);
                       const filename = getAttachmentDisplayFilename(url);
+                      const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
+                      const fnLower = filename.toLowerCase();
+
+                      const isPdf = cleanLower.endsWith('.pdf') || fnLower.endsWith('.pdf');
+                      const isDocx = cleanLower.endsWith('.docx') || fnLower.endsWith('.docx');
+                      const isText = isTextFileUrl(cleanLower) || isTextFileName(fnLower);
+                      const isImage = isImageUrl(url, filename);
+
                       return (
                         <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
                           {isPdf ? (
@@ -408,7 +438,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                                 {getTextFileDisplayBadge(filename)}
                               </span>
                             </button>
-                          ) : (
+                          ) : isImage ? (
                             <button
                               type="button"
                               onClick={() => setLightboxImageUrl(url)}
@@ -420,6 +450,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                                 alt={filename}
                                 className="w-full h-full object-cover"
                               />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => window.open(url, '_blank')}
+                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                              title={`Click to view ${filename}`}
+                            >
+                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-zinc-600" />
+                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                FILE
+                              </span>
                             </button>
                           )}
                           <span

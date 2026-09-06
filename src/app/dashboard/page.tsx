@@ -830,7 +830,10 @@ export default function DashboardPage() {
     const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // Temporary local blob URLs for instant optimistic display without waiting for storage upload
-    const tempObjectUrls = (imageFiles || []).map((f) => URL.createObjectURL(f));
+    // Preserve filename in hash fragment so optimistic URLs immediately render correct document or image cards
+    const tempObjectUrls = (imageFiles || []).map(
+      (f) => `${URL.createObjectURL(f)}#filename=${encodeURIComponent(f.name)}`
+    );
     const tempUserMsgId = `msg-user-${Date.now()}`;
     const userMsg: ChatMessage = {
       id: tempUserMsgId,
@@ -848,7 +851,7 @@ export default function DashboardPage() {
 
     const rollbackOptimistic = () => {
       setMessages((prev) => prev.filter((m) => m.id !== tempUserMsgId));
-      tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+      tempObjectUrls.forEach((url) => URL.revokeObjectURL(url.split('#')[0]));
     };
 
     // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
@@ -962,7 +965,7 @@ export default function DashboardPage() {
               : m
           )
         );
-        tempObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+        tempObjectUrls.forEach((url) => URL.revokeObjectURL(url.split('#')[0]));
       } catch (err: any) {
         console.error('[Supabase Storage Exception]', err);
         rollbackOptimistic();
