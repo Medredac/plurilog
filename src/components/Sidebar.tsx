@@ -263,12 +263,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => onSelectDebate(debate.id)}
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
                         isActive
-                          ? 'bg-amber-50/80 shadow-2xs text-zinc-800'
+                          ? 'bg-zinc-100 shadow-2xs text-zinc-900'
                           : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
                       <span className={`text-[13px] truncate flex-1 pr-2 ${
-                        isActive ? 'font-normal text-amber-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
+                        isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
                       }`}>
                         {debate.title}
                       </span>
@@ -416,7 +416,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                       <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
                         userPlan === 'paid'
-                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          ? 'bg-zinc-100 text-zinc-700 border-zinc-200/80'
                           : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
                       }`}>
                         {userPlan === 'paid' ? 'Plus' : 'Free'}

@@ -337,7 +337,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={onStop}
-              className="w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
+              className="w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
               title="Stop generation"
             >
               <Square className="w-3 h-3 fill-current" />
@@ -347,10 +347,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               type="button"
               onClick={handleSend}
               disabled={!inputVal.trim() && attachedFiles.length === 0}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer ${
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 ${
                 inputVal.trim() || attachedFiles.length > 0
-                  ? 'bg-amber-50/80 hover:bg-amber-100/90 text-amber-900 border border-amber-200/80 shadow-2xs'
-                  : 'bg-zinc-100 text-zinc-300 border border-zinc-200/60 cursor-not-allowed'
+                  ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
+                  : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
               }`}
               title="Send"
             >
