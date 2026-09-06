@@ -310,10 +310,26 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   // 2. On sending a new message or inserting Continue bubble: scroll smoothly so message sits near top of viewport, then hold still
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
-    if (lastMsg && lastMsg.role === 'user' && lastMsg.id !== lastUserMsgIdRef.current) {
-      lastUserMsgIdRef.current = lastMsg.id;
+    const prevMsg = messages.length > 1 ? messages[messages.length - 2] : null;
+
+    let candidate: ChatMessage | null = null;
+    if (lastMsg && lastMsg.role === 'user') {
+      candidate = lastMsg;
+    } else if (
+      lastMsg &&
+      lastMsg.role === 'model' &&
+      lastMsg.isStreaming &&
+      !lastMsg.content &&
+      prevMsg &&
+      prevMsg.role === 'user'
+    ) {
+      candidate = prevMsg;
+    }
+
+    if (candidate && candidate.id !== lastUserMsgIdRef.current) {
+      lastUserMsgIdRef.current = candidate.id;
       requestAnimationFrame(() => {
-        const el = document.getElementById(lastMsg.id);
+        const el = document.getElementById(candidate.id);
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
