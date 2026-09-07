@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { ArrowUp, Plus, X, Square, FileText } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
+import { VoiceRecorder } from './VoiceRecorder';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 
 interface ChatInputProps {
@@ -35,6 +36,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [attachedFiles, setAttachedFiles] = useState<AttachedFileItem[]>([]);
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
   const [isUploadDrawerOpen, setIsUploadDrawerOpen] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -165,6 +168,43 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setLightboxImageUrl(null);
   };
 
+  const handleTranscript = useCallback((text: string) => {
+    setIsRecording(false);
+    setVoiceError(null);
+    if (!text.trim()) {
+      setVoiceError('No speech detected.');
+      return;
+    }
+    setInputVal((prev) => {
+      const clean = text.trim();
+      if (!prev.trim()) return clean;
+      const separator = /[\s]$/.test(prev) ? '' : ' ';
+      return prev + separator + clean;
+    });
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+        textareaRef.current.focus();
+      }
+    }, 50);
+  }, []);
+
+  const handleRecorderCancel = useCallback(() => {
+    setIsRecording(false);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  }, []);
+
+  const handleRecorderError = useCallback((errMsg: string) => {
+    setIsRecording(false);
+    setVoiceError(errMsg);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 50);
+  }, []);
+
   const handleSend = () => {
     if ((!inputVal.trim() && attachedFiles.length === 0) || isLoading) return;
     onSendMessage(inputVal.trim(), attachedFiles.length > 0 ? attachedFiles.map(item => item.file) : undefined);
@@ -215,6 +255,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         className="hidden"
         onChange={handleFileSelect}
       />
+
+      {/* Voice Error Notification Banner */}
+      {voiceError && (
+        <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200/80 rounded-xl px-3 py-1.5 flex items-center justify-between animate-in fade-in">
+          <span>{voiceError}</span>
+          <button
+            type="button"
+            onClick={() => setVoiceError(null)}
+            className="text-red-400 hover:text-red-700 ml-2 cursor-pointer p-0.5"
+            title="Dismiss error"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Sleek, Wide Pill-Shaped Input Card */}
       <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 ${
@@ -294,78 +349,103 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
-        <div className="flex items-end gap-2">
-          {/* Attach icon & Popover */}
-          <div className="relative shrink-0 mb-0.5">
-            <button
-              ref={triggerRef}
-              type="button"
-              onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
-              title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
-              className={`p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer ${
-                isUploadDrawerOpen
-                  ? 'text-zinc-700 bg-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
-              }`}
-            >
-              <Plus
-                className={`w-4 h-4 transition-transform duration-150 ease-out ${
-                  isUploadDrawerOpen ? 'rotate-45 text-zinc-700' : 'rotate-0'
-                }`}
-              />
-            </button>
-
-            {/* Upload File Popover */}
-            <UploadFileDrawer
-              isOpen={isUploadDrawerOpen}
-              onClose={() => setIsUploadDrawerOpen(false)}
-              triggerRef={triggerRef}
-              onUploadImageClick={() => {
-                fileInputRef.current?.click();
-              }}
-              onUploadFileClick={() => {
-                docInputRef.current?.click();
-              }}
-            />
-          </div>
-
-          {/* Textarea */}
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={inputVal}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a topic for discussion..."
-            className="w-full resize-none text-sm sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
+        {/* Input Area: Either VoiceRecorder or Normal Textarea */}
+        {isRecording ? (
+          <VoiceRecorder
+            onTranscript={handleTranscript}
+            onCancel={handleRecorderCancel}
+            onError={handleRecorderError}
           />
+        ) : (
+          <div className="flex items-end gap-2">
+            {/* Attach icon & Popover */}
+            <div className="relative shrink-0 mb-0.5">
+              <button
+                ref={triggerRef}
+                type="button"
+                onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
+                title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
+                className={`p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer ${
+                  isUploadDrawerOpen
+                    ? 'text-zinc-700 bg-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
+                }`}
+              >
+                <Plus
+                  className={`w-4 h-4 transition-transform duration-150 ease-out ${
+                    isUploadDrawerOpen ? 'rotate-45 text-zinc-700' : 'rotate-0'
+                  }`}
+                />
+              </button>
 
-          {/* Send / Stop Button */}
-          {isLoading ? (
-            <button
-              type="button"
-              onClick={onStop}
-              className="w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
-              title="Stop generation"
-            >
-              <Square className="w-3 h-3 fill-current" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={!inputVal.trim() && attachedFiles.length === 0}
-              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 ${
-                inputVal.trim() || attachedFiles.length > 0
-                  ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
-                  : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
-              }`}
-              title="Send"
-            >
-              <ArrowUp className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+              {/* Upload File Popover */}
+              <UploadFileDrawer
+                isOpen={isUploadDrawerOpen}
+                onClose={() => setIsUploadDrawerOpen(false)}
+                triggerRef={triggerRef}
+                onUploadImageClick={() => {
+                  fileInputRef.current?.click();
+                }}
+                onUploadFileClick={() => {
+                  docInputRef.current?.click();
+                }}
+              />
+            </div>
+
+            {/* Textarea */}
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={inputVal}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Type a topic for discussion..."
+              className="w-full resize-none text-sm sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
+            />
+
+            {/* Voice Dictation Button */}
+            {!isLoading && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsUploadDrawerOpen(false);
+                  setVoiceError(null);
+                  setIsRecording(true);
+                }}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer shrink-0 mb-0.5"
+                title="Voice dictation"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+            )}
+
+            {/* Send / Stop Button */}
+            {isLoading ? (
+              <button
+                type="button"
+                onClick={onStop}
+                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
+                title="Stop generation"
+              >
+                <Square className="w-3 h-3 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!inputVal.trim() && attachedFiles.length === 0}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 ${
+                  inputVal.trim() || attachedFiles.length > 0
+                    ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
+                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                }`}
+                title="Send"
+              >
+                <ArrowUp className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {/* Image Lightbox Modal */}
       <ImageLightbox
