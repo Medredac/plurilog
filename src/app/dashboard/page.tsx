@@ -11,7 +11,7 @@ import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
-import { Layers, ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
@@ -1579,9 +1579,11 @@ export default function DashboardPage() {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 shadow-2xs">
-            <Layers className="w-4 h-4" />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="Plurilog"
+            className="w-8 h-8 rounded-lg object-contain"
+          />
           <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
             <span>Verifying session...</span>
