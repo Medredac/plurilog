@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     // Defensive server-side caps
     const cleanUserPrompt = userPrompt.trim().slice(0, 300);
-    const cleanAiResponse = firstAiResponse.trim().slice(0, 1200);
+    const cleanAiResponse = firstAiResponse.trim().slice(0, 300);
     const cleanAttachmentNames = rawAttachments
       .slice(0, 5)
       .map((name: unknown) => String(name || '').trim().slice(0, 100))

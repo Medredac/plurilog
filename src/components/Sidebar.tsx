@@ -267,8 +267,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
                         isTitlePending
                           ? isActive
-                            ? 'bg-zinc-100 shadow-2xs text-zinc-900 animate-pulse'
-                            : 'bg-zinc-100/60 text-zinc-600 animate-pulse'
+                            ? 'bg-zinc-200/80 shadow-2xs text-zinc-900 animate-[pulse_1s_ease-in-out_infinite]'
+                            : 'bg-zinc-200/70 text-zinc-600 animate-[pulse_1s_ease-in-out_infinite]'
                           : isActive
                             ? 'bg-zinc-100 shadow-2xs text-zinc-900'
                             : 'bg-white hover:bg-zinc-50/80 text-zinc-600'

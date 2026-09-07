@@ -817,6 +817,67 @@ export default function DashboardPage() {
       const decoder = new TextDecoder();
       let buffer = '';
 
+      // Helper to launch Title V2 generation at most once per discussion
+      const triggerTitleGeneration = (aiSnippet: string) => {
+        if (
+          !discussionId ||
+          !pendingTitleDiscussionIdsRef.current.has(discussionId) ||
+          titleGenerationStartedIdsRef.current.has(discussionId)
+        ) {
+          return;
+        }
+
+        titleGenerationStartedIdsRef.current.add(discussionId);
+
+        const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
+        const titleAiResponse = (aiSnippet || '').trim().slice(0, 300);
+        const attachmentNames = (attachments || [])
+          .map((a) => a.filename)
+          .filter(Boolean)
+          .slice(0, 5);
+
+        fetch('/api/generate-title', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userPrompt: titleUserPrompt,
+            firstAiResponse: titleAiResponse,
+            attachmentNames,
+            discussionId,
+          }),
+        })
+          .then((res) => res.json())
+          .then(async (data) => {
+            const generatedTitle = data?.title?.trim();
+            if (
+              generatedTitle &&
+              generatedTitle.toLowerCase() !== 'new discussion' &&
+              generatedTitle.toLowerCase() !== 'untitled discussion'
+            ) {
+              const { error: titleUpdateError } = await supabase
+                .from('discussions')
+                .update({ title: generatedTitle })
+                .eq('id', discussionId);
+
+              if (titleUpdateError) {
+                throw titleUpdateError;
+              }
+
+              setDebates((prev) =>
+                prev.map((d) =>
+                  d.id === discussionId ? { ...d, title: generatedTitle } : d
+                )
+              );
+            }
+          })
+          .catch((titleErr) => {
+            console.error('[AI Title Error]', titleErr);
+          })
+          .finally(() => {
+            clearTitlePending(discussionId);
+          });
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -943,6 +1004,17 @@ export default function DashboardPage() {
               const chunk = data.text || '';
               inProgressContent += chunk;
 
+              // If Seat 1 is streaming and has accumulated at least 300 characters, trigger title generation early
+              if (
+                completedSeatsCount === 0 &&
+                inProgressContent.length >= 300 &&
+                discussionId &&
+                pendingTitleDiscussionIdsRef.current.has(discussionId) &&
+                !titleGenerationStartedIdsRef.current.has(discussionId)
+              ) {
+                triggerTitleGeneration(inProgressContent.slice(0, 300));
+              }
+
               if (discussionId) {
                 const activeGen = activeGenerationsRef.current.get(discussionId);
                 if (activeGen) {
@@ -1035,62 +1107,9 @@ export default function DashboardPage() {
                 }
               }
 
-              // If this discussion is pending title generation, trigger it on Seat 1 completion
-              if (
-                discussionId &&
-                completedSeatsCount === 1 &&
-                pendingTitleDiscussionIdsRef.current.has(discussionId) &&
-                !titleGenerationStartedIdsRef.current.has(discussionId)
-              ) {
-                titleGenerationStartedIdsRef.current.add(discussionId);
-
-                const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
-                const titleAiResponse = (completedContent || '').trim().slice(0, 1200);
-                const attachmentNames = (attachments || [])
-                  .map((a) => a.filename)
-                  .filter(Boolean)
-                  .slice(0, 5);
-
-                fetch('/api/generate-title', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userPrompt: titleUserPrompt,
-                    firstAiResponse: titleAiResponse,
-                    attachmentNames,
-                    discussionId,
-                  }),
-                })
-                  .then((res) => res.json())
-                  .then(async (data) => {
-                    const generatedTitle = data?.title?.trim();
-                    if (
-                      generatedTitle &&
-                      generatedTitle.toLowerCase() !== 'new discussion' &&
-                      generatedTitle.toLowerCase() !== 'untitled discussion'
-                    ) {
-                      const { error: titleUpdateError } = await supabase
-                        .from('discussions')
-                        .update({ title: generatedTitle })
-                        .eq('id', discussionId);
-
-                      if (titleUpdateError) {
-                        throw titleUpdateError;
-                      }
-
-                      setDebates((prev) =>
-                        prev.map((d) =>
-                          d.id === discussionId ? { ...d, title: generatedTitle } : d
-                        )
-                      );
-                    }
-                  })
-                  .catch((titleErr) => {
-                    console.error('[AI Title Error]', titleErr);
-                  })
-                  .finally(() => {
-                    clearTitlePending(discussionId);
-                  });
+              // If Seat 1 completed and title generation hasn't started yet (e.g. short response < 300 chars), trigger fallback
+              if (completedSeatsCount === 1) {
+                triggerTitleGeneration(completedContent);
               }
             } else if (eventType === 'council_done') {
               if (discussionId) {
@@ -1109,7 +1128,10 @@ export default function DashboardPage() {
             } else if (eventType === 'error') {
               if (discussionId) {
                 activeGenerationsRef.current.delete(discussionId);
-                if (completedSeatsCount === 0) {
+                if (
+                  completedSeatsCount === 0 &&
+                  !titleGenerationStartedIdsRef.current.has(discussionId)
+                ) {
                   clearTitlePending(discussionId);
                 }
               }
@@ -1142,7 +1164,10 @@ export default function DashboardPage() {
     } catch (err: any) {
       if (discussionId) {
         activeGenerationsRef.current.delete(discussionId);
-        if (completedSeatsCount === 0) {
+        if (
+          completedSeatsCount === 0 &&
+          !titleGenerationStartedIdsRef.current.has(discussionId)
+        ) {
           clearTitlePending(discussionId);
         }
       }
