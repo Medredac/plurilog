@@ -12,7 +12,7 @@ import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { PrintableDiscussion } from '../../components/PrintableDiscussion';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
-import { ArrowRight, Loader2, ChevronDown, Download } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
@@ -153,7 +153,7 @@ export default function DashboardPage() {
   const hasShownLowCreditRef = useRef(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
-  const [restoreDraft, setRestoreDraft] = useState<{ text: string; trigger: number } | null>(null);
+  const [restoreDraft, setRestoreDraft] = useState<{ text: string; files?: File[]; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>(undefined);
@@ -1304,6 +1304,7 @@ export default function DashboardPage() {
 
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
+      setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
       return;
     }
 
@@ -1334,6 +1335,35 @@ export default function DashboardPage() {
     setSeatStatuses(initialStatuses);
     if (firstSeatId) {
       setActiveSpeaker(firstSeatId);
+    }
+
+    // Early snapshot of PDF bytes into stable in-memory ArrayBuffer
+    // to avoid iOS/WebKit provider-backed File serialization failures
+    type PreparedUploadBody = { file: File; body: File | ArrayBuffer; isPdf: boolean };
+    const preparedUploadBodies: PreparedUploadBody[] = [];
+    if (imageFiles && imageFiles.length > 0) {
+      for (const f of imageFiles) {
+        const isPdf = f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf');
+        if (isPdf) {
+          try {
+            const buffer = await f.arrayBuffer();
+            if (!buffer || buffer.byteLength === 0) {
+              throw new Error('Empty PDF byte buffer');
+            }
+            preparedUploadBodies.push({ file: f, body: buffer, isPdf: true });
+          } catch (readErr) {
+            console.error('[PDF Read Error] Failed to read PDF bytes into memory:', readErr, f.name);
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
+            setErrorMessage("Couldn't read that PDF. Please try again.");
+            setIsDebating(false);
+            setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+            return;
+          }
+        } else {
+          preparedUploadBodies.push({ file: f, body: f, isPdf: false });
+        }
+      }
     }
 
     let currentDiscussionId = activeDebateId;
@@ -1438,6 +1468,16 @@ export default function DashboardPage() {
       } catch (createErr) {
         console.error('[Supabase Exception] Error initializing discussion:', createErr);
       }
+
+      if (!currentDiscussionId) {
+        rollbackOptimistic();
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setActiveSpeaker(null);
+        setErrorMessage('Failed to create discussion. Please try again.');
+        setIsDebating(false);
+        setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+        return;
+      }
     } else {
       // Existing discussion: immediately re-sort to top and update snippet & timestamp
       touchDiscussion(currentDiscussionId, content.slice(0, 70) + (content.length > 70 ? '...' : ''));
@@ -1454,9 +1494,9 @@ export default function DashboardPage() {
 
     // 2. Handle files upload to Supabase Storage in background if present
     const realSignedUrls: string[] = [];
-    if (imageFiles && imageFiles.length > 0) {
+    if (preparedUploadBodies.length > 0) {
       try {
-        for (let i = 0; i < imageFiles.length; i++) {
+        for (let i = 0; i < preparedUploadBodies.length; i++) {
           if (controller.signal.aborted) {
             rollbackOptimistic();
             setSeatStatuses(INITIAL_SEAT_STATUSES);
@@ -1466,18 +1506,21 @@ export default function DashboardPage() {
             return;
           }
 
-          const file = imageFiles[i];
+          const { file, body, isPdf } = preparedUploadBodies[i];
           const randomSuffix = Math.random().toString(36).slice(2, 7);
           const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}-${file.name}`;
           const { error: uploadError } = await supabase.storage
             .from('message-images')
-            .upload(filePath, file);
+            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
 
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError);
             rollbackOptimistic();
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
             setErrorMessage('Failed to upload file. Please try again.');
             setIsDebating(false);
+            setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
             return;
           }
 
@@ -1488,8 +1531,11 @@ export default function DashboardPage() {
           if (signError || !signedData?.signedUrl) {
             console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
             rollbackOptimistic();
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
             setErrorMessage('Failed to process file. Please try again.');
             setIsDebating(false);
+            setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
             return;
           }
 
@@ -1508,8 +1554,11 @@ export default function DashboardPage() {
       } catch (err: any) {
         console.error('[Supabase Storage Exception]', err);
         rollbackOptimistic();
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setActiveSpeaker(null);
         setErrorMessage('Failed to upload file. Please try again.');
         setIsDebating(false);
+        setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
         return;
       }
     }
@@ -1941,6 +1990,15 @@ export default function DashboardPage() {
                     className="w-full animate-simple-fade"
                     style={{ animationDelay: '420ms' }}
                   >
+                    {errorMessage && (
+                      <div className="p-3.5 mb-4 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full text-left">
+                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        <div className="space-y-1 min-w-0">
+                          <span className="font-semibold block">Notice</span>
+                          <p className="leading-relaxed break-words">{errorMessage}</p>
+                        </div>
+                      </div>
+                    )}
                     <ChatInput
                       onSendMessage={handleSendMessage}
                       isLoading={isDebating}

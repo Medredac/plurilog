@@ -14,7 +14,7 @@ interface ChatInputProps {
   isCentered?: boolean;
   autoFocus?: boolean;
   focusTrigger?: any;
-  restoreDraft?: { text: string; trigger: number } | null;
+  restoreDraft?: { text: string; files?: File[]; trigger: number } | null;
 }
 
 interface AttachedFileItem {
@@ -52,10 +52,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     return () => clearTimeout(timer);
   }, [isCentered, autoFocus, focusTrigger]);
 
-  // Restore draft prompt text when requested (e.g. out of credits recovery)
+  // Restore draft prompt text & attachments when requested (e.g. pre-debate failure or out of credits recovery)
   React.useEffect(() => {
     if (restoreDraft) {
       setInputVal(restoreDraft.text);
+      if (restoreDraft.files && restoreDraft.files.length > 0) {
+        setAttachedFiles((prev) => {
+          prev.forEach((item) => {
+            if (item.previewUrl) {
+              URL.revokeObjectURL(item.previewUrl);
+            }
+          });
+          return restoreDraft.files!.map((file) => ({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            file,
+            previewUrl: URL.createObjectURL(file),
+          }));
+        });
+      }
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
