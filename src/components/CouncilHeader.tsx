@@ -81,10 +81,10 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-4 sm:px-6 py-2">
-      <div className="flex items-center justify-between gap-3">
+    <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-12 pr-2.5 sm:pr-6 lg:px-6 py-1.5 lg:py-2">
+      <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap min-w-0">
         {/* Left: Draggable model pills */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap min-w-0 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
             const isSelected = activeModels.includes(id);
@@ -112,7 +112,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 onDragOver={(e) => handleDragOver(e, idx)}
                 onDrop={(e) => handleDrop(e, idx)}
                 onDragEnd={handleDragEnd}
-                className={`group relative flex items-center rounded-lg border text-xs transition-colors select-none ${
+                className={`group relative flex items-center rounded-lg border text-[11px] lg:text-xs transition-colors select-none shrink-0 ${
                   isDebating ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'
                 } ${isBeingDragged ? 'opacity-40' : ''} ${
                   isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1' : ''
@@ -135,14 +135,14 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   onClick={(e) => handleSwap(e, idx - 1)}
                   disabled={idx === 0 || isDebating}
                   aria-label={`Move ${member?.name || id} earlier`}
-                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
+                  className="p-1.5 lg:p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center shrink-0"
                 >
                   <ChevronLeft className="w-3 h-3" />
                 </button>
 
                 {/* Status Dot */}
                 <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-1 ${
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-0.5 lg:mx-1 ${
                     isSpeaking
                       ? 'bg-amber-500 animate-pulse'
                       : isSelected
@@ -152,8 +152,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 />
 
                 {/* Model Name */}
-                <span className={`pr-1 select-none ${!isSelected ? 'line-through text-zinc-400' : ''}`}>
-                  {member?.name || id}
+                <span className={`pr-0.5 lg:pr-1 select-none ${!isSelected ? 'line-through text-zinc-400' : ''}`}>
+                  <span className="inline lg:hidden">{id === 'chatgpt' ? 'GPT' : (member?.name || id)}</span>
+                  <span className="hidden lg:inline">{member?.name || id}</span>
                 </span>
 
                 {/* Right Chevron Swap Button */}
@@ -162,7 +163,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   onClick={(e) => handleSwap(e, idx + 1)}
                   disabled={idx === seatOrder.length - 1 || isDebating}
                   aria-label={`Move ${member?.name || id} later`}
-                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
+                  className="p-1.5 lg:p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center shrink-0"
                 >
                   <ChevronRight className="w-3 h-3" />
                 </button>
@@ -175,7 +176,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                     onToggleModel(id);
                   }}
                   aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
-                  className={`p-1 pl-1.5 pr-1.5 border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer ${
+                  className={`p-1.5 px-1.5 lg:p-1 lg:pl-1.5 lg:pr-1.5 border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer flex items-center justify-center shrink-0 ${
                     isSelected 
                       ? 'text-zinc-400 hover:text-red-600 hover:bg-red-50' 
                       : 'text-zinc-300 hover:text-emerald-600 hover:bg-emerald-50'
@@ -190,10 +191,10 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
         </div>
 
         {/* Right: Clean minimal deliberation status and out of credits badge */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {isOutOfCredits && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-red-800 bg-red-50 px-2.5 py-0.5 rounded-md border border-red-200/70">
-              <span>Free credits used —</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] lg:text-xs font-medium text-red-800 bg-red-50 px-2 lg:px-2.5 py-0.5 rounded-md border border-red-200/70 shrink-0">
+              <span className="hidden sm:inline">Free credits used —</span>
               <button 
                 type="button" 
                 onClick={onUpgradeClick || (() => {})} 
@@ -205,8 +206,8 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           )}
 
           {isLowCredit && !isOutOfCredits && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-red-800 bg-red-50 px-2.5 py-0.5 rounded-md border border-red-200/70">
-              <span>Almost out of free credit —</span>
+            <div className="flex items-center gap-1 sm:gap-1.5 text-[11px] lg:text-xs font-medium text-red-800 bg-red-50 px-2 lg:px-2.5 py-0.5 rounded-md border border-red-200/70 shrink-0">
+              <span className="hidden sm:inline">Almost out of free credit —</span>
               <button type="button" onClick={onUpgradeClick || (() => {})} className="underline hover:no-underline cursor-pointer">
                 Upgrade
               </button>
@@ -214,9 +215,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           )}
 
           {isDebating && (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
-              <Loader2 className="w-3 h-3 animate-spin text-amber-700" />
-              <span>Responding...</span>
+            <div className="flex items-center gap-1.5 text-[11px] lg:text-xs font-medium text-amber-900 bg-amber-50 px-1.5 sm:px-2.5 py-0.5 rounded-md border border-amber-200/70 shrink-0">
+              <Loader2 className="w-3 h-3 animate-spin text-amber-700 shrink-0" />
+              <span className="hidden sm:inline">Responding...</span>
             </div>
           )}
         </div>
