@@ -188,16 +188,16 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
   };
 
   return (
-    <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden shadow-2xs group text-left">
+    <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden shadow-2xs group text-left w-full max-w-full min-w-0">
       {/* Top Header Bar with Language tag and Copy Button (Neutral light grey styling) */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-zinc-500">
-        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-zinc-500">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-zinc-500 min-w-0">
+        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-zinc-500 truncate">
           {language !== 'text' ? language : 'code'}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/70 transition-colors cursor-pointer"
+          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
           title="Copy code"
         >
           {copied ? (
@@ -215,7 +215,7 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
       </div>
 
       {/* Syntax Highlighted Code Area (Cohesive Soft Light Grey Background #f8f8f8) */}
-      <div className="overflow-x-auto bg-[#f8f8f8]">
+      <div className="overflow-x-auto bg-[#f8f8f8] max-w-full">
         <SyntaxHighlighter
           language={language}
           style={oneLight}
@@ -249,7 +249,7 @@ const markdownComponents: Components = {
     if (!isFenced) {
       return (
         <code
-          className="font-mono text-[0.875em] bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal"
+          className="font-mono text-[0.875em] bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal break-words [overflow-wrap:anywhere]"
           {...props}
         >
           {children}
@@ -260,37 +260,37 @@ const markdownComponents: Components = {
     return <CodeBlock className={className}>{children}</CodeBlock>;
   },
   p: ({ children }) => (
-    <p className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal mb-3 last:mb-0">
+    <p className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">
       {children}
     </p>
   ),
   ul: ({ children }) => (
-    <ul className="my-2.5 pl-5 list-disc space-y-1 text-zinc-800 text-base sm:text-[16.5px]">
+    <ul className="my-2.5 pl-5 list-disc space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-zinc-800 text-base sm:text-[16.5px]">
+    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
       {children}
     </ol>
   ),
   li: ({ children }) => (
-    <li className="leading-relaxed text-zinc-800 text-base sm:text-[16.5px]">
+    <li className="leading-relaxed text-zinc-800 text-base sm:text-[16.5px] break-words">
       {children}
     </li>
   ),
   h1: ({ children }) => (
-    <h1 className="font-semibold text-lg sm:text-xl text-zinc-900 mt-4 mb-2">
+    <h1 className="font-semibold text-lg sm:text-xl text-zinc-900 mt-4 mb-2 break-words">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="font-semibold text-base sm:text-lg text-zinc-900 mt-3.5 mb-1.5">
+    <h2 className="font-semibold text-base sm:text-lg text-zinc-900 mt-3.5 mb-1.5 break-words">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="font-semibold text-sm sm:text-base text-zinc-900 mt-3 mb-1">
+    <h3 className="font-semibold text-sm sm:text-base text-zinc-900 mt-3 mb-1 break-words">
       {children}
     </h3>
   ),
@@ -299,7 +299,7 @@ const markdownComponents: Components = {
   ),
   em: ({ children }) => <em className="italic">{children}</em>,
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-amber-300 pl-3.5 my-2.5 italic text-zinc-600">
+    <blockquote className="border-l-2 border-amber-300 pl-3.5 my-2.5 italic text-zinc-600 break-words">
       {children}
     </blockquote>
   ),
@@ -308,10 +308,36 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-amber-800 hover:text-amber-900 underline underline-offset-2 transition-colors"
+      className="text-amber-800 hover:text-amber-900 underline underline-offset-2 transition-colors break-words [overflow-wrap:anywhere]"
     >
       {children}
     </a>
+  ),
+  table: ({ children }) => (
+    <div className="w-full max-w-full overflow-x-auto my-3 rounded-lg border border-zinc-200/80">
+      <table className="min-w-full text-left text-xs sm:text-sm divide-y divide-zinc-200 border-collapse">
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-zinc-50/90 text-zinc-700 font-semibold">{children}</thead>
+  ),
+  tbody: ({ children }) => (
+    <tbody className="divide-y divide-zinc-100 bg-white text-zinc-800">{children}</tbody>
+  ),
+  tr: ({ children }) => (
+    <tr className="hover:bg-zinc-50/50 transition-colors">{children}</tr>
+  ),
+  th: ({ children }) => (
+    <th className="px-3 py-2 text-xs font-semibold text-zinc-900 whitespace-nowrap">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="px-3 py-2 text-xs text-zinc-700 break-words max-w-xs">
+      {children}
+    </td>
   ),
 };
 
@@ -449,9 +475,9 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, is
   const displayedMainContent = useSmoothReveal(mainContent, isStreaming);
 
   return (
-    <div className="space-y-3.5">
+    <div className="space-y-3.5 min-w-0 max-w-full">
       {/* Message Body with real ReactMarkdown rendering */}
-      <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal">
+      <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={markdownComponents}
@@ -465,21 +491,21 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, is
 
       {/* Sources Area */}
       {sources && sources.length > 0 && (
-        <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2">
+        <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2 min-w-0 max-w-full">
           <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
             Sources
           </span>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 max-w-full min-w-0">
             {sources.map((source, i) => (
               <a
                 key={`${source.url}-${i}`}
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
                 title={source.title}
               >
-                <span className="truncate max-w-[220px] sm:max-w-[300px]">
+                <span className="truncate max-w-[170px] sm:max-w-[300px]">
                   {source.title}
                 </span>
                 <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
@@ -583,14 +609,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="px-4 sm:px-8 pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col">
+    <div className="px-3 sm:px-8 pt-4 sm:pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col min-w-0">
       {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
-        <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs">
+        <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0">
             <span className="font-semibold block">Notice</span>
-            <p className="leading-relaxed">{errorMessage}</p>
+            <p className="leading-relaxed break-words">{errorMessage}</p>
           </div>
         </div>
       )}
@@ -664,19 +690,19 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               )}
               <div 
                 id={message.id}
-                className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 ${
+                className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
-                  <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
-                    <span className="font-semibold text-zinc-700">{message.authorName || 'You'}</span>
-                    <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
+                <div className="max-w-full sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 shadow-sm relative min-w-0">
+                  <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500 min-w-0">
+                    <span className="font-semibold text-zinc-700 truncate">{message.authorName || 'You'}</span>
+                    <span className="text-[10px] font-mono text-stone-400 shrink-0">{message.timestamp}</span>
                   </div>
 
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2.5 mb-2.5">
+                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
                       {attachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
                         const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
@@ -688,16 +714,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         const isImage = isImageUrl(url, filename);
 
                         return (
-                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
+                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             {isPdf ? (
                               <button
                                 type="button"
                                 onClick={() => window.open(url, '_blank')}
-                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename} in new tab`}
                               >
-                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
                                   PDF
                                 </span>
                               </button>
@@ -705,11 +731,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => window.open(url, '_blank')}
-                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to download ${filename}`}
                               >
-                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
                                   DOCX
                                 </span>
                               </button>
@@ -717,11 +743,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => window.open(url, '_blank')}
-                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename} in new tab`}
                               >
-                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
                                   {getTextFileDisplayBadge(filename)}
                                 </span>
                               </button>
@@ -729,7 +755,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setLightboxImageUrl(url)}
-                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <img
@@ -742,17 +768,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => window.open(url, '_blank')}
-                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
-                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-zinc-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-zinc-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
                                   FILE
                                 </span>
                               </button>
                             )}
                             <span
-                              className="text-[10px] sm:text-[11px] font-mono text-stone-500 hover:text-stone-700 max-w-[96px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              className="text-[10px] sm:text-[11px] font-mono text-stone-500 hover:text-stone-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
                               title={filename}
                             >
                               {filename}
@@ -765,9 +791,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                   {/* Message Body with truncation if long (only if text exists) */}
                   {message.content?.trim() ? (
-                    <div className="relative">
+                    <div className="relative min-w-0 max-w-full">
                       <p
-                        className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
+                        className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words [overflow-wrap:anywhere] ${
                           isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
                         }`}
                       >
@@ -779,7 +805,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         <button
                           type="button"
                           onClick={() => toggleExpand(message.id)}
-                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
+                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer min-h-[32px] sm:min-h-0"
                         >
                           {isExpanded ? (
                             <>
@@ -800,16 +826,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                 {/* Inline Failed Turn State: Active failure (with Try again button) */}
                 {failedTurn && failedTurn.uiMessageId === message.id ? (
-                  <div className="flex items-center justify-between gap-3 px-3.5 py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-2.5 sm:py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150 max-w-full min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      <span className="font-normal text-stone-700">Something went wrong.</span>
+                      <span className="font-normal text-stone-700 truncate">Something went wrong.</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
                       disabled={isDebating}
-                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-50 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 active:bg-stone-200/70 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[32px] sm:min-h-0 flex items-center"
                     >
                       Try again
                     </button>
@@ -869,18 +895,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             )}
             <div
               id={message.id}
-              className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 ${spacingClass}`}
+              className={`rounded-xl border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
             >
               {/* Header: Model name & timestamp only */}
-              <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${member.statusDotColor}`} />
-                  <span className="font-semibold text-xs text-zinc-700">
+              <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full ${member.statusDotColor} shrink-0`} />
+                  <span className="font-semibold text-xs text-zinc-700 truncate">
                     {member.name}
                   </span>
                 </div>
 
-                <span className="text-[10px] font-mono text-zinc-400">
+                <span className="text-[10px] font-mono text-zinc-400 shrink-0">
                   {message.timestamp}
                 </span>
               </div>
@@ -910,21 +936,21 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               {/* Bottom Actions Bar: Copy & Export (Rendered once content exists) */}
               {!isThinking && (
-                <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
+                <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs min-w-0">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       onClick={() => handleCopy(message.id, message.content)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      className="flex items-center gap-1 px-2.5 py-1.5 sm:py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[32px] sm:min-h-0"
                       title="Copy text"
                     >
                       {copiedId === message.id ? (
                         <>
-                          <Check className="w-3 h-3 text-emerald-600" />
+                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                           <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3 h-3" />
+                          <Copy className="w-3.5 h-3.5 shrink-0" />
                           <span className="text-[10px]">Copy</span>
                         </>
                       )}
@@ -934,11 +960,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       <button
                         type="button"
                         onClick={() => onExportMessage(message)}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                        className="flex items-center justify-center p-1.5 sm:px-2 sm:py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[32px] min-w-[32px] sm:min-h-0 sm:min-w-0"
                         title="Download response as PDF"
                         aria-label="Download response as PDF"
                       >
-                        <Download className="w-3 h-3" />
+                        <Download className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
@@ -951,15 +977,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
       {/* Continue Discussion Button - Fades in below final message bubble, bottom-right */}
       {canContinue && !isDebating && messages.length > 0 && onContinue && (
-        <div className="flex justify-end pt-3 animate-in fade-in zoom-in-95 duration-200">
+        <div className="w-full max-w-full flex justify-end pt-3 animate-in fade-in zoom-in-95 duration-200 min-w-0">
           <button
             type="button"
             onClick={onContinue}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white hover:bg-amber-50/80 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:py-1.5 rounded-xl bg-white hover:bg-amber-50/80 active:bg-amber-100/70 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group max-w-full active:scale-98 shrink-0"
             title="Trigger another deliberation round on this topic"
           >
-            <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors" />
-            <span>Let them keep discussing</span>
+            <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors shrink-0" />
+            <span className="truncate">
+              <span className="sm:hidden">Keep discussing</span>
+              <span className="hidden sm:inline">Let them keep discussing</span>
+            </span>
           </button>
         </div>
       )}
