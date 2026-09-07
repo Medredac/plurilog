@@ -11,7 +11,7 @@ import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
-import { ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronDown } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
@@ -111,6 +111,8 @@ export default function DashboardPage() {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [canContinue, setCanContinue] = useState<boolean>(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const supabase = createClient();
 
@@ -1639,7 +1641,16 @@ export default function DashboardPage() {
         />
 
         {/* Full-width scrollable viewport / Centered Empty State */}
-        <div className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col">
+        <div
+          ref={scrollContainerRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const distanceFromBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight;
+            setShowScrollBottom(distanceFromBottom > 120);
+          }}
+          className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
+        >
           {isLoadingMessages ? (
             <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
               <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
@@ -1717,6 +1728,26 @@ export default function DashboardPage() {
             />
           )}
         </div>
+
+        {/* Scroll to Bottom Overlay Button */}
+        {messages.length > 0 && showScrollBottom && (
+          <div className="absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+            <button
+              type="button"
+              onClick={() => {
+                scrollContainerRef.current?.scrollTo({
+                  top: scrollContainerRef.current.scrollHeight,
+                  behavior: 'smooth',
+                });
+              }}
+              className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95"
+              title="Scroll to bottom"
+              aria-label="Scroll to bottom"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Sticky Input (Only shown once conversation has messages) */}
         {messages.length > 0 && (
