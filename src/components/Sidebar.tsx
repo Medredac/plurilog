@@ -414,7 +414,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       >
                         {firstName}
                       </span>
-                      <span className={`text-[10px] font-mono font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
+                      <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
                         userPlan === 'paid'
                           ? 'bg-zinc-100 text-zinc-700 border-zinc-200/80'
                           : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
