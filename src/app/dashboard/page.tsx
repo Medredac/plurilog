@@ -1675,6 +1675,11 @@ export default function DashboardPage() {
     );
   }
 
+  const displayFirstName = userDisplayName?.trim().split(/\s+/)[0] || '';
+  const greetingWords = displayFirstName
+    ? ['Hello', `${displayFirstName}!`, 'How', 'can', 'we', 'help?']
+    : ['How', 'can', 'we', 'help', 'you', 'today?'];
+
   return (
     <>
       <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden">
@@ -1772,7 +1777,7 @@ export default function DashboardPage() {
 
                 {/* Staggered Drop-Fade Heading Words */}
                 <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-                  {['How', 'can', 'we', 'help', 'you', 'today?'].map((word, idx) => (
+                  {greetingWords.map((word, idx) => (
                     <span
                       key={idx}
                       className="inline-block animate-drop-fade"
