@@ -267,61 +267,52 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
-                      <span className={`text-[13px] truncate flex-1 pr-2 ${
+                      <span className={`text-[13px] truncate flex-1 ${
                         isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
                       }`}>
                         {debate.title}
                       </span>
                       
-                      <div className="w-12 h-4 flex items-center justify-end shrink-0 relative">
-                        {/* Timestamp (hidden when hovering or menu open) */}
-                        <span className={`text-[9.5px] leading-4 text-zinc-400 font-mono font-light text-right ${
-                          isMenuOpen ? 'hidden' : 'group-hover/item:hidden'
-                        }`}>
-                          {debate.createdAt}
-                        </span>
+                      {/* Three-Dot Menu Trigger */}
+                      {onDeleteDebate && (
+                        <div className="relative w-4 h-4 flex items-center justify-end shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenDebateId(isMenuOpen ? null : debate.id);
+                            }}
+                            className={`p-0.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer items-center justify-center h-4 w-4 ${
+                              isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'hidden group-hover/item:flex'
+                            }`}
+                            title="More options"
+                          >
+                            <MoreVertical className="w-3.5 h-3.5" />
+                          </button>
 
-                        {/* Three-Dot Menu Trigger */}
-                        {onDeleteDebate && (
-                          <div className="relative h-4 flex items-center">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setMenuOpenDebateId(isMenuOpen ? null : debate.id);
-                              }}
-                              className={`p-0.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer items-center justify-center h-4 w-4 ${
-                                isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'hidden group-hover/item:flex'
-                              }`}
-                              title="More options"
+                          {/* Dropdown Menu */}
+                          {isMenuOpen && (
+                            <div
+                              ref={dropdownMenuRef}
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-0 top-full mt-1 w-28 rounded-xl bg-white border border-zinc-200/90 shadow-lg p-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left"
                             >
-                              <MoreVertical className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Dropdown Menu */}
-                            {isMenuOpen && (
-                              <div
-                                ref={dropdownMenuRef}
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute right-0 top-full mt-1 w-28 rounded-xl bg-white border border-zinc-200/90 shadow-lg p-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left"
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMenuOpenDebateId(null);
+                                  setConfirmDeleteDebate(debate);
+                                }}
+                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
                               >
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setMenuOpenDebateId(null);
-                                    setConfirmDeleteDebate(debate);
-                                  }}
-                                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>Delete</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })
