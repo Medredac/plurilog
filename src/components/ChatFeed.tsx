@@ -12,7 +12,8 @@ import {
   CornerDownRight, 
   ChevronDown, 
   ChevronUp,
-  FileText
+  FileText,
+  Download
 } from 'lucide-react';
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
@@ -337,6 +338,7 @@ interface ChatFeedProps {
   failedTurn?: FailedTurnState | null;
   onRetryTurn?: (failedTurn: FailedTurnState) => void;
   abandonedFailedTurnIds?: string[];
+  onExportMessage?: (message: ChatMessage) => void;
 }
 
 /**
@@ -510,6 +512,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   failedTurn = null,
   onRetryTurn,
   abandonedFailedTurnIds = [],
+  onExportMessage,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
@@ -905,7 +908,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 />
               )}
 
-              {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
+              {/* Bottom Actions Bar: Copy & Export (Rendered once content exists) */}
               {!isThinking && (
                 <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
                   <div className="flex items-center gap-2">
@@ -926,6 +929,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         </>
                       )}
                     </button>
+
+                    {onExportMessage && (
+                      <button
+                        type="button"
+                        onClick={() => onExportMessage(message)}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                        title="Download response as PDF"
+                        aria-label="Download response as PDF"
+                      >
+                        <Download className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

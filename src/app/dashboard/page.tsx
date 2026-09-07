@@ -9,9 +9,10 @@ import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
+import { PrintableDiscussion } from '../../components/PrintableDiscussion';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
-import { ArrowRight, Loader2, ChevronDown } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronDown, Download } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
@@ -113,8 +114,72 @@ export default function DashboardPage() {
   const [canContinue, setCanContinue] = useState<boolean>(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [printExportState, setPrintExportState] = useState<{
+    mode: 'discussion' | 'message';
+    messages: ChatMessage[];
+    title: string;
+  } | null>(null);
 
   const supabase = createClient();
+
+  // Print Dialog Lifecycle
+  useEffect(() => {
+    if (!printExportState) return;
+
+    const originalTitle = document.title;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const safeTitle = (printExportState.title || 'Discussion')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/[/\\?%*:|"<>]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100);
+    document.title = `Plurilog - ${safeTitle} - ${dateStr}`;
+
+    const handleAfterPrint = () => {
+      document.title = originalTitle;
+      setPrintExportState(null);
+    };
+
+    window.addEventListener('afterprint', handleAfterPrint);
+
+    const timer = setTimeout(() => {
+      window.print();
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('afterprint', handleAfterPrint);
+      document.title = originalTitle;
+    };
+  }, [printExportState]);
+
+  const handleTriggerPrint = useCallback(
+    (mode: 'discussion' | 'message', targetMessages: ChatMessage[]) => {
+      const validMessages = targetMessages.filter(
+        (m) => m.content.trim().length > 0 || m.role === 'user'
+      );
+      if (validMessages.length === 0) return;
+
+      const currentDebate = debates.find((d) => d.id === activeDebateId);
+      let title = currentDebate?.title || 'Plurilog Discussion';
+      if (title === 'Untitled Discussion' && validMessages[0]?.role === 'user') {
+        title = validMessages[0].content.slice(0, 60);
+      }
+      if (mode === 'message') {
+        const msg = validMessages[0];
+        const author = msg?.authorName || COUNCIL_MEMBERS[msg?.modelId as ModelId]?.name || 'AI';
+        title = `${author} Response - ${title}`;
+      }
+
+      setPrintExportState({
+        mode,
+        messages: validMessages,
+        title,
+      });
+    },
+    [debates, activeDebateId]
+  );
 
   // Keep activeDebateIdRef synchronized
   useEffect(() => {
@@ -1611,194 +1676,221 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans">
-      {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-        debates={debates}
-        activeDebateId={activeDebateId || ''}
-        onSelectDebate={handleSelectDebate}
-        onNewDebate={handleNewDebate}
-        onDeleteDebate={handleDeleteDebate}
-        userEmail={userEmail}
-        userDisplayName={userDisplayName}
-        userAvatarUrl={userAvatarUrl}
-        userPlan={userPlan}
-        onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
-        onSignOut={handleSignOut}
-      />
-
-      {/* Main Chamber */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid">
-        {/* Simplified Header */}
-        <CouncilHeader
-          seatOrder={seatOrder}
-          onReorderSeats={handleReorderSeats}
-          activeModels={activeModels}
-          onToggleModel={handleToggleModel}
-          isDebating={isDebating}
-          activeSpeaker={activeSpeaker}
-          seatStatuses={seatStatuses}
-          isOutOfCredits={isOutOfCredits}
-          isLowCredit={userPlan === 'free' && remainingCents > 0 && remainingCents <= 25}
-          onUpgradeClick={async () => {
-            try {
-              const res = await fetch('/api/stripe/checkout', { method: 'POST' });
-              const data = await res.json();
-              if (data.url) {
-                window.location.href = data.url;
-              }
-            } catch (err) {
-              console.error('[Header Upgrade] Failed to start checkout:', err);
-            }
-          }}
+    <>
+      <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden">
+        {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
+        <Sidebar
+          isOpen={isSidebarOpen}
+          onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          debates={debates}
+          activeDebateId={activeDebateId || ''}
+          onSelectDebate={handleSelectDebate}
+          onNewDebate={handleNewDebate}
+          onDeleteDebate={handleDeleteDebate}
+          userEmail={userEmail}
+          userDisplayName={userDisplayName}
+          userAvatarUrl={userAvatarUrl}
+          userPlan={userPlan}
+          onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
+          onSignOut={handleSignOut}
         />
 
-        {/* Full-width scrollable viewport / Centered Empty State */}
-        <div
-          ref={scrollContainerRef}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            const distanceFromBottom =
-              el.scrollHeight - el.scrollTop - el.clientHeight;
-            setShowScrollBottom(distanceFromBottom > 120);
-          }}
-          className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
-        >
-          {isLoadingMessages ? (
-            <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
-              <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
-              <p className="text-xs text-zinc-400">Loading conversation...</p>
+        {/* Main Chamber */}
+        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid">
+          {/* Simplified Header */}
+          <CouncilHeader
+            seatOrder={seatOrder}
+            onReorderSeats={handleReorderSeats}
+            activeModels={activeModels}
+            onToggleModel={handleToggleModel}
+            isDebating={isDebating}
+            activeSpeaker={activeSpeaker}
+            seatStatuses={seatStatuses}
+            isOutOfCredits={isOutOfCredits}
+            isLowCredit={userPlan === 'free' && remainingCents > 0 && remainingCents <= 25}
+            onUpgradeClick={async () => {
+              try {
+                const res = await fetch('/api/stripe/checkout', { method: 'POST' });
+                const data = await res.json();
+                if (data.url) {
+                  window.location.href = data.url;
+                }
+              } catch (err) {
+                console.error('[Header Upgrade] Failed to start checkout:', err);
+              }
+            }}
+          />
+
+          {/* Whole Discussion PDF Export Button */}
+          {messages.length > 0 && (
+            <div className="absolute top-14 sm:top-16 right-4 sm:right-6 z-20 pointer-events-none">
+              <button
+                type="button"
+                onClick={() => handleTriggerPrint('discussion', messages)}
+                className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in"
+                title="Download discussion as PDF"
+                aria-label="Download discussion as PDF"
+              >
+                <Download className="w-4 h-4" />
+              </button>
             </div>
-          ) : messages.length === 0 ? (
-            /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
-            <div 
-              key={activeDebateId || 'empty-state-view'}
-              className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
-            >
-              {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
-              <div 
-                className="w-24 h-24 mb-5 flex items-center justify-center animate-drop-fade"
-                style={{ animationDelay: '0ms' }}
-              >
-                <img
-                  src="/logo.svg"
-                  alt="Plurilog"
-                  className="w-20 h-20 sm:w-22 sm:h-22"
-                />
+          )}
+
+          {/* Full-width scrollable viewport / Centered Empty State */}
+          <div
+            ref={scrollContainerRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const distanceFromBottom =
+                el.scrollHeight - el.scrollTop - el.clientHeight;
+              setShowScrollBottom(distanceFromBottom > 120);
+            }}
+            className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
+          >
+            {isLoadingMessages ? (
+              <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
+                <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
+                <p className="text-xs text-zinc-400">Loading conversation...</p>
               </div>
-
-              {/* Staggered Drop-Fade Heading Words */}
-              <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-                {['How', 'can', 'we', 'help', 'you', 'today?'].map((word, idx) => (
-                  <span
-                    key={idx}
-                    className="inline-block animate-drop-fade"
-                    style={{ animationDelay: `${50 + idx * 45}ms` }}
-                  >
-                    {word}
-                  </span>
-                ))}
-              </h2>
-
-              {/* Warmer Panel Subtext (Simple Fade-In) */}
-              <p 
-                className="text-xs sm:text-sm font-normal text-zinc-400 mb-6 animate-simple-fade"
-                style={{ animationDelay: '350ms' }}
-              >
-                Gemini, Claude, and ChatGPT are here to help
-              </p>
-
-              {/* Centered Input (Simple Fade-In) */}
+            ) : messages.length === 0 ? (
+              /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
               <div 
-                className="w-full animate-simple-fade"
-                style={{ animationDelay: '420ms' }}
+                key={activeDebateId || 'empty-state-view'}
+                className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
               >
-                <ChatInput
-                  onSendMessage={handleSendMessage}
-                  isLoading={isDebating}
-                  onStop={handleStop}
-                  isCentered
-                  autoFocus
-                  restoreDraft={restoreDraft}
-                />
+                {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
+                <div 
+                  className="w-24 h-24 mb-5 flex items-center justify-center animate-drop-fade"
+                  style={{ animationDelay: '0ms' }}
+                >
+                  <img
+                    src="/logo.svg"
+                    alt="Plurilog"
+                    className="w-20 h-20 sm:w-22 sm:h-22"
+                  />
+                </div>
+
+                {/* Staggered Drop-Fade Heading Words */}
+                <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+                  {['How', 'can', 'we', 'help', 'you', 'today?'].map((word, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-block animate-drop-fade"
+                      style={{ animationDelay: `${50 + idx * 45}ms` }}
+                    >
+                      {word}
+                    </span>
+                  ))}
+                </h2>
+
+                {/* Warmer Panel Subtext (Simple Fade-In) */}
+                <p 
+                  className="text-xs sm:text-sm font-normal text-zinc-400 mb-6 animate-simple-fade"
+                  style={{ animationDelay: '350ms' }}
+                >
+                  Gemini, Claude, and ChatGPT are here to help
+                </p>
+
+                {/* Centered Input (Simple Fade-In) */}
+                <div 
+                  className="w-full animate-simple-fade"
+                  style={{ animationDelay: '420ms' }}
+                >
+                  <ChatInput
+                    onSendMessage={handleSendMessage}
+                    isLoading={isDebating}
+                    onStop={handleStop}
+                    isCentered
+                    autoFocus
+                    restoreDraft={restoreDraft}
+                  />
+                </div>
               </div>
+            ) : (
+              <ChatFeed
+                messages={messages}
+                onPromptClick={handleSendMessage}
+                activeSpeaker={activeSpeaker}
+                seatStatuses={seatStatuses}
+                isDebating={isDebating}
+                errorMessage={errorMessage}
+                canContinue={canContinue}
+                onContinue={handleContinue}
+                activeDebateId={activeDebateId}
+                isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
+                failedTurn={failedTurn}
+                onRetryTurn={handleRetryTurn}
+                abandonedFailedTurnIds={abandonedFailedTurnIds}
+                onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
+              />
+            )}
+          </div>
+
+          {/* Scroll to Bottom Overlay Button */}
+          {messages.length > 0 && showScrollBottom && (
+            <div className="absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+              <button
+                type="button"
+                onClick={() => {
+                  scrollContainerRef.current?.scrollTo({
+                    top: scrollContainerRef.current.scrollHeight,
+                    behavior: 'smooth',
+                  });
+                }}
+                className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95"
+                title="Scroll to bottom"
+                aria-label="Scroll to bottom"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
             </div>
-          ) : (
-            <ChatFeed
-              messages={messages}
-              onPromptClick={handleSendMessage}
-              activeSpeaker={activeSpeaker}
-              seatStatuses={seatStatuses}
-              isDebating={isDebating}
-              errorMessage={errorMessage}
-              canContinue={canContinue}
-              onContinue={handleContinue}
-              activeDebateId={activeDebateId}
-              isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
-              failedTurn={failedTurn}
-              onRetryTurn={handleRetryTurn}
-              abandonedFailedTurnIds={abandonedFailedTurnIds}
+          )}
+
+          {/* Sticky Input (Only shown once conversation has messages) */}
+          {messages.length > 0 && (
+            <ChatInput
+              onSendMessage={handleSendMessage}
+              isLoading={isDebating}
+              onStop={handleStop}
+              focusTrigger={activeDebateId}
+              restoreDraft={restoreDraft}
             />
           )}
-        </div>
+        </main>
 
-        {/* Scroll to Bottom Overlay Button */}
-        {messages.length > 0 && showScrollBottom && (
-          <div className="absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-            <button
-              type="button"
-              onClick={() => {
-                scrollContainerRef.current?.scrollTo({
-                  top: scrollContainerRef.current.scrollHeight,
-                  behavior: 'smooth',
-                });
-              }}
-              className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95"
-              title="Scroll to bottom"
-              aria-label="Scroll to bottom"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {/* Out of Credits Upgrade Modal */}
+        <OutOfCreditsModal
+          isOpen={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+        />
 
-        {/* Sticky Input (Only shown once conversation has messages) */}
-        {messages.length > 0 && (
-          <ChatInput
-            onSendMessage={handleSendMessage}
-            isLoading={isDebating}
-            onStop={handleStop}
-            focusTrigger={activeDebateId}
-            restoreDraft={restoreDraft}
-          />
-        )}
-      </main>
+        {/* Low Credit Warning Modal */}
+        <LowCreditModal
+          isOpen={showLowCreditModal}
+          onClose={() => setShowLowCreditModal(false)}
+        />
 
-      {/* Out of Credits Upgrade Modal */}
-      <OutOfCreditsModal
-        isOpen={showUpgradeModal}
-        onClose={() => setShowUpgradeModal(false)}
-      />
+        {/* Account Settings Modal */}
+        <AccountSettingsModal
+          isOpen={isAccountSettingsOpen}
+          onClose={() => setIsAccountSettingsOpen(false)}
+          displayName={userDisplayName || userEmail || 'User'}
+          userEmail={userEmail}
+          userAvatarUrl={userAvatarUrl}
+          userPlan={userPlan}
+          onNameUpdated={(newName) => setUserDisplayName(newName)}
+          periodResetAt={periodResetAt}
+        />
+      </div>
 
-      {/* Low Credit Warning Modal */}
-      <LowCreditModal
-        isOpen={showLowCreditModal}
-        onClose={() => setShowLowCreditModal(false)}
-      />
-
-      {/* Account Settings Modal */}
-      <AccountSettingsModal
-        isOpen={isAccountSettingsOpen}
-        onClose={() => setIsAccountSettingsOpen(false)}
-        displayName={userDisplayName || userEmail || 'User'}
-        userEmail={userEmail}
-        userAvatarUrl={userAvatarUrl}
-        userPlan={userPlan}
-        onNameUpdated={(newName) => setUserDisplayName(newName)}
-        periodResetAt={periodResetAt}
-      />
-    </div>
+      {/* Print Document Root */}
+      {printExportState && (
+        <PrintableDiscussion
+          mode={printExportState.mode}
+          messages={printExportState.messages}
+          discussionTitle={printExportState.title}
+        />
+      )}
+    </>
   );
 }
