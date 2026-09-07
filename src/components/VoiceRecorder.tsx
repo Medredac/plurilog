@@ -379,7 +379,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         <button
           type="button"
           onClick={handleCancel}
-          className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-200/70 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+          className="p-2 lg:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-200/70 transition-colors cursor-pointer min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
           title="Cancel recording"
           aria-label="Cancel recording"
         >
@@ -412,14 +412,14 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <span className="truncate">Starting microphone...</span>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 h-7 w-full max-w-[140px] sm:max-w-[240px]">
+          <div className="flex items-center justify-center gap-0.5 lg:gap-1.5 h-7 w-full max-w-[140px] sm:max-w-[200px] lg:max-w-[240px]">
             {Array.from({ length: BAR_COUNT }).map((_, idx) => (
               <div
                 key={idx}
                 ref={(el) => {
                   barRefs.current[idx] = el;
                 }}
-                className="w-1 sm:w-1.5 bg-zinc-700 rounded-full transition-[height] duration-75 ease-out"
+                className="w-1 lg:w-1.5 bg-zinc-700 rounded-full transition-[height] duration-75 ease-out"
                 style={{ height: '4px' }}
               />
             ))}
@@ -443,7 +443,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             type="button"
             onClick={handleStopRecording}
             disabled={!isRecorderReady}
-            className={`w-9 h-9 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+            className={`w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all active:scale-95 ${
               isRecorderReady
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-white cursor-pointer shadow-2xs'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed opacity-50'
@@ -451,7 +451,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             title={isRecorderReady ? 'Stop recording and transcribe' : 'Starting microphone...'}
             aria-label="Stop recording and transcribe"
           >
-            <Square className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current" />
+            <Square className="w-3.5 h-3.5 lg:w-3 lg:h-3 fill-current" />
           </button>
         )}
       </div>

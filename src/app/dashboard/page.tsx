@@ -1866,11 +1866,11 @@ export default function DashboardPage() {
 
           {/* Whole Discussion PDF Export Button */}
           {messages.length > 0 && (
-            <div className="absolute top-14 sm:top-16 right-4 sm:right-6 z-20 pointer-events-none">
+            <div className="absolute top-14 lg:top-16 right-[max(1rem,env(safe-area-inset-right))] lg:right-6 z-20 pointer-events-none">
               <button
                 type="button"
                 onClick={() => handleTriggerPrint('discussion', messages)}
-                className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in"
+                className="pointer-events-auto flex items-center justify-center w-9 h-9 lg:w-8 lg:h-8 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0"
                 title="Download discussion as PDF"
                 aria-label="Download discussion as PDF"
               >
@@ -1879,115 +1879,118 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Full-width scrollable viewport / Centered Empty State */}
-          <div
-            ref={scrollContainerRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const distanceFromBottom =
-                el.scrollHeight - el.scrollTop - el.clientHeight;
-              setShowScrollBottom(distanceFromBottom > 120);
-            }}
-            className="flex-1 min-h-0 min-w-0 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
-          >
-            {isLoadingMessages ? (
-              <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
-                <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
-                <p className="text-xs text-zinc-400">Loading conversation...</p>
-              </div>
-            ) : messages.length === 0 ? (
-              /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
-              <div 
-                key={activeDebateId || 'empty-state-view'}
-                className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
-              >
-                {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
-                <div 
-                  className="w-24 h-24 mb-5 flex items-center justify-center animate-drop-fade"
-                  style={{ animationDelay: '0ms' }}
-                >
-                  <img
-                    src="/logo.svg"
-                    alt="Plurilog"
-                    className="w-20 h-20 sm:w-22 sm:h-22"
-                  />
+          {/* Message Scroll Region Wrapper (Provides stable positioning context for scroll button above variable-height ChatInput) */}
+          <div className="relative flex-1 min-h-0 min-w-0 w-full flex flex-col">
+            {/* Full-width scrollable viewport / Centered Empty State */}
+            <div
+              ref={scrollContainerRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                const distanceFromBottom =
+                  el.scrollHeight - el.scrollTop - el.clientHeight;
+                setShowScrollBottom(distanceFromBottom > 120);
+              }}
+              className="flex-1 min-h-0 min-w-0 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
+            >
+              {isLoadingMessages ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
+                  <Loader2 className="w-5 h-5 animate-spin text-zinc-400 mb-2" />
+                  <p className="text-xs text-zinc-400">Loading conversation...</p>
                 </div>
-
-                {/* Staggered Drop-Fade Heading Words */}
-                <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
-                  {greetingWords.map((word, idx) => (
-                    <span
-                      key={idx}
-                      className="inline-block animate-drop-fade"
-                      style={{ animationDelay: `${50 + idx * 45}ms` }}
-                    >
-                      {word}
-                    </span>
-                  ))}
-                </h2>
-
-                {/* Warmer Panel Subtext (Simple Fade-In) */}
-                <p 
-                  className="text-xs sm:text-sm font-normal text-zinc-400 mb-6 animate-simple-fade"
-                  style={{ animationDelay: '350ms' }}
-                >
-                  Gemini, Claude, and ChatGPT are here to help
-                </p>
-
-                {/* Centered Input (Simple Fade-In) */}
+              ) : messages.length === 0 ? (
+                /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
                 <div 
-                  className="w-full animate-simple-fade"
-                  style={{ animationDelay: '420ms' }}
+                  key={activeDebateId || 'empty-state-view'}
+                  className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
                 >
-                  <ChatInput
-                    onSendMessage={handleSendMessage}
-                    isLoading={isDebating}
-                    onStop={handleStop}
-                    isCentered
-                    autoFocus
-                    restoreDraft={restoreDraft}
-                  />
+                  {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
+                  <div 
+                    className="w-24 h-24 mb-5 flex items-center justify-center animate-drop-fade"
+                    style={{ animationDelay: '0ms' }}
+                  >
+                    <img
+                      src="/logo.svg"
+                      alt="Plurilog"
+                      className="w-20 h-20 sm:w-22 sm:h-22"
+                    />
+                  </div>
+
+                  {/* Staggered Drop-Fade Heading Words */}
+                  <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+                    {greetingWords.map((word, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-block animate-drop-fade"
+                        style={{ animationDelay: `${50 + idx * 45}ms` }}
+                      >
+                        {word}
+                      </span>
+                    ))}
+                  </h2>
+
+                  {/* Warmer Panel Subtext (Simple Fade-In) */}
+                  <p 
+                    className="text-xs sm:text-sm font-normal text-zinc-400 mb-6 animate-simple-fade"
+                    style={{ animationDelay: '350ms' }}
+                  >
+                    Gemini, Claude, and ChatGPT are here to help
+                  </p>
+
+                  {/* Centered Input (Simple Fade-In) */}
+                  <div 
+                    className="w-full animate-simple-fade"
+                    style={{ animationDelay: '420ms' }}
+                  >
+                    <ChatInput
+                      onSendMessage={handleSendMessage}
+                      isLoading={isDebating}
+                      onStop={handleStop}
+                      isCentered
+                      autoFocus
+                      restoreDraft={restoreDraft}
+                    />
+                  </div>
                 </div>
+              ) : (
+                <ChatFeed
+                  messages={messages}
+                  onPromptClick={handleSendMessage}
+                  activeSpeaker={activeSpeaker}
+                  seatStatuses={seatStatuses}
+                  isDebating={isDebating}
+                  errorMessage={errorMessage}
+                  canContinue={canContinue}
+                  onContinue={handleContinue}
+                  activeDebateId={activeDebateId}
+                  isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
+                  failedTurn={failedTurn}
+                  onRetryTurn={handleRetryTurn}
+                  abandonedFailedTurnIds={abandonedFailedTurnIds}
+                  onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
+                />
+              )}
+            </div>
+
+            {/* Scroll to Bottom Overlay Button (Anchored directly above ChatInput footer) */}
+            {messages.length > 0 && showScrollBottom && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => {
+                    scrollContainerRef.current?.scrollTo({
+                      top: scrollContainerRef.current.scrollHeight,
+                      behavior: 'smooth',
+                    });
+                  }}
+                  className="pointer-events-auto flex items-center justify-center w-9 h-9 lg:w-8 lg:h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95 min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0"
+                  title="Scroll to bottom"
+                  aria-label="Scroll to bottom"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
               </div>
-            ) : (
-              <ChatFeed
-                messages={messages}
-                onPromptClick={handleSendMessage}
-                activeSpeaker={activeSpeaker}
-                seatStatuses={seatStatuses}
-                isDebating={isDebating}
-                errorMessage={errorMessage}
-                canContinue={canContinue}
-                onContinue={handleContinue}
-                activeDebateId={activeDebateId}
-                isNewlyCreatedRef={isNewlyCreatedDiscussionRef}
-                failedTurn={failedTurn}
-                onRetryTurn={handleRetryTurn}
-                abandonedFailedTurnIds={abandonedFailedTurnIds}
-                onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
-              />
             )}
           </div>
-
-          {/* Scroll to Bottom Overlay Button */}
-          {messages.length > 0 && showScrollBottom && (
-            <div className="absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
-              <button
-                type="button"
-                onClick={() => {
-                  scrollContainerRef.current?.scrollTo({
-                    top: scrollContainerRef.current.scrollHeight,
-                    behavior: 'smooth',
-                  });
-                }}
-                className="pointer-events-auto flex items-center justify-center w-8 h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95"
-                title="Scroll to bottom"
-                aria-label="Scroll to bottom"
-              >
-                <ChevronDown className="w-4 h-4" />
-              </button>
-            </div>
-          )}
 
           {/* Sticky Input (Only shown once conversation has messages) */}
           {messages.length > 0 && (

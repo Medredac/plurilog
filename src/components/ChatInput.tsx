@@ -233,8 +233,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const containerClasses = isCentered
-    ? 'w-full max-w-2xl mx-auto'
-    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-5 px-3 sm:px-8 max-w-5xl mx-auto w-full z-10';
+    ? 'w-full max-w-2xl mx-auto pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] lg:px-0'
+    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:pb-5 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))] lg:px-8 max-w-5xl mx-auto w-full z-10';
 
   return (
     <div className={containerClasses}>
@@ -338,11 +338,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(item.id)}
-                    className="absolute -top-1.5 -right-1.5 w-6 h-6 sm:w-5 sm:h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 active:scale-95 transition-all cursor-pointer z-10"
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 lg:w-5 lg:h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 active:scale-95 transition-all cursor-pointer z-10"
                     title="Remove attachment"
                     aria-label="Remove attachment"
                   >
-                    <X className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                    <X className="w-3.5 h-3.5 lg:w-3 lg:h-3" />
                   </button>
                 </div>
               );
@@ -367,7 +367,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
                 title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
                 aria-label={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
-                className={`p-2 sm:p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 ${
+                className={`p-2 lg:p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 ${
                   isUploadDrawerOpen
                     ? 'text-zinc-700 bg-zinc-100'
                     : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60'
@@ -414,7 +414,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setVoiceError(null);
                   setIsRecording(true);
                 }}
-                className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 mb-0.5 min-h-[36px] min-w-[36px] sm:min-h-0 sm:min-w-0 flex items-center justify-center"
+                className="p-2 lg:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 mb-0.5 min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
                 title="Voice dictation"
                 aria-label="Voice dictation"
               >
@@ -427,17 +427,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={onStop}
-                className="w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs"
+                className="w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-white shadow-2xs"
                 title="Stop generation"
               >
-                <Square className="w-3 h-3 fill-current" />
+                <Square className="w-3.5 h-3.5 lg:w-3 lg:h-3 fill-current" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleSend}
                 disabled={!inputVal.trim() && attachedFiles.length === 0}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shrink-0 ${
+                className={`w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all shrink-0 active:scale-95 ${
                   inputVal.trim() || attachedFiles.length > 0
                     ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
                     : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'

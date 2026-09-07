@@ -44,7 +44,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
     <div
       ref={menuRef}
       aria-hidden={!isOpen}
-      className={`absolute bottom-full left-0 mb-2 w-44 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 space-y-0.5 origin-bottom-left transition-all duration-150 ease-out ${
+      className={`absolute bottom-full left-0 mb-2 w-44 max-h-[calc(100dvh-5rem)] overflow-y-auto bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 space-y-0.5 origin-bottom-left transition-all duration-150 ease-out ${
         isOpen
           ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto'
           : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
@@ -57,7 +57,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           onUploadImageClick();
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] sm:min-h-0"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 lg:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] lg:min-h-0"
       >
         <ImageIcon className="w-4 h-4 text-zinc-400 shrink-0" />
         <span className="font-normal">Upload Image</span>
@@ -70,7 +70,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           onUploadFileClick();
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] sm:min-h-0"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 lg:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] lg:min-h-0"
       >
         <Upload className="w-4 h-4 text-zinc-400 shrink-0" />
         <span className="font-normal">Upload file</span>

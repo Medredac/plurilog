@@ -175,7 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Collapsed Rail Trigger (Only rendered when sidebar is closed) */}
       {!isOpen && (
-        <div className="absolute top-2.5 left-3 z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+        <div className="absolute top-2.5 left-[max(0.75rem,env(safe-area-inset-left))] z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
           <button
             onClick={onToggle}
             className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer"
@@ -316,7 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   setMenuOpenDebateId(null);
                                   setConfirmDeleteDebate(debate);
                                 }}
-                                className="w-full flex items-center gap-2 px-2.5 py-2 sm:py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer min-h-[36px] sm:min-h-0"
+                                className="w-full flex items-center gap-2 px-2.5 py-2 lg:py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer min-h-[36px] lg:min-h-0"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 <span>Delete</span>
@@ -367,7 +367,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsProfileMenuOpen(false);
                         onOpenAccountSettings?.();
                       }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] sm:min-h-0"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] lg:min-h-0"
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
                       <span className="font-normal">Account Settings</span>
@@ -381,7 +381,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setIsProfileMenuOpen(false);
                           onSignOut();
                         }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] sm:min-h-0"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] lg:min-h-0"
                       >
                         <LogOut className="w-4 h-4" />
                         <span className="font-normal">Log Out</span>
@@ -459,7 +459,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmDeleteDebate(null)}
-                className="px-3.5 py-2.5 sm:py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80 min-h-[36px] flex items-center"
+                className="px-3.5 py-2.5 lg:py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80 min-h-[36px] flex items-center"
               >
                 Cancel
               </button>
@@ -471,7 +471,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                   setConfirmDeleteDebate(null);
                 }}
-                className="px-4 py-2.5 sm:py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs min-h-[36px] flex items-center"
+                className="px-4 py-2.5 lg:py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs min-h-[36px] flex items-center"
               >
                 Delete
               </button>
