@@ -119,6 +119,19 @@ export default function DashboardPage() {
     messages: ChatMessage[];
     title: string;
   } | null>(null);
+  const [pendingTitleDiscussionIds, setPendingTitleDiscussionIds] = useState<Set<string>>(new Set());
+  const pendingTitleDiscussionIdsRef = useRef<Set<string>>(new Set());
+  const titleGenerationStartedIdsRef = useRef<Set<string>>(new Set());
+
+  const markTitlePending = useCallback((discussionId: string) => {
+    pendingTitleDiscussionIdsRef.current.add(discussionId);
+    setPendingTitleDiscussionIds(new Set(pendingTitleDiscussionIdsRef.current));
+  }, []);
+
+  const clearTitlePending = useCallback((discussionId: string) => {
+    pendingTitleDiscussionIdsRef.current.delete(discussionId);
+    setPendingTitleDiscussionIds(new Set(pendingTitleDiscussionIdsRef.current));
+  }, []);
 
   const supabase = createClient();
 
@@ -601,6 +614,8 @@ export default function DashboardPage() {
 
     // Optimistically remove from local state
     setDebates((prev) => prev.filter((d) => d.id !== id));
+    clearTitlePending(id);
+    titleGenerationStartedIdsRef.current.delete(id);
 
     if (activeDebateId === id) {
       handleNewDebate();
@@ -1019,6 +1034,64 @@ export default function DashboardPage() {
                   );
                 }
               }
+
+              // If this discussion is pending title generation, trigger it on Seat 1 completion
+              if (
+                discussionId &&
+                completedSeatsCount === 1 &&
+                pendingTitleDiscussionIdsRef.current.has(discussionId) &&
+                !titleGenerationStartedIdsRef.current.has(discussionId)
+              ) {
+                titleGenerationStartedIdsRef.current.add(discussionId);
+
+                const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
+                const titleAiResponse = (completedContent || '').trim().slice(0, 1200);
+                const attachmentNames = (attachments || [])
+                  .map((a) => a.filename)
+                  .filter(Boolean)
+                  .slice(0, 5);
+
+                fetch('/api/generate-title', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    userPrompt: titleUserPrompt,
+                    firstAiResponse: titleAiResponse,
+                    attachmentNames,
+                    discussionId,
+                  }),
+                })
+                  .then((res) => res.json())
+                  .then(async (data) => {
+                    const generatedTitle = data?.title?.trim();
+                    if (
+                      generatedTitle &&
+                      generatedTitle.toLowerCase() !== 'new discussion' &&
+                      generatedTitle.toLowerCase() !== 'untitled discussion'
+                    ) {
+                      const { error: titleUpdateError } = await supabase
+                        .from('discussions')
+                        .update({ title: generatedTitle })
+                        .eq('id', discussionId);
+
+                      if (titleUpdateError) {
+                        throw titleUpdateError;
+                      }
+
+                      setDebates((prev) =>
+                        prev.map((d) =>
+                          d.id === discussionId ? { ...d, title: generatedTitle } : d
+                        )
+                      );
+                    }
+                  })
+                  .catch((titleErr) => {
+                    console.error('[AI Title Error]', titleErr);
+                  })
+                  .finally(() => {
+                    clearTitlePending(discussionId);
+                  });
+              }
             } else if (eventType === 'council_done') {
               if (discussionId) {
                 activeGenerationsRef.current.delete(discussionId);
@@ -1036,6 +1109,9 @@ export default function DashboardPage() {
             } else if (eventType === 'error') {
               if (discussionId) {
                 activeGenerationsRef.current.delete(discussionId);
+                if (completedSeatsCount === 0) {
+                  clearTitlePending(discussionId);
+                }
               }
               if (isCurrentDiscussionActive) {
                 setIsDebating(false);
@@ -1066,6 +1142,9 @@ export default function DashboardPage() {
     } catch (err: any) {
       if (discussionId) {
         activeGenerationsRef.current.delete(discussionId);
+        if (completedSeatsCount === 0) {
+          clearTitlePending(discussionId);
+        }
       }
       const isAborted = controller.signal.aborted || err?.name === 'AbortError';
 
@@ -1244,7 +1323,7 @@ export default function DashboardPage() {
     // 1. If no active discussion, create one in Supabase with temporary title, then generate AI summary in parallel
     if (!currentDiscussionId) {
       try {
-        const placeholderTitle = content.slice(0, 40).trim() || 'New Discussion';
+        const placeholderTitle = 'New discussion';
         const { data: newDisc, error: discErr } = await supabase
           .from('discussions')
           .insert({
@@ -1264,9 +1343,12 @@ export default function DashboardPage() {
           setActiveDebateId(newDisc.id);
           window.history.pushState(null, '', `/dashboard/${newDisc.id}`);
 
+          // Mark newly created discussion ID as pending title generation
+          markTitlePending(newDisc.id);
+
           const newTopic: DebateTopic = {
             id: newDisc.id,
-            title: newDisc.title,
+            title: placeholderTitle,
             snippet: content.slice(0, 70) + (content.length > 70 ? '...' : ''),
             createdAt: nowTimeStr,
             updatedAt: nowIso,
@@ -1275,31 +1357,6 @@ export default function DashboardPage() {
             messages: [],
           };
           setDebates((prev) => [newTopic, ...prev]);
-
-          // In parallel (non-blocking), generate AI title with gemini-3.1-flash-lite and update DB + sidebar
-          fetch('/api/generate-title', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: content, discussionId: newDisc.id }),
-          })
-            .then((res) => res.json())
-            .then(async (data) => {
-              if (data?.title && data.title !== placeholderTitle) {
-                const generatedTitle = data.title;
-                // Update local sidebar state
-                setDebates((prev) =>
-                  prev.map((d) => (d.id === newDisc.id ? { ...d, title: generatedTitle } : d))
-                );
-                // Update Supabase discussions table
-                await supabase
-                  .from('discussions')
-                  .update({ title: generatedTitle })
-                  .eq('id', newDisc.id);
-              }
-            })
-            .catch((titleErr) => {
-              console.error('[AI Title Error]', titleErr);
-            });
         }
       } catch (createErr) {
         console.error('[Supabase Exception] Error initializing discussion:', createErr);
@@ -1692,6 +1749,7 @@ export default function DashboardPage() {
           onSelectDebate={handleSelectDebate}
           onNewDebate={handleNewDebate}
           onDeleteDebate={handleDeleteDebate}
+          pendingTitleDiscussionIds={pendingTitleDiscussionIds}
           userEmail={userEmail}
           userDisplayName={userDisplayName}
           userAvatarUrl={userAvatarUrl}

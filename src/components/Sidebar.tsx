@@ -23,6 +23,7 @@ interface SidebarProps {
   onSelectDebate: (id: string) => void;
   onNewDebate: () => void;
   onDeleteDebate?: (id: string, e: React.MouseEvent) => void;
+  pendingTitleDiscussionIds?: Set<string>;
   userEmail?: string;
   userDisplayName?: string;
   userAvatarUrl?: string;
@@ -39,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectDebate,
   onNewDebate,
   onDeleteDebate,
+  pendingTitleDiscussionIds,
   userEmail,
   userDisplayName,
   userAvatarUrl,
@@ -256,6 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 filteredDebates.map((debate) => {
                   const isActive = debate.id === activeDebateId;
                   const isMenuOpen = menuOpenDebateId === debate.id;
+                  const isTitlePending = pendingTitleDiscussionIds?.has(debate.id) ?? false;
 
                   return (
                     <div
@@ -267,11 +270,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
-                      <span className={`text-[13px] truncate flex-1 ${
-                        isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
-                      }`}>
-                        {debate.title}
-                      </span>
+                      {isTitlePending ? (
+                        <div className="flex-1 pr-2 flex items-center">
+                          <div className="h-3 w-24 rounded bg-zinc-300/60 animate-pulse" />
+                        </div>
+                      ) : (
+                        <span className={`text-[13px] truncate flex-1 ${
+                          isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
+                        }`}>
+                          {debate.title}
+                        </span>
+                      )}
                       
                       {/* Three-Dot Menu Trigger */}
                       {onDeleteDebate && (
