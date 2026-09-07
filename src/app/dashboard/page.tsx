@@ -83,6 +83,13 @@ export default function DashboardPage() {
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
 
+  // Hydration-safe initial responsive sidebar state: close on mobile/tablet (< 1024px)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      setIsSidebarOpen(false);
+    }
+  }, []);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([
@@ -596,6 +603,9 @@ export default function DashboardPage() {
     setCanContinue(false);
     setIsLoadingMessages(false);
     window.history.pushState(null, '', '/dashboard');
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      setIsSidebarOpen(false);
+    }
   };
 
   // Select existing discussion, update URL, and load its messages atomically
@@ -603,7 +613,7 @@ export default function DashboardPage() {
     if (activeDebateId === id && !isDebating) return;
     window.history.pushState(null, '', `/dashboard/${id}`);
     fetchDiscussionMessages(id, false);
-    if (window.innerWidth < 1024) {
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
       setIsSidebarOpen(false);
     }
   };
@@ -1764,7 +1774,7 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="flex h-screen w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden">
+      <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden">
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
           isOpen={isSidebarOpen}

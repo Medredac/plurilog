@@ -189,12 +189,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <aside
         className={`fixed lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
-          isOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full lg:w-0 lg:translate-x-0 overflow-hidden'
+          isOpen
+            ? 'w-72 translate-x-0 shadow-xl lg:shadow-none'
+            : 'w-72 -translate-x-full lg:w-0 lg:translate-x-0 overflow-hidden'
         }`}
       >
-        {isOpen && (
-          <div className="flex flex-col h-full w-72">
-            {/* Top Brand Header: Logo, Bold Title (700) in dark grey (zinc-800), and Sidebar Toggle */}
+        <div className="flex flex-col h-full w-72">
+          {/* Top Brand Header: Logo, Bold Title (700) in dark grey (zinc-800), and Sidebar Toggle */}
             <div className="h-14 px-4.5 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
@@ -294,7 +295,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               setMenuOpenDebateId(isMenuOpen ? null : debate.id);
                             }}
                             className={`p-0.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer items-center justify-center h-4 w-4 ${
-                              isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'hidden group-hover/item:flex'
+                              isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'flex lg:hidden lg:group-hover/item:flex'
                             }`}
                             title="More options"
                           >
@@ -435,7 +436,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
           </div>
-        )}
       </aside>
 
       {/* Delete Confirmation Modal */}
