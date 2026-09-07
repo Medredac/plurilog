@@ -234,7 +234,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const containerClasses = isCentered
     ? 'w-full max-w-2xl mx-auto'
-    : 'sticky bottom-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-5 px-4 sm:px-8 max-w-5xl mx-auto w-full z-10';
+    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-5 px-3 sm:px-8 max-w-5xl mx-auto w-full z-10';
 
   return (
     <div className={containerClasses}>
@@ -272,12 +272,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       )}
 
       {/* Sleek, Wide Pill-Shaped Input Card */}
-      <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 ${
+      <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 min-w-0 max-w-full ${
         isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
       }`}>
         {/* Attached Files Preview Row */}
         {attachedFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2.5 pt-0.5 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex flex-wrap gap-2.5 pt-0.5 animate-in fade-in zoom-in-95 duration-150 min-w-0 max-w-full">
             {attachedFiles.map((item) => {
               const lowerName = item.file.name.toLowerCase();
               const isPdf = item.file.type === 'application/pdf' || lowerName.endsWith('.pdf');
@@ -357,7 +357,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             onError={handleRecorderError}
           />
         ) : (
-          <div className="flex items-end gap-2">
+          <div className="flex items-end gap-2 min-w-0 max-w-full">
             {/* Attach icon & Popover */}
             <div className="relative shrink-0 mb-0.5">
               <button
@@ -392,7 +392,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               />
             </div>
 
-            {/* Textarea */}
+            {/* Textarea: 16px (text-base) on mobile to prevent iOS Safari auto-zoom on focus */}
             <textarea
               ref={textareaRef}
               rows={1}
@@ -400,7 +400,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type a topic for discussion..."
-              className="w-full resize-none text-sm sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px]"
+              className="w-full resize-none text-base sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px] min-w-0"
             />
 
             {/* Voice Dictation Button */}

@@ -83,11 +83,53 @@ export default function DashboardPage() {
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
 
+  const rootRef = useRef<HTMLDivElement>(null);
+
   // Hydration-safe initial responsive sidebar state: close on mobile/tablet (< 1024px)
   useEffect(() => {
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
       setIsSidebarOpen(false);
     }
+  }, []);
+
+  // iOS Safari Visual Viewport tracking for mobile (< 1024px)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateVisualViewport = () => {
+      if (!window.matchMedia('(max-width: 1023px)').matches) {
+        if (rootRef.current) {
+          rootRef.current.style.height = '';
+          rootRef.current.style.top = '';
+        }
+        return;
+      }
+
+      const vv = window.visualViewport;
+      if (!vv || !rootRef.current) return;
+
+      rootRef.current.style.height = `${vv.height}px`;
+      rootRef.current.style.top = `${vv.offsetTop}px`;
+    };
+
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', updateVisualViewport);
+      vv.addEventListener('scroll', updateVisualViewport);
+    }
+    window.addEventListener('resize', updateVisualViewport);
+    window.addEventListener('orientationchange', updateVisualViewport);
+
+    updateVisualViewport();
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', updateVisualViewport);
+        vv.removeEventListener('scroll', updateVisualViewport);
+      }
+      window.removeEventListener('resize', updateVisualViewport);
+      window.removeEventListener('orientationchange', updateVisualViewport);
+    };
   }, []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -1774,7 +1816,10 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="flex h-screen h-[100dvh] w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden">
+      <div 
+        ref={rootRef}
+        className="flex fixed lg:static inset-x-0 top-0 h-screen h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
+      >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
           isOpen={isSidebarOpen}
@@ -1794,7 +1839,7 @@ export default function DashboardPage() {
         />
 
         {/* Main Chamber */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid">
+        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
           {/* Simplified Header */}
           <CouncilHeader
             seatOrder={seatOrder}
@@ -1843,7 +1888,7 @@ export default function DashboardPage() {
                 el.scrollHeight - el.scrollTop - el.clientHeight;
               setShowScrollBottom(distanceFromBottom > 120);
             }}
-            className="flex-1 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
+            className="flex-1 min-h-0 min-w-0 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"
           >
             {isLoadingMessages ? (
               <div className="flex flex-col items-center justify-center p-6 text-center h-full min-h-[300px] my-auto">
