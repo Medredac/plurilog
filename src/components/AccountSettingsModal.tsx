@@ -110,18 +110,21 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-md rounded-2xl bg-white border border-zinc-200/90 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100">
+      {/* Modal Card */}
+      <div className="relative w-full max-w-md rounded-2xl bg-white border border-zinc-200/90 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 overflow-hidden max-h-[calc(100dvh-2rem)] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 shrink-0">
           <h3 className="text-base font-semibold text-zinc-900 tracking-tight">Account settings</h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-colors cursor-pointer"
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+            title="Close modal"
+            aria-label="Close modal"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 max-w-sm mx-auto">
+        <div className="p-6 max-w-sm mx-auto w-full overflow-y-auto min-h-0 flex-1">
           {/* Profile block */}
           <div className="flex items-center gap-3 mb-6">
             <div className="w-12 h-12 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-base border border-amber-200/80 shrink-0 overflow-hidden">

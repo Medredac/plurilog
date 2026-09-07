@@ -37,7 +37,7 @@ export const LowCreditModal: React.FC<LowCreditModalProps> = ({ isOpen, onClose 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
         <p className="text-sm font-semibold text-zinc-900 mb-1">You've used almost all your free credit</p>
         <p className="text-xs text-zinc-500 leading-relaxed mb-4">
           Upgrade to Plus to keep going without interruption.

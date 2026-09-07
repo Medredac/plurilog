@@ -316,7 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   setMenuOpenDebateId(null);
                                   setConfirmDeleteDebate(debate);
                                 }}
-                                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
+                                className="w-full flex items-center gap-2 px-2.5 py-2 sm:py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer min-h-[36px] sm:min-h-0"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 <span>Delete</span>
@@ -337,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {isProfileMenuOpen && (
                 <div
                   ref={menuRef}
-                  className="absolute bottom-full left-2 right-2 mb-2 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                  className="absolute bottom-full left-2 right-2 mb-2 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
                 >
                   {/* User Profile Header in Menu */}
                   <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
@@ -367,7 +367,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsProfileMenuOpen(false);
                         onOpenAccountSettings?.();
                       }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] sm:min-h-0"
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
                       <span className="font-normal">Account Settings</span>
@@ -381,7 +381,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setIsProfileMenuOpen(false);
                           onSignOut();
                         }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] sm:min-h-0"
                       >
                         <LogOut className="w-4 h-4" />
                         <span className="font-normal">Log Out</span>
@@ -448,7 +448,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           {/* Dialog Card */}
-          <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
             <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
               Delete discussion?
             </h3>
@@ -459,7 +459,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmDeleteDebate(null)}
-                className="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80"
+                className="px-3.5 py-2.5 sm:py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80 min-h-[36px] flex items-center"
               >
                 Cancel
               </button>
@@ -471,7 +471,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                   setConfirmDeleteDebate(null);
                 }}
-                className="px-3.5 py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer shadow-2xs"
+                className="px-4 py-2.5 sm:py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs min-h-[36px] flex items-center"
               >
                 Delete
               </button>

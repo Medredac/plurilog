@@ -63,7 +63,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
         <h3 className="text-sm font-semibold text-zinc-900 mb-1">Reset password</h3>
 
         {isSuccess ? (

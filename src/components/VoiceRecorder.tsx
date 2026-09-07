@@ -373,22 +373,23 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     .padStart(2, '0')}`;
 
   return (
-    <div className="w-full flex items-center justify-between gap-3 py-1 px-1.5 min-h-[38px] select-none animate-in fade-in duration-150">
+    <div className="w-full flex items-center justify-between gap-2 sm:gap-3 py-1 px-1.5 min-h-[38px] select-none animate-in fade-in duration-150 min-w-0 max-w-full">
       {/* Left side: Cancel Button + Timer & Indicator */}
-      <div className="flex items-center gap-2.5 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
         <button
           type="button"
           onClick={handleCancel}
-          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/70 transition-colors cursor-pointer"
+          className="p-2 sm:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-200/70 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
           title="Cancel recording"
+          aria-label="Cancel recording"
         >
           <X className="w-4 h-4" />
         </button>
 
         {!isTranscribing && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <div
-              className={`w-2.5 h-2.5 rounded-full ${
+              className={`w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full shrink-0 ${
                 isRecorderReady ? 'bg-red-500 animate-pulse' : 'bg-zinc-300'
               }`}
             />
@@ -400,18 +401,18 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       </div>
 
       {/* Center: Live Waveform Bars or Transcribing State or Starting State */}
-      <div className="flex-1 flex items-center justify-center min-w-0 px-2">
+      <div className="flex-1 flex items-center justify-center min-w-0 px-1 sm:px-2">
         {isTranscribing ? (
           <div className="flex items-center gap-2 text-xs sm:text-sm text-zinc-600 font-medium animate-pulse">
-            <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
-            <span>Transcribing audio...</span>
+            <Loader2 className="w-4 h-4 animate-spin text-zinc-500 shrink-0" />
+            <span className="truncate">Transcribing audio...</span>
           </div>
         ) : !isRecorderReady ? (
           <div className="flex items-center gap-2 text-xs text-zinc-400 animate-pulse">
-            <span>Starting microphone...</span>
+            <span className="truncate">Starting microphone...</span>
           </div>
         ) : (
-          <div className="flex items-center justify-center gap-1 sm:gap-1.5 h-7 w-full max-w-[240px]">
+          <div className="flex items-center justify-center gap-0.5 sm:gap-1.5 h-7 w-full max-w-[140px] sm:max-w-[240px]">
             {Array.from({ length: BAR_COUNT }).map((_, idx) => (
               <div
                 key={idx}
@@ -432,7 +433,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           <button
             type="button"
             onClick={handleCancel}
-            className="text-xs text-zinc-400 hover:text-zinc-600 px-2 py-1 transition-colors cursor-pointer"
+            className="text-xs text-zinc-400 hover:text-zinc-600 px-2.5 py-1.5 transition-colors cursor-pointer min-h-[36px] flex items-center"
             title="Cancel transcription"
           >
             Cancel
@@ -442,14 +443,15 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             type="button"
             onClick={handleStopRecording}
             disabled={!isRecorderReady}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+            className={`w-9 h-9 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-all active:scale-95 ${
               isRecorderReady
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-white cursor-pointer shadow-2xs'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed opacity-50'
             }`}
             title={isRecorderReady ? 'Stop recording and transcribe' : 'Starting microphone...'}
+            aria-label="Stop recording and transcribe"
           >
-            <Square className="w-3 h-3 fill-current" />
+            <Square className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current" />
           </button>
         )}
       </div>

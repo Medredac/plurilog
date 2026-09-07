@@ -24,7 +24,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent | PointerEvent) => {
       if (
         menuRef.current &&
         !menuRef.current.contains(event.target as Node) &&
@@ -34,9 +34,9 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleClickOutside);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('pointerdown', handleClickOutside);
     };
   }, [isOpen, onClose, triggerRef]);
 
@@ -57,9 +57,9 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           onUploadImageClick();
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] sm:min-h-0"
       >
-        <ImageIcon className="w-4 h-4 text-zinc-400" />
+        <ImageIcon className="w-4 h-4 text-zinc-400 shrink-0" />
         <span className="font-normal">Upload Image</span>
       </button>
 
@@ -70,9 +70,9 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           onUploadFileClick();
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 sm:py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm min-h-[38px] sm:min-h-0"
       >
-        <Upload className="w-4 h-4 text-zinc-400" />
+        <Upload className="w-4 h-4 text-zinc-400 shrink-0" />
         <span className="font-normal">Upload file</span>
       </button>
     </div>

@@ -291,7 +291,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
       {isMobilePanelOpen && (
         <div
           ref={panelRef}
-          className="lg:hidden absolute top-full left-12 mt-1.5 w-72 max-w-[calc(100vw-3.75rem)] p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
+          className="lg:hidden absolute top-full left-12 mt-1.5 w-72 max-w-[calc(100vw-3.75rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
         >
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];

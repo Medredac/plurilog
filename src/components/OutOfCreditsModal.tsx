@@ -42,7 +42,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-xs rounded-2xl bg-white border border-zinc-200/90 p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150">
+      <div className="relative w-full max-w-xs sm:max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
         <div className="flex items-center gap-2 mb-3">
           <img src="/logo.svg" alt="Plurilog" className="w-6 h-6" />
           <span className="text-xs font-medium text-zinc-500">You've used all your free credit</span>
