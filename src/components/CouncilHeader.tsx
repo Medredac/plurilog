@@ -291,7 +291,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
       {isMobilePanelOpen && (
         <div
           ref={panelRef}
-          className="lg:hidden absolute top-full left-0 right-0 mt-1 mx-3 sm:mx-6 p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
+          className="lg:hidden absolute top-full left-12 mt-1.5 w-72 max-w-[calc(100vw-3.75rem)] p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
         >
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
@@ -309,9 +309,11 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             const isSpeaking = currentStatus === 'speaking' || activeSpeaker === id;
 
             return (
-              <div
+              <motion.div
                 key={id}
-                className={`flex items-center justify-between p-2.5 rounded-xl border transition-colors select-none ${
+                layout="position"
+                transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
+                className={`flex items-center justify-between p-2 rounded-xl border transition-colors select-none ${
                   isSpeaking
                     ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
                     : isSelected
@@ -320,7 +322,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 }`}
               >
                 {/* Left: Status Dot & Model Name */}
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 pr-2">
                   <span
                     className={`w-2 h-2 rounded-full shrink-0 ${
                       isSpeaking
@@ -335,35 +337,42 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   </span>
                 </div>
 
-                {/* Right: Reorder & Power Controls */}
-                <div className="flex items-center gap-1 shrink-0">
-                  {/* Up Swap Button (move earlier in seatOrder) */}
-                  {idx > 0 && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleSwap(e, idx - 1)}
-                      disabled={isDebating}
-                      aria-label={`Move ${member?.name || id} up`}
-                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
-                      title={`Move ${member?.name || id} earlier`}
-                    >
-                      <ChevronUp className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                {/* Right: Vertical Reorder Column & Power Toggle */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Vertical Reorder Column */}
+                  <div className="flex flex-col items-center justify-center shrink-0 w-6">
+                    {/* Up Swap Button / Spacer */}
+                    {idx > 0 ? (
+                      <button
+                        type="button"
+                        onClick={(e) => handleSwap(e, idx - 1)}
+                        disabled={isDebating}
+                        aria-label={`Move ${member?.name || id} up`}
+                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                        title={`Move ${member?.name || id} earlier`}
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <div className="h-[22px] w-full" aria-hidden="true" />
+                    )}
 
-                  {/* Down Swap Button (move later in seatOrder) */}
-                  {idx < seatOrder.length - 1 && (
-                    <button
-                      type="button"
-                      onClick={(e) => handleSwap(e, idx + 1)}
-                      disabled={isDebating}
-                      aria-label={`Move ${member?.name || id} down`}
-                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
-                      title={`Move ${member?.name || id} later`}
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                    {/* Down Swap Button / Spacer */}
+                    {idx < seatOrder.length - 1 ? (
+                      <button
+                        type="button"
+                        onClick={(e) => handleSwap(e, idx + 1)}
+                        disabled={isDebating}
+                        aria-label={`Move ${member?.name || id} down`}
+                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                        title={`Move ${member?.name || id} later`}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <div className="h-[22px] w-full" aria-hidden="true" />
+                    )}
+                  </div>
 
                   {/* Power Toggle Button */}
                   <button
@@ -383,7 +392,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                     <Power className={`w-3.5 h-3.5 ${isSelected ? 'text-zinc-600 hover:text-red-600' : 'text-zinc-400'}`} />
                   </button>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
