@@ -116,7 +116,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
           <h3 className="text-base font-semibold text-zinc-900 tracking-tight">Account settings</h3>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer flex items-center justify-center target-primary"
             title="Close modal"
             aria-label="Close modal"
           >
@@ -140,14 +140,14 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   type="text"
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
-                  className="text-base lg:text-sm font-medium text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-200 focus:border-zinc-400 focus:outline-none py-0.5 w-full transition-colors"
+                  className="text-sm touch-input-safe font-medium text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-200 focus:border-zinc-400 focus:outline-none py-0.5 w-full transition-colors"
                 />
                 {nameInput.trim() && nameInput.trim() !== displayName && (
                   <button
                     type="button"
                     onClick={handleSaveName}
                     disabled={isSavingName}
-                    className="text-xs font-medium text-zinc-900 underline hover:no-underline cursor-pointer shrink-0"
+                    className="text-xs font-medium text-zinc-900 underline hover:no-underline cursor-pointer shrink-0 target-secondary"
                   >
                     {isSavingName ? 'Saving…' : 'Save'}
                   </button>

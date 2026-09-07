@@ -160,7 +160,7 @@ export default function ResetPasswordPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-3 py-2 text-base lg:text-xs rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
+                  className="w-full px-3 py-2 text-xs touch-input-safe rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
                   disabled={isSubmitting}
                 />
               </div>
@@ -175,7 +175,7 @@ export default function ResetPasswordPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full px-3 py-2 text-base lg:text-xs rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
+                  className="w-full px-3 py-2 text-xs touch-input-safe rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
                   disabled={isSubmitting}
                 />
               </div>

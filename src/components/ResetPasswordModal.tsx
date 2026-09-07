@@ -94,7 +94,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full px-3 py-2 text-base lg:text-xs rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-xs touch-input-safe rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
                 disabled={isLoading}
               />
               {errorMessage && (
@@ -107,14 +107,14 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
                 type="button"
                 onClick={onClose}
                 disabled={isLoading}
-                className="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors cursor-pointer"
+                className="px-3.5 py-2 rounded-xl text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors cursor-pointer target-secondary"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-60"
+                className="px-4 py-2 rounded-xl text-xs font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-60 target-secondary"
               >
                 {isLoading ? 'Sending…' : 'Send reset link'}
               </button>

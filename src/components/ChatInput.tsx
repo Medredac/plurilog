@@ -247,8 +247,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const containerClasses = isCentered
-    ? 'w-full max-w-2xl mx-auto pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] lg:px-0'
-    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:pb-5 pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] sm:pl-[max(2rem,env(safe-area-inset-left))] sm:pr-[max(2rem,env(safe-area-inset-right))] lg:px-8 max-w-5xl mx-auto w-full z-10';
+    ? 'w-full pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-right))]'
+    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(clamp(0.75rem,calc(1.5vw_+_0.375rem),1.25rem),env(safe-area-inset-bottom))] pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] max-w-5xl mx-auto w-full z-10';
 
   return (
     <div className={containerClasses}>
@@ -270,25 +270,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         onChange={handleFileSelect}
       />
 
-      {/* Voice Error Notification Banner */}
-      {voiceError && (
-        <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200/80 rounded-xl px-3 py-1.5 flex items-center justify-between animate-in fade-in">
-          <span>{voiceError}</span>
-          <button
-            type="button"
-            onClick={() => setVoiceError(null)}
-            className="text-red-400 hover:text-red-700 ml-2 cursor-pointer p-0.5"
-            title="Dismiss error"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+      {/* Inner Composer Container: Applies max-w-2xl (672px) directly to composer content on desktop without consuming outer padding */}
+      <div className={isCentered ? 'w-full max-w-2xl mx-auto' : 'w-full'}>
+        {/* Voice Error Notification Banner */}
+        {voiceError && (
+          <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200/80 rounded-xl px-3 py-1.5 flex items-center justify-between animate-in fade-in">
+            <span>{voiceError}</span>
+            <button
+              type="button"
+              onClick={() => setVoiceError(null)}
+              className="text-red-400 hover:text-red-700 ml-2 cursor-pointer p-0.5"
+              title="Dismiss error"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
-      {/* Sleek, Wide Pill-Shaped Input Card */}
-      <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 min-w-0 max-w-full ${
-        isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
-      }`}>
+        {/* Sleek, Wide Pill-Shaped Input Card */}
+        <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 min-w-0 max-w-full ${
+          isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
+        }`}>
         {/* Attached Files Preview Row */}
         {attachedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2.5 pt-0.5 animate-in fade-in zoom-in-95 duration-150 min-w-0 max-w-full">
@@ -381,7 +383,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
                 title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
                 aria-label={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
-                className={`p-2 lg:p-1.5 rounded-lg transition-colors flex items-center justify-center cursor-pointer min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 ${
+                className={`p-2 rounded-lg transition-colors flex items-center justify-center cursor-pointer target-primary ${
                   isUploadDrawerOpen
                     ? 'text-zinc-700 bg-zinc-100'
                     : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60'
@@ -428,7 +430,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setVoiceError(null);
                   setIsRecording(true);
                 }}
-                className="p-2 lg:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 mb-0.5 min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
+                className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 mb-0.5 flex items-center justify-center target-primary"
                 title="Voice dictation"
                 aria-label="Voice dictation"
               >
@@ -441,17 +443,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={onStop}
-                className="w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-white shadow-2xs"
+                className="w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-white shadow-2xs target-primary"
                 title="Stop generation"
               >
-                <Square className="w-3.5 h-3.5 lg:w-3 lg:h-3 fill-current" />
+                <Square className="w-3.5 h-3.5 fill-current" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleSend}
                 disabled={!inputVal.trim() && attachedFiles.length === 0}
-                className={`w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all shrink-0 active:scale-95 ${
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 active:scale-95 target-primary ${
                   inputVal.trim() || attachedFiles.length > 0
                     ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
                     : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
@@ -463,6 +465,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             )}
           </div>
         )}
+      </div>
       </div>
       {/* Image Lightbox Modal */}
       <ImageLightbox

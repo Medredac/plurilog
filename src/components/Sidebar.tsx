@@ -238,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   placeholder="Search discussions..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-base lg:text-sm text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
+                  className="w-full pl-9 pr-3 py-2 text-sm touch-input-safe text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
                 />
               </div>
             </div>
@@ -287,19 +287,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       
                       {/* Three-Dot Menu Trigger */}
                       {onDeleteDebate && (
-                        <div className="relative w-4 h-4 flex items-center justify-end shrink-0">
+                        <div className="relative flex items-center justify-end shrink-0 -mr-1">
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               setMenuOpenDebateId(isMenuOpen ? null : debate.id);
                             }}
-                            className={`p-0.5 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer items-center justify-center h-4 w-4 ${
-                              isMenuOpen ? 'flex text-zinc-700 bg-zinc-200/60' : 'flex lg:hidden lg:group-hover/item:flex'
+                            className={`p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer flex items-center justify-center target-secondary ${
+                              isMenuOpen
+                                ? 'flex text-zinc-700 bg-zinc-200/60 opacity-100'
+                                : 'flex text-zinc-400 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/item:opacity-100 focus-within:opacity-100'
                             }`}
                             title="More options"
+                            aria-label="More options"
                           >
-                            <MoreVertical className="w-3.5 h-3.5" />
+                            <MoreVertical className="w-3.5 h-3.5 shrink-0" />
                           </button>
 
                           {/* Dropdown Menu */}
@@ -316,7 +319,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   setMenuOpenDebateId(null);
                                   setConfirmDeleteDebate(debate);
                                 }}
-                                className="w-full flex items-center gap-2 px-2.5 py-2 lg:py-1.5 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer min-h-[36px] lg:min-h-0"
+                                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer target-secondary"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                                 <span>Delete</span>
@@ -367,7 +370,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsProfileMenuOpen(false);
                         onOpenAccountSettings?.();
                       }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] lg:min-h-0"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
                     >
                       <Settings className="w-4 h-4 text-zinc-400" />
                       <span className="font-normal">Account Settings</span>
@@ -381,7 +384,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setIsProfileMenuOpen(false);
                           onSignOut();
                         }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left min-h-[38px] lg:min-h-0"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
                       >
                         <LogOut className="w-4 h-4" />
                         <span className="font-normal">Log Out</span>
@@ -459,7 +462,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmDeleteDebate(null)}
-                className="px-3.5 py-2.5 lg:py-2 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80 min-h-[36px] flex items-center"
+                className="px-3.5 py-2.5 rounded-xl text-xs font-medium text-zinc-600 hover:text-zinc-900 active:bg-zinc-100 transition-colors cursor-pointer border border-zinc-200/80 flex items-center target-secondary"
               >
                 Cancel
               </button>
@@ -471,7 +474,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                   setConfirmDeleteDebate(null);
                 }}
-                className="px-4 py-2.5 lg:py-2 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs min-h-[36px] flex items-center"
+                className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs flex items-center target-secondary"
               >
                 Delete
               </button>

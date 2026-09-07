@@ -379,7 +379,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         <button
           type="button"
           onClick={handleCancel}
-          className="p-2 lg:p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-200/70 transition-colors cursor-pointer min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0 flex items-center justify-center"
+          className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-200/70 transition-colors cursor-pointer flex items-center justify-center target-secondary"
           title="Cancel recording"
           aria-label="Cancel recording"
         >
@@ -433,7 +433,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           <button
             type="button"
             onClick={handleCancel}
-            className="text-xs text-zinc-400 hover:text-zinc-600 px-2.5 py-1.5 transition-colors cursor-pointer min-h-[36px] flex items-center"
+            className="text-xs text-zinc-400 hover:text-zinc-600 px-2.5 py-1.5 transition-colors cursor-pointer flex items-center target-secondary"
             title="Cancel transcription"
           >
             Cancel
@@ -443,7 +443,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             type="button"
             onClick={handleStopRecording}
             disabled={!isRecorderReady}
-            className={`w-9 h-9 lg:w-8 lg:h-8 rounded-full flex items-center justify-center transition-all active:scale-95 ${
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95 target-primary ${
               isRecorderReady
                 ? 'bg-zinc-900 hover:bg-zinc-800 text-white cursor-pointer shadow-2xs'
                 : 'bg-zinc-200 text-zinc-400 cursor-not-allowed opacity-50'
@@ -451,7 +451,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             title={isRecorderReady ? 'Stop recording and transcribe' : 'Starting microphone...'}
             aria-label="Stop recording and transcribe"
           >
-            <Square className="w-3.5 h-3.5 lg:w-3 lg:h-3 fill-current" />
+            <Square className="w-3.5 h-3.5 fill-current" />
           </button>
         )}
       </div>

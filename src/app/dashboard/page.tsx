@@ -2009,11 +2009,11 @@ export default function DashboardPage() {
 
           {/* Whole Discussion PDF Export Button */}
           {messages.length > 0 && (
-            <div className="absolute top-14 lg:top-16 right-[max(1rem,env(safe-area-inset-right))] lg:right-6 z-20 pointer-events-none">
+            <div className="absolute top-14 lg:top-16 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
               <button
                 type="button"
                 onClick={() => handleTriggerPrint('discussion', messages)}
-                className="pointer-events-auto flex items-center justify-center w-9 h-9 lg:w-8 lg:h-8 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0"
+                className="pointer-events-auto flex items-center justify-center p-2 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in target-secondary"
                 title="Download discussion as PDF"
                 aria-label="Download discussion as PDF"
               >
@@ -2044,7 +2044,7 @@ export default function DashboardPage() {
                 /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
                 <div 
                   key={activeDebateId || 'empty-state-view'}
-                  className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
+                  className="flex-1 flex flex-col items-center justify-center pl-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-right))] max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
                 >
                   {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
                   <div 
@@ -2134,7 +2134,7 @@ export default function DashboardPage() {
                       behavior: 'smooth',
                     });
                   }}
-                  className="pointer-events-auto flex items-center justify-center w-9 h-9 lg:w-8 lg:h-8 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95 min-h-[36px] min-w-[36px] lg:min-h-0 lg:min-w-0"
+                  className="pointer-events-auto flex items-center justify-center w-9 h-9 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95 target-primary"
                   title="Scroll to bottom"
                   aria-label="Scroll to bottom"
                 >

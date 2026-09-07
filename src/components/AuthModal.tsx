@@ -171,7 +171,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-3.5 right-3.5 p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center z-10"
+          className="absolute top-3.5 right-3.5 p-2 rounded-lg text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer flex items-center justify-center z-10 target-primary"
           title="Close modal"
           aria-label="Close modal"
         >
@@ -243,7 +243,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           type="button"
           onClick={handleGoogleSignIn}
           disabled={isLoading}
-          className="w-full py-2 px-3 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-xs shadow-2xs transition-colors flex items-center justify-center gap-2 cursor-pointer mb-3 disabled:opacity-60"
+          className="w-full py-2 px-3 rounded-lg bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-xs shadow-2xs transition-colors flex items-center justify-center gap-2 cursor-pointer mb-3 disabled:opacity-60 target-secondary"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -271,7 +271,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Your name"
-                className="w-full px-3 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+                className="w-full px-3 py-2 text-xs touch-input-safe text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
               />
             </div>
           )}
@@ -286,7 +286,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-3 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+              className="w-full px-3 py-2 text-xs touch-input-safe text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
             />
             {mode === 'signup' && errorMessage === 'Please enter a valid email address.' && (
               <p className="text-[11px] text-red-600 mt-1.5 leading-snug">
@@ -306,7 +306,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-3 pr-9 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+                className="w-full pl-3 pr-9 py-2 text-xs touch-input-safe text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
               />
               <button
                 type="button"

@@ -609,7 +609,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="px-3 sm:px-8 pt-4 sm:pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col min-w-0">
+    <div className="pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-4 sm:pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col min-w-0">
       {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
         <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full">
@@ -940,7 +940,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       onClick={() => handleCopy(message.id, message.content)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 lg:py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[32px] lg:min-h-0"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
                       title="Copy text"
                     >
                       {copiedId === message.id ? (
@@ -960,7 +960,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       <button
                         type="button"
                         onClick={() => onExportMessage(message)}
-                        className="flex items-center justify-center p-1.5 lg:px-2 lg:py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer min-h-[32px] min-w-[32px] lg:min-h-0 lg:min-w-0"
+                        className="flex items-center justify-center p-1.5 px-2 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
                         title="Download response as PDF"
                         aria-label="Download response as PDF"
                       >
@@ -981,7 +981,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           <button
             type="button"
             onClick={onContinue}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 lg:py-1.5 rounded-xl bg-white hover:bg-amber-50/80 active:bg-amber-100/70 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group max-w-full active:scale-98 shrink-0"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-amber-50/80 active:bg-amber-100/70 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group max-w-full active:scale-98 shrink-0 target-secondary"
             title="Trigger another deliberation round on this topic"
           >
             <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors shrink-0" />

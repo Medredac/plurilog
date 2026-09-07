@@ -146,5 +146,36 @@ body {
   animation: textShimmer 2s linear infinite;
 }
 
+/* Responsive Interaction & Capability Utilities */
+@layer utilities {
+  /* Primary Actions: Compact (36px) on precision mouse, generous (42px) on coarse touch */
+  .target-primary {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  @media (any-pointer: coarse) {
+    .target-primary {
+      min-height: 42px;
+      min-width: 42px;
+    }
+  }
 
+  /* Secondary Actions: Compact (28px) on precision mouse, comfortable (36px) on coarse touch */
+  .target-secondary {
+    min-height: 28px;
+    min-width: 28px;
+  }
+  @media (any-pointer: coarse) {
+    .target-secondary {
+      min-height: 36px;
+      min-width: 36px;
+    }
+  }
 
+  /* Touch-Safe Input Capability: Enforces >=16px (1rem) on coarse touch/hybrid hardware to prevent iOS Safari auto-zoom, while preserving native base text size (12px / 14px) on pure fine-pointer */
+  @media (any-pointer: coarse) {
+    .touch-input-safe {
+      font-size: 1rem !important;
+    }
+  }
+}

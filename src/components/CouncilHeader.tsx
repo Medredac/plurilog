@@ -109,7 +109,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   const activeSpeakerMember = activeSpeaker ? COUNCIL_MEMBERS[activeSpeaker] : null;
 
   return (
-    <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(3rem,calc(env(safe-area-inset-left)+2.5rem))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:px-6 py-1.5 lg:py-2">
+    <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(3rem,calc(env(safe-area-inset-left)+2.5rem))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pl-[max(1.5rem,env(safe-area-inset-left))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2">
       <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap min-w-0">
         
         {/* MOBILE (< lg): Compact Council trigger button */}
