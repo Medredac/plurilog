@@ -1367,9 +1367,40 @@ export default function DashboardPage() {
     }
 
     let currentDiscussionId = activeDebateId;
+    let newlyCreatedDiscussionId: string | null = null;
     const nowForSend = new Date();
     const nowIso = nowForSend.toISOString();
     const nowTimeStr = nowForSend.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const cleanupNewlyCreatedDiscussion = async () => {
+      if (!newlyCreatedDiscussionId) return;
+      const orphanId = newlyCreatedDiscussionId;
+      newlyCreatedDiscussionId = null;
+
+      // Clean local sidebar, active discussion state, title tracking, and history
+      setDebates((prev) => prev.filter((d) => d.id !== orphanId));
+      clearTitlePending(orphanId);
+      titleGenerationStartedIdsRef.current.delete(orphanId);
+      isNewlyCreatedDiscussionRef.current = false;
+
+      if (activeDebateIdRef.current === orphanId) {
+        activeDebateIdRef.current = null;
+        setActiveDebateId(null);
+        window.history.replaceState(null, '', '/dashboard');
+      }
+
+      try {
+        const { error: delErr } = await supabase
+          .from('discussions')
+          .delete()
+          .eq('id', orphanId);
+        if (delErr) {
+          console.error('[Supabase Error] Error deleting orphan discussion:', delErr, { orphanId });
+        }
+      } catch (err) {
+        console.error('[Supabase Exception] Error cleaning up orphan discussion:', err, { orphanId });
+      }
+    };
 
     // Temporary local blob URLs for instant optimistic display without waiting for storage upload
     // Preserve filename in hash fragment so optimistic URLs immediately render correct document or image cards
@@ -1446,6 +1477,7 @@ export default function DashboardPage() {
         } else if (newDisc) {
           isNewlyCreatedDiscussionRef.current = true;
           currentDiscussionId = newDisc.id;
+          newlyCreatedDiscussionId = newDisc.id;
           activeDebateIdRef.current = newDisc.id;
           setActiveDebateId(newDisc.id);
           window.history.pushState(null, '', `/dashboard/${newDisc.id}`);
@@ -1489,6 +1521,7 @@ export default function DashboardPage() {
       setActiveSpeaker(null);
       setIsDebating(false);
       setCanContinue(true);
+      await cleanupNewlyCreatedDiscussion();
       return;
     }
 
@@ -1503,47 +1536,62 @@ export default function DashboardPage() {
             setActiveSpeaker(null);
             setIsDebating(false);
             setCanContinue(true);
+            await cleanupNewlyCreatedDiscussion();
             return;
           }
 
           const { file, body, isPdf } = preparedUploadBodies[i];
           const randomSuffix = Math.random().toString(36).slice(2, 7);
-          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}-${file.name}`;
+          
+          // Generate a strictly controlled ASCII object key to avoid Supabase 400 InvalidKey on Unicode/device filenames
+          let safeExt = 'bin';
+          if (isPdf) {
+            safeExt = 'pdf';
+          } else {
+            const dotIndex = file.name.lastIndexOf('.');
+            if (dotIndex !== -1) {
+              const rawExt = file.name.slice(dotIndex + 1).toLowerCase().trim();
+              const cleanExt = rawExt.replace(/[^a-z0-9]/g, '').slice(0, 10);
+              if (cleanExt) safeExt = cleanExt;
+            } else if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+              safeExt = 'jpg';
+            } else if (file.type === 'image/png') {
+              safeExt = 'png';
+            } else if (file.type === 'image/webp') {
+              safeExt = 'webp';
+            } else if (file.type === 'image/gif') {
+              safeExt = 'gif';
+            } else if (file.type === 'text/plain') {
+              safeExt = 'txt';
+            } else if (file.type === 'text/csv') {
+              safeExt = 'csv';
+            } else if (file.type === 'application/json') {
+              safeExt = 'json';
+            } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+              safeExt = 'docx';
+            }
+          }
+
+          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
           const { error: uploadError } = await supabase.storage
             .from('message-images')
             .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
 
           if (uploadError) {
-            const errStatus = (uploadError as any)?.status || (uploadError as any)?.statusCode || '';
-            const errName = uploadError.name && uploadError.name !== 'Error' && uploadError.name !== 'StorageError' ? ` ${uploadError.name}` : '';
-            const statusLabel = errStatus ? ` [${errStatus}${errName}]` : (errName ? ` [${errName.trim()}]` : '');
-            const errorReason = uploadError.message || (uploadError as any)?.error || 'Storage upload rejected';
-            const bodyByteLen = body instanceof ArrayBuffer ? body.byteLength : (body instanceof Blob ? body.size : undefined);
-            const bodyTypeName = body instanceof ArrayBuffer ? 'ArrayBuffer' : (body instanceof Blob ? 'Blob' : typeof body);
-
-            console.error('[Supabase Storage Diagnostic]', {
-              status: (uploadError as any)?.status,
-              statusCode: (uploadError as any)?.statusCode,
-              error: (uploadError as any)?.error,
-              name: uploadError.name,
-              message: uploadError.message,
+            console.error('[Supabase Storage Error] Upload failed:', uploadError, {
               fileName: file.name,
               fileSize: file.size,
               fileType: file.type,
-              bodyType: bodyTypeName,
-              bodyByteLength: bodyByteLen,
               isPdf,
             });
-
-            const diagDetails = `${isPdf ? 'PDF' : 'File'}: ${file.name}\nsize: ${file.size} bytes\nbuffer: ${bodyByteLen ?? file.size} bytes\ntype: ${isPdf ? 'application/pdf' : (file.type || 'unknown')}`;
-            const userFacingError = `Upload failed${statusLabel}\n${errorReason}\n\n${diagDetails}`;
 
             rollbackOptimistic();
             setSeatStatuses(INITIAL_SEAT_STATUSES);
             setActiveSpeaker(null);
-            setErrorMessage(userFacingError);
+            setErrorMessage('Failed to upload file. Please try again.');
             setIsDebating(false);
             setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+            await cleanupNewlyCreatedDiscussion();
             return;
           }
 
@@ -1559,10 +1607,13 @@ export default function DashboardPage() {
             setErrorMessage('Failed to process file. Please try again.');
             setIsDebating(false);
             setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+            await cleanupNewlyCreatedDiscussion();
             return;
           }
 
-          realSignedUrls.push(signedData.signedUrl);
+          // Preserve the original display filename in the URL hash fragment
+          const signedUrlWithFilename = `${signedData.signedUrl}#filename=${encodeURIComponent(file.name)}`;
+          realSignedUrls.push(signedUrlWithFilename);
         }
 
         // Replace temporary object URLs with real signed URLs and revoke object URLs
@@ -1582,6 +1633,7 @@ export default function DashboardPage() {
         setErrorMessage('Failed to upload file. Please try again.');
         setIsDebating(false);
         setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+        await cleanupNewlyCreatedDiscussion();
         return;
       }
     }
@@ -1592,6 +1644,7 @@ export default function DashboardPage() {
       setActiveSpeaker(null);
       setIsDebating(false);
       setCanContinue(true);
+      await cleanupNewlyCreatedDiscussion();
       return;
     }
 
@@ -1628,6 +1681,7 @@ export default function DashboardPage() {
         }
       } else {
         rollbackOptimistic();
+        await cleanupNewlyCreatedDiscussion();
       }
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
