@@ -265,15 +265,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       key={debate.id}
                       onClick={() => onSelectDebate(debate.id)}
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
-                        isActive
-                          ? 'bg-zinc-100 shadow-2xs text-zinc-900'
-                          : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
+                        isTitlePending
+                          ? isActive
+                            ? 'bg-zinc-100 shadow-2xs text-zinc-900 animate-pulse'
+                            : 'bg-zinc-100/60 text-zinc-600 animate-pulse'
+                          : isActive
+                            ? 'bg-zinc-100 shadow-2xs text-zinc-900'
+                            : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
                       }`}
                     >
                       {isTitlePending ? (
-                        <div className="flex-1 pr-2 flex items-center">
-                          <div className="h-3 w-24 rounded bg-zinc-300/60 animate-pulse" />
-                        </div>
+                        <div className="flex-1 min-w-0 h-5" />
                       ) : (
                         <span className={`text-[13px] truncate flex-1 ${
                           isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
