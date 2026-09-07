@@ -130,6 +130,10 @@ export default function DashboardPage() {
       if (rootRef.current.style.top !== '') {
         rootRef.current.style.top = '';
       }
+
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
     };
 
     const scheduleUpdate = () => {
@@ -674,19 +678,15 @@ export default function DashboardPage() {
     setCanContinue(false);
     setIsLoadingMessages(false);
     window.history.pushState(null, '', '/dashboard');
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      setIsTransientDrawerOpen(false);
-    }
+    setIsTransientDrawerOpen(false);
   };
 
   // Select existing discussion, update URL, and load its messages atomically
   const handleSelectDebate = (id: string) => {
+    setIsTransientDrawerOpen(false);
     if (activeDebateId === id && !isDebating) return;
     window.history.pushState(null, '', `/dashboard/${id}`);
     fetchDiscussionMessages(id, false);
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      setIsTransientDrawerOpen(false);
-    }
   };
 
   // Delete discussion from Supabase and local state

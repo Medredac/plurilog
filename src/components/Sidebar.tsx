@@ -208,10 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Plurilog Logo */}
           <button
             type="button"
-            onClick={() => {
-              onNewDebate();
-              if (drawerOpen) toggleDrawer();
-            }}
+            onClick={onNewDebate}
             className="p-1.5 rounded-lg flex items-center justify-center hover:bg-zinc-50 transition-colors cursor-pointer target-primary"
             title="Plurilog — New Discussion"
             aria-label="Plurilog — New Discussion"
@@ -222,10 +219,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* New Discussion Button */}
           <button
             type="button"
-            onClick={() => {
-              onNewDebate();
-              if (drawerOpen) toggleDrawer();
-            }}
+            onClick={onNewDebate}
             className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="New Discussion"
             aria-label="New Discussion"
@@ -380,12 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Action Bar: "New Discussion" Button in graduated grey */}
             <div className="p-3">
               <button
-                onClick={() => {
-                  onNewDebate();
-                  if (typeof window !== 'undefined' && window.innerWidth < 1024 && drawerOpen) {
-                    toggleDrawer();
-                  }
-                }}
+                onClick={onNewDebate}
                 className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-500 hover:text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4 text-zinc-500" />
@@ -432,12 +421,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   return (
                     <div
                       key={debate.id}
-                      onClick={() => {
-                        onSelectDebate(debate.id);
-                        if (typeof window !== 'undefined' && window.innerWidth < 1024 && drawerOpen) {
-                          toggleDrawer();
-                        }
-                      }}
+                      onClick={() => onSelectDebate(debate.id)}
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
                         isTitlePending
                           ? isActive

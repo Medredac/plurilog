@@ -47,7 +47,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Automatically focus textarea on mount, empty state, or when switching discussions
   React.useEffect(() => {
     const timer = setTimeout(() => {
-      textareaRef.current?.focus();
+      textareaRef.current?.focus({ preventScroll: true });
     }, 50);
     return () => clearTimeout(timer);
   }, [isCentered, autoFocus, focusTrigger]);
@@ -199,7 +199,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
-        textareaRef.current.focus();
+        textareaRef.current.focus({ preventScroll: true });
       }
     }, 50);
   }, []);
@@ -207,7 +207,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleRecorderCancel = useCallback(() => {
     setIsRecording(false);
     setTimeout(() => {
-      textareaRef.current?.focus();
+      textareaRef.current?.focus({ preventScroll: true });
     }, 50);
   }, []);
 
@@ -215,7 +215,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setIsRecording(false);
     setVoiceError(errMsg);
     setTimeout(() => {
-      textareaRef.current?.focus();
+      textareaRef.current?.focus({ preventScroll: true });
     }, 50);
   }, []);
 

@@ -316,7 +316,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           ref={panelRef}
           role="dialog"
           aria-labelledby="council-trigger"
-          className="council-compact-only absolute top-full left-[max(0.75rem,env(safe-area-inset-left))] nav-rail:left-4 mt-1.5 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
+          className="council-compact-only flex flex-col absolute top-full left-[max(0.75rem,env(safe-area-inset-left))] nav-rail:left-4 mt-1.5 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
         >
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
