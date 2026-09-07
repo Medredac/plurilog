@@ -96,7 +96,10 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const updateVisualViewport = () => {
+    let rafId: number | null = null;
+
+    const applyViewportHeight = () => {
+      rafId = null;
       if (!window.matchMedia('(max-width: 1023px)').matches) {
         if (rootRef.current) {
           rootRef.current.style.height = '';
@@ -108,27 +111,41 @@ export default function DashboardPage() {
       const vv = window.visualViewport;
       if (!vv || !rootRef.current) return;
 
-      rootRef.current.style.height = `${vv.height}px`;
-      rootRef.current.style.top = `${vv.offsetTop}px`;
+      const targetHeight = `${vv.height}px`;
+      if (rootRef.current.style.height !== targetHeight) {
+        rootRef.current.style.height = targetHeight;
+      }
+      if (rootRef.current.style.top !== '') {
+        rootRef.current.style.top = '';
+      }
+    };
+
+    const scheduleUpdate = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(applyViewportHeight);
     };
 
     const vv = window.visualViewport;
     if (vv) {
-      vv.addEventListener('resize', updateVisualViewport);
-      vv.addEventListener('scroll', updateVisualViewport);
+      vv.addEventListener('resize', scheduleUpdate);
+      vv.addEventListener('scroll', scheduleUpdate);
     }
-    window.addEventListener('resize', updateVisualViewport);
-    window.addEventListener('orientationchange', updateVisualViewport);
+    window.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('orientationchange', scheduleUpdate);
 
-    updateVisualViewport();
+    // Initial measurement
+    applyViewportHeight();
 
     return () => {
-      if (vv) {
-        vv.removeEventListener('resize', updateVisualViewport);
-        vv.removeEventListener('scroll', updateVisualViewport);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
       }
-      window.removeEventListener('resize', updateVisualViewport);
-      window.removeEventListener('orientationchange', updateVisualViewport);
+      if (vv) {
+        vv.removeEventListener('resize', scheduleUpdate);
+        vv.removeEventListener('scroll', scheduleUpdate);
+      }
+      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('orientationchange', scheduleUpdate);
     };
   }, []);
 
@@ -1944,7 +1961,7 @@ export default function DashboardPage() {
     <>
       <div 
         ref={rootRef}
-        className="flex fixed lg:static inset-x-0 top-0 h-screen h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
+        className="flex fixed lg:static inset-x-0 top-0 h-full h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
       >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
