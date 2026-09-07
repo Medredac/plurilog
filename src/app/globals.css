@@ -5,6 +5,106 @@
   --breakpoint-nav-rail: 42.5rem; /* 680px content-derived rail threshold */
 }
 
+/* Container Query for Council Header (Content-Box Sizing) */
+.council-container {
+  container-type: inline-size;
+}
+
+/* Default base presentation */
+.council-inline-only {
+  display: none !important;
+}
+.council-compact-only {
+  display: flex !important;
+}
+
+/* --- A. NORMAL STATE (Idle / Responding without credit warning) --- */
+@container (min-width: 530px) {
+  .council-container[data-council-meta="normal"] .council-compact-only {
+    display: none !important;
+  }
+  .council-container[data-council-meta="normal"] .council-inline-only {
+    display: flex !important;
+  }
+}
+
+/* --- B. CREDIT WARNING STATE (Low Credit / Out of Credits without Responding) --- */
+@container (min-width: 632px) {
+  .council-container[data-council-meta="credit-warning"] .council-compact-only {
+    display: none !important;
+  }
+  .council-container[data-council-meta="credit-warning"] .council-inline-only {
+    display: flex !important;
+  }
+}
+
+/* --- C. WIDE ACTIVE CREDIT STATE (Low Credit + Responding) --- */
+@container (min-width: 748px) {
+  .council-container[data-council-meta="wide-active-credit"] .council-compact-only {
+    display: none !important;
+  }
+  .council-container[data-council-meta="wide-active-credit"] .council-inline-only {
+    display: flex !important;
+  }
+}
+
+/* --- COARSE / TOUCH / HYBRID POINTER OVERRIDES --- */
+@media (any-pointer: coarse) {
+  /* Coarse Normal State: >= 670px */
+  @container (max-width: 669px) {
+    .council-container[data-council-meta="normal"] .council-inline-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="normal"] .council-compact-only {
+      display: flex !important;
+    }
+  }
+  @container (min-width: 670px) {
+    .council-container[data-council-meta="normal"] .council-compact-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="normal"] .council-inline-only {
+      display: flex !important;
+    }
+  }
+
+  /* Coarse Credit Warning State: >= 772px */
+  @container (max-width: 771px) {
+    .council-container[data-council-meta="credit-warning"] .council-inline-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="credit-warning"] .council-compact-only {
+      display: flex !important;
+    }
+  }
+  @container (min-width: 772px) {
+    .council-container[data-council-meta="credit-warning"] .council-compact-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="credit-warning"] .council-inline-only {
+      display: flex !important;
+    }
+  }
+
+  /* Coarse Wide Active Credit State: >= 888px */
+  @container (max-width: 887px) {
+    .council-container[data-council-meta="wide-active-credit"] .council-inline-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="wide-active-credit"] .council-compact-only {
+      display: flex !important;
+    }
+  }
+  @container (min-width: 888px) {
+    .council-container[data-council-meta="wide-active-credit"] .council-compact-only {
+      display: none !important;
+    }
+    .council-container[data-council-meta="wide-active-credit"] .council-inline-only {
+      display: flex !important;
+    }
+  }
+}
+
 :root {
   --background: #FFFFFF;
   --foreground: #09090B;

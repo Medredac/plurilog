@@ -48,7 +48,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // Close mobile panel on click outside
+  // Close mobile/compact panel on click outside or Escape key
   useEffect(() => {
     const handleClickOutside = (event: PointerEvent) => {
       if (
@@ -61,11 +61,20 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
       }
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobilePanelOpen(false);
+        triggerRef.current?.focus();
+      }
+    };
+
     if (isMobilePanelOpen) {
       document.addEventListener('pointerdown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
     return () => {
       document.removeEventListener('pointerdown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isMobilePanelOpen]);
 
@@ -108,23 +117,36 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
 
   const activeSpeakerMember = activeSpeaker ? COUNCIL_MEMBERS[activeSpeaker] : null;
 
+  const metaRequirement = (isLowCredit && isDebating)
+    ? 'wide-active-credit'
+    : (isLowCredit || isOutOfCredits)
+    ? 'credit-warning'
+    : 'normal';
+
   return (
-    <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(3rem,calc(env(safe-area-inset-left)+2.5rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2">
+    <header
+      data-council-meta={metaRequirement}
+      className="council-container sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(3rem,calc(env(safe-area-inset-left)+2.5rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2"
+    >
       <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap min-w-0">
         
-        {/* MOBILE (< lg): Compact Council trigger button */}
-        <div className="flex lg:hidden items-center min-w-0">
+        {/* COMPACT MODE: Container-responsive trigger button */}
+        <div className="council-compact-only flex items-center min-w-0">
           <button
+            id="council-trigger"
             ref={triggerRef}
             type="button"
             onClick={() => setIsMobilePanelOpen(!isMobilePanelOpen)}
-            className={`flex items-center gap-1.5 py-1 px-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer select-none min-w-0 max-w-full ${
+            className={`flex items-center gap-1.5 py-1 px-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer select-none min-w-0 max-w-full target-primary ${
               isMobilePanelOpen
                 ? 'bg-zinc-100 text-zinc-900 border-zinc-300 shadow-2xs'
                 : isDebating
                 ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs'
                 : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border-zinc-200/80'
             }`}
+            aria-haspopup="dialog"
+            aria-expanded={isMobilePanelOpen}
+            aria-controls="council-panel"
             aria-label="Toggle Council Configuration Panel"
             title="Toggle Council Configuration Panel"
           >
@@ -148,8 +170,8 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           </button>
         </div>
 
-        {/* DESKTOP (lg+): Original horizontal draggable model pills strip */}
-        <div className="hidden lg:flex items-center gap-1.5">
+        {/* FULL INLINE MODE: Container-responsive horizontal model pills */}
+        <div className="council-inline-only hidden items-center gap-1.5">
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
             const isSelected = activeModels.includes(id);
@@ -200,9 +222,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   onClick={(e) => handleSwap(e, idx - 1)}
                   disabled={idx === 0 || isDebating}
                   aria-label={`Move ${member?.name || id} earlier`}
-                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
+                  className="p-1 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
                 >
-                  <ChevronLeft className="w-3 h-3" />
+                  <ChevronLeft className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5" />
                 </button>
 
                 {/* Status Dot */}
@@ -227,9 +249,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   onClick={(e) => handleSwap(e, idx + 1)}
                   disabled={idx === seatOrder.length - 1 || isDebating}
                   aria-label={`Move ${member?.name || id} later`}
-                  className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer"
+                  className="p-1 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
                 >
-                  <ChevronRight className="w-3 h-3" />
+                  <ChevronRight className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5" />
                 </button>
 
                 {/* Dedicated Power Toggle Button */}
@@ -240,14 +262,14 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                     onToggleModel(id);
                   }}
                   aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
-                  className={`p-1 pl-1.5 pr-1.5 border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer ${
+                  className={`p-1 pl-1.5 pr-1.5 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer flex items-center justify-center ${
                     isSelected 
                       ? 'text-zinc-400 hover:text-red-600 hover:bg-red-50' 
                       : 'text-zinc-300 hover:text-emerald-600 hover:bg-emerald-50'
                   }`}
                   title={isSelected ? `Disable ${member?.name || id}` : `Enable ${member?.name || id}`}
                 >
-                  <Power className={`w-3 h-3 ${isSelected ? 'text-zinc-500 hover:text-red-600' : 'text-zinc-400'}`} />
+                  <Power className={`w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5 ${isSelected ? 'text-zinc-500 hover:text-red-600' : 'text-zinc-400'}`} />
                 </button>
               </motion.div>
             );
@@ -279,7 +301,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
           )}
 
           {isDebating && (
-            <div className="hidden lg:flex items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
+            <div className="council-inline-only hidden items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
               <Loader2 className="w-3 h-3 animate-spin text-amber-700" />
               <span>Responding...</span>
             </div>
@@ -287,11 +309,14 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
         </div>
       </div>
 
-      {/* MOBILE (< lg): Vertical Council Configuration Dropdown Panel */}
+      {/* COMPACT MODE: Vertical Council Configuration Dropdown Panel */}
       {isMobilePanelOpen && (
         <div
+          id="council-panel"
           ref={panelRef}
-          className="lg:hidden absolute top-full left-12 mt-1.5 w-72 max-w-[calc(100vw-3.75rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
+          role="dialog"
+          aria-labelledby="council-trigger"
+          className="council-compact-only absolute top-full left-[max(0.75rem,env(safe-area-inset-left))] nav-rail:left-4 mt-1.5 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
         >
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
@@ -348,7 +373,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                         onClick={(e) => handleSwap(e, idx - 1)}
                         disabled={isDebating}
                         aria-label={`Move ${member?.name || id} up`}
-                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
                         title={`Move ${member?.name || id} earlier`}
                       >
                         <ChevronUp className="w-3.5 h-3.5" />
@@ -364,7 +389,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                         onClick={(e) => handleSwap(e, idx + 1)}
                         disabled={isDebating}
                         aria-label={`Move ${member?.name || id} down`}
-                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
                         title={`Move ${member?.name || id} later`}
                       >
                         <ChevronDown className="w-3.5 h-3.5" />
@@ -382,7 +407,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                       onToggleModel(id);
                     }}
                     aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
-                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer flex items-center justify-center ${
+                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer flex items-center justify-center target-secondary ${
                       isSelected 
                         ? 'text-zinc-500 hover:text-red-600 bg-white border-zinc-200 hover:bg-red-50 hover:border-red-200' 
                         : 'text-zinc-300 hover:text-emerald-600 bg-zinc-50 border-zinc-200/60 hover:bg-emerald-50 hover:border-emerald-200'
