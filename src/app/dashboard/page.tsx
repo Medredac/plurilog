@@ -1514,11 +1514,34 @@ export default function DashboardPage() {
             .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
 
           if (uploadError) {
-            console.error('[Supabase Storage Error] Upload failed:', uploadError);
+            const errStatus = (uploadError as any)?.status || (uploadError as any)?.statusCode || '';
+            const errName = uploadError.name && uploadError.name !== 'Error' && uploadError.name !== 'StorageError' ? ` ${uploadError.name}` : '';
+            const statusLabel = errStatus ? ` [${errStatus}${errName}]` : (errName ? ` [${errName.trim()}]` : '');
+            const errorReason = uploadError.message || (uploadError as any)?.error || 'Storage upload rejected';
+            const bodyByteLen = body instanceof ArrayBuffer ? body.byteLength : (body instanceof Blob ? body.size : undefined);
+            const bodyTypeName = body instanceof ArrayBuffer ? 'ArrayBuffer' : (body instanceof Blob ? 'Blob' : typeof body);
+
+            console.error('[Supabase Storage Diagnostic]', {
+              status: (uploadError as any)?.status,
+              statusCode: (uploadError as any)?.statusCode,
+              error: (uploadError as any)?.error,
+              name: uploadError.name,
+              message: uploadError.message,
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              bodyType: bodyTypeName,
+              bodyByteLength: bodyByteLen,
+              isPdf,
+            });
+
+            const diagDetails = `${isPdf ? 'PDF' : 'File'}: ${file.name}\nsize: ${file.size} bytes\nbuffer: ${bodyByteLen ?? file.size} bytes\ntype: ${isPdf ? 'application/pdf' : (file.type || 'unknown')}`;
+            const userFacingError = `Upload failed${statusLabel}\n${errorReason}\n\n${diagDetails}`;
+
             rollbackOptimistic();
             setSeatStatuses(INITIAL_SEAT_STATUSES);
             setActiveSpeaker(null);
-            setErrorMessage('Failed to upload file. Please try again.');
+            setErrorMessage(userFacingError);
             setIsDebating(false);
             setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
             return;
@@ -1995,7 +2018,7 @@ export default function DashboardPage() {
                         <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                         <div className="space-y-1 min-w-0">
                           <span className="font-semibold block">Notice</span>
-                          <p className="leading-relaxed break-words">{errorMessage}</p>
+                          <p className="leading-relaxed break-words whitespace-pre-line">{errorMessage}</p>
                         </div>
                       </div>
                     )}
