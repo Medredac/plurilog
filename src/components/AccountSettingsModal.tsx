@@ -137,7 +137,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   type="text"
                   value={nameInput}
                   onChange={(e) => setNameInput(e.target.value)}
-                  className="text-sm font-medium text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-200 focus:border-zinc-400 focus:outline-none py-0.5 w-full transition-colors"
+                  className="text-base lg:text-sm font-medium text-zinc-900 bg-transparent border-b border-transparent hover:border-zinc-200 focus:border-zinc-400 focus:outline-none py-0.5 w-full transition-colors"
                 />
                 {nameInput.trim() && nameInput.trim() !== displayName && (
                   <button

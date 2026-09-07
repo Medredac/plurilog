@@ -94,7 +94,7 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full px-3 py-2 text-xs rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
+                className="w-full px-3 py-2 text-base lg:text-xs rounded-xl border border-zinc-200 focus:border-zinc-400 focus:outline-none transition-colors"
                 disabled={isLoading}
               />
               {errorMessage && (

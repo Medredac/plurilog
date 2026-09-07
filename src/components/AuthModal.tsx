@@ -270,7 +270,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 placeholder="Your name"
-                className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+                className="w-full px-3 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
               />
             </div>
           )}
@@ -285,7 +285,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full px-3 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+              className="w-full px-3 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
             />
             {mode === 'signup' && errorMessage === 'Please enter a valid email address.' && (
               <p className="text-[11px] text-red-600 mt-1.5 leading-snug">
@@ -305,7 +305,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-3 pr-9 py-2 text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
+                className="w-full pl-3 pr-9 py-2 text-base lg:text-xs text-zinc-900 rounded-lg border border-zinc-200/80 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-400 focus:ring-1 focus:ring-zinc-400 transition-all"
               />
               <button
                 type="button"

@@ -169,13 +169,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isOpen && (
         <div
           onClick={onToggle}
-          className="fixed inset-0 bg-black/10 backdrop-blur-xs z-30 lg:hidden transition-opacity"
+          className="absolute inset-0 bg-black/10 backdrop-blur-xs z-30 lg:hidden transition-opacity"
         />
       )}
 
       {/* Collapsed Rail Trigger (Only rendered when sidebar is closed) */}
       {!isOpen && (
-        <div className="fixed top-2.5 left-3 z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+        <div className="absolute top-2.5 left-3 z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
           <button
             onClick={onToggle}
             className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer"
@@ -188,7 +188,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
+        className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
           isOpen
             ? 'w-72 translate-x-0 shadow-xl lg:shadow-none'
             : 'w-72 -translate-x-full lg:w-0 lg:translate-x-0 overflow-hidden'
@@ -238,13 +238,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   placeholder="Search discussions..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
+                  className="w-full pl-9 pr-3 py-2 text-base lg:text-sm text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
                 />
               </div>
             </div>
 
             {/* Discussions List */}
-            <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+            <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
               {/* Normal/regular font weight, mid-grey label */}
               <div className="px-2.5 py-1 text-xs font-normal text-zinc-400 flex items-center justify-between">
                 <span>Discussions</span>
