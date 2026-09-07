@@ -17,6 +17,7 @@ export interface ChatMessage {
   authorName?: string;
   content: string;
   timestamp: string;
+  createdAt?: string;
   image_url?: string | null;
   attachment_urls?: string[] | null;
   likes?: number;

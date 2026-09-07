@@ -253,6 +253,7 @@ export default function DashboardPage() {
           timestamp: m.created_at
             ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '',
+          createdAt: m.created_at || undefined,
           image_url: m.image_url || null,
           attachment_urls: m.attachment_urls || null,
           likes: 0,
@@ -653,6 +654,7 @@ export default function DashboardPage() {
       initialStatuses[id] = index === 0 ? 'thinking' : 'waiting';
     });
 
+    const nowForLiveSeat = new Date();
     const initialLiveSeatMsg: ChatMessage | null =
       optimisticPlaceholder?.firstSeatId && optimisticPlaceholder?.msgId
         ? {
@@ -662,7 +664,8 @@ export default function DashboardPage() {
             modelId: optimisticPlaceholder.firstSeatId,
             authorName: COUNCIL_MEMBERS[optimisticPlaceholder.firstSeatId]?.name || 'AI',
             content: '',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestamp: nowForLiveSeat.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            createdAt: nowForLiveSeat.toISOString(),
             isStreaming: true,
           }
         : null;
@@ -783,6 +786,7 @@ export default function DashboardPage() {
               currentAttemptModelMsgIds.add(msgId);
               adoptedFirstSeat = true;
 
+              const nowForSeatMsg = new Date();
               const newMsg: ChatMessage = {
                 id: msgId,
                 discussionId: discussionId || undefined,
@@ -790,7 +794,8 @@ export default function DashboardPage() {
                 modelId: seatId,
                 authorName: modelInfo?.name || data.name || 'AI',
                 content: '',
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                timestamp: nowForSeatMsg.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                createdAt: nowForSeatMsg.toISOString(),
                 isStreaming: true,
               };
 
@@ -1111,8 +1116,9 @@ export default function DashboardPage() {
     }
 
     let currentDiscussionId = activeDebateId;
-    const nowIso = new Date().toISOString();
-    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowForSend = new Date();
+    const nowIso = nowForSend.toISOString();
+    const nowTimeStr = nowForSend.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // Temporary local blob URLs for instant optimistic display without waiting for storage upload
     // Preserve filename in hash fragment so optimistic URLs immediately render correct document or image cards
@@ -1127,6 +1133,7 @@ export default function DashboardPage() {
       authorName: 'You',
       content: content,
       timestamp: nowTimeStr,
+      createdAt: nowIso,
       image_url: null,
       attachment_urls: tempObjectUrls.length > 0 ? tempObjectUrls : null,
     };
@@ -1143,6 +1150,7 @@ export default function DashboardPage() {
             authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
             content: '',
             timestamp: nowTimeStr,
+            createdAt: nowIso,
             isStreaming: true,
           }
         : null;
@@ -1437,7 +1445,9 @@ export default function DashboardPage() {
       setActiveSpeaker(firstSeatId);
     }
 
-    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowForRetry = new Date();
+    const nowTimeStr = nowForRetry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowIsoStr = nowForRetry.toISOString();
     const optimisticFirstModelMsgId = firstSeatId ? `msg-${firstSeatId}-${Date.now()}` : null;
     const initialModelMsg: ChatMessage | null =
       firstSeatId && optimisticFirstModelMsgId
@@ -1449,6 +1459,7 @@ export default function DashboardPage() {
             authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
             content: '',
             timestamp: nowTimeStr,
+            createdAt: nowIsoStr,
             isStreaming: true,
           }
         : null;
@@ -1514,7 +1525,9 @@ export default function DashboardPage() {
     // Re-sort discussion to top immediately
     touchDiscussion(activeDebateId);
 
-    const nowTimeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowForContinue = new Date();
+    const nowTimeStr = nowForContinue.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowIsoStr = nowForContinue.toISOString();
 
     // 1. Insert visible "Continue" user bubble into the conversation (DISPLAY-ONLY)
     const tempUserMsgId = `msg-user-${Date.now()}`;
@@ -1525,6 +1538,7 @@ export default function DashboardPage() {
       authorName: 'You',
       content: 'Continue',
       timestamp: nowTimeStr,
+      createdAt: nowIsoStr,
     };
 
     // Pre-create first model seat placeholder for continue round
@@ -1539,6 +1553,7 @@ export default function DashboardPage() {
             authorName: COUNCIL_MEMBERS[firstSeatId]?.name || 'AI',
             content: '',
             timestamp: nowTimeStr,
+            createdAt: nowIsoStr,
             isStreaming: true,
           }
         : null;

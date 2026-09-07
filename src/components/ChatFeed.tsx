@@ -20,6 +20,32 @@ import { ImageLightbox } from './ImageLightbox';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
+const conversationDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+function getLocalDayKey(dateInput?: string): string {
+  if (!dateInput) return '';
+
+  const d = new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return '';
+
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`;
+}
+
+function formatConversationDate(dateInput?: string): string {
+  if (!dateInput) return '';
+
+  const d = new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return '';
+
+  return conversationDateFormatter.format(d);
+}
+
 // Safe extraction of clean display filename from stored/signed attachment URL or optimistic blob URL
 export function getAttachmentDisplayFilename(url?: string | null): string {
   if (!url || typeof url !== 'string') return 'attachment';
@@ -568,18 +594,44 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
       {messages.map((message, idx) => {
         const isPrevUser = idx > 0 && messages[idx - 1]?.role === 'user';
+        const prevMessage = idx > 0 ? messages[idx - 1] : null;
+
+        const currentKey = getLocalDayKey(message.createdAt);
+        const prevKey = prevMessage
+          ? getLocalDayKey(prevMessage.createdAt)
+          : '';
+
+        const shouldShowDate =
+          Boolean(currentKey) &&
+          (idx === 0 || currentKey !== prevKey);
+
+        const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
           return (
-            <div
-              id={message.id}
-              key={message.id}
-              className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
-            >
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-400">
-                <CornerDownRight className="w-3.5 h-3.5" />
+            <React.Fragment key={message.id}>
+              {shouldShowDate && formattedDate && (
+                <div
+                  className={`flex justify-center select-none ${
+                    idx === 0 ? 'mb-4' : 'mt-6 mb-4'
+                  }`}
+                >
+                  <span className="text-xs font-medium text-zinc-400">
+                    {formattedDate}
+                  </span>
+                </div>
+              )}
+              <div
+                id={message.id}
+                className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${
+                  shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-400">
+                  <CornerDownRight className="w-3.5 h-3.5" />
+                </div>
               </div>
-            </div>
+            </React.Fragment>
           );
         }
 
@@ -595,164 +647,178 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 : [];
 
           return (
-            <div 
-              id={message.id}
-              key={message.id} 
-              className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 ${idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'}`}
-            >
-              <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
-                <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
-                  <span className="font-semibold text-zinc-700">{message.authorName || 'You'}</span>
-                  <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
+            <React.Fragment key={message.id}>
+              {shouldShowDate && formattedDate && (
+                <div
+                  className={`flex justify-center select-none ${
+                    idx === 0 ? 'mb-4' : 'mt-6 mb-4'
+                  }`}
+                >
+                  <span className="text-xs font-medium text-zinc-400">
+                    {formattedDate}
+                  </span>
+                </div>
+              )}
+              <div 
+                id={message.id}
+                className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 ${
+                  shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
+                }`}
+              >
+                <div className="max-w-3xl bg-stone-100 rounded-xl p-4.5 shadow-sm relative">
+                  <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500">
+                    <span className="font-semibold text-zinc-700">{message.authorName || 'You'}</span>
+                    <span className="text-[10px] font-mono text-stone-400">{message.timestamp}</span>
+                  </div>
+
+                  {/* Attached Files (Images or PDFs) if present */}
+                  {attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2.5 mb-2.5">
+                      {attachments.map((url, i) => {
+                        const filename = getAttachmentDisplayFilename(url);
+                        const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
+                        const fnLower = filename.toLowerCase();
+
+                        const isPdf = cleanLower.endsWith('.pdf') || fnLower.endsWith('.pdf');
+                        const isDocx = cleanLower.endsWith('.docx') || fnLower.endsWith('.docx');
+                        const isText = isTextFileUrl(cleanLower) || isTextFileName(fnLower);
+                        const isImage = isImageUrl(url, filename);
+
+                        return (
+                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
+                            {isPdf ? (
+                              <button
+                                type="button"
+                                onClick={() => window.open(url, '_blank')}
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                title={`Click to view ${filename} in new tab`}
+                              >
+                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                  PDF
+                                </span>
+                              </button>
+                            ) : isDocx ? (
+                              <button
+                                type="button"
+                                onClick={() => window.open(url, '_blank')}
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                title={`Click to download ${filename}`}
+                              >
+                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                  DOCX
+                                </span>
+                              </button>
+                            ) : isText ? (
+                              <button
+                                type="button"
+                                onClick={() => window.open(url, '_blank')}
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                title={`Click to view ${filename} in new tab`}
+                              >
+                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                  {getTextFileDisplayBadge(filename)}
+                                </span>
+                              </button>
+                            ) : isImage ? (
+                              <button
+                                type="button"
+                                onClick={() => setLightboxImageUrl(url)}
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                                title={`Click to view ${filename}`}
+                              >
+                                <img
+                                  src={url}
+                                  alt={filename}
+                                  className="w-full h-full object-cover"
+                                />
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => window.open(url, '_blank')}
+                                className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
+                                title={`Click to view ${filename}`}
+                              >
+                                <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-zinc-600" />
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
+                                  FILE
+                                </span>
+                              </button>
+                            )}
+                            <span
+                              className="text-[10px] sm:text-[11px] font-mono text-stone-500 hover:text-stone-700 max-w-[96px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              title={filename}
+                            >
+                              {filename}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Message Body with truncation if long (only if text exists) */}
+                  {message.content?.trim() ? (
+                    <div className="relative">
+                      <p
+                        className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
+                          isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
+                        }`}
+                      >
+                        {message.content}
+                      </p>
+
+                      {/* Show More / Show Less Toggle */}
+                      {isLongContent && (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(message.id)}
+                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
+                        >
+                          {isExpanded ? (
+                            <>
+                              <ChevronUp className="w-3.5 h-3.5" />
+                              <span>Show less</span>
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-3.5 h-3.5" />
+                              <span>Show more</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
 
-                {/* Attached Files (Images or PDFs) if present */}
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2.5 mb-2.5">
-                    {attachments.map((url, i) => {
-                      const filename = getAttachmentDisplayFilename(url);
-                      const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
-                      const fnLower = filename.toLowerCase();
-
-                      const isPdf = cleanLower.endsWith('.pdf') || fnLower.endsWith('.pdf');
-                      const isDocx = cleanLower.endsWith('.docx') || fnLower.endsWith('.docx');
-                      const isText = isTextFileUrl(cleanLower) || isTextFileName(fnLower);
-                      const isImage = isImageUrl(url, filename);
-
-                      return (
-                        <div key={`${url}-${i}`} className="flex flex-col items-center gap-1">
-                          {isPdf ? (
-                            <button
-                              type="button"
-                              onClick={() => window.open(url, '_blank')}
-                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                              title={`Click to view ${filename} in new tab`}
-                            >
-                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-red-500" />
-                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                                PDF
-                              </span>
-                            </button>
-                          ) : isDocx ? (
-                            <button
-                              type="button"
-                              onClick={() => window.open(url, '_blank')}
-                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                              title={`Click to download ${filename}`}
-                            >
-                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-blue-600" />
-                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                                DOCX
-                              </span>
-                            </button>
-                          ) : isText ? (
-                            <button
-                              type="button"
-                              onClick={() => window.open(url, '_blank')}
-                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                              title={`Click to view ${filename} in new tab`}
-                            >
-                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-emerald-600" />
-                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                                {getTextFileDisplayBadge(filename)}
-                              </span>
-                            </button>
-                          ) : isImage ? (
-                            <button
-                              type="button"
-                              onClick={() => setLightboxImageUrl(url)}
-                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
-                              title={`Click to view ${filename}`}
-                            >
-                              <img
-                                src={url}
-                                alt={filename}
-                                className="w-full h-full object-cover"
-                              />
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => window.open(url, '_blank')}
-                              className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-2"
-                              title={`Click to view ${filename}`}
-                            >
-                              <FileText className="w-7 h-7 sm:w-8 sm:h-8 text-zinc-600" />
-                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-2 py-0.5 rounded border border-stone-200/60">
-                                FILE
-                              </span>
-                            </button>
-                          )}
-                          <span
-                            className="text-[10px] sm:text-[11px] font-mono text-stone-500 hover:text-stone-700 max-w-[96px] sm:max-w-[112px] truncate px-1 text-center select-all"
-                            title={filename}
-                          >
-                            {filename}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Message Body with truncation if long (only if text exists) */}
-                {message.content?.trim() ? (
-                  <div className="relative">
-                    <p
-                      className={`text-base font-normal text-stone-900 leading-relaxed whitespace-pre-line break-words ${
-                        isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
-                      }`}
+                {/* Inline Failed Turn State: Active failure (with Try again button) */}
+                {failedTurn && failedTurn.uiMessageId === message.id ? (
+                  <div className="flex items-center justify-between gap-3 px-3.5 py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span className="font-normal text-stone-700">Something went wrong.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
+                      disabled={isDebating}
+                      className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-50 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {message.content}
-                    </p>
-
-                    {/* Show More / Show Less Toggle */}
-                    {isLongContent && (
-                      <button
-                        type="button"
-                        onClick={() => toggleExpand(message.id)}
-                        className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer"
-                      >
-                        {isExpanded ? (
-                          <>
-                            <ChevronUp className="w-3.5 h-3.5" />
-                            <span>Show less</span>
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="w-3.5 h-3.5" />
-                            <span>Show more</span>
-                          </>
-                        )}
-                      </button>
-                    )}
+                      Try again
+                    </button>
+                  </div>
+                ) : abandonedFailedTurnIds.includes(message.id) ? (
+                  /* Muted Abandoned Failure Marker (Session-only, no button) */
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 mt-2 rounded-lg text-[11px] text-zinc-400 font-normal select-none animate-in fade-in duration-150">
+                    <span>Failed to send</span>
                   </div>
                 ) : null}
               </div>
-
-              {/* Inline Failed Turn State: Active failure (with Try again button) */}
-              {failedTurn && failedTurn.uiMessageId === message.id ? (
-                <div className="flex items-center justify-between gap-3 px-3.5 py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                    <span className="font-normal text-stone-700">Something went wrong.</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
-                    disabled={isDebating}
-                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-50 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Try again
-                  </button>
-                </div>
-              ) : abandonedFailedTurnIds.includes(message.id) ? (
-                /* Muted Abandoned Failure Marker (Session-only, no button) */
-                <div className="flex items-center gap-1.5 px-3 py-1.5 mt-2 rounded-lg text-[11px] text-zinc-400 font-normal select-none animate-in fade-in duration-150">
-                  <span>Failed to send</span>
-                </div>
-              ) : null}
-            </div>
+            </React.Fragment>
           );
         }
 
@@ -777,7 +843,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
         // - Smaller cohesive gap following another model response (Model -> Model)
-        const spacingClass = idx === 0 
+        const spacingClass = shouldShowDate || idx === 0 
           ? 'mt-0' 
           : isPrevUser 
             ? 'mt-7 sm:mt-8' 
@@ -786,73 +852,85 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const isThinking = message.isStreaming && !message.content.trim();
 
         return (
-          <div
-            id={message.id}
-            key={message.id}
-            className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 ${spacingClass}`}
-          >
-            {/* Header: Model name & timestamp only */}
-            <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
-              <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${member.statusDotColor}`} />
-                <span className="font-semibold text-xs text-zinc-700">
-                  {member.name}
+          <React.Fragment key={message.id}>
+            {shouldShowDate && formattedDate && (
+              <div
+                className={`flex justify-center select-none ${
+                  idx === 0 ? 'mb-4' : 'mt-6 mb-4'
+                }`}
+              >
+                <span className="text-xs font-medium text-zinc-400">
+                  {formattedDate}
                 </span>
               </div>
-
-              <span className="text-[10px] font-mono text-zinc-400">
-                {message.timestamp}
-              </span>
-            </div>
-
-            {/* Message Body */}
-            {isThinking ? (
-              /* Thinking Indicator Placeholder */
-              <div className="py-0.5 flex items-center gap-2.5 animate-in fade-in duration-150">
-                <div className="w-3.5 h-3.5 flex items-center justify-center text-amber-500 shrink-0 animate-pulse-spin">
-                  <svg viewBox="0 0 1391 1493" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5">
-                    <path d="M520.475 46.8916C628.765 -15.6299 762.185 -15.6309 870.476 46.8906L1215.95 246.351C1324.24 308.872 1390.95 424.417 1390.95 549.46V948.38C1390.95 1073.42 1324.24 1188.97 1215.95 1251.49L870.476 1450.95C839.295 1468.95 806.031 1481.77 771.884 1489.4V1267.46C771.884 1224.41 793.863 1184.33 830.168 1161.2L1094.26 992.901C1130.56 969.765 1152.54 929.694 1152.54 886.644V583.73C1152.54 538.272 1128.06 496.338 1088.47 473.997L756.024 286.395C716.572 264.132 668.204 264.761 629.344 288.043L319.853 473.464C281.861 496.225 258.609 537.262 258.609 581.55V1299.76L175 1251.49C66.7098 1188.97 0 1073.42 0 948.38V549.46C0.000106195 424.417 66.7099 308.873 175 246.352L520.475 46.8916Z" fill="currentColor"/>
-                    <path d="M376.402 536.352L673.55 680.923C691.417 689.616 712.339 689.37 729.998 680.259L1008.92 536.352L731.766 381.638C713.162 371.252 690.568 370.974 671.713 380.899L376.402 536.352Z" fill="currentColor"/>
-                    <path d="M766.066 812.685V1103.38L1024.9 937.777C1043 926.198 1053.95 906.195 1053.95 884.71V619.578L799.12 757.258C778.757 768.259 766.066 789.54 766.066 812.685Z" fill="currentColor"/>
-                    <path d="M393.853 1372.47L660.466 1492.74V824.821C660.466 801.177 647.227 779.524 626.183 768.747L356.758 630.766V1315.04C356.758 1339.81 371.273 1362.28 393.853 1372.47Z" fill="currentColor"/>
-                  </svg>
-                </div>
-                <span className="text-xs font-normal animate-text-shimmer tracking-tight select-none">
-                  Thinking...
-                </span>
-              </div>
-            ) : (
-              <StreamingMessageBody
-                content={message.content}
-                isStreaming={message.isStreaming}
-              />
             )}
-
-            {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
-            {!isThinking && (
-              <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
+            <div
+              id={message.id}
+              className={`rounded-xl border border-zinc-100 bg-white p-5 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 ${spacingClass}`}
+            >
+              {/* Header: Model name & timestamp only */}
+              <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleCopy(message.id, message.content)}
-                    className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
-                    title="Copy text"
-                  >
-                    {copiedId === message.id ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" />
-                        <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span className="text-[10px]">Copy</span>
-                      </>
-                    )}
-                  </button>
+                  <span className={`w-2 h-2 rounded-full ${member.statusDotColor}`} />
+                  <span className="font-semibold text-xs text-zinc-700">
+                    {member.name}
+                  </span>
                 </div>
+
+                <span className="text-[10px] font-mono text-zinc-400">
+                  {message.timestamp}
+                </span>
               </div>
-            )}
-          </div>
+
+              {/* Message Body */}
+              {isThinking ? (
+                /* Thinking Indicator Placeholder */
+                <div className="py-0.5 flex items-center gap-2.5 animate-in fade-in duration-150">
+                  <div className="w-3.5 h-3.5 flex items-center justify-center text-amber-500 shrink-0 animate-pulse-spin">
+                    <svg viewBox="0 0 1391 1493" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5">
+                      <path d="M520.475 46.8916C628.765 -15.6299 762.185 -15.6309 870.476 46.8906L1215.95 246.351C1324.24 308.872 1390.95 424.417 1390.95 549.46V948.38C1390.95 1073.42 1324.24 1188.97 1215.95 1251.49L870.476 1450.95C839.295 1468.95 806.031 1481.77 771.884 1489.4V1267.46C771.884 1224.41 793.863 1184.33 830.168 1161.2L1094.26 992.901C1130.56 969.765 1152.54 929.694 1152.54 886.644V583.73C1152.54 538.272 1128.06 496.338 1088.47 473.997L756.024 286.395C716.572 264.132 668.204 264.761 629.344 288.043L319.853 473.464C281.861 496.225 258.609 537.262 258.609 581.55V1299.76L175 1251.49C66.7098 1188.97 0 1073.42 0 948.38V549.46C0.000106195 424.417 66.7099 308.873 175 246.352L520.475 46.8916Z" fill="currentColor"/>
+                      <path d="M376.402 536.352L673.55 680.923C691.417 689.616 712.339 689.37 729.998 680.259L1008.92 536.352L731.766 381.638C713.162 371.252 690.568 370.974 671.713 380.899L376.402 536.352Z" fill="currentColor"/>
+                      <path d="M766.066 812.685V1103.38L1024.9 937.777C1043 926.198 1053.95 906.195 1053.95 884.71V619.578L799.12 757.258C778.757 768.259 766.066 789.54 766.066 812.685Z" fill="currentColor"/>
+                      <path d="M393.853 1372.47L660.466 1492.74V824.821C660.466 801.177 647.227 779.524 626.183 768.747L356.758 630.766V1315.04C356.758 1339.81 371.273 1362.28 393.853 1372.47Z" fill="currentColor"/>
+                    </svg>
+                  </div>
+                  <span className="text-xs font-normal animate-text-shimmer tracking-tight select-none">
+                    Thinking...
+                  </span>
+                </div>
+              ) : (
+                <StreamingMessageBody
+                  content={message.content}
+                  isStreaming={message.isStreaming}
+                />
+              )}
+
+              {/* Bottom Actions Bar: Copy Only (Rendered once content exists) */}
+              {!isThinking && (
+                <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopy(message.id, message.content)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-colors cursor-pointer"
+                      title="Copy text"
+                    >
+                      {copiedId === message.id ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span className="text-[10px]">Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </React.Fragment>
         );
       })}
 
