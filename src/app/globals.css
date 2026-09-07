@@ -2,6 +2,7 @@
 
 @theme {
   --font-sans: var(--font-poppins), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --breakpoint-nav-rail: 42.5rem; /* 680px content-derived rail threshold */
 }
 
 :root {

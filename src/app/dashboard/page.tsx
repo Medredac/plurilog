@@ -73,7 +73,8 @@ export default function DashboardPage() {
   const urlDiscussionId = params?.discussionId as string | undefined;
   const hasInitializedRef = useRef(false);
   const isNewlyCreatedDiscussionRef = useRef(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  const [isTransientDrawerOpen, setIsTransientDrawerOpen] = useState(false);
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const activeDebateIdRef = useRef<string | null>(null);
@@ -85,10 +86,21 @@ export default function DashboardPage() {
 
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Hydration-safe initial responsive sidebar state: close on mobile/tablet (< 1024px)
+  // Synchronize transient drawer state across breakpoint transitions: reset transient drawer when crossing into desktop (>= 1024px)
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      setIsSidebarOpen(false);
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handleBreak = (e: MediaQueryListEvent | MediaQueryList) => {
+      if (e.matches) {
+        setIsTransientDrawerOpen(false);
+      }
+    };
+    if (mq.addEventListener) {
+      mq.addEventListener('change', handleBreak);
+      return () => mq.removeEventListener('change', handleBreak);
+    } else {
+      mq.addListener(handleBreak);
+      return () => mq.removeListener(handleBreak);
     }
   }, []);
 
@@ -663,7 +675,7 @@ export default function DashboardPage() {
     setIsLoadingMessages(false);
     window.history.pushState(null, '', '/dashboard');
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      setIsSidebarOpen(false);
+      setIsTransientDrawerOpen(false);
     }
   };
 
@@ -673,7 +685,7 @@ export default function DashboardPage() {
     window.history.pushState(null, '', `/dashboard/${id}`);
     fetchDiscussionMessages(id, false);
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      setIsSidebarOpen(false);
+      setIsTransientDrawerOpen(false);
     }
   };
 
@@ -1965,8 +1977,10 @@ export default function DashboardPage() {
       >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
-          isOpen={isSidebarOpen}
-          onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+          isDesktopOpen={isDesktopSidebarOpen}
+          onToggleDesktop={() => setIsDesktopSidebarOpen((prev) => !prev)}
+          isDrawerOpen={isTransientDrawerOpen}
+          onToggleDrawer={() => setIsTransientDrawerOpen((prev) => !prev)}
           debates={debates}
           activeDebateId={activeDebateId || ''}
           onSelectDebate={handleSelectDebate}

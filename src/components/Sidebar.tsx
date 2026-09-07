@@ -16,8 +16,12 @@ import { DebateTopic } from '../types/chat';
 import { createClient } from '../utils/supabase/client';
 
 interface SidebarProps {
-  isOpen: boolean;
-  onToggle: () => void;
+  isOpen?: boolean;
+  onToggle?: () => void;
+  isDesktopOpen?: boolean;
+  onToggleDesktop?: () => void;
+  isDrawerOpen?: boolean;
+  onToggleDrawer?: () => void;
   debates: DebateTopic[];
   activeDebateId: string;
   onSelectDebate: (id: string) => void;
@@ -35,6 +39,10 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onToggle,
+  isDesktopOpen,
+  onToggleDesktop,
+  isDrawerOpen,
+  onToggleDrawer,
   debates,
   activeDebateId,
   onSelectDebate,
@@ -48,6 +56,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAccountSettings,
   onSignOut,
 }) => {
+  const desktopOpen = isDesktopOpen !== undefined ? isDesktopOpen : (isOpen ?? true);
+  const drawerOpen = isDrawerOpen !== undefined ? isDrawerOpen : (isOpen ?? false);
+  const toggleDesktop = onToggleDesktop || onToggle || (() => {});
+  const toggleDrawer = onToggleDrawer || onToggle || (() => {});
+
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [isSearchingDb, setIsSearchingDb] = useState(false);
@@ -165,20 +178,159 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* Mobile Backdrop */}
-      {isOpen && (
+      {/* Overlay Backdrop for Mobile & Intermediate Drawers */}
+      {drawerOpen && (
         <div
-          onClick={onToggle}
+          onClick={toggleDrawer}
           className="absolute inset-0 bg-black/10 backdrop-blur-xs z-30 lg:hidden transition-opacity"
         />
       )}
 
-      {/* Collapsed Rail Trigger (Only rendered when sidebar is closed) */}
-      {!isOpen && (
-        <div className="absolute top-2.5 left-[max(0.75rem,env(safe-area-inset-left))] z-30 lg:static lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+      {/* Compact Floating Trigger (Only rendered on small mobile < 680px when drawer is closed) */}
+      {!drawerOpen && (
+        <div className="absolute top-2.5 left-[max(0.75rem,env(safe-area-inset-left))] z-30 nav-rail:hidden">
           <button
-            onClick={onToggle}
-            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer"
+            type="button"
+            onClick={toggleDrawer}
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            title="Open discussions"
+            aria-label="Open discussions"
+          >
+            <PanelLeftClose className="w-4 h-4 rotate-180" strokeWidth={1.5} />
+          </button>
+        </div>
+      )}
+
+      {/* Intermediate Persistent 56px Rail (Rendered between 680px and 1023px) */}
+      <aside className="hidden nav-rail:flex lg:hidden flex-col justify-between items-center w-14 h-full bg-white border-r border-zinc-100 py-3 shrink-0 z-20 select-none">
+        {/* Top Navigation Actions */}
+        <div className="flex flex-col items-center gap-3 w-full px-2">
+          {/* Plurilog Logo */}
+          <button
+            type="button"
+            onClick={() => {
+              onNewDebate();
+              if (drawerOpen) toggleDrawer();
+            }}
+            className="p-1.5 rounded-lg flex items-center justify-center hover:bg-zinc-50 transition-colors cursor-pointer target-primary"
+            title="Plurilog — New Discussion"
+            aria-label="Plurilog — New Discussion"
+          >
+            <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
+          </button>
+
+          {/* New Discussion Button */}
+          <button
+            type="button"
+            onClick={() => {
+              onNewDebate();
+              if (drawerOpen) toggleDrawer();
+            }}
+            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            title="New Discussion"
+            aria-label="New Discussion"
+          >
+            <Plus className="w-4 h-4 text-zinc-600" />
+          </button>
+
+          {/* View / Toggle Discussions Drawer Button */}
+          <button
+            type="button"
+            onClick={toggleDrawer}
+            className={`p-2 rounded-lg transition-colors cursor-pointer target-primary flex items-center justify-center ${
+              drawerOpen
+                ? 'bg-zinc-100 text-zinc-800'
+                : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60'
+            }`}
+            title={drawerOpen ? 'Close discussions' : 'All discussions'}
+            aria-label={drawerOpen ? 'Close discussions' : 'All discussions'}
+          >
+            <PanelLeftClose className={`w-4 h-4 transition-transform ${drawerOpen ? 'rotate-0 text-zinc-700' : 'rotate-180'}`} strokeWidth={1.5} />
+          </button>
+        </div>
+
+        {/* Bottom Profile / Account Trigger */}
+        <div className="flex flex-col items-center w-full px-2 relative">
+          <button
+            type="button"
+            onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+            className="w-8 h-8 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden hover:ring-2 hover:ring-zinc-300 transition-all cursor-pointer target-primary"
+            title={`Account (${displayName})`}
+            aria-label={`Account (${displayName})`}
+          >
+            {userAvatarUrl ? (
+              <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
+            ) : (
+              initial
+            )}
+          </button>
+
+          {/* Rail Profile Drop-up Popover */}
+          {isProfileMenuOpen && (
+            <div
+              ref={menuRef}
+              className="absolute bottom-full left-2 mb-2 w-60 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
+            >
+              {/* User Profile Header in Menu */}
+              <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                    {userAvatarUrl ? (
+                      <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                    ) : (
+                      initial
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-zinc-700 truncate">
+                      {displayName}
+                    </p>
+                    <p className="text-xs font-light text-zinc-400 truncate" title={userEmail}>
+                      {userEmail || 'user@plurilog.app'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Menu Items */}
+              <div className="space-y-0.5 text-sm text-zinc-600">
+                <button
+                  onClick={() => {
+                    setIsProfileMenuOpen(false);
+                    onOpenAccountSettings?.();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                >
+                  <Settings className="w-4 h-4 text-zinc-400" />
+                  <span className="font-normal">Account Settings</span>
+                </button>
+
+                <div className="border-t border-zinc-100 my-1" />
+
+                {onSignOut && (
+                  <button
+                    onClick={() => {
+                      setIsProfileMenuOpen(false);
+                      onSignOut();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span className="font-normal">Log Out</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Desktop Collapsed Strip (Preserves existing desktop collapse UX on >= 1024px) */}
+      {!desktopOpen && (
+        <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+          <button
+            onClick={toggleDesktop}
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="Open sidebar"
             aria-label="Open sidebar"
           >
@@ -187,11 +339,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
+      {/* Full Sidebar / Slide-Over Drawer */}
       <aside
         className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
-          isOpen
-            ? 'w-72 translate-x-0 shadow-xl lg:shadow-none'
-            : 'w-72 -translate-x-full lg:w-0 lg:translate-x-0 overflow-hidden'
+          drawerOpen
+            ? 'w-72 translate-x-0 shadow-xl'
+            : 'w-72 -translate-x-full overflow-hidden'
+        } ${
+          desktopOpen
+            ? 'lg:w-72 lg:translate-x-0 lg:shadow-none'
+            : 'lg:w-0 lg:translate-x-0 lg:overflow-hidden'
         }`}
       >
         <div className="flex flex-col h-full w-72">
@@ -205,7 +362,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               <button
-                onClick={onToggle}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+                    toggleDesktop();
+                  } else {
+                    toggleDrawer();
+                  }
+                }}
                 className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50 transition-colors cursor-pointer"
                 title="Collapse sidebar"
                 aria-label="Collapse sidebar"
@@ -217,7 +380,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Action Bar: "New Discussion" Button in graduated grey */}
             <div className="p-3">
               <button
-                onClick={onNewDebate}
+                onClick={() => {
+                  onNewDebate();
+                  if (typeof window !== 'undefined' && window.innerWidth < 1024 && drawerOpen) {
+                    toggleDrawer();
+                  }
+                }}
                 className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-500 hover:text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
                 <Plus className="w-4 h-4 text-zinc-500" />
@@ -264,7 +432,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   return (
                     <div
                       key={debate.id}
-                      onClick={() => onSelectDebate(debate.id)}
+                      onClick={() => {
+                        onSelectDebate(debate.id);
+                        if (typeof window !== 'undefined' && window.innerWidth < 1024 && drawerOpen) {
+                          toggleDrawer();
+                        }
+                      }}
                       className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
                         isTitlePending
                           ? isActive
