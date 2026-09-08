@@ -1550,7 +1550,6 @@ export async function POST(req: NextRequest) {
                 models: models,
                 messages: seatMessages,
                 stream: true,
-                max_tokens: 2000,
                 temperature: 0.7,
                 signal: req.signal,
                 tools: [
