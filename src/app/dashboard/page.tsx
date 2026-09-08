@@ -84,8 +84,6 @@ export default function DashboardPage() {
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
 
-  const rootRef = useRef<HTMLDivElement>(null);
-
   // Synchronize transient drawer state across breakpoint transitions: reset transient drawer when crossing into desktop (>= 1024px)
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -102,67 +100,6 @@ export default function DashboardPage() {
       mq.addListener(handleBreak);
       return () => mq.removeListener(handleBreak);
     }
-  }, []);
-
-  // iOS Safari Visual Viewport tracking for mobile (< 1024px)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    let rafId: number | null = null;
-
-    const applyViewportHeight = () => {
-      rafId = null;
-      if (!window.matchMedia('(max-width: 1023px)').matches) {
-        if (rootRef.current) {
-          rootRef.current.style.height = '';
-          rootRef.current.style.top = '';
-        }
-        return;
-      }
-
-      const vv = window.visualViewport;
-      if (!vv || !rootRef.current) return;
-
-      const targetHeight = `${vv.height}px`;
-      if (rootRef.current.style.height !== targetHeight) {
-        rootRef.current.style.height = targetHeight;
-      }
-      if (rootRef.current.style.top !== '') {
-        rootRef.current.style.top = '';
-      }
-
-      if (window.scrollY !== 0) {
-        window.scrollTo(0, 0);
-      }
-    };
-
-    const scheduleUpdate = () => {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(applyViewportHeight);
-    };
-
-    const vv = window.visualViewport;
-    if (vv) {
-      vv.addEventListener('resize', scheduleUpdate);
-      vv.addEventListener('scroll', scheduleUpdate);
-    }
-    window.addEventListener('resize', scheduleUpdate);
-    window.addEventListener('orientationchange', scheduleUpdate);
-
-    // Initial measurement
-    applyViewportHeight();
-
-    return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      if (vv) {
-        vv.removeEventListener('resize', scheduleUpdate);
-        vv.removeEventListener('scroll', scheduleUpdate);
-      }
-      window.removeEventListener('resize', scheduleUpdate);
-      window.removeEventListener('orientationchange', scheduleUpdate);
-    };
   }, []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -196,6 +133,40 @@ export default function DashboardPage() {
   const [canContinue, setCanContinue] = useState<boolean>(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const lastBottomDistanceRef = useRef(0);
+  const prevClientHeightRef = useRef<number | null>(null);
+
+  // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
+  // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    // Reset / initialize state freshly from CURRENT element for this debate
+    prevClientHeightRef.current = el.clientHeight;
+    const initialDistance = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
+    lastBottomDistanceRef.current = initialDistance;
+    isNearBottomRef.current = initialDistance < 80;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const currentHeight = entry.contentRect.height;
+        const prevHeight = prevClientHeightRef.current;
+        prevClientHeightRef.current = currentHeight;
+
+        // If height changed (e.g. keyboard opened/closed or composer resized) and user was near bottom, restore bottom distance
+        if (prevHeight !== null && prevHeight !== currentHeight && isNearBottomRef.current) {
+          const maxScroll = Math.max(0, el.scrollHeight - currentHeight);
+          const targetScrollTop = Math.min(maxScroll, Math.max(0, el.scrollHeight - currentHeight - lastBottomDistanceRef.current));
+          el.scrollTop = targetScrollTop;
+        }
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activeDebateId]);
   const [printExportState, setPrintExportState] = useState<{
     mode: 'discussion' | 'message';
     messages: ChatMessage[];
@@ -1972,8 +1943,7 @@ export default function DashboardPage() {
   return (
     <>
       <div 
-        ref={rootRef}
-        className="flex fixed lg:static inset-x-0 top-0 h-full h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
+        className="flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
       >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
@@ -2043,8 +2013,12 @@ export default function DashboardPage() {
               ref={scrollContainerRef}
               onScroll={(e) => {
                 const el = e.currentTarget;
-                const distanceFromBottom =
-                  el.scrollHeight - el.scrollTop - el.clientHeight;
+                const distanceFromBottom = Math.max(
+                  0,
+                  el.scrollHeight - el.scrollTop - el.clientHeight
+                );
+                lastBottomDistanceRef.current = distanceFromBottom;
+                isNearBottomRef.current = distanceFromBottom < 80;
                 setShowScrollBottom(distanceFromBottom > 120);
               }}
               className="flex-1 min-h-0 min-w-0 overflow-y-auto w-full relative scroll-pt-6 sm:scroll-pt-8 flex flex-col"

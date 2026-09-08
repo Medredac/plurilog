@@ -417,7 +417,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               value={inputVal}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type a topic for discussion..."
+              placeholder="Type a topic..."
               className="w-full resize-none text-base sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px] min-w-0"
             />
 
