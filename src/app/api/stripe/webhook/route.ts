@@ -3,6 +3,8 @@ import { stripe } from '@/lib/stripe';
 import { createServiceClient } from '@/utils/supabase/service';
 import Stripe from 'stripe';
 
+const PLUS_MONTHLY_ALLOWANCE_CENTS = 900;
+
 export async function POST(request: Request) {
   const body = await request.text(); // MUST be raw text, not .json() — signature verification requires the exact original bytes
   const signature = request.headers.get('stripe-signature');
@@ -36,8 +38,8 @@ export async function POST(request: Request) {
         const { error, count } = await supabase.from('profiles').update({
           plan: 'paid',
           plan_status: 'active',
-          credits_cents: 600,
-          remaining_cents: 600,
+          credits_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
+          remaining_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
           total_spent_cents: 0,
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
@@ -71,7 +73,8 @@ export async function POST(request: Request) {
 
         const updatePayload = {
           plan_status: 'active',
-          remaining_cents: 600,
+          credits_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
+          remaining_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
           total_spent_cents: 0,
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
