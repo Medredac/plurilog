@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -365,6 +366,8 @@ interface ChatFeedProps {
   onRetryTurn?: (failedTurn: FailedTurnState) => void;
   abandonedFailedTurnIds?: string[];
   onExportMessage?: (message: ChatMessage) => void;
+  newlySentUserMessageId?: string | null;
+  onNewlySentAnimationComplete?: () => void;
 }
 
 /**
@@ -539,7 +542,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onRetryTurn,
   abandonedFailedTurnIds = [],
   onExportMessage,
+  newlySentUserMessageId = null,
+  onNewlySentAnimationComplete,
 }) => {
+  const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
   const lastUserMsgIdRef = useRef<string | null>(null);
@@ -688,8 +694,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <div 
+              <motion.div 
                 id={message.id}
+                initial={
+                  message.id === newlySentUserMessageId
+                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 12 }
+                    : false
+                }
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: shouldReduceMotion ? 0 : 0.16,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
+                onAnimationComplete={() => {
+                  if (message.id === newlySentUserMessageId && onNewlySentAnimationComplete) {
+                    onNewlySentAnimationComplete();
+                  }
+                }}
                 className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
@@ -846,7 +867,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <span>Failed to send</span>
                   </div>
                 ) : null}
-              </div>
+              </motion.div>
             </React.Fragment>
           );
         }

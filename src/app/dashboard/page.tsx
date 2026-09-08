@@ -131,6 +131,7 @@ export default function DashboardPage() {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [canContinue, setCanContinue] = useState<boolean>(false);
+  const [newlySentUserMessageId, setNewlySentUserMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -647,6 +648,7 @@ export default function DashboardPage() {
     setIsDebating(false);
     setActiveSpeaker(null);
     setCanContinue(false);
+    setNewlySentUserMessageId(null);
     setIsLoadingMessages(false);
     window.history.pushState(null, '', '/dashboard');
     setIsTransientDrawerOpen(false);
@@ -655,6 +657,7 @@ export default function DashboardPage() {
   // Select existing discussion, update URL, and load its messages atomically
   const handleSelectDebate = (id: string) => {
     setIsTransientDrawerOpen(false);
+    setNewlySentUserMessageId(null);
     if (activeDebateId === id && !isDebating) return;
     window.history.pushState(null, '', `/dashboard/${id}`);
     fetchDiscussionMessages(id, false);
@@ -1438,11 +1441,13 @@ export default function DashboardPage() {
         : null;
 
     // Instant optimistic UI update: immediately append user message and first model thinking placeholder to chat
+    setNewlySentUserMessageId(tempUserMsgId);
     setMessages((prev) =>
       initialModelMsg ? [...prev, userMsg, initialModelMsg] : [...prev, userMsg]
     );
 
     const rollbackOptimistic = () => {
+      setNewlySentUserMessageId((curr) => (curr === tempUserMsgId ? null : curr));
       setMessages((prev) =>
         prev.filter((m) => m.id !== tempUserMsgId && m.id !== optimisticFirstModelMsgId)
       );
@@ -2107,6 +2112,8 @@ export default function DashboardPage() {
                   onRetryTurn={handleRetryTurn}
                   abandonedFailedTurnIds={abandonedFailedTurnIds}
                   onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
+                  newlySentUserMessageId={newlySentUserMessageId}
+                  onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
                 />
               )}
             </div>
