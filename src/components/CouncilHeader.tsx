@@ -8,7 +8,9 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronDown,
-  Power
+  X,
+  Plus,
+  GripVertical
 } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId, SeatStatus } from '../types/chat';
@@ -126,7 +128,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   return (
     <header
       data-council-meta={metaRequirement}
-      className="council-container sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(3rem,calc(env(safe-area-inset-left)+2.5rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2"
+      className="council-container sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(4.125rem,calc(env(safe-area-inset-left)+3.375rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2"
     >
       <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap min-w-0">
         
@@ -147,8 +149,8 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             aria-haspopup="dialog"
             aria-expanded={isMobilePanelOpen}
             aria-controls="council-panel"
-            aria-label="Toggle Council Configuration Panel"
-            title="Toggle Council Configuration Panel"
+            aria-label="Toggle Panel Configuration"
+            title="Toggle Panel Configuration"
           >
             {isDebating ? (
               <Loader2 className="w-3 h-3 animate-spin text-amber-700 shrink-0" />
@@ -158,8 +160,8 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
 
             <span className="truncate">
               {isDebating
-                ? activeSpeakerMember?.name || 'Council'
-                : 'Council'}
+                ? activeSpeakerMember?.name || 'Panel'
+                : 'Panel'}
             </span>
 
             <ChevronDown
@@ -213,23 +215,31 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 title={
                   isDebating
                     ? `${member?.name || id} (deliberating...)`
-                    : `Drag to reorder • Use chevrons to swap • Power button to ${isSelected ? 'turn off' : 'turn on'}`
+                    : `Drag to reorder • Click ${isSelected ? '× to remove' : '+ to add'}`
                 }
               >
-                {/* Left Chevron Swap Button */}
+                {/* Fine Pointer Only: Clean Drag Handle */}
+                <div 
+                  className="panel-drag-handle items-center pl-2 pr-0.5 text-zinc-300 group-hover:text-zinc-500 transition-colors"
+                  aria-hidden="true"
+                >
+                  <GripVertical className="w-3.5 h-3.5 shrink-0" />
+                </div>
+
+                {/* Touch / Hybrid Pointer: Explicit Reorder Chevron (Left/Earlier) */}
                 <button
                   type="button"
                   onClick={(e) => handleSwap(e, idx - 1)}
                   disabled={idx === 0 || isDebating}
                   aria-label={`Move ${member?.name || id} earlier`}
-                  className="p-1 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                  className="panel-touch-reorder p-1.5 min-w-[36px] min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 rounded-l-md transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer items-center justify-center"
                 >
-                  <ChevronLeft className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5" />
+                  <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
 
                 {/* Status Dot */}
                 <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-1 ${
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-1.5 ${
                     isSpeaking
                       ? 'bg-amber-500 animate-pulse'
                       : isSelected
@@ -239,37 +249,41 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 />
 
                 {/* Model Name */}
-                <span className={`pr-1 select-none ${!isSelected ? 'line-through text-zinc-400' : ''}`}>
+                <span className={`pr-1.5 select-none ${!isSelected ? 'text-zinc-400' : ''}`}>
                   {member?.name || id}
                 </span>
 
-                {/* Right Chevron Swap Button */}
+                {/* Touch / Hybrid Pointer: Explicit Reorder Chevron (Right/Later) */}
                 <button
                   type="button"
                   onClick={(e) => handleSwap(e, idx + 1)}
                   disabled={idx === seatOrder.length - 1 || isDebating}
                   aria-label={`Move ${member?.name || id} later`}
-                  className="p-1 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer flex items-center justify-center"
+                  className="panel-touch-reorder p-1.5 min-w-[36px] min-h-[36px] text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-0 disabled:pointer-events-none cursor-pointer items-center justify-center"
                 >
-                  <ChevronRight className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5" />
+                  <ChevronRight className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Dedicated Power Toggle Button */}
+                {/* Dedicated Action Button: X (active) / + (inactive) */}
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleModel(id);
                   }}
-                  aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
+                  aria-label={isSelected ? `Remove ${member?.name || id} from panel` : `Add ${member?.name || id} to panel`}
                   className={`p-1 pl-1.5 pr-1.5 [@media(any-pointer:coarse)]:p-2 [@media(any-pointer:coarse)]:min-w-[36px] [@media(any-pointer:coarse)]:min-h-[36px] border-l border-zinc-200/70 rounded-r-md transition-colors cursor-pointer flex items-center justify-center ${
                     isSelected 
-                      ? 'text-zinc-400 hover:text-red-600 hover:bg-red-50' 
-                      : 'text-zinc-300 hover:text-emerald-600 hover:bg-emerald-50'
+                      ? 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100/80' 
+                      : 'text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50'
                   }`}
-                  title={isSelected ? `Disable ${member?.name || id}` : `Enable ${member?.name || id}`}
+                  title={isSelected ? `Remove ${member?.name || id}` : `Add ${member?.name || id}`}
                 >
-                  <Power className={`w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5 ${isSelected ? 'text-zinc-500 hover:text-red-600' : 'text-zinc-400'}`} />
+                  {isSelected ? (
+                    <X className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5 text-zinc-400 group-hover:text-zinc-600 hover:!text-zinc-900" />
+                  ) : (
+                    <Plus className="w-3 h-3 [@media(any-pointer:coarse)]:w-3.5 [@media(any-pointer:coarse)]:h-3.5 text-zinc-400 hover:text-emerald-600" />
+                  )}
                 </button>
               </motion.div>
             );
@@ -309,14 +323,14 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
         </div>
       </div>
 
-      {/* COMPACT MODE: Vertical Council Configuration Dropdown Panel */}
+      {/* COMPACT MODE: Vertical Panel Configuration Dropdown Panel */}
       {isMobilePanelOpen && (
         <div
           id="council-panel"
           ref={panelRef}
           role="dialog"
           aria-labelledby="council-trigger"
-          className="council-compact-only flex flex-col absolute top-full left-[max(0.75rem,env(safe-area-inset-left))] nav-rail:left-4 mt-1.5 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
+          className="council-compact-only council-panel-dropdown flex flex-col absolute top-full left-[max(4.125rem,calc(env(safe-area-inset-left)+3.375rem))] nav-rail:left-[max(1.5rem,env(safe-area-inset-left))] mt-1.5 max-h-[calc(100dvh-4rem)] overflow-y-auto p-2 bg-white rounded-2xl border border-zinc-200/90 shadow-xl z-30 animate-in fade-in zoom-in-95 duration-150 space-y-1.5"
         >
           {seatOrder.map((id, idx) => {
             const member = COUNCIL_MEMBERS[id];
@@ -338,7 +352,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 key={id}
                 layout="position"
                 transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
-                className={`flex items-center justify-between p-2 rounded-xl border transition-colors select-none ${
+                className={`flex items-center justify-between px-2.5 py-1 rounded-xl border transition-colors select-none min-h-[44px] ${
                   isSpeaking
                     ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
                     : isSelected
@@ -347,7 +361,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 }`}
               >
                 {/* Left: Status Dot & Model Name */}
-                <div className="flex items-center gap-2 min-w-0 pr-2">
+                <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
                   <span
                     className={`w-2 h-2 rounded-full shrink-0 ${
                       isSpeaking
@@ -357,64 +371,60 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                         : 'bg-zinc-300'
                     }`}
                   />
-                  <span className={`text-xs font-medium truncate ${!isSelected ? 'line-through text-zinc-400' : ''}`}>
+                  <span className={`text-xs font-medium truncate ${!isSelected ? 'text-zinc-400' : 'text-zinc-700'}`}>
                     {member?.name || id}
                   </span>
                 </div>
 
-                {/* Right: Vertical Reorder Column & Power Toggle */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Vertical Reorder Column */}
-                  <div className="flex flex-col items-center justify-center shrink-0 w-6">
-                    {/* Up Swap Button / Spacer */}
-                    {idx > 0 ? (
-                      <button
-                        type="button"
-                        onClick={(e) => handleSwap(e, idx - 1)}
-                        disabled={isDebating}
-                        aria-label={`Move ${member?.name || id} up`}
-                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
-                        title={`Move ${member?.name || id} earlier`}
-                      >
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <div className="h-[22px] w-full" aria-hidden="true" />
-                    )}
+                {/* Right: Side-by-side Reorder Controls & Action Button in Fixed Geometry */}
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Fixed-size two-direction reorder control slot */}
+                  <div className="flex items-center gap-0.5 bg-zinc-100/80 rounded-lg p-0.5">
+                    {/* Up Swap Button (Slot preserved across all rows) */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleSwap(e, idx - 1)}
+                      disabled={idx === 0 || isDebating}
+                      aria-label={`Move ${member?.name || id} earlier`}
+                      className="w-7 h-7 [@media(any-pointer:coarse)]:w-9 [@media(any-pointer:coarse)]:h-9 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-white active:bg-zinc-200/70 transition-colors disabled:opacity-20 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
+                      title={idx === 0 ? undefined : `Move ${member?.name || id} earlier`}
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
 
-                    {/* Down Swap Button / Spacer */}
-                    {idx < seatOrder.length - 1 ? (
-                      <button
-                        type="button"
-                        onClick={(e) => handleSwap(e, idx + 1)}
-                        disabled={isDebating}
-                        aria-label={`Move ${member?.name || id} down`}
-                        className="p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors disabled:opacity-30 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
-                        title={`Move ${member?.name || id} later`}
-                      >
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <div className="h-[22px] w-full" aria-hidden="true" />
-                    )}
+                    {/* Down Swap Button (Slot preserved across all rows) */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleSwap(e, idx + 1)}
+                      disabled={idx === seatOrder.length - 1 || isDebating}
+                      aria-label={`Move ${member?.name || id} later`}
+                      className="w-7 h-7 [@media(any-pointer:coarse)]:w-9 [@media(any-pointer:coarse)]:h-9 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-white active:bg-zinc-200/70 transition-colors disabled:opacity-20 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
+                      title={idx === seatOrder.length - 1 ? undefined : `Move ${member?.name || id} later`}
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
                   </div>
 
-                  {/* Power Toggle Button */}
+                  {/* Dedicated Action Button: X (active) / + (inactive) */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleModel(id);
                     }}
-                    aria-label={`${isSelected ? 'Turn off' : 'Turn on'} ${member?.name || id}`}
-                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer flex items-center justify-center target-secondary ${
+                    aria-label={isSelected ? `Remove ${member?.name || id} from panel` : `Add ${member?.name || id} to panel`}
+                    className={`w-8 h-8 [@media(any-pointer:coarse)]:w-9 [@media(any-pointer:coarse)]:h-9 rounded-lg border transition-colors cursor-pointer flex items-center justify-center target-secondary ${
                       isSelected 
-                        ? 'text-zinc-500 hover:text-red-600 bg-white border-zinc-200 hover:bg-red-50 hover:border-red-200' 
-                        : 'text-zinc-300 hover:text-emerald-600 bg-zinc-50 border-zinc-200/60 hover:bg-emerald-50 hover:border-emerald-200'
+                        ? 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 border-transparent hover:border-zinc-200' 
+                        : 'text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 border-zinc-200/60'
                     }`}
-                    title={isSelected ? `Disable ${member?.name || id}` : `Enable ${member?.name || id}`}
+                    title={isSelected ? `Remove ${member?.name || id}` : `Add ${member?.name || id}`}
                   >
-                    <Power className={`w-3.5 h-3.5 ${isSelected ? 'text-zinc-600 hover:text-red-600' : 'text-zinc-400'}`} />
+                    {isSelected ? (
+                      <X className="w-3.5 h-3.5 text-zinc-500 hover:text-zinc-800" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5 text-zinc-400 hover:text-emerald-600" />
+                    )}
                   </button>
                 </div>
               </motion.div>

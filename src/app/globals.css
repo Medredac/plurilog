@@ -279,4 +279,41 @@ body {
       font-size: 1rem !important;
     }
   }
+
+  /* Panel Inline Reorder: Fine-only vs Hybrid/Touch Capability */
+  .panel-touch-reorder {
+    display: flex !important;
+  }
+  .panel-drag-handle {
+    display: none !important;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .panel-touch-reorder {
+      display: none !important;
+    }
+    .panel-drag-handle {
+      display: flex !important;
+    }
+  }
+
+  @media (any-pointer: coarse) {
+    .panel-touch-reorder {
+      display: flex !important;
+    }
+    .panel-drag-handle {
+      display: none !important;
+    }
+  }
+
+  /* Panel Dropdown Width Constraints */
+  .council-panel-dropdown {
+    width: 18rem;
+    max-width: calc(100vw - max(4.875rem, env(safe-area-inset-left) + env(safe-area-inset-right) + 4.125rem));
+  }
+  @media (min-width: 42.5rem) {
+    .council-panel-dropdown {
+      max-width: calc(100vw - max(2.5rem, env(safe-area-inset-left) + env(safe-area-inset-right) + 1.5rem));
+    }
+  }
 }
