@@ -1067,14 +1067,15 @@ export async function POST(req: NextRequest) {
               if (inheritedDocId) {
                 // Case A: Preceding round had an active visual document
                 const inheritedDoc = discussionMemory?.knownDocuments?.find((d) => d.id === inheritedDocId);
-                if (inheritedDoc && inheritedDoc.storagePath) {
+                const inheritedPath = inheritedDoc?.storagePath || (inheritedDoc?.sourcePaths && inheritedDoc.sourcePaths[0]);
+                if (inheritedDoc && inheritedPath) {
                   try {
                     const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                     if (isOwner) {
                       const serviceClient = createServiceClient();
                       const { data: signedData, error: signErr } = await serviceClient.storage
                         .from('message-images')
-                        .createSignedUrl(inheritedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+                        .createSignedUrl(inheritedPath, 900); // 15-minute headroom across sequential panel
 
                       if (!signErr && signedData?.signedUrl) {
                         visualAttachments = [
@@ -1084,10 +1085,10 @@ export async function POST(req: NextRequest) {
                           },
                         ];
                         resolvedVisualDocId = inheritedDocId;
-                        console.log('[Visual Follow-Up] Inherited visual document from preceding round:', {
+                        console.log('[Visual Document Resolution]', {
+                          source: 'exact-provenance',
                           visualDocumentId: inheritedDoc.id,
                           filename: inheritedDoc.filename,
-                          storagePath: inheritedDoc.storagePath,
                         });
                       } else {
                         console.warn('[Visual Follow-Up] Failed to sign inherited document URL:', signErr);
@@ -1104,11 +1105,58 @@ export async function POST(req: NextRequest) {
                 }
               } else if (
                 isVisualEvidenceQuery(lastRound.userPrompt) ||
-                isVerificationFollowUpQuery(lastRound.userPrompt)
+                isVerificationFollowUpQuery(lastRound.userPrompt) ||
+                (lastRound.attachments && lastRound.attachments.some((a) => (a.filename && a.filename.toLowerCase().endsWith('.pdf')) || (a.storagePath && a.storagePath.toLowerCase().endsWith('.pdf')))) ||
+                isVisualEvidenceQuery(prompt)
               ) {
-                // Case B: Preceding round was visual query or verification follow-up with null visualDocumentId
-                isVisualUnavailable = true;
-                console.log('[Visual Follow-Up] Preceding visual round had null visualDocumentId; triggering isVisualUnavailable fail-safe');
+                // Case B: Preceding round was visual query / verification or current verification prompt is visual-grounded with null visualDocumentId
+                // Attempt safe unambiguous historical document fallback resolution
+                try {
+                  const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                  if (isOwner) {
+                    const visualResolutionPrompt = isVisualEvidenceQuery(prompt)
+                      ? prompt
+                      : (lastRound.userPrompt || prompt);
+
+                    const fallbackDoc = resolveVisualDocument(
+                      visualResolutionPrompt,
+                      discussionMemory?.knownDocuments,
+                      retrievedDocuments,
+                      discussionMemory?.recentRounds
+                    );
+
+                    if (fallbackDoc && fallbackDoc.storagePath) {
+                      const serviceClient = createServiceClient();
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(fallbackDoc.storagePath, 900);
+
+                      if (!signErr && signedData?.signedUrl) {
+                        visualAttachments = [
+                          {
+                            url: signedData.signedUrl,
+                            filename: fallbackDoc.filename,
+                          },
+                        ];
+                        resolvedVisualDocId = fallbackDoc.documentId || null;
+                        console.log('[Visual Document Resolution]', {
+                          source: 'verification-fallback',
+                          visualDocumentId: fallbackDoc.documentId,
+                          filename: fallbackDoc.filename,
+                        });
+                      } else {
+                        console.warn('[Visual Follow-Up] Failed to sign fallback document URL:', signErr);
+                        isVisualUnavailable = true;
+                      }
+                    } else {
+                      console.log('[Visual Follow-Up] Preceding visual round had null visualDocumentId and could not resolve unambiguous fallback; triggering isVisualUnavailable fail-safe');
+                      isVisualUnavailable = true;
+                    }
+                  }
+                } catch (fallbackErr: any) {
+                  console.error('[Visual Follow-Up] Error during visual verification fallback:', fallbackErr);
+                  isVisualUnavailable = true;
+                }
               } else {
                 // Case C: Preceding round was NOT visual -> normal non-visual turn
                 console.log('[Visual Follow-Up] Preceding round was non-visual; no visual escalation');
@@ -1139,10 +1187,10 @@ export async function POST(req: NextRequest) {
                         },
                       ];
                       resolvedVisualDocId = resolvedDoc.documentId || null;
-                      console.log('[Visual Reinspection] Escalated to visual inspection for document:', {
+                      console.log('[Visual Document Resolution]', {
+                        source: 'visual-query',
                         documentId: resolvedDoc.documentId,
                         filename: resolvedDoc.filename,
-                        storagePath: resolvedDoc.storagePath,
                       });
                     } else {
                       console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);

@@ -2055,6 +2055,47 @@ export async function ingestDiscussionDocuments(
           }
         }
 
+        // Stamp exact PDF provenance on source user message if single PDF turn
+        const isPdf = Boolean(
+          (filename && filename.toLowerCase().endsWith('.pdf')) ||
+          (matchingStoragePath && matchingStoragePath.toLowerCase().endsWith('.pdf'))
+        );
+
+        const pdfAttachments = Array.isArray(attachments)
+          ? attachments.filter((att) => {
+              const urlClean = att?.url ? att.url.split('?')[0].toLowerCase() : '';
+              const nameClean = att?.filename ? att.filename.toLowerCase() : '';
+              return urlClean.endsWith('.pdf') || nameClean.endsWith('.pdf');
+            })
+          : [];
+
+        // Strictly enforce: exactly one PDF annotation AND exactly one PDF attachment (if attachments provided)
+        const isSinglePdfTurn =
+          isPdf &&
+          uniqueAnnotations.length === 1 &&
+          (!Array.isArray(attachments) || attachments.length === 0 || pdfAttachments.length === 1);
+
+        if (isSinglePdfTurn && sourceUserMessageId && documentId) {
+          try {
+            const { error: stampErr } = await serviceSupabase
+              .from('messages')
+              .update({ visual_document_id: documentId })
+              .eq('id', sourceUserMessageId);
+
+            if (stampErr) {
+              console.warn('[Doc Ingest] Non-critical warning updating visual_document_id on source message:', stampErr);
+            } else {
+              console.log('[Doc Ingest] Stamped visual_document_id on source user message (existing doc):', {
+                sourceUserMessageId,
+                documentId,
+                filename,
+              });
+            }
+          } catch (stampEx) {
+            console.warn('[Doc Ingest] Exception updating visual_document_id on source message:', stampEx);
+          }
+        }
+
         // Robust completeness check: skip embedding if existing chunk count matches expected chunk count exactly
         const { count, error: chunkCountErr } = await serviceSupabase
           .from('discussion_document_chunks')
@@ -2137,6 +2178,47 @@ export async function ingestDiscussionDocuments(
               );
           } catch (sourceAliasErr) {
             // Non-critical if table not yet migrated
+          }
+        }
+
+        // Stamp exact PDF provenance on source user message if single PDF turn
+        const isPdf = Boolean(
+          (filename && filename.toLowerCase().endsWith('.pdf')) ||
+          (matchingStoragePath && matchingStoragePath.toLowerCase().endsWith('.pdf'))
+        );
+
+        const pdfAttachments = Array.isArray(attachments)
+          ? attachments.filter((att) => {
+              const urlClean = att?.url ? att.url.split('?')[0].toLowerCase() : '';
+              const nameClean = att?.filename ? att.filename.toLowerCase() : '';
+              return urlClean.endsWith('.pdf') || nameClean.endsWith('.pdf');
+            })
+          : [];
+
+        // Strictly enforce: exactly one PDF annotation AND exactly one PDF attachment (if attachments provided)
+        const isSinglePdfTurn =
+          isPdf &&
+          uniqueAnnotations.length === 1 &&
+          (!Array.isArray(attachments) || attachments.length === 0 || pdfAttachments.length === 1);
+
+        if (isSinglePdfTurn && sourceUserMessageId && documentId) {
+          try {
+            const { error: stampErr } = await serviceSupabase
+              .from('messages')
+              .update({ visual_document_id: documentId })
+              .eq('id', sourceUserMessageId);
+
+            if (stampErr) {
+              console.warn('[Doc Ingest] Non-critical warning updating visual_document_id on source message:', stampErr);
+            } else {
+              console.log('[Doc Ingest] Stamped visual_document_id on source user message (new doc):', {
+                sourceUserMessageId,
+                documentId,
+                filename,
+              });
+            }
+          } catch (stampEx) {
+            console.warn('[Doc Ingest] Exception updating visual_document_id on source message:', stampEx);
           }
         }
       }
@@ -3678,6 +3760,36 @@ export function isVisualEvidenceQuery(prompt?: string | null): boolean {
     return true;
   }
 
+  // 8. Visual / rendering layout paired with document or text elements
+  // (e.g. "is the email formatted weird?", "is the email actually split across two lines?", "is the photo positioned correctly?", "font misaligned", "cut off at bottom", "the email is cut off")
+  const hasVisualLayoutTerm = /\b(formatted|formatting|rendered|rendering|wrapped|wrapping|split|misaligned|cut\s+off|cut-off|cutoff|spacing|alignment|positioned|visible|layout)\b/i.test(p);
+  const hasDocumentContentTerm = /\b(line|lines|text|font|email|character|letter|word|margin|box|header|footer|photo|picture|page|pdf|document|file|cv|resume|table|column|row|paragraph|address)\b/i.test(p);
+
+  if (hasVisualLayoutTerm && hasDocumentContentTerm) {
+    return true;
+  }
+
+  // 9. Explicit source-view / page-inspection requests
+  // (e.g. "look at the PDF again", "check page 1 again", "look at Meryem_Behri_Japanese_Rirekisho_FINAL (1).pdf again", "look at the document", "check the actual page", "is that visible in the document?")
+  if (
+    /\b(look\s+at|check|view|inspect|see|re-?examine|re-?check|open)\s+(?:the\s+)?(?:actual\s+)?(?:[^\n\r?<>:"/\\|]+?\.pdf|pdf|document|file|cv|resume|scan|page(?:\s+\d+)?)\s*(?:again|closer|closely)?\b/i.test(p) ||
+    /\b(?:check|look\s+at|view|inspect|open)\s+(?:the\s+)?page\s+\d+\b/i.test(p) ||
+    /\b(?:is\s+that|can\s+you\s+see|is\s+it)\s+visible\s+(?:in|on)\s+(?:the\s+)?(?:[^\n\r?<>:"/\\|]+?\.pdf|pdf|document|file|cv|resume|page|scan)\b/i.test(p)
+  ) {
+    return true;
+  }
+
+  // 10. Genuine visual / page-location disputes
+  // (e.g. "Gemini said there is a typo on page 1. I can't see it.", "I can't see that in the PDF.")
+  // Requires genuine visual/layout vocabulary OR explicit PDF/document/page/CV/resume source grounding.
+  const hasExplicitDocumentSourceTerm = /\b(pdf|document|file|cv|resume|scan|page(?:\s+\d+)?)\b/i.test(p);
+  if (
+    /\b(i\s+don'?t\s+see\s+(?:that|it)|i\s+can'?t\s+see\s+(?:that|it)|where\s+is\s+(?:that|it))\b/i.test(p) &&
+    (hasVisualLayoutTerm || hasExplicitDocumentSourceTerm)
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -3738,14 +3850,23 @@ export function resolveVisualDocument(
     return null;
   }
 
+  const isPdfDoc = (d: KnownDiscussionDocument) =>
+    Boolean((d.filename && d.filename.toLowerCase().endsWith('.pdf')) ||
+            (d.storagePath && d.storagePath.toLowerCase().endsWith('.pdf')));
+
   // 1. Explicit deterministic filename reference (highest priority)
   const promptLower = prompt.toLowerCase();
   const filenameMatches = knownDocuments.filter((d) => {
+    if (!isPdfDoc(d)) return false;
     const hasPath = Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0));
     if (!hasPath || !d.filename) return false;
     const normName = d.filename.toLowerCase();
     const baseName = normName.replace(/\.pdf$/i, '');
-    return promptLower.includes(normName) || (baseName.length >= 4 && promptLower.includes(baseName));
+    return (
+      promptLower.includes(normName) ||
+      (baseName.length >= 4 && promptLower.includes(baseName)) ||
+      (d.id && promptLower.includes(d.id.toLowerCase()))
+    );
   });
   if (filenameMatches.length === 1) {
     const m = filenameMatches[0];
@@ -3764,7 +3885,10 @@ export function resolveVisualDocument(
     const docIds = Array.from(new Set(retrievedDocuments.map((d) => d.documentId).filter(Boolean)));
     if (docIds.length === 1) {
       const match = knownDocuments.find(
-        (d) => d.id === docIds[0] && (d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+        (d) =>
+          d.id === docIds[0] &&
+          isPdfDoc(d) &&
+          Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
       );
       if (match) {
         const path = match.storagePath || (match.sourcePaths && match.sourcePaths[0]);
@@ -3811,7 +3935,7 @@ export function resolveVisualDocument(
 
   // 4. Single known logical PDF with storage_path in discussion
   const validDocs = knownDocuments.filter((d) =>
-    Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+    isPdfDoc(d) && Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
   );
   if (validDocs.length === 1) {
     const d = validDocs[0];
