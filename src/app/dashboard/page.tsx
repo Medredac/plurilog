@@ -776,6 +776,7 @@ export default function DashboardPage() {
     abortControllerRef.current = controller;
     let inProgressModelId: ModelId | null = null;
     let inProgressContent = '';
+    let inProgressMessageId: string | null = null;
     let completedSeatsCount = 0;
     let adoptedFirstSeat = false;
     const currentAttemptModelMsgIds = new Set<string>();
@@ -967,6 +968,7 @@ export default function DashboardPage() {
               const seatId = data.seatId as ModelId;
               inProgressModelId = seatId;
               inProgressContent = '';
+              inProgressMessageId = data.messageId || null;
 
               const modelInfo = COUNCIL_MEMBERS[seatId];
               const msgId =
@@ -1109,6 +1111,7 @@ export default function DashboardPage() {
               const completedContent = data.content || inProgressContent || '';
               inProgressModelId = null;
               inProgressContent = '';
+              inProgressMessageId = null;
 
               if (discussionId) {
                 const activeGen = activeGenerationsRef.current.get(discussionId);
@@ -1130,36 +1133,14 @@ export default function DashboardPage() {
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.modelId === seatId && m.isStreaming
-                      ? { ...m, isStreaming: false, content: completedContent }
+                      ? {
+                          ...m,
+                          isStreaming: false,
+                          content: completedContent,
+                        }
                       : m
                   )
                 );
-              }
-
-              // Persist model response into Supabase messages table (always runs for discussionId)
-              if (discussionId && completedContent.trim()) {
-                try {
-                  const { data: insertedModelMsg, error: insertModelErr } = await supabase.from('messages').insert({
-                    discussion_id: discussionId,
-                    sender: seatId, // 'gemini' | 'claude' | 'chatgpt'
-                    content: completedContent,
-                  }).select();
-
-                  if (insertModelErr) {
-                    console.error(`[Supabase Error] Failed to insert ${seatId} message:`, insertModelErr, {
-                      discussion_id: discussionId,
-                      sender: seatId,
-                      content: completedContent,
-                    });
-                  } else {
-                    console.log(`[Supabase Success] Inserted ${seatId} message:`, insertedModelMsg);
-                  }
-                } catch (persistModelErr) {
-                  console.error(
-                    `[Supabase Exception] Error persisting message from ${seatId}:`,
-                    persistModelErr
-                  );
-                }
               }
 
               // If Seat 1 completed and title generation hasn't started yet (e.g. short response < 300 chars), trigger fallback
@@ -1234,13 +1215,23 @@ export default function DashboardPage() {
         // If stopped mid-stream, persist whatever partial response was already received
         if (discussionId && inProgressModelId && inProgressContent.trim()) {
           try {
-            await supabase.from('messages').insert({
+            const { error: stopInsertErr } = await supabase.from('messages').insert({
+              ...(inProgressMessageId ? { id: inProgressMessageId } : {}),
               discussion_id: discussionId,
               sender: inProgressModelId,
               content: inProgressContent.trim(),
             });
+            if (stopInsertErr) {
+              if (stopInsertErr.code === '23505') {
+                console.log(
+                  `[Stop Persistence] Harmless race conflict: completed row already persisted for ${inProgressMessageId}`
+                );
+              } else {
+                console.error('[Supabase Error] Error persisting partial message on stop:', stopInsertErr);
+              }
+            }
           } catch (persistPartialErr) {
-            console.error('[Supabase Error] Error persisting partial message on stop:', persistPartialErr);
+            console.error('[Supabase Exception] Error persisting partial message on stop:', persistPartialErr);
           }
         }
 

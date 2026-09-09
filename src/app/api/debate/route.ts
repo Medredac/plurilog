@@ -1475,6 +1475,8 @@ export async function POST(req: NextRequest) {
               return;
             }
 
+            const messageId = crypto.randomUUID();
+
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
             let respondingModel = primaryModel;
@@ -1485,6 +1487,7 @@ export async function POST(req: NextRequest) {
               seatId: seat.seatId,
               modelId: primaryModel,
               name: seat.name,
+              messageId,
             });
 
             const pdfAttachments = effectiveAttachments?.filter((att: any) =>
@@ -1685,12 +1688,84 @@ export async function POST(req: NextRequest) {
                 throw new Error(`Received empty response from ${seat.name}.`);
               }
 
-              sendEvent('seat_done', {
-                seatId: seat.seatId,
-                modelId: respondingModel,
-                content: seatResponse,
-              });
+              // Server-authoritative completed-message persistence
+              let persistedMsg: { id: string; created_at: string } | null = null;
+              if (discussionId) {
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                  const { data, error } = await supabase
+                    .from('messages')
+                    .insert({
+                      id: messageId,
+                      discussion_id: discussionId,
+                      sender: seat.seatId,
+                      content: seatResponse,
+                    })
+                    .select('id, created_at, discussion_id, sender, content')
+                    .maybeSingle();
 
+                  if (!error && data) {
+                    persistedMsg = { id: data.id, created_at: data.created_at };
+                    console.log(`[Message Persistence]`, {
+                      seatId: seat.seatId,
+                      messageId,
+                      status: 'inserted',
+                      attempt,
+                    });
+                    break;
+                  }
+
+                  // If PostgreSQL 23505 primary key conflict (e.g. attempt 1 committed but response timed out, or stop race)
+                  if (error?.code === '23505') {
+                    const { data: existing, error: fetchErr } = await supabase
+                      .from('messages')
+                      .select('id, created_at, discussion_id, sender, content')
+                      .eq('id', messageId)
+                      .maybeSingle();
+
+                    if (
+                      !fetchErr &&
+                      existing &&
+                      existing.id === messageId &&
+                      existing.discussion_id === discussionId &&
+                      existing.sender === seat.seatId &&
+                      existing.content === seatResponse
+                    ) {
+                      persistedMsg = { id: existing.id, created_at: existing.created_at };
+                      console.log(`[Message Persistence]`, {
+                        seatId: seat.seatId,
+                        messageId,
+                        status: 'confirmed-existing',
+                        attempt,
+                      });
+                      break;
+                    } else {
+                      console.warn(
+                        `[Message Persistence] Existing row for canonical ID ${messageId} does NOT match expected completed response:`,
+                        {
+                          expectedSender: seat.seatId,
+                          existingSender: existing?.sender,
+                          expectedDiscussion: discussionId,
+                          existingDiscussion: existing?.discussion_id,
+                          contentMatch: existing?.content === seatResponse,
+                        }
+                      );
+                      // Mismatching existing content (e.g. client partial stop insert won the race, or collision)
+                      // Do NOT accept as completed persistence success
+                      break;
+                    }
+                  }
+
+                  console.warn(
+                    `[Message Persistence] Attempt ${attempt} failed for ${seat.name}:`,
+                    error?.message || error
+                  );
+                  if (attempt < 2) {
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+                  }
+                }
+              }
+
+              // Always record model usage / spend if cost was incurred, even if persistence fails
               if (seatUsage) {
                 const searchCount = (seatUsage as any)?.server_tool_use_details?.web_search_requests;
                 console.log(
@@ -1721,6 +1796,22 @@ export async function POST(req: NextRequest) {
                   `[Spend Tracking] No usage/cost data received for ${seat.name} — spend not recorded for this call.`
                 );
               }
+
+              // If persistence failed in a discussion context, throw error to route through seat failure handler
+              if (discussionId && !persistedMsg) {
+                console.error(
+                  `[Message Persistence] Failed to confirm durable persistence for ${seat.name} (messageId: ${messageId})`
+                );
+                throw new Error(`Failed to persist completed response from ${seat.name}.`);
+              }
+
+              sendEvent('seat_done', {
+                seatId: seat.seatId,
+                modelId: respondingModel,
+                content: seatResponse,
+                messageId: persistedMsg?.id || messageId,
+                createdAt: persistedMsg?.created_at || new Date().toISOString(),
+              });
 
               // Record in prior responses for subsequent speakers (untainted by synthetic Sources footer)
               priorResponses.push({
