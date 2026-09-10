@@ -196,7 +196,7 @@ export default function LandingPage() {
         </section>
 
         {/* Section Header */}
-        <section className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center">
+        <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
             How many times have you had to fact-check an AI answer? <br />
             Or cross-check it with another AI to be sure?
@@ -307,7 +307,6 @@ export default function LandingPage() {
         <div className="flex items-center gap-4 text-[11px]">
           <Link href="/privacy" className="hover:text-zinc-600 transition-colors cursor-pointer">Privacy Policy</Link>
           <Link href="/terms" className="hover:text-zinc-600 transition-colors cursor-pointer">Terms of Service</Link>
-          <span className="hover:text-zinc-600 transition-colors cursor-pointer">Documentation</span>
         </div>
       </footer>
 
