@@ -162,17 +162,12 @@ export default function LandingPage() {
 
             {/* Headline */}
             <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4">
-              Your Own AI Panel
+              One AI can be confidently wrong. Three rarely are.
             </h1>
 
             {/* Subheadline */}
-            <p className="text-sm sm:text-base text-zinc-600 font-normal max-w-2xl leading-relaxed mb-3">
-              Bring ChatGPT, Claude and Gemini into one ongoing AI discussion, with shared context, documents, and multiple perspectives.
-            </p>
-
-            {/* Secondary Benefit Line */}
-            <p className="text-xs sm:text-sm text-zinc-400 font-normal max-w-2xl leading-relaxed mb-8">
-              Challenge AI errors and hallucinations, uncover blind spots, and get beyond a single AI’s point of view.
+            <p className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8">
+              Ask once. Watch Gemini, Claude, and ChatGPT debate it live, call out each other&apos;s blind spots, and land on an answer you can actually trust.
             </p>
 
             {/* Primary Action Button */}

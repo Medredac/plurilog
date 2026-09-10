@@ -19,7 +19,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL("https://plurilogai.com"),
   title: {
-    default: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    default: "Your Own AI Panel with ChatGPT, Claude & Gemini | Plurilog",
     template: "%s | Plurilog",
   },
   description:
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   openGraph: {
-    title: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    title: "Your Own AI Panel with ChatGPT, Claude & Gemini | Plurilog",
     description:
       "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
     url: "https://plurilogai.com/",
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    title: "Your Own AI Panel with ChatGPT, Claude & Gemini | Plurilog",
     description:
       "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
   },
