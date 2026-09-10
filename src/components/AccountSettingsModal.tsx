@@ -13,6 +13,7 @@ interface AccountSettingsModalProps {
   userPlan: 'free' | 'paid';
   onNameUpdated?: (newName: string) => void;
   periodResetAt?: string | null;
+  planStatus?: string | null;
 }
 
 export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
@@ -24,6 +25,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   userPlan,
   onNameUpdated,
   periodResetAt,
+  planStatus,
 }) => {
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -187,7 +189,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
 
             {userPlan === 'paid' && periodResetAt && (
               <p className="text-xs text-zinc-500 mt-2">
-                Renews {new Date(periodResetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {planStatus === 'canceling' ? 'Expires' : 'Renews'} {new Date(periodResetAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </p>
             )}
 

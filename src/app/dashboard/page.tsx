@@ -119,6 +119,7 @@ export default function DashboardPage() {
   const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
   const [remainingCents, setRemainingCents] = useState<number>(0);
   const [periodResetAt, setPeriodResetAt] = useState<string | null>(null);
+  const [planStatus, setPlanStatus] = useState<string | null>(null);
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
   const hasShownLowCreditRef = useRef(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -464,10 +465,11 @@ export default function DashboardPage() {
         if (freshUser) {
           const { data: profileRow } = await supabase
             .from('profiles')
-            .select('period_reset_at')
+            .select('period_reset_at, plan_status')
             .eq('id', freshUser.id)
             .single();
           setPeriodResetAt(profileRow?.period_reset_at || null);
+          setPlanStatus(profileRow?.plan_status || null);
         }
       }
     } catch (err) {
@@ -2164,6 +2166,7 @@ export default function DashboardPage() {
           userPlan={userPlan}
           onNameUpdated={(newName) => setUserDisplayName(newName)}
           periodResetAt={periodResetAt}
+          planStatus={planStatus}
         />
       </div>
 
