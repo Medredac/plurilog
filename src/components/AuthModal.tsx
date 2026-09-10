@@ -2,9 +2,48 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { motion, AnimatePresence, useReducedMotion, type Variants } from 'motion/react';
 import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
 import { ResetPasswordModal } from './ResetPasswordModal';
+
+const backdropVariants: Variants = {
+  initial: { opacity: 0 },
+  animate: {
+    opacity: 1,
+    transition: { duration: 0.2, ease: 'easeOut' },
+  },
+  exit: {
+    opacity: 0,
+    transition: { duration: 0.17, ease: 'easeIn' },
+  },
+};
+
+const cardVariants: Variants = {
+  initial: (reduce: boolean | null) => ({
+    opacity: 0,
+    scale: reduce ? 1 : 0.97,
+    y: reduce ? 0 : 10,
+  }),
+  animate: (reduce: boolean | null) => ({
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: {
+      duration: reduce ? 0.1 : 0.2,
+      ease: [0.16, 1, 0.3, 1] as const,
+    },
+  }),
+  exit: (reduce: boolean | null) => ({
+    opacity: 0,
+    scale: reduce ? 1 : 0.98,
+    y: reduce ? 0 : 8,
+    transition: {
+      duration: reduce ? 0.1 : 0.17,
+      ease: [0.4, 0, 0.2, 1] as const,
+    },
+  }),
+};
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -19,6 +58,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onSuccess,
   initialMode = 'signin',
 }) => {
+  const shouldReduceMotion = useReducedMotion();
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -54,8 +94,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setShowPassword(false);
     }
   }, [isOpen, initialMode]);
-
-  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -159,15 +197,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div 
-        onClick={onClose}
-        className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity"
-      />
+    <>
+      <AnimatePresence>
+        {isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div 
+              variants={backdropVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              onClick={onClose}
+              className="fixed inset-0 bg-black/20 backdrop-blur-xs"
+            />
 
-      {/* Modal Card */}
-      <div className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-lg z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
+            {/* Modal Card */}
+            <motion.div
+              custom={shouldReduceMotion}
+              variants={cardVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-lg z-10 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col"
+            >
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -396,13 +448,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </p>
         </div>
-      </div>
+      </motion.div>
+    </div>
+  )}
+</AnimatePresence>
 
       <ResetPasswordModal
         isOpen={isResetPasswordOpen}
         onClose={() => setIsResetPasswordOpen(false)}
         initialEmail={email}
       />
-    </div>
+    </>
   );
 };
