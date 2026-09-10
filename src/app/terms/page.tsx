@@ -4,8 +4,11 @@ import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
 
 export const metadata: Metadata = {
-  title: 'Terms of Service · Plurilog',
+  title: 'Terms of Service',
   description: 'Terms and conditions for using Plurilog.',
+  alternates: {
+    canonical: 'https://plurilogai.com/terms',
+  },
 };
 
 export default function TermsPage() {

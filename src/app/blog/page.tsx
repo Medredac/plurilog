@@ -4,8 +4,15 @@ import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
 
 export const metadata: Metadata = {
-  title: 'Blog · Plurilog',
+  title: 'Blog',
   description: 'Insights, updates, and ideas from Plurilog.',
+  robots: {
+    index: false,
+    follow: true,
+  },
+  alternates: {
+    canonical: 'https://plurilogai.com/blog',
+  },
 };
 
 export default function BlogPage() {

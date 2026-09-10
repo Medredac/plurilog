@@ -4,8 +4,11 @@ import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
 
 export const metadata: Metadata = {
-  title: 'Privacy Policy · Plurilog',
+  title: 'Privacy Policy',
   description: 'Learn how Plurilog collects, uses, and protects your information.',
+  alternates: {
+    canonical: 'https://plurilogai.com/privacy',
+  },
 };
 
 export default function PrivacyPage() {

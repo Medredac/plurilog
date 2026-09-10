@@ -17,11 +17,43 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Plurilog · The AI Council Debate",
-  description: "Watch GPT-4o, Claude 3.5, and Gemini 1.5 convene, debate, and synthesize answers to your deepest & silliest questions.",
+  metadataBase: new URL("https://plurilogai.com"),
+  title: {
+    default: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    template: "%s | Plurilog",
+  },
+  description:
+    "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    description:
+      "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+    url: "https://plurilogai.com/",
+    siteName: "Plurilog",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Your AI Panel with ChatGPT, Claude & Gemini | Plurilog",
+    description:
+      "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+  },
   icons: {
     icon: "/logo.svg",
   },
+};
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "Plurilog",
+  url: "https://plurilogai.com/",
+  description:
+    "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
 };
 
 export default function RootLayout({
@@ -32,6 +64,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`h-full antialiased ${poppins.variable}`}>
       <body className="min-h-full flex flex-col font-sans bg-[#FBF9F5] text-zinc-900">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
         {children}
       </body>
     </html>
