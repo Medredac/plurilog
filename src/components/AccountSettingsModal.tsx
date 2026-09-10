@@ -92,17 +92,28 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
 
   const handleManagePortal = async () => {
     setIsRedirectingCard(true);
+    const portalWindow = window.open('', '_blank');
+    if (portalWindow) {
+      portalWindow.opener = null;
+    }
+
     try {
       const res = await fetch('/api/stripe/portal', { method: 'POST' });
       const data = await res.json();
       if (data.url) {
-        window.location.href = data.url;
+        if (portalWindow) {
+          portalWindow.location.href = data.url;
+        } else {
+          window.location.href = data.url;
+        }
       } else {
         console.error('[Portal] No portal URL returned:', data);
-        setIsRedirectingCard(false);
+        portalWindow?.close();
       }
     } catch (err) {
       console.error('[Portal] Failed to open portal:', err);
+      portalWindow?.close();
+    } finally {
       setIsRedirectingCard(false);
     }
   };
