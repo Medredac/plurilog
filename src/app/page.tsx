@@ -307,7 +307,7 @@ export default function LandingPage() {
                 Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
               </p>
               <p>
-                Start with all three models when you want multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order in which they join the conversation.
+                Start with all three models for multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order they join the conversation.
               </p>
               <p>
                 Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
