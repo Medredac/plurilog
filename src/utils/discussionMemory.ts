@@ -769,7 +769,6 @@ export async function resolveSemanticAnchorRoundIndex(
       // unless the entire discussion genuinely contains only one eligible historical substantive round.
       if (totalEligibleHistoricalRounds <= 1) {
         console.log('[Memory Chronology Semantic] Resolved unique single-round anchor fallback', {
-          rawAnchor,
           chosenSourceUserMessageId: top1.sourceId,
           chosenSemanticSimilarity: top1.maxSim,
           runnerUpSemanticSimilarity: null,
@@ -788,7 +787,6 @@ export async function resolveSemanticAnchorRoundIndex(
     }
 
     console.log('[Memory Chronology Semantic] Resolved semantic fallback anchor', {
-      rawAnchor,
       chosenSourceUserMessageId: top1.sourceId,
       chosenSemanticSimilarity: top1.maxSim,
       runnerUpSemanticSimilarity: top2.maxSim,
@@ -864,7 +862,6 @@ export async function resolveDeterministicChronology(
     let anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
     if (anchorIndex !== null) {
       console.log('[Memory Chronology Local] Resolved local deterministic anchor', {
-        rawAnchor,
         chosenSourceUserMessageId: allRounds[anchorIndex].userMessageId,
         roundIndex: anchorIndex + 1,
       });
@@ -923,7 +920,6 @@ export async function resolveDeterministicChronology(
     let anchorIndex = findAnchorRoundIndex(rawAnchor, allRounds);
     if (anchorIndex !== null) {
       console.log('[Memory Chronology Local] Resolved local deterministic anchor', {
-        rawAnchor,
         chosenSourceUserMessageId: allRounds[anchorIndex].userMessageId,
         roundIndex: anchorIndex + 1,
       });

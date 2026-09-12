@@ -1661,10 +1661,9 @@ export default function DashboardPage() {
           console.error('[Supabase Error] Failed to insert user message:', insertUserErr, {
             discussion_id: currentDiscussionId,
             sender: 'user',
-            content: content,
           });
         } else {
-          console.log('[Supabase Success] Inserted user message:', insertedUserMsg);
+          console.log('[Supabase Success] Inserted user message ID:', insertedUserMsg?.[0]?.id);
           insertedUserMessageId = insertedUserMsg?.[0]?.id || null;
         }
       } catch (insertUserErr) {

@@ -824,7 +824,6 @@ export async function POST(req: NextRequest) {
                       keyword_rank: row?.keyword_rank,
                       hybrid_score: row?.hybrid_score,
                       semantic_similarity: row?.semantic_similarity,
-                      content: row?.content ? row.content.slice(0, 120) : '',
                     })),
                   });
                 }

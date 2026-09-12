@@ -594,7 +594,6 @@ export async function retrieveSemanticImageCandidates(
     const norm = normalizeImageLexicalQuery(prompt);
 
     console.log("[Semantic Image Retrieval] lexical query:", {
-      queryText: norm.queryText,
       termCount: norm.terms.length,
       informativeTermCount: norm.informativeTerms.length,
       eligibleForRescue: norm.eligibleForRescue,
