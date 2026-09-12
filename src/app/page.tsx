@@ -240,8 +240,16 @@ export default function LandingPage() {
   }
 
   const scrollRevealProps = (delay = 0) => ({
-    initial: { opacity: 0, y: shouldReduceMotion ? 0 : 18 },
-    whileInView: { opacity: 1, y: 0 },
+    initial: {
+      opacity: 0,
+      y: shouldReduceMotion ? 0 : 18,
+      filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+    },
+    whileInView: {
+      opacity: 1,
+      y: 0,
+      filter: 'blur(0px)',
+    },
     transition: {
       duration: shouldReduceMotion ? 0.15 : 0.45,
       delay: shouldReduceMotion ? 0 : delay,
@@ -294,8 +302,16 @@ export default function LandingPage() {
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             {/* Subtle Pill Tag */}
             <motion.div
-              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{
+                opacity: 0,
+                y: shouldReduceMotion ? 0 : 18,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                filter: 'blur(0px)',
+              }}
               transition={{
                 duration: shouldReduceMotion ? 0.15 : 0.45,
                 delay: shouldReduceMotion ? 0 : 0.05,
@@ -309,8 +325,16 @@ export default function LandingPage() {
 
             {/* Headline */}
             <motion.h1
-              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{
+                opacity: 0,
+                y: shouldReduceMotion ? 0 : 18,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                filter: 'blur(0px)',
+              }}
               transition={{
                 duration: shouldReduceMotion ? 0.15 : 0.45,
                 delay: shouldReduceMotion ? 0 : 0.12,
@@ -323,8 +347,16 @@ export default function LandingPage() {
 
             {/* Subheadline */}
             <motion.p
-              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{
+                opacity: 0,
+                y: shouldReduceMotion ? 0 : 18,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                filter: 'blur(0px)',
+              }}
               transition={{
                 duration: shouldReduceMotion ? 0.15 : 0.45,
                 delay: shouldReduceMotion ? 0 : 0.18,
@@ -337,8 +369,16 @@ export default function LandingPage() {
 
             {/* Primary Action Button */}
             <motion.div
-              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
-              animate={{ opacity: 1, y: 0 }}
+              initial={{
+                opacity: 0,
+                y: shouldReduceMotion ? 0 : 18,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                filter: 'blur(0px)',
+              }}
               transition={{
                 duration: shouldReduceMotion ? 0.15 : 0.45,
                 delay: shouldReduceMotion ? 0 : 0.24,
@@ -365,8 +405,16 @@ export default function LandingPage() {
 
           {/* Right Column: Hero Image */}
           <motion.div
-            initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{
+              opacity: 0,
+              y: shouldReduceMotion ? 0 : 18,
+              filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              filter: 'blur(0px)',
+            }}
             transition={{
               duration: shouldReduceMotion ? 0.15 : 0.5,
               delay: shouldReduceMotion ? 0 : 0.15,
