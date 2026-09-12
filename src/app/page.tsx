@@ -16,11 +16,121 @@ import {
   Eye,
   AlertCircle,
   X,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { createClient } from '../utils/supabase/client';
+
+const faqItems = [
+  {
+    question: "Do I need separate subscriptions to ChatGPT, Claude and Gemini?",
+    answer: [
+      "No. You do not need individual paid subscriptions to ChatGPT, Claude or Gemini to use them through Plurilog.",
+      "One Plurilog subscription gives you access to models from OpenAI, Anthropic and Google inside the same platform, subject to your Plurilog plan limits. You do not need to maintain three separate AI subscriptions just to use multiple leading AI models together."
+    ]
+  },
+  {
+    question: "Can I use ChatGPT, Claude and Gemini in one place?",
+    answer: [
+      "Yes. That is the core of Plurilog.",
+      "Instead of opening three separate AI apps, copying the same prompt into each one and manually comparing the answers, Plurilog brings ChatGPT, Claude and Gemini into one shared discussion.",
+      "The models respond in sequence, can see relevant context from the conversation, and can react to perspectives already provided by the other models."
+    ]
+  },
+  {
+    question: "Are these the real ChatGPT, Claude and Gemini AI models?",
+    answer: [
+      "Yes. Plurilog uses official API-accessible AI models from OpenAI, Anthropic and Google—the companies behind ChatGPT, Claude and Gemini. They are not Plurilog-built imitations presented under those names.",
+      "Plurilog provides the layer around those models: the shared conversation, model orchestration, persistent context, document retrieval and interface that allow multiple AIs to work together in one discussion."
+    ]
+  },
+  {
+    question: "Which AI models does Plurilog use?",
+    answer: [
+      "Plurilog uses current high-quality large language models (LLMs) from OpenAI, Anthropic and Google—the companies behind ChatGPT, Claude and Gemini.",
+      "The exact model versions can evolve as newer and more capable models become available rather than permanently locking Plurilog to one generation of AI.",
+      "Plurilog also uses intelligent model routing and fallback models to help keep discussions running when a particular model is temporarily unavailable."
+    ]
+  },
+  {
+    question: "Does each AI model see what the other models have said?",
+    answer: [
+      "Yes. Plurilog is designed as a shared AI discussion rather than three isolated answer boxes.",
+      "When multiple models participate, later models can see the responses that came before them. This means ChatGPT, Claude and Gemini can build on an idea, question another model's reasoning, identify something it missed, or approach the same problem from a different perspective."
+    ]
+  },
+  {
+    question: "Can I choose which AI models respond?",
+    answer: [
+      "Yes. You control your AI panel.",
+      "You can turn ChatGPT, Claude or Gemini on or off and choose the order in which they respond. You might start with all three models to get multiple perspectives, then narrow the panel to one or two models when you want a more focused exchange.",
+      "You can change the panel without abandoning the existing conversation or starting over in another AI app."
+    ]
+  },
+  {
+    question: "Can I upload PDFs, documents and images for ChatGPT, Claude and Gemini to analyze?",
+    answer: [
+      "Yes. Plurilog supports multimodal AI discussions involving documents, images and text alongside normal conversation.",
+      "You can work with PDFs, Word documents, images and common text-based files inside a discussion. Plurilog preserves the source files and creates searchable representations that help the AI models retrieve the relevant information when it is needed.",
+      "This means you can ask questions about a PDF, analyze an image, work through a document, and continue discussing those materials with different AI models without repeatedly moving the content between separate ChatGPT, Claude and Gemini chats."
+    ]
+  },
+  {
+    question: "Does Plurilog support voice conversations?",
+    answer: [
+      "Plurilog does not currently offer live two-way voice conversations with the AI models.",
+      "It does, however, support microphone dictation. You can speak instead of typing, and Plurilog converts what you say into text before sending it into the discussion.",
+      "This gives you a faster way to prompt ChatGPT, Claude and Gemini by voice while keeping the conversation itself in a readable text format."
+    ]
+  },
+  {
+    question: "Is Plurilog just an AI comparison tool?",
+    answer: [
+      "No. Comparing AI answers is useful, but Plurilog is designed around something broader: an ongoing AI panel.",
+      "The goal is not simply to place three answers side by side. ChatGPT, Claude and Gemini participate in the same evolving conversation, share relevant context, and can respond to ideas introduced earlier in the discussion.",
+      "You stay in one conversation while controlling which models participate and when they respond."
+    ]
+  },
+  {
+    question: "Is Plurilog affiliated with OpenAI, Anthropic or Google?",
+    answer: [
+      "No. Plurilog is an independent product and is not affiliated with, endorsed by, or operated by OpenAI, Anthropic or Google.",
+      "Plurilog accesses supported AI models through API services and combines them through its own conversation, model-routing, document and user-interface systems.",
+      "ChatGPT and OpenAI are associated with OpenAI, Claude with Anthropic, and Gemini with Google."
+    ]
+  },
+  {
+    question: "Is using ChatGPT, Claude or Gemini through Plurilog the same as using their official apps?",
+    answer: [
+      "Not exactly.",
+      "Plurilog gives you access to AI models from OpenAI, Anthropic and Google through APIs, but Plurilog is its own product with its own features and interface. Features that exist only inside the official ChatGPT, Claude or Gemini applications may therefore be different or unavailable.",
+      "Plurilog is built specifically around the multi-model experience: shared discussions, model selection and ordering, persistent context, multimodal document and image workflows, and multiple AI perspectives in one place."
+    ]
+  },
+  {
+    question: "Does using three AI models guarantee that the answer is correct?",
+    answer: [
+      "No AI system can guarantee that every answer is correct.",
+      "Using multiple AI models can make it easier to uncover conflicting assumptions, missing information and reasoning errors that might go unnoticed when relying on a single model. ChatGPT, Claude and Gemini may approach the same question differently, giving you additional perspectives to consider.",
+      "However, agreement between multiple AI models is not the same as independent verification. For important factual decisions, reliable evidence and primary sources should still take priority over the models simply agreeing with one another."
+    ]
+  }
+];
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqItems.map((item) => ({
+    "@type": "Question",
+    name: item.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: item.answer.join(" "),
+    },
+  })),
+};
 
 function AuthParamsHandler({ 
   onTriggerSignup, 
@@ -54,6 +164,7 @@ export default function LandingPage() {
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   const supabase = createClient();
 
@@ -372,6 +483,73 @@ export default function LandingPage() {
             </button>
           </div>
         </section>
+
+        {/* FAQ Section */}
+        <section
+          id="faq"
+          className="w-full border-t border-zinc-100 bg-zinc-50/80"
+        >
+          <div className="max-w-4xl mx-auto px-6 sm:px-12 py-16">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
+              Frequently Asked Questions
+            </h2>
+            <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
+              Everything you need to know about using ChatGPT, Claude and Gemini together with Plurilog.
+            </p>
+
+            <div className="mt-10 space-y-3">
+              {faqItems.map((item, index) => {
+                const isOpen = openFaqIndex === index;
+                return (
+                  <div
+                    key={index}
+                    className="rounded-2xl border border-zinc-200/80 bg-white/80 overflow-hidden transition-colors duration-200 hover:bg-zinc-100/70"
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      aria-controls={`faq-answer-${index}`}
+                      onClick={() => setOpenFaqIndex(isOpen ? null : index)}
+                      className="group w-full flex items-center justify-between gap-6 px-5 sm:px-6 py-5 text-left cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    >
+                      <span className="text-sm sm:text-base font-medium text-zinc-700 group-hover:text-zinc-900 transition-colors">
+                        {item.question}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 sm:w-5 sm:h-5 text-zinc-400 shrink-0 transition-transform duration-300 ease-out group-hover:text-zinc-600 ${
+                          isOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    <div
+                      id={`faq-answer-${index}`}
+                      className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+                        isOpen
+                          ? 'grid-rows-[1fr] opacity-100'
+                          : 'grid-rows-[0fr] opacity-0'
+                      }`}
+                    >
+                      <div className="overflow-hidden">
+                        <div className="px-5 sm:px-6 pb-5 text-sm text-zinc-500 leading-relaxed space-y-3">
+                          {item.answer.map((paragraph, pIdx) => (
+                            <p key={pIdx}>{paragraph}</p>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* FAQ Structured Data */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        />
       </main>
 
       {/* Minimal Footer */}
