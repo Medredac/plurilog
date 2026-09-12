@@ -487,7 +487,7 @@ export default function LandingPage() {
         {/* FAQ Section */}
         <section
           id="faq"
-          className="w-full border-t border-zinc-100 bg-zinc-50/80"
+          className="w-full border-t border-zinc-100"
         >
           <div className="max-w-4xl mx-auto px-6 sm:px-12 py-16">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
