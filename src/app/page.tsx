@@ -32,49 +32,50 @@ const faqItems = [
     ]
   },
   {
-    question: "Can I use ChatGPT, Claude and Gemini in one place?",
+    question: "Can I use all three AIs in one place?",
     answer: [
       "Yes. That is the core of Plurilog.",
-      "Instead of opening three separate AI apps, copying the same prompt into each one and manually comparing the answers, Plurilog brings ChatGPT, Claude and Gemini into one shared discussion.",
-      "The models respond in sequence, can see relevant context from the conversation, and can react to perspectives already provided by the other models."
+      "Instead of opening separate AI apps, copying the same prompt into each one and manually comparing the answers, Plurilog brings all three AIs into one shared discussion.",
+      "They do not only respond to your prompt. They can also interact with one another by seeing and responding to what the other AIs have already said, allowing the discussion to develop across multiple perspectives."
     ]
   },
   {
-    question: "Are these the real ChatGPT, Claude and Gemini AI models?",
+    question: "Do the AIs see each other's answers?",
     answer: [
-      "Yes. Plurilog uses official API-accessible AI models from OpenAI, Anthropic and Google—the companies behind ChatGPT, Claude and Gemini. They are not Plurilog-built imitations presented under those names.",
-      "Plurilog provides the layer around those models: the shared conversation, model orchestration, persistent context, document retrieval and interface that allow multiple AIs to work together in one discussion."
+      "Yes. When multiple AIs participate in a discussion, later models can see the answers that came before them.",
+      "This means an AI can tell you whether it agrees with another AI, point out something the other AI may have missed, identify a possible error, or explain why it reaches a different conclusion.",
+      "It is similar to asking one AI a question, taking its answer to another AI and saying, \"The other AI said this about the topic. What do you think?\" Plurilog handles that exchange automatically inside the same ongoing conversation."
+    ]
+  },
+  {
+    question: "Are these the real AI models?",
+    answer: [
+      "Yes. Plurilog uses official API-accessible AI models from OpenAI, Anthropic and Google. They are not Plurilog-built imitations presented under those names.",
+      "Plurilog provides the system around the models: the shared discussion, model orchestration, persistent context, document retrieval and interface that allow multiple AIs to work together in one conversation."
     ]
   },
   {
     question: "Which AI models does Plurilog use?",
     answer: [
-      "Plurilog uses current high-quality large language models (LLMs) from OpenAI, Anthropic and Google—the companies behind ChatGPT, Claude and Gemini.",
+      "Plurilog uses current high-quality large language models (LLMs) from OpenAI, Anthropic and Google.",
       "The exact model versions can evolve as newer and more capable models become available rather than permanently locking Plurilog to one generation of AI.",
       "Plurilog also uses intelligent model routing and fallback models to help keep discussions running when a particular model is temporarily unavailable."
     ]
   },
   {
-    question: "Does each AI model see what the other models have said?",
-    answer: [
-      "Yes. Plurilog is designed as a shared AI discussion rather than three isolated answer boxes.",
-      "When multiple models participate, later models can see the responses that came before them. This means ChatGPT, Claude and Gemini can build on an idea, question another model's reasoning, identify something it missed, or approach the same problem from a different perspective."
-    ]
-  },
-  {
-    question: "Can I choose which AI models respond?",
+    question: "Can I choose which AIs respond?",
     answer: [
       "Yes. You control your AI panel.",
-      "You can turn ChatGPT, Claude or Gemini on or off and choose the order in which they respond. You might start with all three models to get multiple perspectives, then narrow the panel to one or two models when you want a more focused exchange.",
-      "You can change the panel without abandoning the existing conversation or starting over in another AI app."
+      "You can turn individual AIs on or off and choose the order in which they respond. You might start with all three to get several perspectives, then narrow the panel to one or two when you want a more focused exchange.",
+      "You can change the panel without abandoning the existing conversation or starting over."
     ]
   },
   {
-    question: "Can I upload PDFs, documents and images for ChatGPT, Claude and Gemini to analyze?",
+    question: "Does Plurilog support file and image uploads?",
     answer: [
       "Yes. Plurilog supports multimodal AI discussions involving documents, images and text alongside normal conversation.",
-      "You can work with PDFs, Word documents, images and common text-based files inside a discussion. Plurilog preserves the source files and creates searchable representations that help the AI models retrieve the relevant information when it is needed.",
-      "This means you can ask questions about a PDF, analyze an image, work through a document, and continue discussing those materials with different AI models without repeatedly moving the content between separate ChatGPT, Claude and Gemini chats."
+      "You can work with PDFs, Word documents, images and common text-based files inside a discussion. Plurilog preserves the source files and creates searchable representations that help the AI models retrieve relevant information when it is needed.",
+      "This means you can ask questions about a PDF, analyze an image, work through a document, and continue discussing those materials with different AIs without repeatedly uploading or copying the same content between separate apps."
     ]
   },
   {
@@ -82,14 +83,14 @@ const faqItems = [
     answer: [
       "Plurilog does not currently offer live two-way voice conversations with the AI models.",
       "It does, however, support microphone dictation. You can speak instead of typing, and Plurilog converts what you say into text before sending it into the discussion.",
-      "This gives you a faster way to prompt ChatGPT, Claude and Gemini by voice while keeping the conversation itself in a readable text format."
+      "This gives you a faster way to prompt the AIs by voice while keeping the conversation itself in a readable text format."
     ]
   },
   {
     question: "Is Plurilog just an AI comparison tool?",
     answer: [
       "No. Comparing AI answers is useful, but Plurilog is designed around something broader: an ongoing AI panel.",
-      "The goal is not simply to place three answers side by side. ChatGPT, Claude and Gemini participate in the same evolving conversation, share relevant context, and can respond to ideas introduced earlier in the discussion.",
+      "The goal is not simply to place three answers side by side. The AIs participate in the same evolving conversation, share relevant context, and can respond to ideas introduced earlier in the discussion.",
       "You stay in one conversation while controlling which models participate and when they respond."
     ]
   },
@@ -102,19 +103,19 @@ const faqItems = [
     ]
   },
   {
-    question: "Is using ChatGPT, Claude or Gemini through Plurilog the same as using their official apps?",
+    question: "Is using the AI models through Plurilog the same as using their official apps?",
     answer: [
       "Not exactly.",
-      "Plurilog gives you access to AI models from OpenAI, Anthropic and Google through APIs, but Plurilog is its own product with its own features and interface. Features that exist only inside the official ChatGPT, Claude or Gemini applications may therefore be different or unavailable.",
+      "Plurilog gives you access to AI models from OpenAI, Anthropic and Google through APIs, but Plurilog is its own product with its own features and interface. Features available only inside the providers' official applications may therefore be different or unavailable.",
       "Plurilog is built specifically around the multi-model experience: shared discussions, model selection and ordering, persistent context, multimodal document and image workflows, and multiple AI perspectives in one place."
     ]
   },
   {
-    question: "Does using three AI models guarantee that the answer is correct?",
+    question: "Does using multiple AIs guarantee that the answer is correct?",
     answer: [
       "No AI system can guarantee that every answer is correct.",
-      "Using multiple AI models can make it easier to uncover conflicting assumptions, missing information and reasoning errors that might go unnoticed when relying on a single model. ChatGPT, Claude and Gemini may approach the same question differently, giving you additional perspectives to consider.",
-      "However, agreement between multiple AI models is not the same as independent verification. For important factual decisions, reliable evidence and primary sources should still take priority over the models simply agreeing with one another."
+      "Using multiple AI models can make it easier to uncover conflicting assumptions, missing information and reasoning errors that might go unnoticed when relying on a single model. Different AIs may approach the same question differently, giving you additional perspectives to consider.",
+      "However, agreement between multiple AIs is not the same as independent verification. For important factual decisions, reliable evidence and primary sources should still take priority over the models simply agreeing with one another."
     ]
   }
 ];
@@ -494,7 +495,7 @@ export default function LandingPage() {
               Frequently Asked Questions
             </h2>
             <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
-              Everything you need to know about using ChatGPT, Claude and Gemini together with Plurilog.
+              Everything you need to know about using Plurilog.
             </p>
 
             <div className="mt-10 space-y-3">
