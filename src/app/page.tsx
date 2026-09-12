@@ -19,6 +19,7 @@ import {
   Check,
   ChevronDown
 } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { createClient } from '../utils/supabase/client';
@@ -168,6 +169,7 @@ function AuthParamsHandler({
 
 export default function LandingPage() {
   const router = useRouter();
+  const shouldReduceMotion = useReducedMotion();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
@@ -237,6 +239,21 @@ export default function LandingPage() {
     );
   }
 
+  const scrollRevealProps = (delay = 0) => ({
+    initial: { opacity: 0, y: shouldReduceMotion ? 0 : 18 },
+    whileInView: { opacity: 1, y: 0 },
+    transition: {
+      duration: shouldReduceMotion ? 0.15 : 0.45,
+      delay: shouldReduceMotion ? 0 : delay,
+      ease: [0.21, 0.47, 0.32, 0.98] as const,
+    },
+    viewport: {
+      once: false,
+      amount: 0.18,
+      margin: '0px 0px -40px 0px' as const,
+    },
+  });
+
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       <Suspense fallback={null}>
@@ -276,23 +293,59 @@ export default function LandingPage() {
           {/* Left Column: Text & Actions */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             {/* Subtle Pill Tag */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs">
+            <motion.div
+              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: shouldReduceMotion ? 0.15 : 0.45,
+                delay: shouldReduceMotion ? 0 : 0.05,
+                ease: [0.21, 0.47, 0.32, 0.98],
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs"
+            >
               <Sparkles className="w-3 h-3 text-amber-700" />
               <span>The Best AIs. One Room.</span>
-            </div>
+            </motion.div>
 
             {/* Headline */}
-            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4">
+            <motion.h1
+              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: shouldReduceMotion ? 0.15 : 0.45,
+                delay: shouldReduceMotion ? 0 : 0.12,
+                ease: [0.21, 0.47, 0.32, 0.98],
+              }}
+              className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4"
+            >
               One AI can be confidently wrong. Three rarely are.
-            </h1>
+            </motion.h1>
 
             {/* Subheadline */}
-            <p className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8">
+            <motion.p
+              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: shouldReduceMotion ? 0.15 : 0.45,
+                delay: shouldReduceMotion ? 0 : 0.18,
+                ease: [0.21, 0.47, 0.32, 0.98],
+              }}
+              className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8"
+            >
               Ask once. Watch Gemini, Claude, and ChatGPT debate it live, call out each other&apos;s blind spots, and land on an answer you can actually trust.
-            </p>
+            </motion.p>
 
             {/* Primary Action Button */}
-            <div className="flex flex-col sm:flex-row items-start gap-3">
+            <motion.div
+              initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                duration: shouldReduceMotion ? 0.15 : 0.45,
+                delay: shouldReduceMotion ? 0 : 0.24,
+                ease: [0.21, 0.47, 0.32, 0.98],
+              }}
+              className="flex flex-col sm:flex-row items-start gap-3"
+            >
               <button
                 onClick={() => handleOpenAuth('signup')}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
@@ -307,25 +360,36 @@ export default function LandingPage() {
               >
                 <span>Sign in</span>
               </button>
-            </div>
+            </motion.div>
           </div>
 
           {/* Right Column: Hero Image */}
-          <div className="w-full lg:w-[55%] order-first lg:order-last">
+          <motion.div
+            initial={{ opacity: 0, y: shouldReduceMotion ? 0 : 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              duration: shouldReduceMotion ? 0.15 : 0.5,
+              delay: shouldReduceMotion ? 0 : 0.15,
+              ease: [0.21, 0.47, 0.32, 0.98],
+            }}
+            className="w-full lg:w-[55%] order-first lg:order-last"
+          >
             <img src="/herodraw.svg" alt="" className="w-full h-auto" />
-          </div>
+          </motion.div>
         </section>
 
         {/* Section Header */}
         <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
-            How many times have you had to fact-check an AI answer? <br />
-            Or cross-check it with another AI to be sure?
-          </h2>
-          <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
-            Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
-          </p>
-          <div className="bg-amber-50 rounded-3xl p-3 mt-8">
+          <motion.div {...scrollRevealProps(0)}>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
+              How many times have you had to fact-check an AI answer? <br />
+              Or cross-check it with another AI to be sure?
+            </h2>
+            <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
+              Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
+            </p>
+          </motion.div>
+          <motion.div {...scrollRevealProps(0.08)} className="bg-amber-50 rounded-3xl p-3 mt-8">
             <video
               src="/videodemo.mp4"
               autoPlay
@@ -335,73 +399,82 @@ export default function LandingPage() {
               controls={false}
               className="w-full rounded-2xl shadow-md"
             />
-          </div>
+          </motion.div>
         </section>
 
         {/* Full Control Feature Section */}
         <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-zinc-100">
           {/* Left Column: Text */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
-              You&apos;re in Full Control of Your AI Panel
-            </h2>
-            <div className="space-y-4 text-sm sm:text-base text-zinc-600 font-normal leading-relaxed">
-              <p>
-                Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
-              </p>
-              <p>
-                Start with all three models for multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order they join the conversation.
-              </p>
-              <p>
-                Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
-              </p>
-            </div>
+            <motion.div {...scrollRevealProps(0)}>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
+                You&apos;re in Full Control of Your AI Panel
+              </h2>
+              <div className="space-y-4 text-sm sm:text-base text-zinc-600 font-normal leading-relaxed">
+                <p>
+                  Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
+                </p>
+                <p>
+                  Start with all three models for multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order they join the conversation.
+                </p>
+                <p>
+                  Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
+                </p>
+              </div>
+            </motion.div>
 
-            <video
-              src="/showAIs.mp4"
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="metadata"
-              controls={false}
-              className="mt-6 w-full max-w-[408px] h-auto rounded-lg border border-zinc-200 shadow-sm"
-            />
+            <motion.div {...scrollRevealProps(0.08)} className="w-full">
+              <video
+                src="/showAIs.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="metadata"
+                controls={false}
+                className="mt-6 w-full max-w-[408px] h-auto rounded-lg border border-zinc-200 shadow-sm"
+              />
+            </motion.div>
 
-            {/* Feature List */}
-            <ul className="mt-4 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Turn individual AI models on or off</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Reorder ChatGPT, Claude and Gemini</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Keep the conversation in one shared discussion</span>
-              </li>
-            </ul>
+            {/* Feature List + CTA */}
+            <motion.div {...scrollRevealProps(0.16)} className="w-full flex flex-col items-start">
+              <ul className="mt-4 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Turn individual AI models on or off</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Reorder ChatGPT, Claude and Gemini</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Keep the conversation in one shared discussion</span>
+                </li>
+              </ul>
 
-            <button
-              onClick={() => handleOpenAuth('signup')}
-              className="mt-6 flex items-center gap-2 px-6 py-3 rounded-xl bg-[#D94726] hover:bg-[#C13D21] text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
-            >
-              <span>Start your AI panel</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+              <button
+                onClick={() => handleOpenAuth('signup')}
+                className="mt-6 flex items-center gap-2 px-6 py-3 rounded-xl bg-[#D94726] hover:bg-[#C13D21] text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
+              >
+                <span>Start your AI panel</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.div>
           </div>
 
           {/* Right Column: Video Container */}
           <div className="w-full lg:w-[55%] flex justify-center">
-            <div className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs">
+            <motion.div
+              {...scrollRevealProps(0)}
+              className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs"
+            >
               <video
                 src="/phonetestvideo.mp4"
                 autoPlay
@@ -412,17 +485,20 @@ export default function LandingPage() {
                 controls={false}
                 className="w-full max-w-[340px] sm:max-w-[380px] lg:max-w-[400px] h-auto rounded-[28px] shadow-md object-contain"
               />
-            </div>
+            </motion.div>
           </div>
         </section>
 
         {/* 6-Column Value Props */}
         <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8">
+          <motion.h2
+            {...scrollRevealProps(0)}
+            className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8"
+          >
             Made to Get You the Best Answer
-          </h2>
+          </motion.h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
                 <MessageCircle className="w-4 h-4" />
               </div>
@@ -430,9 +506,9 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Every model responds directly to what you actually asked — no dodging, no filler.
               </p>
-            </div>
+            </motion.div>
 
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.05)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
                 <MessagesSquare className="w-4 h-4" />
               </div>
@@ -440,9 +516,9 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Models read one another&apos;s responses live and react — agreeing, correcting, or pushing back.
               </p>
-            </div>
+            </motion.div>
 
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.10)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
                 <ArrowUpDown className="w-4 h-4" />
               </div>
@@ -450,9 +526,9 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Choose who goes first, second, and third. Reorder the discussion however you want.
               </p>
-            </div>
+            </motion.div>
 
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.15)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
                 <RefreshCw className="w-4 h-4" />
               </div>
@@ -460,9 +536,9 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Not vibing with a model&apos;s take? Remove it or bring in a different one mid-discussion.
               </p>
-            </div>
+            </motion.div>
 
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.20)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
                 <Trophy className="w-4 h-4" />
               </div>
@@ -470,9 +546,9 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 Walk away with the strongest answer — not just one model&apos;s opinion.
               </p>
-            </div>
+            </motion.div>
 
-            <div className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.25)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
                 <Eye className="w-4 h-4" />
               </div>
@@ -480,17 +556,17 @@ export default function LandingPage() {
               <p className="text-xs text-zinc-500 leading-relaxed">
                 See the full reasoning and back-and-forth in real time, not just a final answer.
               </p>
-            </div>
+            </motion.div>
           </div>
 
-          <div className="flex justify-center mt-10">
+          <motion.div {...scrollRevealProps(0.1)} className="flex justify-center mt-10">
             <button
               onClick={() => handleOpenAuth('signup')}
               className="px-10 py-3 rounded-full bg-[#4880E6] hover:bg-[#3a6fd0] text-white font-medium text-sm shadow-sm transition-colors cursor-pointer"
             >
               Try it now for free
             </button>
-          </div>
+          </motion.div>
         </section>
 
         {/* FAQ Section */}
@@ -499,14 +575,16 @@ export default function LandingPage() {
           className="w-full border-t border-zinc-100"
         >
           <div className="max-w-4xl mx-auto px-6 sm:px-12 py-16">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
-              Frequently Asked Questions
-            </h2>
-            <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
-              Everything you need to know about using Plurilog.
-            </p>
+            <motion.div {...scrollRevealProps(0)}>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
+                Frequently Asked Questions
+              </h2>
+              <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
+                Everything you need to know about using Plurilog.
+              </p>
+            </motion.div>
 
-            <div className="mt-10 space-y-3">
+            <motion.div {...scrollRevealProps(0.08)} className="mt-10 space-y-3">
               {faqItems.map((item, index) => {
                 const isOpen = openFaqIndex === index;
                 return (
@@ -550,7 +628,7 @@ export default function LandingPage() {
                   </div>
                 );
               })}
-            </div>
+            </motion.div>
           </div>
         </section>
 
