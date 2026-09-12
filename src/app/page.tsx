@@ -217,38 +217,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Full Control Feature Section */}
-        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16 border-t border-zinc-100">
-          {/* Left Column: Text */}
-          <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
-              You&apos;re in Full Control of Your AI Panel
-            </h2>
-            <p className="text-sm sm:text-base text-zinc-600 font-normal leading-relaxed mb-4">
-              Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
-            </p>
-            <p className="text-xs sm:text-sm text-zinc-500 font-normal leading-relaxed">
-              Use all three together, narrow the panel to one, or change your lineup as the discussion evolves.
-            </p>
-          </div>
-
-          {/* Right Column: Video Container */}
-          <div className="w-full lg:w-[55%] flex justify-center">
-            <div className="w-full max-w-md bg-blue-50/70 border border-blue-100/80 rounded-3xl p-4 sm:p-6 flex items-center justify-center shadow-2xs">
-              <video
-                src="/phonetestvideo.mp4"
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="metadata"
-                controls={false}
-                className="w-full max-w-[260px] sm:max-w-[290px] h-auto rounded-2xl shadow-md object-contain"
-              />
-            </div>
-          </div>
-        </section>
-
         {/* 6-Column Value Props */}
         <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8">
@@ -323,6 +291,38 @@ export default function LandingPage() {
             >
               Try it now for free
             </button>
+          </div>
+        </section>
+
+        {/* Full Control Feature Section */}
+        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16 border-t border-zinc-100">
+          {/* Left Column: Text */}
+          <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
+              You&apos;re in Full Control of Your AI Panel
+            </h2>
+            <p className="text-sm sm:text-base text-zinc-600 font-normal leading-relaxed mb-4">
+              Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
+            </p>
+            <p className="text-xs sm:text-sm text-zinc-500 font-normal leading-relaxed">
+              Use all three together, narrow the panel to one, or change your lineup as the discussion evolves.
+            </p>
+          </div>
+
+          {/* Right Column: Video Container */}
+          <div className="w-full lg:w-[55%] flex justify-center">
+            <div className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs">
+              <video
+                src="/phonetestvideo.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="metadata"
+                controls={false}
+                className="w-full max-w-[260px] sm:max-w-[290px] h-auto rounded-[28px] shadow-md object-contain"
+              />
+            </div>
           </div>
         </section>
       </main>
