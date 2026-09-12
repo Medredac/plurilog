@@ -217,6 +217,18 @@ export default function LandingPage() {
     };
   }, [router, supabase]);
 
+  useEffect(() => {
+    if (!isCheckingAuth && typeof window !== 'undefined' && window.location.hash) {
+      const targetId = window.location.hash.slice(1);
+      const targetEl = document.getElementById(targetId);
+      if (targetEl) {
+        requestAnimationFrame(() => {
+          targetEl.scrollIntoView({ behavior: 'smooth' });
+        });
+      }
+    }
+  }, [isCheckingAuth]);
+
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
     if (isAuthenticated) {
       router.push('/dashboard');
@@ -458,7 +470,7 @@ export default function LandingPage() {
         </motion.div>
 
         {/* Section Header */}
-        <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">
+        <section className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center">
           <motion.div {...scrollRevealProps(0.30)}>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
               How many times have you had to fact-check an AI answer? <br />
@@ -482,7 +494,7 @@ export default function LandingPage() {
         </section>
 
         {/* Full Control Feature Section */}
-        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-zinc-100">
+        <section id="about" className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-zinc-100 scroll-mt-16">
           {/* Left Column: Text */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             <motion.div {...scrollRevealProps(0)}>
