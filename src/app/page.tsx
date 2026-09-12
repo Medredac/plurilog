@@ -271,7 +271,7 @@ export default function LandingPage() {
                 playsInline
                 preload="metadata"
                 controls={false}
-                className="w-full max-w-[260px] sm:max-w-[290px] h-auto rounded-[28px] shadow-md object-contain"
+                className="w-full max-w-[340px] sm:max-w-[380px] lg:max-w-[400px] h-auto rounded-[28px] shadow-md object-contain"
               />
             </div>
           </div>
