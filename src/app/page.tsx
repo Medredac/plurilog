@@ -376,7 +376,7 @@ export default function LandingPage() {
               }}
               className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8"
             >
-              Ask once. Watch Gemini, Claude, and ChatGPT debate it live, call out each other&apos;s blind spots, and land on an answer you can actually trust.
+              Bring ChatGPT, Claude and Gemini into one ongoing AI discussion, with shared context, documents, and multiple perspectives. Challenge AI errors and hallucinations, uncover blind spots, and get beyond a single AI&apos;s point of view.
             </motion.p>
 
             {/* Primary Action Button */}
