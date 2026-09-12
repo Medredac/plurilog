@@ -269,6 +269,14 @@ export default function LandingPage() {
                 <span>Keep the conversation in one shared discussion</span>
               </li>
             </ul>
+
+            <button
+              onClick={() => handleOpenAuth('signup')}
+              className="mt-6 flex items-center gap-2 px-6 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
+            >
+              <span>Start your AI panel</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Right Column: Video Container */}
