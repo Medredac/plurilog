@@ -111,6 +111,14 @@ const faqItems = [
     ]
   },
   {
+    question: "How does Plurilog handle my data?",
+    answer: [
+      "You stay in control of your data. Plurilog stores your discussions and related conversation data so features such as conversation history, shared context, memory, and document and image retrieval can continue working when you return to a discussion.",
+      "When you delete a discussion, its messages, conversation-specific memory, document and retrieval data, image-related data, and associated uploaded files are automatically removed from Plurilog's active database and primary storage.",
+      "To generate AI responses, relevant conversation content may be sent through OpenRouter to the selected AI providers for processing. Data handled by those external providers is subject to their respective API and data-retention policies."
+    ]
+  },
+  {
     question: "Does using multiple AIs guarantee that the answer is correct?",
     answer: [
       "No AI system can guarantee that every answer is correct.",
