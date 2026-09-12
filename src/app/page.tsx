@@ -196,30 +196,92 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Section Header */}
-        <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
-            How many times have you had to fact-check an AI answer? <br />
-            Or cross-check it with another AI to be sure?
-          </h2>
-          <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
-            Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
-          </p>
-          <div className="bg-amber-50 rounded-3xl p-3 mt-8">
-            <video
-              src="/videodemo.mp4"
-              autoPlay
-              loop
-              muted
-              playsInline
-              controls={false}
-              className="w-full rounded-2xl shadow-md"
-            />
-          </div>
-        </section>
+        {/* Continuous Dark Product Demo Band */}
+        <div className="w-full bg-zinc-950">
+          {/* Section 1: Intro / Demo */}
+          <section id="about" className="px-6 sm:px-12 pt-16 pb-12 max-w-6xl mx-auto w-full text-center scroll-mt-16">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white leading-snug mb-3">
+              How many times have you had to fact-check an AI answer? <br />
+              Or cross-check it with another AI to be sure?
+            </h2>
+            <p className="text-sm sm:text-base text-zinc-300 font-normal leading-relaxed max-w-3xl mx-auto">
+              Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
+            </p>
+            <div className="bg-amber-50 rounded-3xl p-3 mt-8">
+              <video
+                src="/videodemo.mp4"
+                autoPlay
+                loop
+                muted
+                playsInline
+                controls={false}
+                className="w-full rounded-2xl shadow-md"
+              />
+            </div>
+          </section>
+
+          {/* Section 2: Full Control Feature */}
+          <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-white/10">
+            {/* Left Column: Text */}
+            <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white leading-tight mb-4">
+                You&apos;re in Full Control of Your AI Panel
+              </h2>
+              <div className="space-y-4 text-sm sm:text-base text-zinc-300 font-normal leading-relaxed">
+                <p>
+                  Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
+                </p>
+                <p>
+                  Start with all three models for multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order they join the conversation.
+                </p>
+                <p>
+                  Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
+                </p>
+              </div>
+
+              {/* Feature List */}
+              <ul className="mt-6 space-y-3 text-xs sm:text-sm font-medium text-zinc-200">
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-950/80 border border-blue-500/40 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Turn individual AI models on or off</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-950/80 border border-blue-500/40 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Reorder ChatGPT, Claude and Gemini</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <div className="w-4 h-4 rounded-full bg-blue-950/80 border border-blue-500/40 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                  </div>
+                  <span>Keep the conversation in one shared discussion</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Right Column: Video Container */}
+            <div className="w-full lg:w-[55%] flex justify-center">
+              <div className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs">
+                <video
+                  src="/phonetestvideo.mp4"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                  controls={false}
+                  className="w-full max-w-[260px] sm:max-w-[290px] h-auto rounded-[28px] shadow-md object-contain"
+                />
+              </div>
+            </div>
+          </section>
+        </div>
 
         {/* 6-Column Value Props */}
-        <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
+        <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full">
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8">
             Made to Get You the Best Answer
           </h2>
@@ -292,65 +354,6 @@ export default function LandingPage() {
             >
               Try it now for free
             </button>
-          </div>
-        </section>
-
-        {/* Full Control Feature Section */}
-        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-zinc-100">
-          {/* Left Column: Text */}
-          <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
-              You&apos;re in Full Control of Your AI Panel
-            </h2>
-            <div className="space-y-4 text-sm sm:text-base text-zinc-600 font-normal leading-relaxed">
-              <p>
-                Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
-              </p>
-              <p>
-                Start with all three models for multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order they join the conversation.
-              </p>
-              <p>
-                Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
-              </p>
-            </div>
-
-            {/* Feature List */}
-            <ul className="mt-6 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Turn individual AI models on or off</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Reorder ChatGPT, Claude and Gemini</span>
-              </li>
-              <li className="flex items-center gap-2.5">
-                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
-                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                </div>
-                <span>Keep the conversation in one shared discussion</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Right Column: Video Container */}
-          <div className="w-full lg:w-[55%] flex justify-center">
-            <div className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs">
-              <video
-                src="/phonetestvideo.mp4"
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="metadata"
-                controls={false}
-                className="w-full max-w-[260px] sm:max-w-[290px] h-auto rounded-[28px] shadow-md object-contain"
-              />
-            </div>
           </div>
         </section>
       </main>
