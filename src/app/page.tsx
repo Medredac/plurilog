@@ -48,9 +48,9 @@ const faqItems = [
     ]
   },
   {
-    question: "Are these the real AI models?",
+    question: "Are these real AI models from OpenAI, Google and Anthropic?",
     answer: [
-      "Yes. Plurilog uses official API-accessible AI models from OpenAI, Anthropic and Google. They are not Plurilog-built imitations presented under those names.",
+      "Yes. Plurilog uses official API-accessible AI models from OpenAI, Google and Anthropic. They are not Plurilog-built imitations presented under those names.",
       "Plurilog provides the system around the models: the shared discussion, model orchestration, persistent context, document retrieval and interface that allow multiple AIs to work together in one conversation."
     ]
   },
