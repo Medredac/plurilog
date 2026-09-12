@@ -28,7 +28,7 @@ export function RoleMarquee() {
       "
     >
       <div className="role-marquee-track flex w-max whitespace-nowrap select-none pointer-events-none">
-        <div className="flex shrink-0 items-center gap-7 sm:gap-9 pr-7 sm:pr-9">
+        <div className="flex shrink-0 items-center gap-10 sm:gap-14 pr-10 sm:pr-14">
           {roles.map((role, idx) => (
             <span
               key={`role-1-${idx}`}
@@ -40,7 +40,7 @@ export function RoleMarquee() {
         </div>
 
         <div
-          className="flex shrink-0 items-center gap-7 sm:gap-9 pr-7 sm:pr-9"
+          className="flex shrink-0 items-center gap-10 sm:gap-14 pr-10 sm:pr-14"
           aria-hidden="true"
         >
           {roles.map((role, idx) => (

@@ -450,9 +450,11 @@ export default function LandingPage() {
         {/* Audience / Role Marquee */}
         <motion.div
           {...scrollRevealProps(0.28)}
-          className="w-full overflow-hidden py-4 sm:py-5"
+          className="w-full py-4 sm:py-5"
         >
-          <RoleMarquee />
+          <div className="max-w-6xl mx-auto px-6 sm:px-12">
+            <RoleMarquee />
+          </div>
         </motion.div>
 
         {/* Section Header */}
