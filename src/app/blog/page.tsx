@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
 import { MotionReveal } from '@/components/MotionReveal';
+import { PlurilogMark } from '@/components/PlurilogMark';
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -45,9 +46,7 @@ export default function BlogPage() {
       {/* Minimal Footer */}
       <footer className="px-6 sm:px-12 py-6 border-t border-zinc-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 text-[10px]">
-            <span className="font-semibold text-[9px]">P</span>
-          </div>
+          <PlurilogMark className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span>Plurilog &copy; {new Date().getFullYear()}</span>
         </div>
 

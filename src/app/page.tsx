@@ -4,7 +4,6 @@ import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
-  Layers, 
   ArrowRight, 
   Sparkles, 
   Loader2, 
@@ -22,6 +21,7 @@ import {
 import { motion, useReducedMotion } from 'motion/react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
+import { PlurilogMark } from '@/components/PlurilogMark';
 import { createClient } from '../utils/supabase/client';
 
 const faqItems = [
@@ -710,9 +710,7 @@ export default function LandingPage() {
       {/* Minimal Footer */}
       <footer className="px-6 sm:px-12 py-6 border-t border-zinc-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-md bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 text-[10px]">
-            <Layers className="w-2.5 h-2.5" />
-          </div>
+          <PlurilogMark className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
           <span>Plurilog © {new Date().getFullYear()}</span>
         </div>
 
