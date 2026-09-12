@@ -318,7 +318,7 @@ export default function LandingPage() {
               }}
               transition={{
                 duration: shouldReduceMotion ? 0.15 : 0.45,
-                delay: shouldReduceMotion ? 0 : 0.05,
+                delay: shouldReduceMotion ? 0 : 0.07,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs"
@@ -437,7 +437,7 @@ export default function LandingPage() {
             }}
             transition={{
               duration: shouldReduceMotion ? 0.15 : 0.5,
-              delay: shouldReduceMotion ? 0 : 0.15,
+              delay: shouldReduceMotion ? 0 : 0.04,
               ease: [0.21, 0.47, 0.32, 0.98],
             }}
             className="w-full lg:w-[55%] order-first lg:order-last"
@@ -448,7 +448,7 @@ export default function LandingPage() {
 
         {/* Section Header */}
         <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">
-          <motion.div {...scrollRevealProps(0)}>
+          <motion.div {...scrollRevealProps(0.30)}>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
               How many times have you had to fact-check an AI answer? <br />
               Or cross-check it with another AI to be sure?
@@ -457,7 +457,7 @@ export default function LandingPage() {
               Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
             </p>
           </motion.div>
-          <motion.div {...scrollRevealProps(0.08)} className="bg-amber-50 rounded-3xl p-3 mt-8">
+          <motion.div {...scrollRevealProps(0.38)} className="bg-amber-50 rounded-3xl p-3 mt-8">
             <video
               src="/videodemo.mp4"
               autoPlay
@@ -491,7 +491,7 @@ export default function LandingPage() {
               </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.08)} className="w-full">
+            <motion.div {...scrollRevealProps(0.07)} className="w-full">
               <video
                 src="/showAIs.mp4"
                 autoPlay
@@ -505,7 +505,7 @@ export default function LandingPage() {
             </motion.div>
 
             {/* Feature List + CTA */}
-            <motion.div {...scrollRevealProps(0.16)} className="w-full flex flex-col items-start">
+            <motion.div {...scrollRevealProps(0.14)} className="w-full flex flex-col items-start">
               <ul className="mt-4 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
                 <li className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
@@ -540,7 +540,7 @@ export default function LandingPage() {
           {/* Right Column: Video Container */}
           <div className="w-full lg:w-[55%] flex justify-center">
             <motion.div
-              {...scrollRevealProps(0)}
+              {...scrollRevealProps(0.06)}
               className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs"
             >
               <video
@@ -566,7 +566,7 @@ export default function LandingPage() {
             Made to Get You the Best Answer
           </motion.h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-            <motion.div {...scrollRevealProps(0)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.04)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
                 <MessageCircle className="w-4 h-4" />
               </div>
@@ -576,7 +576,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.05)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.08)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
                 <MessagesSquare className="w-4 h-4" />
               </div>
@@ -586,7 +586,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.10)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.12)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
                 <ArrowUpDown className="w-4 h-4" />
               </div>
@@ -596,7 +596,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.15)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.16)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
                 <RefreshCw className="w-4 h-4" />
               </div>
@@ -616,7 +616,7 @@ export default function LandingPage() {
               </p>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.25)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
+            <motion.div {...scrollRevealProps(0.24)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
               <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
                 <Eye className="w-4 h-4" />
               </div>
@@ -627,7 +627,7 @@ export default function LandingPage() {
             </motion.div>
           </div>
 
-          <motion.div {...scrollRevealProps(0.1)} className="flex justify-center mt-10">
+          <motion.div {...scrollRevealProps(0.28)} className="flex justify-center mt-10">
             <button
               onClick={() => handleOpenAuth('signup')}
               className="px-10 py-3 rounded-full bg-[#4880E6] hover:bg-[#3a6fd0] text-white font-medium text-sm shadow-sm transition-colors cursor-pointer"
