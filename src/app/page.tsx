@@ -22,6 +22,7 @@ import { motion, useReducedMotion } from 'motion/react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
+import { RoleMarquee } from '@/components/RoleMarquee';
 import { createClient } from '../utils/supabase/client';
 
 const faqItems = [
@@ -445,6 +446,14 @@ export default function LandingPage() {
             <img src="/herodraw.svg" alt="" className="w-full h-auto" />
           </motion.div>
         </section>
+
+        {/* Audience / Role Marquee */}
+        <motion.div
+          {...scrollRevealProps(0.28)}
+          className="w-full overflow-hidden py-4 sm:py-5"
+        >
+          <RoleMarquee />
+        </motion.div>
 
         {/* Section Header */}
         <section id="about" className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center scroll-mt-16">

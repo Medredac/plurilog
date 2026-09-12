@@ -317,3 +317,27 @@ body {
     }
   }
 }
+
+/* Role / Audience Infinite Marquee */
+@keyframes role-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.role-marquee-track {
+  animation: role-marquee 42s linear infinite;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-marquee-track {
+    animation: none;
+    transform: none;
+  }
+}
+
