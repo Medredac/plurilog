@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
+import { MotionReveal } from '@/components/MotionReveal';
 
 export const metadata: Metadata = {
   title: 'Blog',
@@ -24,20 +25,20 @@ export default function BlogPage() {
       {/* Main Content Column */}
       <main className="flex-1 bg-tech-grid">
         <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-12 sm:py-16">
-          <div className="mb-10">
+          <MotionReveal className="mb-10">
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 mb-2">
               Blog
             </h1>
             <p className="text-sm sm:text-base text-zinc-500">
               Insights, updates, and ideas from Plurilog.
             </p>
-          </div>
+          </MotionReveal>
 
-          <div className="p-8 sm:p-12 rounded-2xl bg-white/80 border border-zinc-200/80 text-center shadow-2xs">
+          <MotionReveal delay={0.08} className="p-8 sm:p-12 rounded-2xl bg-white/80 border border-zinc-200/80 text-center shadow-2xs">
             <p className="text-sm font-medium text-zinc-400">
               Articles coming soon.
             </p>
-          </div>
+          </MotionReveal>
         </div>
       </main>
 

@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
+import { MotionReveal } from '@/components/MotionReveal';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -20,21 +21,23 @@ export default function PrivacyPage() {
       {/* Main Content Column */}
       <main className="flex-1 bg-tech-grid">
         <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-12 sm:py-16">
-        <div className="mb-10">
+        <MotionReveal className="mb-10">
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 mb-2">
             Privacy Policy
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400">
             Last updated: August 30, 2026
           </p>
-        </div>
+        </MotionReveal>
 
         <article className="text-sm sm:text-base text-zinc-600 leading-relaxed space-y-6">
-          <p>
-            Plurilog (&ldquo;we,&rdquo; &ldquo;us,&rdquo; &ldquo;our&rdquo;) operates Plurilog, an app that lets you ask questions to multiple AI models at once and compare their answers. This policy explains what information we collect, how we use it, and the choices you have.
-          </p>
+          <MotionReveal delay={0.06}>
+            <p>
+              Plurilog (&ldquo;we,&rdquo; &ldquo;us,&rdquo; &ldquo;our&rdquo;) operates Plurilog, an app that lets you ask questions to multiple AI models at once and compare their answers. This policy explains what information we collect, how we use it, and the choices you have.
+            </p>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Information We Collect
             </h2>
@@ -58,18 +61,18 @@ export default function PrivacyPage() {
             <p>
               We do not use any advertising trackers, analytics pixels, or third-party marketing cookies. The only cookies we use are strictly necessary ones that keep you signed in.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               How We Use Your Information
             </h2>
             <p>
               We use your information to: provide and operate the service, including sending your messages to AI providers to generate responses; save your discussion history so you can return to it; process payments and manage your subscription; send you account-related emails (like password resets); enforce usage limits; and respond if you contact us for support.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Who We Share Information With
             </h2>
@@ -99,9 +102,9 @@ export default function PrivacyPage() {
             <p>
               We do not sell your personal information to anyone, ever.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               How Long We Keep Your Information
             </h2>
@@ -116,61 +119,61 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">Account deletion</strong>: if you&apos;d like your entire account and all associated data deleted, email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a> and we&apos;ll process your request within 30 days.
               </li>
             </ul>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Your Rights
             </h2>
             <p>
               Depending on where you live, you may have the right to access, correct, delete, or receive a copy of your personal information, and to object to or restrict certain uses of it. To exercise any of these rights, email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a>.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               International Data Transfers
             </h2>
             <p>
               Some of our service providers are based in the United States. This means your information may be processed in a country other than the one you live in, which may have different data protection laws.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Security
             </h2>
             <p>
               We take reasonable technical measures to protect your information, including encrypted connections, private storage with per-user access controls, and secure password handling. No system can be guaranteed 100% secure, but we work to protect your information appropriately.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Children&apos;s Privacy
             </h2>
             <p>
               Plurilog is not directed at, and is not intended for use by, anyone under 18 years old. We do not knowingly collect information from children.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Changes to This Policy
             </h2>
             <p>
               We may update this policy from time to time. We&apos;ll update the &ldquo;Last updated&rdquo; date above, and for significant changes, we&apos;ll make reasonable efforts to let you know.
             </p>
-          </section>
+          </MotionReveal>
 
-          <section className="space-y-3">
+          <MotionReveal as="section" className="space-y-3">
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Contact Us
             </h2>
             <p>
               Questions about this policy, or want to exercise your data rights? Email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a>.
             </p>
-          </section>
+          </MotionReveal>
         </article>
         </div>
       </main>
