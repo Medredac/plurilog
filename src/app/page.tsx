@@ -15,7 +15,8 @@ import {
   Trophy, 
   Eye,
   AlertCircle,
-  X
+  X,
+  Check
 } from 'lucide-react';
 import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
@@ -295,18 +296,45 @@ export default function LandingPage() {
         </section>
 
         {/* Full Control Feature Section */}
-        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16 border-t border-zinc-100">
+        <section className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center lg:items-start gap-10 lg:gap-16 border-t border-zinc-100">
           {/* Left Column: Text */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
               You&apos;re in Full Control of Your AI Panel
             </h2>
-            <p className="text-sm sm:text-base text-zinc-600 font-normal leading-relaxed mb-4">
-              Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
-            </p>
-            <p className="text-xs sm:text-sm text-zinc-500 font-normal leading-relaxed">
-              Use all three together, narrow the panel to one, or change your lineup as the discussion evolves.
-            </p>
+            <div className="space-y-4 text-sm sm:text-base text-zinc-600 font-normal leading-relaxed">
+              <p>
+                Choose exactly which AI models take part in every discussion. Turn ChatGPT, Claude or Gemini on or off at any time, change the order they respond in, and focus the conversation on the model you want—without starting over.
+              </p>
+              <p>
+                Start with all three models when you want multiple perspectives, then narrow the panel when you want a more focused exchange. You decide which models respond and the order in which they join the conversation.
+              </p>
+              <p>
+                Everything stays in one ongoing discussion, so you do not have to copy prompts between separate AI chats just because you want a different model to respond next.
+              </p>
+            </div>
+
+            {/* Feature List */}
+            <ul className="mt-6 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
+              <li className="flex items-center gap-2.5">
+                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                </div>
+                <span>Turn individual AI models on or off</span>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                </div>
+                <span>Reorder ChatGPT, Claude and Gemini</span>
+              </li>
+              <li className="flex items-center gap-2.5">
+                <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
+                  <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                </div>
+                <span>Keep the conversation in one shared discussion</span>
+              </li>
+            </ul>
           </div>
 
           {/* Right Column: Video Container */}
