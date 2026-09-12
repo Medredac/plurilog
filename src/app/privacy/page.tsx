@@ -110,7 +110,7 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">Discussion text</strong> is kept for as long as your account is active, so you can revisit past conversations. You can permanently delete any individual discussion at any time from within the app &mdash; this happens immediately.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Uploaded images</strong> are automatically and permanently deleted within roughly 48&ndash;72 hours, regardless of whether you delete the discussion itself.
+                <strong className="font-medium text-zinc-800">Uploaded files and images</strong> are kept for as long as the associated discussion remains available so Plurilog can preserve document and image context across the conversation. When you delete the discussion, its associated uploaded files and images are removed from Plurilog&apos;s primary storage.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Account deletion</strong>: if you&apos;d like your entire account and all associated data deleted, email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a> and we&apos;ll process your request within 30 days.
