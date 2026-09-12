@@ -237,8 +237,19 @@ export default function LandingPage() {
               </p>
             </div>
 
+            <video
+              src="/showAIs.mp4"
+              autoPlay
+              loop
+              muted
+              playsInline
+              preload="metadata"
+              controls={false}
+              className="mt-6 w-full max-w-[408px] h-auto rounded-lg border border-zinc-200 shadow-sm"
+            />
+
             {/* Feature List */}
-            <ul className="mt-6 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
+            <ul className="mt-4 space-y-3 text-xs sm:text-sm font-medium text-zinc-700">
               <li className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-blue-50 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0 shadow-2xs">
                   <Check className="w-2.5 h-2.5 stroke-[2.5]" />
