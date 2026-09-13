@@ -142,7 +142,7 @@ export default function TermsPage() {
               Contact Us
             </h2>
             <p>
-              Questions about these terms? Email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a>.
+              Questions about these terms? Email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
             </p>
           </MotionReveal>
         </article>

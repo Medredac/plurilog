@@ -117,7 +117,7 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">Uploaded files and images</strong> are kept for as long as the associated discussion remains available so Plurilog can preserve document and image context across the conversation. When you delete the discussion, its associated uploaded files and images are removed from Plurilog&apos;s primary storage.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Account deletion</strong>: if you&apos;d like your entire account and all associated data deleted, email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a> and we&apos;ll process your request within 30 days.
+                <strong className="font-medium text-zinc-800">Account deletion</strong>: if you&apos;d like your entire account and all associated data deleted, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a> and we&apos;ll process your request within 30 days.
               </li>
             </ul>
           </MotionReveal>
@@ -127,7 +127,7 @@ export default function PrivacyPage() {
               Your Rights
             </h2>
             <p>
-              Depending on where you live, you may have the right to access, correct, delete, or receive a copy of your personal information, and to object to or restrict certain uses of it. To exercise any of these rights, email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a>.
+              Depending on where you live, you may have the right to access, correct, delete, or receive a copy of your personal information, and to object to or restrict certain uses of it. To exercise any of these rights, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
             </p>
           </MotionReveal>
 
@@ -172,7 +172,7 @@ export default function PrivacyPage() {
               Contact Us
             </h2>
             <p>
-              Questions about this policy, or want to exercise your data rights? Email us at <a href="mailto:plurilog@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilog@gmail.com</a>.
+              Questions about this policy, or want to exercise your data rights? Email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
             </p>
           </MotionReveal>
         </article>
