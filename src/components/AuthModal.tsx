@@ -129,12 +129,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           return;
         }
 
+        let signupSource = 'direct';
+        try {
+          signupSource = localStorage.getItem('plurilog_signup_source') || 'direct';
+        } catch {
+          signupSource = 'direct';
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
           options: {
             data: {
               display_name: displayName.trim(),
+              signup_source: signupSource,
             },
           },
         });

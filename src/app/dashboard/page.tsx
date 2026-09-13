@@ -21,6 +21,8 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'chatgpt': 'idle',
 };
 
+const SIGNUP_SOURCE_ROLLOUT_AT = new Date('2026-09-13T00:00:00.000Z').getTime();
+
 const DEFAULT_SEAT_ORDER: ModelId[] = [
   'chatgpt',
   'claude',
@@ -465,11 +467,65 @@ export default function DashboardPage() {
         if (freshUser) {
           const { data: profileRow } = await supabase
             .from('profiles')
-            .select('period_reset_at, plan_status')
+            .select('period_reset_at, plan_status, signup_source')
             .eq('id', freshUser.id)
             .single();
           setPeriodResetAt(profileRow?.period_reset_at || null);
           setPlanStatus(profileRow?.plan_status || null);
+
+          // Reconcile signup_source for genuinely new accounts
+          if (!profileRow?.signup_source) {
+            let sourceToPersist: string | null = null;
+            let shouldCleanLocalStorage = false;
+
+            const createdAtMs = freshUser.created_at
+              ? new Date(freshUser.created_at).getTime()
+              : 0;
+            const accountCreatedAfterAttributionLaunch =
+              createdAtMs >= SIGNUP_SOURCE_ROLLOUT_AT;
+
+            const metadataSource = freshUser.user_metadata?.signup_source;
+            if (
+              accountCreatedAfterAttributionLaunch &&
+              typeof metadataSource === 'string' &&
+              metadataSource.trim()
+            ) {
+              // B. Email/Password new user with source in user metadata (preserves delayed confirmation)
+              sourceToPersist = metadataSource.trim();
+              shouldCleanLocalStorage = true;
+            } else {
+              // C. Google OAuth / new account: check if account was genuinely just created
+              const isNewlyCreatedAccount = Date.now() - createdAtMs < 5 * 60 * 1000;
+
+              if (isNewlyCreatedAccount) {
+                try {
+                  const storedSource = localStorage.getItem('plurilog_signup_source');
+                  if (storedSource && storedSource.trim()) {
+                    sourceToPersist = storedSource.trim();
+                    shouldCleanLocalStorage = true;
+                  }
+                } catch {
+                  // Ignore localStorage access errors
+                }
+              }
+            }
+
+            if (sourceToPersist) {
+              try {
+                const { error: updateSourceErr } = await supabase.rpc('set_my_signup_source', {
+                  p_source: sourceToPersist,
+                });
+
+                if (!updateSourceErr && shouldCleanLocalStorage) {
+                  try {
+                    localStorage.removeItem('plurilog_signup_source');
+                  } catch {}
+                }
+              } catch (sourceErr) {
+                console.warn('[Signup Source] Non-critical error persisting source:', sourceErr);
+              }
+            }
+          }
         }
       }
     } catch (err) {
