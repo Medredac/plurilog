@@ -376,7 +376,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         ) : (
           <div className="flex items-end gap-1.5 sm:gap-2 min-w-0 max-w-full">
             {/* Attach icon & Popover */}
-            <div className="relative shrink-0 mb-0.5">
+            <div className="relative shrink-0 sm:mb-0.5">
               <button
                 ref={triggerRef}
                 type="button"
@@ -418,7 +418,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder="Type a topic..."
-              className="w-full resize-none text-base sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-1.5 px-1 max-h-[160px] min-w-0"
+              className="w-full resize-none text-base sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-[9px] sm:py-1.5 px-1 max-h-[160px] min-w-0"
             />
 
             {/* Voice Dictation Button */}
@@ -430,7 +430,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setVoiceError(null);
                   setIsRecording(true);
                 }}
-                className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 mb-0.5 flex items-center justify-center target-primary"
+                className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 sm:mb-0.5 flex items-center justify-center target-primary"
                 title="Voice dictation"
                 aria-label="Voice dictation"
               >
