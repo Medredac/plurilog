@@ -40,6 +40,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -255,6 +256,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       {/* Hidden File Inputs */}
       <input
         type="file"
+        ref={cameraInputRef}
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+      <input
+        type="file"
         ref={fileInputRef}
         accept="image/*"
         multiple
@@ -401,6 +410,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 isOpen={isUploadDrawerOpen}
                 onClose={() => setIsUploadDrawerOpen(false)}
                 triggerRef={triggerRef}
+                onTakePhotoClick={() => {
+                  cameraInputRef.current?.click();
+                }}
                 onUploadImageClick={() => {
                   fileInputRef.current?.click();
                 }}

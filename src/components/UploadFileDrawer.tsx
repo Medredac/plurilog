@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { Image as ImageIcon, Upload } from 'lucide-react';
+import { Camera, Image as ImageIcon, Upload } from 'lucide-react';
 
 interface UploadFileDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   triggerRef?: React.RefObject<HTMLButtonElement | null>;
+  onTakePhotoClick: () => void;
   onUploadImageClick: () => void;
   onUploadFileClick: () => void;
 }
@@ -15,6 +16,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
   isOpen,
   onClose,
   triggerRef,
+  onTakePhotoClick,
   onUploadImageClick,
   onUploadFileClick,
 }) => {
@@ -50,6 +52,19 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           : 'opacity-0 scale-95 translate-y-1 pointer-events-none'
       }`}
     >
+      <button
+        type="button"
+        tabIndex={isOpen ? 0 : -1}
+        onClick={() => {
+          onTakePhotoClick();
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm target-secondary"
+      >
+        <Camera className="w-4 h-4 text-zinc-400 shrink-0" />
+        <span className="font-normal">Take photo</span>
+      </button>
+
       <button
         type="button"
         tabIndex={isOpen ? 0 : -1}
