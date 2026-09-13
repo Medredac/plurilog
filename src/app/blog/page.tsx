@@ -8,10 +8,6 @@ import { PlurilogMark } from '@/components/PlurilogMark';
 export const metadata: Metadata = {
   title: 'Blog',
   description: 'Insights, updates, and ideas from Plurilog.',
-  robots: {
-    index: false,
-    follow: true,
-  },
   alternates: {
     canonical: 'https://plurilogai.com/blog',
   },
@@ -35,10 +31,30 @@ export default function BlogPage() {
             </p>
           </MotionReveal>
 
-          <MotionReveal delay={0.08} className="p-8 sm:p-12 rounded-2xl bg-white/80 border border-zinc-200/80 text-center shadow-2xs">
-            <p className="text-sm font-medium text-zinc-400">
-              Articles coming soon.
-            </p>
+          <MotionReveal delay={0.08}>
+            <Link
+              href="/blog/ai-hallucinations-chatgpt-claude-gemini"
+              className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
+            >
+              <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
+                <img
+                  src="/blog/ai-hallucinations-thumbnail.png"
+                  alt="AI models cross-checking answers to identify an incorrect response"
+                  className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                />
+              </div>
+              <div className="p-6 sm:p-7">
+                <time className="text-xs font-medium text-zinc-400 block mb-2">
+                  September 12, 2026
+                </time>
+                <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 tracking-tight mb-2.5 group-hover:text-zinc-700 transition-colors">
+                  AI Hallucinations: Why AI Gets Things Wrong
+                </h2>
+                <p className="text-sm text-zinc-500 leading-relaxed line-clamp-3">
+                  ChatGPT, Claude and Gemini can produce answers that sound completely convincing and are still wrong. Here’s why AI hallucinations happen, how to spot them, and how comparing multiple AI models can help.
+                </p>
+              </div>
+            </Link>
           </MotionReveal>
         </div>
       </main>

@@ -11,5 +11,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     {
       url: 'https://plurilogai.com/terms',
     },
+    {
+      url: 'https://plurilogai.com/blog',
+    },
+    {
+      url: 'https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini',
+    },
   ];
 }
