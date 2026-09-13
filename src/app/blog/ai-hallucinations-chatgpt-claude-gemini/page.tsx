@@ -7,14 +7,14 @@ import { MotionReveal } from '@/components/MotionReveal';
 import { PlurilogMark } from '@/components/PlurilogMark';
 
 export const metadata: Metadata = {
-  title: 'AI Hallucinations: Why ChatGPT, Claude and Gemini Get Things Wrong',
+  title: 'AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong — and How to Catch It',
   description:
     'AI hallucinations can make ChatGPT, Claude and Gemini sound confident when they’re wrong. Learn why it happens, how to fact-check AI answers, and how Plurilog helps you compare multiple AI models.',
   alternates: {
     canonical: 'https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini',
   },
   openGraph: {
-    title: 'AI Hallucinations: Why ChatGPT, Claude and Gemini Get Things Wrong',
+    title: 'AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong — and How to Catch It',
     description:
       'AI hallucinations can make ChatGPT, Claude and Gemini sound confident when they’re wrong. Learn why it happens, how to fact-check AI answers, and how Plurilog helps you compare multiple AI models.',
     url: 'https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini',
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'AI Hallucinations: Why ChatGPT, Claude and Gemini Get Things Wrong',
+    title: 'AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong — and How to Catch It',
     description:
       'AI hallucinations can make ChatGPT, Claude and Gemini sound confident when they’re wrong. Learn why it happens, how to fact-check AI answers, and how Plurilog helps you compare multiple AI models.',
     images: ['https://plurilogai.com/blog/ai-hallucinations-thumbnail.png'],
@@ -42,7 +42,7 @@ const articleJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'BlogPosting',
   headline:
-    'AI Hallucinations: Why ChatGPT, Claude and Gemini Get Things Wrong — and How to Catch It',
+    'AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong — and How to Catch It',
   description:
     'AI hallucinations can make ChatGPT, Claude and Gemini sound confident when they’re wrong. Learn why it happens, how to fact-check AI answers, and how Plurilog helps you compare multiple AI models.',
   image: 'https://plurilogai.com/blog/ai-hallucinations-thumbnail.png',
@@ -97,7 +97,7 @@ export default function AiHallucinationsBlogPost() {
               September 12, 2026
             </time>
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 leading-tight mb-6">
-              AI Hallucinations: Why ChatGPT, Claude and Gemini Get Things Wrong &mdash; and How to Catch It
+              AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong &mdash; and How to Catch It
             </h1>
             <div className="aspect-[16/9] w-full rounded-2xl overflow-hidden border border-zinc-200/80 shadow-2xs bg-zinc-100">
               <img
