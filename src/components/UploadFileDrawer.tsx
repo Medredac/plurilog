@@ -59,7 +59,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
           onTakePhotoClick();
           onClose();
         }}
-        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm target-secondary"
+        className="w-full flex lg:hidden items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm target-secondary"
       >
         <Camera className="w-4 h-4 text-zinc-400 shrink-0" />
         <span className="font-normal">Take photo</span>
