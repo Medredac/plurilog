@@ -78,8 +78,38 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [restoreDraft?.trigger]);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  const getCameraFilename = (file: File): string => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const millis = String(now.getMilliseconds()).padStart(3, '0');
+
+    let ext = 'jpg';
+    const dotIndex = file.name.lastIndexOf('.');
+    if (dotIndex !== -1) {
+      const rawExt = file.name.slice(dotIndex + 1).toLowerCase().trim();
+      const cleanExt = rawExt.replace(/[^a-z0-9]/g, '').slice(0, 10);
+      if (cleanExt && cleanExt !== 'bin') {
+        ext = cleanExt;
+      }
+    } else if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
+      ext = 'jpg';
+    } else if (file.type === 'image/png') {
+      ext = 'png';
+    } else if (file.type === 'image/webp') {
+      ext = 'webp';
+    } else if (file.type === 'image/gif') {
+      ext = 'gif';
+    }
+
+    return `Photo_${year}${month}${day}_${hours}${minutes}${seconds}_${millis}.${ext}`;
+  };
+
+  const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
     const MAX_FILES = 5;
@@ -88,7 +118,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     if (availableSlots <= 0) {
       alert(`You can only attach up to ${MAX_FILES} files. Please remove an existing attachment first.`);
-      e.target.value = '';
       return;
     }
 
@@ -158,8 +187,24 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     if (alertMessages.length > 0) {
       alert(alertMessages.join('\n\n'));
     }
+  };
 
-    // Clear input so same file can be selected again if needed
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    processFiles(files);
+    e.target.value = '';
+  };
+
+  const handleCameraFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawFile = e.target.files?.[0];
+    if (rawFile) {
+      const generatedName = getCameraFilename(rawFile);
+      const renamedFile = new File([rawFile], generatedName, {
+        type: rawFile.type || 'image/jpeg',
+        lastModified: rawFile.lastModified || Date.now(),
+      });
+      processFiles([renamedFile]);
+    }
     e.target.value = '';
   };
 
@@ -260,7 +305,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         accept="image/*"
         capture="environment"
         className="hidden"
-        onChange={handleFileSelect}
+        onChange={handleCameraFileSelect}
       />
       <input
         type="file"
