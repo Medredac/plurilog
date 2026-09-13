@@ -254,9 +254,9 @@ export default function LandingPage() {
 
   const scrollRevealProps = (delay = 0) => ({
     initial: {
-      opacity: shouldReduceMotion ? 1 : 0.25,
-      y: shouldReduceMotion ? 0 : 18,
-      filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+      opacity: shouldReduceMotion ? 1 : 0,
+      y: shouldReduceMotion ? 0 : 12,
+      filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
     },
     whileInView: {
       opacity: 1,
@@ -264,7 +264,7 @@ export default function LandingPage() {
       filter: 'blur(0px)',
     },
     transition: {
-      duration: shouldReduceMotion ? 0.15 : 0.45,
+      duration: shouldReduceMotion ? 0.15 : 0.32,
       delay: shouldReduceMotion ? 0 : delay,
       ease: [0.21, 0.47, 0.32, 0.98] as const,
     },
@@ -316,9 +316,9 @@ export default function LandingPage() {
             {/* Subtle Pill Tag */}
             <motion.div
               initial={{
-                opacity: shouldReduceMotion ? 1 : 0.25,
-                y: shouldReduceMotion ? 0 : 18,
-                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+                opacity: shouldReduceMotion ? 1 : 0,
+                y: shouldReduceMotion ? 0 : 12,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
               }}
               whileInView={{
                 opacity: 1,
@@ -330,7 +330,7 @@ export default function LandingPage() {
                 amount: 0.05,
               }}
               transition={{
-                duration: shouldReduceMotion ? 0.15 : 0.45,
+                duration: shouldReduceMotion ? 0.15 : 0.32,
                 delay: shouldReduceMotion ? 0 : 0.07,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
@@ -343,9 +343,9 @@ export default function LandingPage() {
             {/* Headline */}
             <motion.h1
               initial={{
-                opacity: shouldReduceMotion ? 1 : 0.25,
-                y: shouldReduceMotion ? 0 : 18,
-                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+                opacity: shouldReduceMotion ? 1 : 0,
+                y: shouldReduceMotion ? 0 : 12,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
               }}
               whileInView={{
                 opacity: 1,
@@ -357,7 +357,7 @@ export default function LandingPage() {
                 amount: 0.05,
               }}
               transition={{
-                duration: shouldReduceMotion ? 0.15 : 0.45,
+                duration: shouldReduceMotion ? 0.15 : 0.32,
                 delay: shouldReduceMotion ? 0 : 0.12,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
@@ -369,9 +369,9 @@ export default function LandingPage() {
             {/* Subheadline */}
             <motion.p
               initial={{
-                opacity: shouldReduceMotion ? 1 : 0.25,
-                y: shouldReduceMotion ? 0 : 18,
-                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+                opacity: shouldReduceMotion ? 1 : 0,
+                y: shouldReduceMotion ? 0 : 12,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
               }}
               whileInView={{
                 opacity: 1,
@@ -383,7 +383,7 @@ export default function LandingPage() {
                 amount: 0.05,
               }}
               transition={{
-                duration: shouldReduceMotion ? 0.15 : 0.45,
+                duration: shouldReduceMotion ? 0.15 : 0.32,
                 delay: shouldReduceMotion ? 0 : 0.18,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
@@ -395,9 +395,9 @@ export default function LandingPage() {
             {/* Primary Action Button */}
             <motion.div
               initial={{
-                opacity: shouldReduceMotion ? 1 : 0.25,
-                y: shouldReduceMotion ? 0 : 18,
-                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+                opacity: shouldReduceMotion ? 1 : 0,
+                y: shouldReduceMotion ? 0 : 12,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
               }}
               whileInView={{
                 opacity: 1,
@@ -409,7 +409,7 @@ export default function LandingPage() {
                 amount: 0.05,
               }}
               transition={{
-                duration: shouldReduceMotion ? 0.15 : 0.45,
+                duration: shouldReduceMotion ? 0.15 : 0.32,
                 delay: shouldReduceMotion ? 0 : 0.24,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
@@ -435,9 +435,9 @@ export default function LandingPage() {
           {/* Right Column: Hero Image */}
           <motion.div
             initial={{
-              opacity: shouldReduceMotion ? 1 : 0.25,
-              y: shouldReduceMotion ? 0 : 18,
-              filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+              opacity: shouldReduceMotion ? 1 : 0,
+              y: shouldReduceMotion ? 0 : 12,
+              filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
             }}
             whileInView={{
               opacity: 1,
@@ -449,7 +449,7 @@ export default function LandingPage() {
               amount: 0.05,
             }}
             transition={{
-              duration: shouldReduceMotion ? 0.15 : 0.5,
+              duration: shouldReduceMotion ? 0.15 : 0.32,
               delay: shouldReduceMotion ? 0 : 0.04,
               ease: [0.21, 0.47, 0.32, 0.98],
             }}

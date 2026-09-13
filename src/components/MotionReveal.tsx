@@ -20,9 +20,9 @@ export function MotionReveal({
 
   const motionProps = {
     initial: {
-      opacity: shouldReduceMotion ? 1 : 0.25,
-      y: shouldReduceMotion ? 0 : 18,
-      filter: shouldReduceMotion ? 'blur(0px)' : 'blur(6px)',
+      opacity: shouldReduceMotion ? 1 : 0,
+      y: shouldReduceMotion ? 0 : 12,
+      filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
     },
     whileInView: {
       opacity: 1,
@@ -35,7 +35,7 @@ export function MotionReveal({
       margin: '0px',
     },
     transition: {
-      duration: shouldReduceMotion ? 0.15 : 0.45,
+      duration: shouldReduceMotion ? 0.15 : 0.32,
       delay: shouldReduceMotion ? 0 : delay,
       ease: [0.21, 0.47, 0.32, 0.98] as const,
     },
