@@ -43,18 +43,38 @@ export const metadata: Metadata = {
     description:
       "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
   },
-  icons: {
-    icon: "/logo.svg",
-  },
 };
 
 const jsonLd = {
   "@context": "https://schema.org",
-  "@type": "WebSite",
-  name: "Plurilog",
-  url: "https://plurilogai.com/",
-  description:
-    "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://plurilogai.com/#website",
+      name: "Plurilog",
+      alternateName: "Plurilog AI",
+      url: "https://plurilogai.com/",
+      description:
+        "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+      publisher: {
+        "@id": "https://plurilogai.com/#organization",
+      },
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://plurilogai.com/#organization",
+      name: "Plurilog",
+      alternateName: "Plurilog AI",
+      url: "https://plurilogai.com/",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://plurilogai.com/plurilog-icon-512.png",
+        contentUrl: "https://plurilogai.com/plurilog-icon-512.png",
+        width: 512,
+        height: 512,
+      },
+    },
+  ],
 };
 
 export default function RootLayout({
