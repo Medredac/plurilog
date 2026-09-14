@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
 import { SignupSourceTracker } from "@/components/SignupSourceTracker";
+import { PostHogProvider } from "@/components/PostHogProvider";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -85,6 +86,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`h-full antialiased ${poppins.variable}`}>
       <body className="min-h-full flex flex-col font-sans bg-[#FBF9F5] text-zinc-900">
+        <PostHogProvider />
         <SignupSourceTracker />
         <script
           type="application/ld+json"

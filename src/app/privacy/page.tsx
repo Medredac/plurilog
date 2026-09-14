@@ -27,7 +27,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400">
-            Last updated: August 30, 2026
+            Last updated: September 14, 2026
           </p>
         </MotionReveal>
 
@@ -50,17 +50,20 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">Your content</strong>: the messages you send and the AI responses you receive, so you can revisit past discussions.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Uploaded images</strong>: photos or files you attach to a message.
+                <strong className="font-medium text-zinc-800">Uploaded images and documents</strong>: files or photos you attach to a message.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Payment information</strong>: if you subscribe to Plurilog Plus, our payment processor (Stripe) handles your card details directly. We never see or store your full card number.
+              </li>
+              <li>
+                <strong className="font-medium text-zinc-800">Public website analytics &amp; usage data</strong>: when you browse our public marketing pages and blog, we use PostHog to collect website analytics to help us understand site navigation and user experience. This configuration operates without cookies or persistent browser storage (using in-memory state only) and records pages visited, referrer or campaign parameters, general browser/device technical details, and a temporary pseudonymous identifier. On public pages, session replay may be used to observe how visitors navigate; form and input values are automatically masked. Authenticated app areas (such as your dashboard, discussions, and account settings) are excluded from session replay, and we do not intentionally send your prompts, AI responses, uploaded file contents, filenames, or email addresses to PostHog.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Basic technical data</strong>: standard server logs (like IP address and timestamps) generated automatically by our hosting provider for security and troubleshooting purposes.
               </li>
             </ul>
             <p>
-              We do not use any advertising trackers, analytics pixels, or third-party marketing cookies. The only cookies we use are strictly necessary ones that keep you signed in.
+              We do not use advertising trackers or third-party marketing cookies. The only cookies we use are strictly necessary ones that keep you signed in.
             </p>
           </MotionReveal>
 
@@ -98,6 +101,9 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Google</strong> &mdash; if you choose to sign in with Google.
+              </li>
+              <li>
+                <strong className="font-medium text-zinc-800">PostHog</strong> &mdash; provides privacy-focused public website analytics and public-page session replay without cookies or persistent browser storage to help us understand how public pages are navigated.
               </li>
             </ul>
             <p>
