@@ -15,6 +15,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: 'https://plurilogai.com/blog',
     },
     {
+      url: 'https://plurilogai.com/blog/chatgpt-vs-claude-vs-gemini',
+    },
+    {
       url: 'https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini',
     },
   ];
