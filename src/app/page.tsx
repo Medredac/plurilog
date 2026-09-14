@@ -6,17 +6,16 @@ import Link from 'next/link';
 import { 
   ArrowRight, 
   Sparkles, 
-  Loader2, 
   MessageCircle, 
   MessagesSquare, 
   ArrowUpDown, 
   RefreshCw, 
   Trophy, 
-  Eye,
-  AlertCircle,
-  X,
-  Check,
-  ChevronDown
+  Eye, 
+  AlertCircle, 
+  X, 
+  Check, 
+  ChevronDown 
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { AuthModal } from '../components/AuthModal';
@@ -175,7 +174,6 @@ export default function LandingPage() {
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
 
   const supabase = createClient();
@@ -196,8 +194,6 @@ export default function LandingPage() {
         }
       } catch (err) {
         console.error('Session check error:', err);
-      } finally {
-        setIsCheckingAuth(false);
       }
     };
 
@@ -218,7 +214,7 @@ export default function LandingPage() {
   }, [router, supabase]);
 
   useEffect(() => {
-    if (!isCheckingAuth && typeof window !== 'undefined' && window.location.hash) {
+    if (typeof window !== 'undefined' && window.location.hash) {
       const targetId = window.location.hash.slice(1);
       const targetEl = document.getElementById(targetId);
       if (targetEl) {
@@ -227,7 +223,7 @@ export default function LandingPage() {
         });
       }
     }
-  }, [isCheckingAuth]);
+  }, []);
 
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
     if (isAuthenticated) {
@@ -243,14 +239,6 @@ export default function LandingPage() {
     setIsAuthenticated(true);
     router.replace('/dashboard');
   };
-
-  if (isCheckingAuth || isAuthenticated) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
-        <Loader2 className="w-5 h-5 animate-spin text-zinc-400" />
-      </div>
-    );
-  }
 
   const scrollRevealProps = (delay = 0) => ({
     initial: {
