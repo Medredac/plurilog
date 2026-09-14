@@ -112,11 +112,9 @@ const faqItems = [
     ]
   },
   {
-    question: "How does Plurilog handle my data?",
+    question: "Is my data private?",
     answer: [
-      "You stay in control of your data. Plurilog stores your discussions and related conversation data so features such as conversation history, shared context, memory, and document and image retrieval can continue working when you return to a discussion.",
-      "When you delete a discussion, its messages, conversation-specific memory, document and retrieval data, image-related data, and associated uploaded files are automatically removed from Plurilog's active database and primary storage.",
-      "To generate AI responses, relevant conversation content may be sent through OpenRouter to the selected AI providers for processing. Data handled by those external providers is subject to their respective API and data-retention policies."
+      "Your conversations are private to your account and removable at any time. Only the data needed to provide Plurilog’s features and AI responses is processed. AI requests are handled securely through model providers, and your data is not used for advertising."
     ]
   },
   {
