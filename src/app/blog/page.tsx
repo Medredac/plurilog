@@ -11,6 +11,28 @@ export const metadata: Metadata = {
   alternates: {
     canonical: 'https://plurilogai.com/blog',
   },
+  openGraph: {
+    title: 'Blog | Plurilog',
+    description: 'Insights, updates, and ideas from Plurilog.',
+    url: 'https://plurilogai.com/blog',
+    siteName: 'Plurilog',
+    locale: 'en_US',
+    type: 'website',
+    images: [
+      {
+        url: 'https://plurilogai.com/opengraph-image.png',
+        width: 1200,
+        height: 630,
+        alt: 'Plurilog - Your Own AI Panel',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Blog | Plurilog',
+    description: 'Insights, updates, and ideas from Plurilog.',
+    images: ['https://plurilogai.com/twitter-image.png'],
+  },
 };
 
 export default function BlogPage() {
