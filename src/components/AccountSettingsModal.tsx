@@ -205,31 +205,61 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
             )}
 
             {userPlan === 'free' && (
-              <div className="mt-4 rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5">
-                <h4 className="text-lg font-semibold text-zinc-900 mb-1">Upgrade to Plus</h4>
-                <p className="text-sm text-zinc-500 mb-1">Unlock more from every conversation.</p>
-                <p className="text-sm font-medium text-zinc-900 mb-4">$19/month</p>
-                <div className="space-y-2 text-left max-w-[220px] mb-5">
-                  <div className="flex items-start gap-2">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                    <span className="text-xs text-zinc-700">File upload</span>
+              <div className="mt-4 relative rounded-2xl border-2 border-amber-300 bg-amber-50/40 p-6 sm:p-8 flex flex-col justify-between shadow-sm hover:border-amber-400 transition-colors">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h4 className="text-lg font-semibold text-zinc-900">Plus</h4>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-xs font-medium border border-amber-200/80">
+                      Recommended
+                    </span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                    <span className="text-xs text-zinc-700">Image upload</span>
+                  <div className="flex items-baseline gap-1.5 mb-2">
+                    <span className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">$19</span>
+                    <span className="text-xs sm:text-sm text-zinc-500 font-medium">/ month</span>
                   </div>
-                  <div className="flex items-start gap-2">
-                    <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                    <span className="text-xs text-zinc-700">More extensive use</span>
-                  </div>
+                  <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed mb-6">
+                    For ongoing use of Plurilog.
+                  </p>
+                  <ul className="space-y-3 text-xs sm:text-sm text-zinc-700 mb-8">
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span className="font-medium">Everything in Free</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Monthly usage refreshed every billing cycle</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>ChatGPT, Claude and Gemini available</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Shared memory, files and retrieval</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Cancel anytime</span>
+                    </li>
+                  </ul>
                 </div>
                 <button
                   type="button"
                   onClick={() => handleUpgrade(setIsRedirectingPromo)}
                   disabled={isRedirectingPromo}
-                  className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-zinc-900 bg-amber-400 hover:bg-amber-500 transition-colors cursor-pointer disabled:opacity-60"
+                  className="w-full py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm transition-all cursor-pointer shadow-sm hover:shadow disabled:opacity-60"
                 >
-                  {isRedirectingPromo ? 'Redirecting…' : 'Upgrade to Plus'}
+                  {isRedirectingPromo ? 'Redirecting…' : 'Get Plus'}
                 </button>
               </div>
             )}
