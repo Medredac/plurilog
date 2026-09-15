@@ -646,6 +646,149 @@ export default function LandingPage() {
           </motion.div>
         </section>
 
+        {/* Pricing Section */}
+        <section
+          id="pricing"
+          className="w-full border-t border-zinc-100 scroll-mt-16"
+        >
+          <div className="max-w-5xl mx-auto px-6 sm:px-12 py-16">
+            <motion.div {...scrollRevealProps(0)}>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
+                Simple pricing
+              </h2>
+              <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
+                Try Plurilog for free, then upgrade when you&apos;re ready.
+              </p>
+            </motion.div>
+
+            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto items-stretch">
+              {/* Free Card */}
+              <motion.div
+                {...scrollRevealProps(0.06)}
+                className="rounded-2xl border border-zinc-200/80 bg-white/80 p-6 sm:p-8 flex flex-col justify-between shadow-2xs hover:border-zinc-300 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h3 className="text-lg font-semibold text-zinc-900">Free</h3>
+                  </div>
+                  <div className="flex items-baseline gap-1 mb-2">
+                    <span className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">$0</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-6">
+                    Try Plurilog with one-time starter usage.
+                  </p>
+                  <ul className="space-y-3 text-xs sm:text-sm text-zinc-600 mb-8">
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>ChatGPT, Claude and Gemini together</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Shared conversation context</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Files and images</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Full panel controls</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>One-time included usage</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-600 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>No card required</span>
+                    </li>
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAuth('signup')}
+                  className="w-full py-3 px-4 rounded-xl border border-zinc-200/90 bg-white hover:bg-zinc-50 text-zinc-900 font-medium text-sm transition-colors cursor-pointer shadow-2xs"
+                >
+                  Start free
+                </button>
+              </motion.div>
+
+              {/* Plus Card */}
+              <motion.div
+                {...scrollRevealProps(0.12)}
+                className="relative rounded-2xl border-2 border-amber-300 bg-amber-50/40 p-6 sm:p-8 flex flex-col justify-between shadow-sm hover:border-amber-400 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <h3 className="text-lg font-semibold text-zinc-900">Plus</h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-xs font-medium border border-amber-200/80">
+                      Recommended
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5 mb-2">
+                    <span className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">$19</span>
+                    <span className="text-xs sm:text-sm text-zinc-500 font-medium">/ month</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed mb-6">
+                    For ongoing use of Plurilog.
+                  </p>
+                  <ul className="space-y-3 text-xs sm:text-sm text-zinc-700 mb-8">
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span className="font-medium">Everything in Free</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Monthly usage refreshed every billing cycle</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>ChatGPT, Claude and Gemini available</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Shared memory, files and retrieval</span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
+                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
+                      </div>
+                      <span>Cancel anytime</span>
+                    </li>
+                  </ul>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenAuth('signup')}
+                  className="w-full py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm transition-all cursor-pointer shadow-sm hover:shadow"
+                >
+                  Get Plus
+                </button>
+              </motion.div>
+            </div>
+          </div>
+        </section>
+
         {/* FAQ Section */}
         <section
           id="faq"
