@@ -128,6 +128,17 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
     }
   };
 
+  const handlePricingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    setIsMobileMenuOpen(false);
+    if (pathname === '/') {
+      e.preventDefault();
+      const pricingEl = document.getElementById('pricing');
+      if (pricingEl) {
+        pricingEl.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  };
+
   return (
     <header ref={headerRef} className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-zinc-100 px-6 sm:px-12 py-3.5">
       <div className="flex items-center justify-between">
@@ -151,6 +162,13 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
             className="hover:text-zinc-900 transition-colors cursor-pointer"
           >
             About
+          </Link>
+          <Link
+            href="/#pricing"
+            onClick={handlePricingClick}
+            className="hover:text-zinc-900 transition-colors cursor-pointer"
+          >
+            Pricing
           </Link>
           <Link
             href="/terms"
@@ -259,6 +277,13 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
                 className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
               >
                 About
+              </Link>
+              <Link
+                href="/#pricing"
+                onClick={handlePricingClick}
+                className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+              >
+                Pricing
               </Link>
               <Link
                 href="/terms"
