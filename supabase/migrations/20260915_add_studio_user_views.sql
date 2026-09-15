@@ -17,6 +17,7 @@ SELECT
   u.email AS user_email,
   d.id AS discussion_id,
   d.title,
+  d.snippet,
   d.summary,
   d.created_at,
   d.updated_at
@@ -38,10 +39,14 @@ SELECT
   m.discussion_id,
   d.title AS discussion_title,
   m.sender,
+  m.model_id,
+  m.author_name,
   m.content,
   m.image_url,
   m.attachment_urls,
   m.visual_document_id,
+  m.tokens,
+  m.cost_cents,
   m.created_at
 FROM public.messages m
 LEFT JOIN public.discussions d ON d.id = m.discussion_id
@@ -129,7 +134,7 @@ SELECT
   dc.document_id,
   d.title AS discussion_title,
   dc.chunk_index,
-  dc.content,
+  dc.chunk_text,
   dc.created_at
 FROM public.discussion_document_chunks dc
 LEFT JOIN public.discussions d ON d.id = dc.discussion_id
@@ -175,7 +180,6 @@ SELECT
   d.title AS discussion_title,
   das.storage_path,
   das.filename,
-  das.source_message_id,
   das.attachment_index,
   das.created_at
 FROM public.discussion_artifact_sources das
@@ -252,6 +256,4 @@ REVOKE ALL ON TABLE public.discussion_artifacts_with_user FROM anon, authenticat
 REVOKE ALL ON TABLE public.discussion_artifact_sources_with_user FROM anon, authenticated;
 REVOKE ALL ON TABLE public.discussion_artifact_descriptors_with_user FROM anon, authenticated;
 REVOKE ALL ON TABLE public.message_visual_evidence_with_user FROM anon, authenticated;
-
-
 
