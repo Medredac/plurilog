@@ -55,7 +55,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
         </p>
         <div className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-4 mb-5 text-left">
           <div className="flex items-baseline gap-1 mb-0.5">
-            <span className="text-2xl font-semibold text-zinc-900">$16</span>
+            <span className="text-2xl font-semibold text-zinc-900">$19</span>
             <span className="text-xs text-zinc-500">/ month</span>
           </div>
           <p className="text-[11px] text-zinc-400 mb-3">Plurilog Plus</p>

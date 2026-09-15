@@ -185,7 +185,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <img src="/logo.svg" alt="Plurilog" className="w-7 h-7" />
                 <div>
                   <p className="text-sm font-medium text-zinc-900">{userPlan === 'paid' ? 'Plus' : 'Free'}</p>
-                  <p className="text-xs text-zinc-500">{userPlan === 'paid' ? '$16 / month' : '$0 / month'}</p>
+                  <p className="text-xs text-zinc-500">{userPlan === 'paid' ? '$19 / month' : '$0 / month'}</p>
                 </div>
               </div>
               <button
@@ -208,7 +208,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
               <div className="mt-4 rounded-2xl border border-amber-200/80 bg-amber-50/40 p-5">
                 <h4 className="text-lg font-semibold text-zinc-900 mb-1">Upgrade to Plus</h4>
                 <p className="text-sm text-zinc-500 mb-1">Unlock more from every conversation.</p>
-                <p className="text-sm font-medium text-zinc-900 mb-4">$16/month</p>
+                <p className="text-sm font-medium text-zinc-900 mb-4">$19/month</p>
                 <div className="space-y-2 text-left max-w-[220px] mb-5">
                   <div className="flex items-start gap-2">
                     <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />

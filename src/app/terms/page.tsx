@@ -70,7 +70,7 @@ export default function TermsPage() {
               Subscriptions and Billing
             </h2>
             <p>
-              New accounts receive a one-time free trial credit, which does not renew. Plurilog Plus is a paid subscription billed at $16/month, which renews automatically until you cancel. You can cancel anytime through your account settings &mdash; your access continues through the end of the period you already paid for. Except where required by law, payments are non-refundable for partial billing periods. We may change our pricing, and will give you reasonable notice before any change affecting your subscription takes effect.
+              New accounts receive a one-time free trial credit, which does not renew. Plurilog Plus is a paid subscription billed at $19/month, which renews automatically until you cancel. You can cancel anytime through your account settings &mdash; your access continues through the end of the period you already paid for. Except where required by law, payments are non-refundable for partial billing periods. We may change our pricing, and will give you reasonable notice before any change affecting your subscription takes effect.
             </p>
           </MotionReveal>
 
