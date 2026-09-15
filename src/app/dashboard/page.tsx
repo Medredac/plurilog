@@ -9,6 +9,7 @@ import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
+import { DeleteProfileModal } from '../../components/DeleteProfileModal';
 import { PrintableDiscussion } from '../../components/PrintableDiscussion';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
@@ -156,6 +157,7 @@ export default function DashboardPage() {
   const hasShownLowCreditRef = useRef(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isDeleteProfileModalOpen, setIsDeleteProfileModalOpen] = useState(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; files?: File[]; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
@@ -688,6 +690,20 @@ export default function DashboardPage() {
       console.error('[Supabase Error] Sign out error:', err);
       router.replace('/');
     }
+  };
+
+  const handleAccountDeletionComplete = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('[Account Deletion] Sign-out post deletion notice:', err);
+    }
+    try {
+      localStorage.removeItem('plurilog_signup_source');
+    } catch {
+      // Safe catch for restricted storage environments
+    }
+    window.location.href = '/';
   };
 
   const handleToggleModel = (id: ModelId) => {
@@ -2062,6 +2078,7 @@ export default function DashboardPage() {
           userPlan={userPlan}
           onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
           onSignOut={handleSignOut}
+          onDeleteProfileClick={() => setIsDeleteProfileModalOpen(true)}
         />
 
         {/* Main Chamber */}
@@ -2268,6 +2285,13 @@ export default function DashboardPage() {
           onNameUpdated={(newName) => setUserDisplayName(newName)}
           periodResetAt={periodResetAt}
           planStatus={planStatus}
+        />
+
+        {/* Delete Profile Confirmation Modal */}
+        <DeleteProfileModal
+          isOpen={isDeleteProfileModalOpen}
+          onClose={() => setIsDeleteProfileModalOpen(false)}
+          onDeletionComplete={handleAccountDeletionComplete}
         />
       </div>
 

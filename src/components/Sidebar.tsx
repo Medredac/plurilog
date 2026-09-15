@@ -34,6 +34,7 @@ interface SidebarProps {
   userPlan?: 'free' | 'paid';
   onOpenAccountSettings?: () => void;
   onSignOut?: () => void;
+  onDeleteProfileClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -55,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userPlan = 'free',
   onOpenAccountSettings,
   onSignOut,
+  onDeleteProfileClick,
 }) => {
   const desktopOpen = isDesktopOpen !== undefined ? isDesktopOpen : (isOpen ?? true);
   const drawerOpen = isDrawerOpen !== undefined ? isDrawerOpen : (isOpen ?? false);
@@ -546,6 +548,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <LogOut className="w-4 h-4" />
                         <span className="font-normal">Log Out</span>
                       </button>
+                    )}
+
+                    {onDeleteProfileClick && (
+                      <>
+                        <div className="border-t border-zinc-100 my-1" />
+                        <button
+                          onClick={() => {
+                            setIsProfileMenuOpen(false);
+                            onDeleteProfileClick();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-red-50 active:bg-red-100 text-red-600 hover:text-red-700 transition-colors cursor-pointer text-left target-secondary"
+                        >
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                          <span className="font-normal">Delete profile</span>
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
