@@ -173,6 +173,7 @@ export default function LandingPage() {
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const [authRedirectTarget, setAuthRedirectTarget] = useState('/dashboard');
   const authRedirectTargetRef = useRef<string>('/dashboard');
 
   const supabase = createClient();
@@ -188,8 +189,8 @@ export default function LandingPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setIsAuthenticated(true);
-          router.replace('/dashboard');
-          return;
+        } else {
+          setIsAuthenticated(false);
         }
       } catch (err) {
         console.error('Session check error:', err);
@@ -201,8 +202,10 @@ export default function LandingPage() {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setIsAuthenticated(true);
-        const target = authRedirectTargetRef.current || '/dashboard';
-        router.replace(target);
+        if (event === 'SIGNED_IN') {
+          const target = authRedirectTargetRef.current || '/dashboard';
+          router.replace(target);
+        }
       } else {
         setIsAuthenticated(false);
       }
@@ -227,6 +230,7 @@ export default function LandingPage() {
 
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
     authRedirectTargetRef.current = '/dashboard';
+    setAuthRedirectTarget('/dashboard');
     if (isAuthenticated) {
       router.push('/dashboard');
     } else {
@@ -240,6 +244,7 @@ export default function LandingPage() {
       router.push('/dashboard?upgrade=true');
     } else {
       authRedirectTargetRef.current = '/dashboard?upgrade=true';
+      setAuthRedirectTarget('/dashboard?upgrade=true');
       setAuthMode('signup');
       setIsAuthModalOpen(true);
     }
@@ -890,6 +895,7 @@ export default function LandingPage() {
       <AuthModal
         isOpen={isAuthModalOpen}
         initialMode={authMode}
+        redirectUrl={authRedirectTarget}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
       />

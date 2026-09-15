@@ -50,6 +50,7 @@ interface AuthModalProps {
   onClose: () => void;
   onSuccess: () => void;
   initialMode?: 'signin' | 'signup';
+  redirectUrl?: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -57,6 +58,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onSuccess,
   initialMode = 'signin',
+  redirectUrl = '/dashboard',
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
@@ -186,10 +188,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setErrorMessage(null);
+    const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
+    if (redirectUrl && redirectUrl !== '/dashboard') {
+      callbackUrl.searchParams.set('next', redirectUrl);
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl.toString(),
       },
     });
     if (error) {

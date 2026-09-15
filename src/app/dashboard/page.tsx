@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
@@ -67,6 +67,36 @@ interface ActiveDiscussionState {
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
   activeSpeaker: ModelId | null;
+}
+
+interface UpgradeParamsHandlerProps {
+  isLoadingAuth: boolean;
+  onOpenUpgrade: () => void;
+  urlDiscussionId?: string;
+}
+
+function UpgradeParamsHandler({
+  isLoadingAuth,
+  onOpenUpgrade,
+  urlDiscussionId,
+}: UpgradeParamsHandlerProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const hasHandledUpgradeRef = useRef(false);
+
+  useEffect(() => {
+    if (searchParams.get('upgrade') !== 'true') {
+      hasHandledUpgradeRef.current = false;
+      return;
+    }
+    if (!isLoadingAuth && !hasHandledUpgradeRef.current) {
+      hasHandledUpgradeRef.current = true;
+      onOpenUpgrade();
+      router.replace(urlDiscussionId ? `/dashboard/${urlDiscussionId}` : '/dashboard', { scroll: false });
+    }
+  }, [isLoadingAuth, searchParams, router, onOpenUpgrade, urlDiscussionId]);
+
+  return null;
 }
 
 export default function DashboardPage() {
@@ -140,20 +170,6 @@ export default function DashboardPage() {
   const isNearBottomRef = useRef(true);
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
-
-  // Automatically open Account Settings if arrived with ?upgrade=true, and clean URL
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('upgrade') === 'true') {
-        setIsAccountSettingsOpen(true);
-        params.delete('upgrade');
-        const remainingQuery = params.toString();
-        const newUrl = `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${window.location.hash}`;
-        window.history.replaceState(null, '', newUrl);
-      }
-    }
-  }, []);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -1986,19 +2002,28 @@ export default function DashboardPage() {
 
   if (isLoadingAuth) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
-        <div className="flex flex-col items-center gap-3">
-          <img
-            src="/logo.svg"
-            alt="Plurilog"
-            className="w-8 h-8 rounded-lg object-contain"
+      <>
+        <Suspense fallback={null}>
+          <UpgradeParamsHandler
+            isLoadingAuth={isLoadingAuth}
+            onOpenUpgrade={() => setIsAccountSettingsOpen(true)}
+            urlDiscussionId={urlDiscussionId}
           />
-          <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
-            <span>Verifying session...</span>
+        </Suspense>
+        <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
+          <div className="flex flex-col items-center gap-3">
+            <img
+              src="/logo.svg"
+              alt="Plurilog"
+              className="w-8 h-8 rounded-lg object-contain"
+            />
+            <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
+              <span>Verifying session...</span>
+            </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -2009,6 +2034,13 @@ export default function DashboardPage() {
 
   return (
     <>
+      <Suspense fallback={null}>
+        <UpgradeParamsHandler
+          isLoadingAuth={isLoadingAuth}
+          onOpenUpgrade={() => setIsAccountSettingsOpen(true)}
+          urlDiscussionId={urlDiscussionId}
+        />
+      </Suspense>
       <div 
         className="flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
       >
