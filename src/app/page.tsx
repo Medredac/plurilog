@@ -189,6 +189,7 @@ export default function LandingPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setIsAuthenticated(true);
+          router.replace('/dashboard');
         } else {
           setIsAuthenticated(false);
         }
