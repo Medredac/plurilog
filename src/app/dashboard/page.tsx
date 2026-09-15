@@ -141,6 +141,20 @@ export default function DashboardPage() {
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
 
+  // Automatically open Account Settings if arrived with ?upgrade=true, and clean URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('upgrade') === 'true') {
+        setIsAccountSettingsOpen(true);
+        params.delete('upgrade');
+        const remainingQuery = params.toString();
+        const newUrl = `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ''}${window.location.hash}`;
+        window.history.replaceState(null, '', newUrl);
+      }
+    }
+  }, []);
+
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
   useEffect(() => {

@@ -173,6 +173,7 @@ export default function LandingPage() {
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const authRedirectTargetRef = useRef<string>('/dashboard');
 
   const supabase = createClient();
 
@@ -200,7 +201,8 @@ export default function LandingPage() {
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
         setIsAuthenticated(true);
-        router.replace('/dashboard');
+        const target = authRedirectTargetRef.current || '/dashboard';
+        router.replace(target);
       } else {
         setIsAuthenticated(false);
       }
@@ -224,6 +226,7 @@ export default function LandingPage() {
   }, []);
 
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
+    authRedirectTargetRef.current = '/dashboard';
     if (isAuthenticated) {
       router.push('/dashboard');
     } else {
@@ -232,10 +235,21 @@ export default function LandingPage() {
     }
   };
 
+  const handleGetPlus = () => {
+    if (isAuthenticated) {
+      router.push('/dashboard?upgrade=true');
+    } else {
+      authRedirectTargetRef.current = '/dashboard?upgrade=true';
+      setAuthMode('signup');
+      setIsAuthModalOpen(true);
+    }
+  };
+
   const handleAuthSuccess = () => {
     setIsAuthModalOpen(false);
     setIsAuthenticated(true);
-    router.replace('/dashboard');
+    const target = authRedirectTargetRef.current || '/dashboard';
+    router.replace(target);
   };
 
   const scrollRevealProps = (delay = 0) => ({
@@ -779,7 +793,7 @@ export default function LandingPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleOpenAuth('signup')}
+                  onClick={handleGetPlus}
                   className="w-full py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm transition-all cursor-pointer shadow-sm hover:shadow"
                 >
                   Get Plus
