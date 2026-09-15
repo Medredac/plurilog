@@ -523,7 +523,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   {/* Menu Items */}
-                  <div className="space-y-0.5 text-sm text-zinc-600">
+                  <div className="space-y-0.5 text-xs text-zinc-600">
                     <button
                       onClick={() => {
                         setIsProfileMenuOpen(false);
@@ -545,7 +545,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }}
                         className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
                       >
-                        <LogOut className="w-4 h-4" />
+                        <LogOut className="w-4 h-4 text-zinc-400" />
                         <span className="font-normal">Log Out</span>
                       </button>
                     )}
@@ -558,10 +558,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             setIsProfileMenuOpen(false);
                             onDeleteProfileClick();
                           }}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-red-50 active:bg-red-100 text-red-600 hover:text-red-700 transition-colors cursor-pointer text-left target-secondary"
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
                         >
-                          <Trash2 className="w-4 h-4 text-red-500" />
-                          <span className="font-normal">Delete profile</span>
+                          <Trash2 className="w-4 h-4 text-zinc-400" />
+                          <span className="font-normal">Delete account</span>
                         </button>
                       </>
                     )}

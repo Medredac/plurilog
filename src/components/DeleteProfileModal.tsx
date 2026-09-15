@@ -190,10 +190,10 @@ export const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({
         {step === 'confirm' && (
           <>
             <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
-              Delete profile?
+              Delete account?
             </h3>
             <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
-              Permanently deleting your profile will remove your conversations, uploaded files and images, documents, memory, and account data. This cannot be undone.
+              Permanently deleting your account will remove your conversations, uploaded files and images, documents, memory, and account data. This cannot be undone.
             </p>
             <div className="flex items-center justify-end gap-2.5">
               <button
@@ -211,7 +211,7 @@ export const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({
                 className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 target-secondary disabled:opacity-50"
               >
                 {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isLoading ? 'Checking…' : 'Delete profile'}</span>
+                <span>{isLoading ? 'Checking…' : 'Delete account'}</span>
               </button>
             </div>
           </>
@@ -224,7 +224,7 @@ export const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({
               Active Plus subscription
             </h3>
             <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
-              You have an active Plus subscription. Please cancel your subscription first, then come back to delete your profile.
+              You have an active Plus subscription. Please cancel your subscription first, then come back to delete your account.
             </p>
             <div className="flex items-center justify-end gap-2.5">
               <button
@@ -252,12 +252,12 @@ export const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({
         {step === 'canceling_plus' && (
           <>
             <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
-              Delete profile now?
+              Delete account now?
             </h3>
             <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-5">
               {formattedPeriodEnd
-                ? `Your current Plus subscription expires on ${formattedPeriodEnd}. If you delete your profile now, you will lose access immediately. This cannot be undone.`
-                : 'Your Plus subscription is scheduled to end at the end of the current billing period. If you delete your profile now, you will lose access immediately. This cannot be undone.'}
+                ? `Your current Plus subscription expires on ${formattedPeriodEnd}. If you delete your account now, you will lose access immediately. This cannot be undone.`
+                : 'Your Plus subscription is scheduled to end at the end of the current billing period. If you delete your account now, you will lose access immediately. This cannot be undone.'}
             </p>
             <div className="flex items-center justify-end gap-2.5">
               <button
@@ -275,7 +275,7 @@ export const DeleteProfileModal: React.FC<DeleteProfileModalProps> = ({
                 className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs flex items-center gap-1.5 target-secondary disabled:opacity-50"
               >
                 {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isLoading ? 'Deleting…' : 'Delete profile anyway'}</span>
+                <span>{isLoading ? 'Deleting…' : 'Delete account anyway'}</span>
               </button>
             </div>
           </>
