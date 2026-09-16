@@ -486,15 +486,15 @@ export default function LandingPage() {
               Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
             </p>
           </motion.div>
-          <motion.div {...scrollRevealProps(0.38)} className="mt-8 rounded-[32px] overflow-hidden shadow-md">
+          <motion.div {...scrollRevealProps(0.38)} className="bg-amber-50 rounded-3xl p-3 mt-8">
             <video
-              src="/plurivid3.mp4"
+              src="/videodemo.mp4"
               autoPlay
               loop
               muted
               playsInline
               controls={false}
-              className="w-full rounded-[32px]"
+              className="w-full rounded-2xl shadow-md"
             />
           </motion.div>
         </section>
