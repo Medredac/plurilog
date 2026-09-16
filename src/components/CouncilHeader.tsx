@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { 
   Loader2,
   ChevronLeft,
@@ -47,6 +47,11 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [isMobilePanelOpen, setIsMobilePanelOpen] = useState(false);
+  const [bouncingSeat, setBouncingSeat] = useState<{
+    id: ModelId;
+    direction: 'up' | 'down';
+  } | null>(null);
+  const shouldReduceMotion = useReducedMotion();
   const panelRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -350,12 +355,23 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
 
               const currentStatus = seatStatuses[id] || 'idle';
               const isSpeaking = currentStatus === 'speaking' || activeSpeaker === id;
+              const isBouncing = bouncingSeat?.id === id && !shouldReduceMotion;
+              const bounceY = isBouncing ? (bouncingSeat.direction === 'up' ? [0, -4, 0] : [0, 4, 0]) : 0;
 
               return (
                 <motion.div
                   key={id}
                   layout="position"
-                  transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
+                  animate={{ y: bounceY }}
+                  transition={{
+                    y: isBouncing ? { duration: 0.18, ease: [0.25, 1, 0.5, 1] } : undefined,
+                    layout: { type: 'tween', duration: 0.25, ease: 'easeInOut' },
+                  }}
+                  onAnimationComplete={() => {
+                    if (isBouncing) {
+                      setBouncingSeat((current) => (current?.id === id ? null : current));
+                    }
+                  }}
                   className={`flex items-center justify-between px-2.5 py-1 rounded-xl border transition-colors select-none min-h-[44px] ${
                     isSpeaking
                       ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
@@ -387,8 +403,17 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                       {/* Up Swap Button (Slot preserved across all rows) */}
                       <button
                         type="button"
-                        onClick={(e) => handleSwap(e, idx - 1)}
-                        disabled={idx === 0 || isDebating}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isDebating) return;
+                          if (idx === 0) {
+                            if (shouldReduceMotion) return;
+                            setBouncingSeat({ id, direction: 'up' });
+                            return;
+                          }
+                          handleSwap(e, idx - 1);
+                        }}
+                        disabled={isDebating}
                         aria-label={`Move ${member?.name || id} earlier`}
                         className="w-7 h-7 [@media(any-pointer:coarse)]:w-9 [@media(any-pointer:coarse)]:h-9 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-white active:bg-zinc-200/70 transition-colors disabled:opacity-20 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
                         title={idx === 0 ? undefined : `Move ${member?.name || id} earlier`}
@@ -399,8 +424,17 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                       {/* Down Swap Button (Slot preserved across all rows) */}
                       <button
                         type="button"
-                        onClick={(e) => handleSwap(e, idx + 1)}
-                        disabled={idx === seatOrder.length - 1 || isDebating}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isDebating) return;
+                          if (idx === seatOrder.length - 1) {
+                            if (shouldReduceMotion) return;
+                            setBouncingSeat({ id, direction: 'down' });
+                            return;
+                          }
+                          handleSwap(e, idx + 1);
+                        }}
+                        disabled={isDebating}
                         aria-label={`Move ${member?.name || id} later`}
                         className="w-7 h-7 [@media(any-pointer:coarse)]:w-9 [@media(any-pointer:coarse)]:h-9 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-white active:bg-zinc-200/70 transition-colors disabled:opacity-20 disabled:pointer-events-none cursor-pointer flex items-center justify-center target-secondary"
                         title={idx === seatOrder.length - 1 ? undefined : `Move ${member?.name || id} later`}
