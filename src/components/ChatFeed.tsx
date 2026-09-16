@@ -309,7 +309,7 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-amber-800 hover:text-amber-900 underline underline-offset-2 transition-colors break-words [overflow-wrap:anywhere]"
+      className="text-zinc-900 hover:text-zinc-600 underline underline-offset-2 font-medium transition-colors break-words [overflow-wrap:anywhere]"
     >
       {children}
     </a>
