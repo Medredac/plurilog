@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
 import { createClient } from '../utils/supabase/client';
-import { PlurilogMark } from './PlurilogMark';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -195,11 +194,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={toggleDrawer}
-            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            className="p-2 rounded-lg transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="Open discussions"
             aria-label="Open discussions"
           >
-            <PlurilogMark className="w-4 h-4 text-zinc-600" />
+            <img
+              src="/logo.svg"
+              alt=""
+              className="w-4 h-4 object-contain"
+            />
           </button>
         </div>
       )}
@@ -237,7 +240,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`p-2 rounded-lg transition-colors cursor-pointer target-primary flex items-center justify-center ${
               drawerOpen
                 ? 'bg-zinc-100 text-zinc-800'
-                : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60'
+                : 'hover:bg-zinc-100 active:bg-zinc-200/60'
             }`}
             title={drawerOpen ? 'Close discussions' : 'All discussions'}
             aria-label={drawerOpen ? 'Close discussions' : 'All discussions'}
@@ -245,7 +248,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {drawerOpen ? (
               <PanelLeftClose className="w-4 h-4 text-zinc-700" strokeWidth={1.5} />
             ) : (
-              <PlurilogMark className="w-4 h-4 text-zinc-500" />
+              <img
+                src="/logo.svg"
+                alt=""
+                className="w-4 h-4 object-contain"
+              />
             )}
           </button>
         </div>
