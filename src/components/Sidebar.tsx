@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { DebateTopic } from '../types/chat';
 import { createClient } from '../utils/supabase/client';
+import { PlurilogMark } from './PlurilogMark';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -198,7 +199,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title="Open discussions"
             aria-label="Open discussions"
           >
-            <PanelLeftClose className="w-4 h-4 rotate-180" strokeWidth={1.5} />
+            <PlurilogMark className="w-4 h-4 text-zinc-600" />
           </button>
         </div>
       )}
@@ -241,7 +242,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             title={drawerOpen ? 'Close discussions' : 'All discussions'}
             aria-label={drawerOpen ? 'Close discussions' : 'All discussions'}
           >
-            <PanelLeftClose className={`w-4 h-4 transition-transform ${drawerOpen ? 'rotate-0 text-zinc-700' : 'rotate-180'}`} strokeWidth={1.5} />
+            {drawerOpen ? (
+              <PanelLeftClose className="w-4 h-4 text-zinc-700" strokeWidth={1.5} />
+            ) : (
+              <PlurilogMark className="w-4 h-4 text-zinc-500" />
+            )}
           </button>
         </div>
 
