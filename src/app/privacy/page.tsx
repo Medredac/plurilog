@@ -63,7 +63,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p>
-              We do not use advertising trackers or third-party marketing cookies. The only cookies we use are strictly necessary ones that keep you signed in.
+              On our public marketing pages, we may use advertising measurement tools, such as the Meta Pixel, and related attribution technologies to understand the effectiveness of our advertising campaigns. We do not use advertising trackers within your authenticated discussion dashboard.
             </p>
           </MotionReveal>
 
@@ -104,6 +104,9 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">PostHog</strong> &mdash; provides privacy-focused public website analytics and public-page session replay without cookies or persistent browser storage to help us understand how public pages are navigated.
+              </li>
+              <li>
+                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution for our public marketing campaigns.
               </li>
             </ul>
             <p>

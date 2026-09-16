@@ -116,7 +116,7 @@ const faqItems = [
   {
     question: "Is my data private?",
     answer: [
-      "Your conversations are private to your account and removable at any time. Only the data needed to provide Plurilog’s features and AI responses is processed. AI requests are handled securely through model providers, and your data is not used for advertising."
+      "Your conversations are private to your account and removable at any time. Only the data needed to provide Plurilog’s features and AI responses is processed. AI requests are handled securely through model providers, and your conversations and prompts are never used for advertising."
     ]
   },
   {
