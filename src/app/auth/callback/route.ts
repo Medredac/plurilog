@@ -11,6 +11,14 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      try {
+        const { data: wasClaimed, error: claimError } = await supabase.rpc('claim_new_registration');
+        if (!claimError && wasClaimed === true) {
+          return NextResponse.redirect(`${origin}/?registered=true`);
+        }
+      } catch (claimErr) {
+        console.error('[Auth Callback] Error claiming registration:', claimErr);
+      }
       return NextResponse.redirect(`${origin}${safeNext}`);
     }
   }

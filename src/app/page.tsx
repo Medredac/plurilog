@@ -240,6 +240,9 @@ export default function LandingPage() {
     } else {
       setAuthMode(mode);
       setIsAuthModalOpen(true);
+      if (mode === 'signup') {
+        window.fbq?.('trackCustom', 'SignupStarted');
+      }
     }
   };
 
@@ -251,6 +254,7 @@ export default function LandingPage() {
       setAuthRedirectTarget('/dashboard?upgrade=true');
       setAuthMode('signup');
       setIsAuthModalOpen(true);
+      window.fbq?.('trackCustom', 'SignupStarted');
     }
   };
 

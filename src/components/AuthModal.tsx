@@ -158,19 +158,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           throw error;
         }
 
-        if (data.session) {
-          onSuccess();
-        } else if (data.user && data.user.identities && data.user.identities.length === 0) {
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
           const submittedEmail = email.trim();
           setEmail(submittedEmail);
           setErrorMessage(`An account associated with ${submittedEmail} already exists.`);
-        } else {
-          setSuccessMessage("Account created! We've sent a confirmation link to your email — click it to activate your account.");
-          setTimeout(() => {
-            if (data.session) {
-              onSuccess();
-            }
-          }, 1500);
+        } else if (data.user) {
+          window.fbq?.('track', 'CompleteRegistration');
+          if (data.session) {
+            onSuccess();
+          } else {
+            setSuccessMessage("Account created! We've sent a confirmation link to your email — click it to activate your account.");
+            setTimeout(() => {
+              if (data.session) {
+                onSuccess();
+              }
+            }, 1500);
+          }
         }
       }
     } catch (err: any) {

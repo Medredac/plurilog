@@ -70,6 +70,7 @@ function MetaPixelTracker() {
   const pathname = usePathname();
   const lastTrackedPathRef = useRef<string | null>(null);
   const isInitializedRef = useRef(false);
+  const hasHandledRegisteredRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -92,6 +93,26 @@ function MetaPixelTracker() {
     if (pathname && lastTrackedPathRef.current !== pathname && typeof window.fbq === 'function') {
       lastTrackedPathRef.current = pathname;
       window.fbq('track', 'PageView');
+    }
+
+    // Process one-time Google OAuth registration bridge
+    if (!hasHandledRegisteredRef.current && typeof window.fbq === 'function') {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        if (searchParams.get('registered') === 'true') {
+          hasHandledRegisteredRef.current = true;
+          window.fbq('track', 'CompleteRegistration');
+
+          searchParams.delete('registered');
+          const remainingQuery = searchParams.toString();
+          const cleanUrl = remainingQuery
+            ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
+            : `${window.location.pathname}${window.location.hash}`;
+          window.history.replaceState(window.history.state, '', cleanUrl);
+        }
+      } catch (err) {
+        console.error('[MetaPixel] Error handling registered parameter:', err);
+      }
     }
   }, [pathname]);
 
