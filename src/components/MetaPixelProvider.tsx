@@ -34,6 +34,35 @@ export function isPublicMetaRoute(pathname: string | null): boolean {
   return false;
 }
 
+export const REGISTRATION_BRIDGE_EVENT = 'plurilog:registration_bridge_complete';
+
+let isScriptReady = false;
+const readyCallbacks: Array<() => void> = [];
+const failCallbacks: Array<() => void> = [];
+
+function notifyReady() {
+  isScriptReady = true;
+  while (readyCallbacks.length > 0) {
+    const cb = readyCallbacks.shift();
+    try {
+      cb?.();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
+function notifyFailed() {
+  while (failCallbacks.length > 0) {
+    const cb = failCallbacks.shift();
+    try {
+      cb?.();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+}
+
 function initMetaPixel(pixelId: string) {
   if (typeof window === 'undefined') return;
   if (window.fbq) return;
@@ -55,6 +84,15 @@ function initMetaPixel(pixelId: string) {
   const script = document.createElement('script');
   script.async = true;
   script.src = 'https://' + 'connect.facebook.net/en_US/fbevents.js';
+
+  script.addEventListener('load', () => {
+    notifyReady();
+  });
+
+  script.addEventListener('error', () => {
+    notifyFailed();
+  });
+
   const firstScript = document.getElementsByTagName('script')[0];
   if (firstScript && firstScript.parentNode) {
     firstScript.parentNode.insertBefore(script, firstScript);
@@ -64,6 +102,42 @@ function initMetaPixel(pixelId: string) {
 
   window.fbq = n;
   n('init', pixelId);
+}
+
+function waitForMetaPixelReady(onReady: () => void, onFailed: () => void, timeoutMs = 1500) {
+  if (typeof window === 'undefined') {
+    onFailed();
+    return;
+  }
+
+  if (isScriptReady) {
+    onReady();
+    return;
+  }
+
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (!settled) {
+      settled = true;
+      onFailed();
+    }
+  }, timeoutMs);
+
+  readyCallbacks.push(() => {
+    if (!settled) {
+      settled = true;
+      clearTimeout(timer);
+      onReady();
+    }
+  });
+
+  failCallbacks.push(() => {
+    if (!settled) {
+      settled = true;
+      clearTimeout(timer);
+      onFailed();
+    }
+  });
 }
 
 function MetaPixelTracker() {
@@ -95,20 +169,44 @@ function MetaPixelTracker() {
       window.fbq('track', 'PageView');
     }
 
-    // Process one-time Google OAuth registration bridge
-    if (!hasHandledRegisteredRef.current && typeof window.fbq === 'function') {
+    // Process deterministic Google OAuth registration bridge
+    if (!hasHandledRegisteredRef.current) {
       try {
         const searchParams = new URLSearchParams(window.location.search);
         if (searchParams.get('registered') === 'true') {
           hasHandledRegisteredRef.current = true;
-          window.fbq('track', 'CompleteRegistration');
 
-          searchParams.delete('registered');
-          const remainingQuery = searchParams.toString();
-          const cleanUrl = remainingQuery
-            ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
-            : `${window.location.pathname}${window.location.hash}`;
-          window.history.replaceState(window.history.state, '', cleanUrl);
+          const finishBridge = () => {
+            try {
+              const currentParams = new URLSearchParams(window.location.search);
+              currentParams.delete('registered');
+              const remainingQuery = currentParams.toString();
+              const cleanUrl = remainingQuery
+                ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
+                : `${window.location.pathname}${window.location.hash}`;
+              window.history.replaceState(window.history.state, '', cleanUrl);
+            } catch (err) {
+              console.error('[MetaPixel] Error cleaning registered parameter:', err);
+            }
+
+            // Signal landing page that registration bridge is complete
+            window.dispatchEvent(new CustomEvent(REGISTRATION_BRIDGE_EVENT));
+          };
+
+          waitForMetaPixelReady(
+            () => {
+              // Real library is loaded; fire event on public landing page
+              if (typeof window.fbq === 'function') {
+                window.fbq('track', 'CompleteRegistration');
+              }
+              finishBridge();
+            },
+            () => {
+              // Failed or timed out (e.g. ad blocker); release bridge without fabricating events
+              finishBridge();
+            },
+            1500
+          );
         }
       } catch (err) {
         console.error('[MetaPixel] Error handling registered parameter:', err);
