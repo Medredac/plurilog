@@ -24,7 +24,8 @@ export function isPublicMetaRoute(pathname: string | null): boolean {
     pathname === '/' ||
     pathname === '/blog' ||
     pathname === '/privacy' ||
-    pathname === '/terms'
+    pathname === '/terms' ||
+    pathname === '/auth/registration-complete'
   ) {
     return true;
   }

@@ -25,7 +25,6 @@ import { SiteHeader } from '../components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
 import { RoleMarquee } from '@/components/RoleMarquee';
 import { createClient } from '../utils/supabase/client';
-import { REGISTRATION_BRIDGE_EVENT } from '@/components/MetaPixelProvider';
 
 const faqItems = [
   {
@@ -189,47 +188,13 @@ export default function LandingPage() {
 
   useEffect(() => {
     let isMounted = true;
-    const isRegistrationBridge = typeof window !== 'undefined' && 
-      new URLSearchParams(window.location.search).get('registered') === 'true';
-
-    let bridgeWaiting = isRegistrationBridge;
-
-    const getSafeTarget = (target: string | undefined): string => {
-      if (typeof target === 'string' && target.startsWith('/') && !target.startsWith('//')) {
-        return target;
-      }
-      return '/dashboard';
-    };
-
-    const performRedirect = (target = '/dashboard', isHard = false) => {
-      if (!isMounted) return;
-      const safeTarget = getSafeTarget(target);
-      if (isHard && typeof window !== 'undefined') {
-        window.location.replace(safeTarget);
-      } else {
-        router.replace(safeTarget);
-      }
-    };
-
-    const onBridgeComplete = () => {
-      if (!bridgeWaiting) return;
-      bridgeWaiting = false;
-      const target = authRedirectTargetRef.current || '/dashboard';
-      performRedirect(target, true);
-    };
-
-    if (isRegistrationBridge && typeof window !== 'undefined') {
-      window.addEventListener(REGISTRATION_BRIDGE_EVENT, onBridgeComplete, { once: true });
-    }
 
     const checkSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session) {
           setIsAuthenticated(true);
-          if (!bridgeWaiting) {
-            performRedirect('/dashboard');
-          }
+          router.replace('/dashboard');
         } else {
           setIsAuthenticated(false);
         }
@@ -245,34 +210,16 @@ export default function LandingPage() {
         setIsAuthenticated(true);
         if (event === 'SIGNED_IN') {
           const target = authRedirectTargetRef.current || '/dashboard';
-          if (!bridgeWaiting) {
-            performRedirect(target);
-          }
+          router.replace(target);
         }
       } else {
         setIsAuthenticated(false);
       }
     });
 
-    // Safety fallback timeout in case bridge completion event is missed
-    let safetyTimer: NodeJS.Timeout | null = null;
-    if (isRegistrationBridge) {
-      safetyTimer = setTimeout(() => {
-        if (bridgeWaiting) {
-          onBridgeComplete();
-        }
-      }, 2200);
-    }
-
     return () => {
       isMounted = false;
       authListener.subscription.unsubscribe();
-      if (isRegistrationBridge && typeof window !== 'undefined') {
-        window.removeEventListener(REGISTRATION_BRIDGE_EVENT, onBridgeComplete);
-      }
-      if (safetyTimer) {
-        clearTimeout(safetyTimer);
-      }
     };
   }, [router, supabase]);
 
