@@ -56,6 +56,32 @@ export default function BlogPage() {
           <div className="space-y-8">
             <MotionReveal delay={0.08}>
               <Link
+                href="/blog/chatgpt-claude-gemini-shared-conversation"
+                className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
+              >
+                <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
+                  <img
+                    src="/blog/why-we-built-plurilog-shared-ai-conversation.png"
+                    alt="Plurilog shared AI conversation with ChatGPT, Claude and Gemini"
+                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                  />
+                </div>
+                <div className="p-6 sm:p-7">
+                  <time className="text-xs font-medium text-zinc-400 block mb-2">
+                    September 17, 2026
+                  </time>
+                  <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 tracking-tight mb-2.5 group-hover:text-zinc-700 transition-colors">
+                    Why We Built Plurilog Around One Shared AI Conversation
+                  </h2>
+                  <p className="text-sm text-zinc-500 leading-relaxed line-clamp-3">
+                    ChatGPT, Claude and Gemini are all useful. The problem begins when the same piece of work is spread across separate conversations. Here is why we built Plurilog around one shared discussion instead.
+                  </p>
+                </div>
+              </Link>
+            </MotionReveal>
+
+            <MotionReveal delay={0.14}>
+              <Link
                 href="/blog/chatgpt-vs-claude-vs-gemini"
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
               >
@@ -80,7 +106,7 @@ export default function BlogPage() {
               </Link>
             </MotionReveal>
 
-            <MotionReveal delay={0.14}>
+            <MotionReveal delay={0.2}>
               <Link
                 href="/blog/ai-hallucinations-chatgpt-claude-gemini"
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
