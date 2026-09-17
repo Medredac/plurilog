@@ -261,7 +261,7 @@ export default function LandingPage() {
         if (bridgeWaiting) {
           onBridgeComplete();
         }
-      }, 2000);
+      }, 2200);
     }
 
     return () => {

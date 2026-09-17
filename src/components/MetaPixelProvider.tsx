@@ -170,6 +170,8 @@ function MetaPixelTracker() {
     }
 
     // Process deterministic Google OAuth registration bridge
+    let postFireTimer: NodeJS.Timeout | null = null;
+
     if (!hasHandledRegisteredRef.current) {
       try {
         const searchParams = new URLSearchParams(window.location.search);
@@ -199,7 +201,10 @@ function MetaPixelTracker() {
               if (typeof window.fbq === 'function') {
                 window.fbq('track', 'CompleteRegistration');
               }
-              finishBridge();
+              // Short post-fire grace period allowing loaded library to dispatch beacon over network before full document unload
+              postFireTimer = setTimeout(() => {
+                finishBridge();
+              }, 250);
             },
             () => {
               // Failed or timed out (e.g. ad blocker); release bridge without fabricating events
@@ -212,6 +217,12 @@ function MetaPixelTracker() {
         console.error('[MetaPixel] Error handling registered parameter:', err);
       }
     }
+
+    return () => {
+      if (postFireTimer) {
+        clearTimeout(postFireTimer);
+      }
+    };
   }, [pathname]);
 
   return null;
