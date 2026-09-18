@@ -377,10 +377,36 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.12,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-4"
+              className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-3"
             >
-              One AI can be confidently wrong. Three rarely are.
+              Your AI Panel: ChatGPT, Claude and Gemini in One Conversation
             </motion.h1>
+
+            {/* Secondary Highlight Line */}
+            <motion.p
+              initial={{
+                opacity: shouldReduceMotion ? 1 : 0,
+                y: shouldReduceMotion ? 0 : 12,
+                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
+              }}
+              whileInView={{
+                opacity: 1,
+                y: 0,
+                filter: 'blur(0px)',
+              }}
+              viewport={{
+                once: false,
+                amount: 0.05,
+              }}
+              transition={{
+                duration: shouldReduceMotion ? 0.15 : 0.32,
+                delay: shouldReduceMotion ? 0 : 0.15,
+                ease: [0.21, 0.47, 0.32, 0.98],
+              }}
+              className="text-base sm:text-lg font-semibold text-[#D94726] mb-4"
+            >
+              They respond to each other, too.
+            </motion.p>
 
             {/* Subheadline */}
             <motion.p
@@ -405,7 +431,7 @@ export default function LandingPage() {
               }}
               className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8"
             >
-              Bring ChatGPT, Claude and Gemini into one ongoing AI discussion, with shared context, documents, and multiple perspectives. Challenge AI errors and hallucinations, uncover blind spots, and get beyond a single AI&apos;s point of view.
+              Ask once. Each model sees the same discussion, including what the others have said, so they can challenge ideas, add another perspective, or build on previous answers.
             </motion.p>
 
             {/* Primary Action Button */}
@@ -435,7 +461,7 @@ export default function LandingPage() {
                 onClick={() => handleOpenAuth('signup')}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
               >
-                <span>Get Started for Free</span>
+                <span>Start a conversation — free</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
