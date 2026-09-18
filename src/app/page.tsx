@@ -403,7 +403,7 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.15,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="text-base sm:text-lg font-semibold text-[#4880E6] mb-4"
+              className="text-base sm:text-lg font-medium text-zinc-500 mb-4"
             >
               They respond to each other, too.
             </motion.p>
