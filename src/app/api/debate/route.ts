@@ -1735,10 +1735,6 @@ export async function POST(req: NextRequest) {
                 imageToolBranchActive = true;
 
                 // 2. Image Credit Preflight Check
-                const configuredReserve = Number(process.env.GEMINI_IMAGE_MIN_RESERVE_CENTS ?? '10');
-                const imageReserveCents =
-                  Number.isFinite(configuredReserve) && configuredReserve > 0 ? configuredReserve : 10;
-
                 const { data: currentBalanceRows, error: checkBalErr } = await supabase.rpc('get_my_balance');
                 if (checkBalErr) {
                   console.error('[Image Preflight] Failed to fetch balance for image generation:', checkBalErr);
@@ -1748,13 +1744,12 @@ export async function POST(req: NextRequest) {
                 const currentBalance = currentBalanceRows?.[0];
                 const remainingCents = Number(currentBalance?.remaining_cents ?? 0);
 
-                if (remainingCents < imageReserveCents) {
-                  console.log('[Image Preflight] User balance below required image reserve:', {
+                if (remainingCents <= 0) {
+                  console.log('[Image Preflight] User balance exhausted for image generation:', {
                     remainingCents,
-                    imageReserveCents,
                   });
                   const lowCreditNotice =
-                    "You don’t have enough usage credit remaining to generate an image right now.";
+                    "You’ve used all of your available usage credit, so I can’t generate another image right now.";
                   seatResponse = seatResponse ? `${seatResponse}\n\n${lowCreditNotice}` : lowCreditNotice;
                   sendEvent('seat_chunk', {
                     seatId: seat.seatId,
