@@ -3766,8 +3766,8 @@ export function isVisualEvidenceQuery(prompt?: string | null): boolean {
 
   // 6. Visual color / ink queries strictly anchored to document objects
   if (
-    /\b(colour|color|ink|blue|red|green|black|white|grey|gray|yellow|orange|purple|pink|brown)\b/i.test(p) &&
-    /\b(signature|handwriting|stamp|seal|logo|photo|picture|image|cnie|id|card|passport|document|page|scan|background|text|font|border|line|box|header|footer|table|section|heading|title)\b/i.test(p)
+    /\b(colour|color|ink)\b/i.test(p) &&
+    /\b(signature|handwriting|stamp|seal|logo|photo|picture|image|cnie|id|card|passport|document|page|scan|background|text|font|border|line|box|header|footer|table)\b/i.test(p)
   ) {
     return true;
   }
