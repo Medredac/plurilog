@@ -4992,7 +4992,7 @@ export function resolveImageEvidence(
         }
       : promptOrOptions;
 
-  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, allUserMessageIds } = options;
+  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, allUserMessageIds, visualContext } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p) return null; // Continue / empty prompt
@@ -5806,17 +5806,58 @@ export function resolveImageEvidence(
       }
     }
   }
+  // 3a. Comparative subset queries (e.g. "compare the first two", "last two", "1st and 2nd")
+  const isSubsetQuery =
+    /\b(compare|between|vs|versus|better than|worse than|differ|difference)\b/i.test(pLower) ||
+    /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:and|or|vs)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\b/i.test(pLower) ||
+    /\b(last two|first two)\b/i.test(pLower);
 
-  if (candidateEvidenceSets.length > 0) {
-    // 3a. Comparative subset queries (e.g. "compare the first two", "last two", "1st and 2nd")
-    const isSubsetQuery =
-      /\b(compare|between|vs|versus|better than|worse than|differ|difference)\b/i.test(pLower) ||
-      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:and|or|vs)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\b/i.test(pLower) ||
-      /\b(last two|first two)\b/i.test(pLower);
+  if (isSubsetQuery) {
+    const subsetCandidateSets: MessageVisualEvidenceItem[][] = [...candidateEvidenceSets];
 
-    if (isSubsetQuery) {
+    // Fallback candidate: Persistent active visual session when available
+    // Strict source validation: requires every active ID to map to a canonical image source with valid storagePath.
+    // If any active source is missing, the fallback is aborted to preserve strict ordinal integrity without fabricating evidence or shifting positions.
+    if (visualContext?.active_session_source_ids && visualContext.active_session_source_ids.length > 0) {
+      const activeIds = visualContext.active_session_source_ids;
+      const resolvedActiveSources: KnownImageSource[] = [];
+      let allActiveSourcesValid = true;
+
+      for (const id of activeIds) {
+        const src = discussionSources.find((s) => s.sourceId === id);
+        if (!src || !src.storagePath) {
+          allActiveSourcesValid = false;
+          break;
+        }
+        resolvedActiveSources.push(src);
+      }
+
+      if (allActiveSourcesValid && resolvedActiveSources.length === activeIds.length) {
+        const activeSetItems: MessageVisualEvidenceItem[] = resolvedActiveSources.map((src, idx) => ({
+          id: '',
+          messageId: src.sourceMessageId || '',
+          sourceId: src.sourceId,
+          artifactId: src.artifactId || '',
+          ordinal: idx,
+          storagePath: src.storagePath,
+          filename: src.filename || '',
+          createdAt: src.createdAt || '',
+        }));
+
+        const isAlreadyPresent = subsetCandidateSets.some(
+          (set) =>
+            set.length === activeSetItems.length &&
+            set.every((item, i) => item.sourceId === activeSetItems[i]?.sourceId)
+        );
+        if (!isAlreadyPresent) {
+          subsetCandidateSets.push(activeSetItems);
+        }
+      }
+    }
+
+    if (subsetCandidateSets.length > 0) {
       if (/\b(last two)\b/i.test(pLower)) {
-        for (const evSet of candidateEvidenceSets) {
+        for (const evSet of subsetCandidateSets) {
           if (evSet.length >= 2) {
             const selected = evSet.slice(-2);
             const mapped: KnownImageSource[] = [];
@@ -5837,7 +5878,7 @@ export function resolveImageEvidence(
       }
 
       if (/\b(first two)\b/i.test(pLower)) {
-        for (const evSet of candidateEvidenceSets) {
+        for (const evSet of subsetCandidateSets) {
           if (evSet.length >= 2) {
             const selected = evSet.slice(0, 2);
             const mapped: KnownImageSource[] = [];
@@ -5866,7 +5907,7 @@ export function resolveImageEvidence(
 
       if (requestedOrdinals.length >= 2) {
         const uniqueOrdinals = Array.from(new Set(requestedOrdinals)).sort((a, b) => a - b);
-        for (const evSet of candidateEvidenceSets) {
+        for (const evSet of subsetCandidateSets) {
           const allExist = uniqueOrdinals.every((ord) => ord < evSet.length);
           if (allExist) {
             const mapped: KnownImageSource[] = [];
@@ -5887,6 +5928,7 @@ export function resolveImageEvidence(
         }
       }
     }
+  }
 
     // 3b. Context-dependent pronoun/relative ordinals on active multi-image sets
     // e.g. "the second one", "what about the other one", "look at the 2nd one"
@@ -5920,7 +5962,6 @@ export function resolveImageEvidence(
       }
       return null;
     }
-  }
 
   // 4. PRIORITY 3 — Elliptical Ordinal Scope Inheritance
   // Detects continuation queries with ordinals: "what about the second image?", "and the 2nd?", "how about image 2?", "what about the third?"
