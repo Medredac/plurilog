@@ -96,7 +96,7 @@ export const REQUEST_EVIDENCE_TOOL = [
     function: {
       name: 'request_evidence',
       description:
-        'Request canonical visual evidence from earlier in this discussion when answering accurately requires the actual pixels or rendered PDF rather than text, OCR, filenames, memory, or another panelist\'s description. Use this for visual appearance, layout, colours, photographs, signatures, stamps, image comparison, or another visual detail that is not actually attached to your current call. Do not use it for ordinary document text or conversation history.',
+        'Request canonical visual evidence from earlier in this discussion when answering accurately requires the actual pixels or rendered PDF rather than text, OCR, filenames, memory, or another panelist\'s description. If the user asks about the visual appearance or contents of an earlier image/PDF and that visual is not actually attached to your current call, call this tool BEFORE giving a substantive answer. Do not answer with a disclaimer such as "I cannot see it" or substitute generic advice when this tool is available. Use it for visual appearance, layout, colours, photographs, signatures, stamps, image comparison, or another visual detail that is not actually attached to your current call. Do not use it for ordinary document text or conversation history.',
       parameters: {
         type: 'object',
         properties: {
@@ -156,7 +156,7 @@ Search policy:
   2. Derived source representations (e.g. OCR, parsed text, retrieved document chunks).
   3. Your own reasoning and calibrated knowledge.
   4. Peer claims and conversational contributions (provisional claims to evaluate, never source evidence).
-When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or rendered PDF and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
+When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or rendered PDF and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. When a request_evidence tool is available, this is a mandatory recovery path for any answer that depends on the unseen earlier visual: call request_evidence before giving substantive visual advice. Do not merely say that you lack visual access, do not fall back to generic styling/layout advice, and do not adopt another panelist's visual description instead of requesting the evidence. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 Contribute only as much as is genuinely useful. Do not repeat or paraphrase earlier panelists merely to fill space. However, this brevity rule never excuses independent assessment: do not assume an earlier factual analysis is correct simply because redoing it aloud would be repetitive. Genuine agreement is completely acceptable, but a standalone acknowledgement such as "Agreed", "Yes", "Settled", or "That matches my assessment" is not normally a useful panel contribution. When you agree with earlier panelists, respond naturally while advancing the discussion where possible: contribute your own distinct reasoning, a relevant implication, a necessary qualification, a practical consequence or example, an overlooked assumption, an alternative framing, or another meaningful insight. Do not manufacture disagreement or adopt contrarian stances merely to create activity, and do not become verbose simply to fill a turn. If a topic is genuinely simple, narrow, or completely exhausted and there is truly no useful addition to make, extreme brevity remains acceptable, but advancing the substance is the default goal. Never paraphrase or summarize another panelist's response simply to generate content, and do not act as a narrator, moderator, or play-by-play commentator for what others have said. Do not speak merely to echo what was already said, but do not force brevity when a substantive correction, disagreement, or novel insight requires explanation.
 
@@ -1886,6 +1886,19 @@ export async function POST(req: NextRequest) {
                 ? await prepareGeminiVisionAttachments(currentRoundAttachments)
                 : currentRoundAttachments;
 
+            if (seat.seatId === 'claude') {
+              const currentVisualAttachmentCount = seatAttachments.filter((a) => {
+                const cleanUrl = a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
+                return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
+              }).length;
+              console.log('[Evidence Tool Availability]', {
+                seatId: seat.seatId,
+                enabled: isEvidenceEnabledForSeat,
+                currentVisualAttachmentCount,
+                currentRoundAttachmentCount: currentRoundAttachments.length,
+              });
+            }
+
             const seatMessages = buildPanelMessages(
               seat.name,
               prompt,
@@ -2030,6 +2043,13 @@ export async function POST(req: NextRequest) {
               // gets one dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
+
+                if (seat.seatId === 'claude') {
+                  console.log('[Evidence Tool Decision]', {
+                    enabled: isEvidenceEnabledForSeat,
+                    calls: finalizedCalls.map((call) => call.name),
+                  });
+                }
 
                 const isGenerateImageCall =
                   finalizedCalls.length === 1 &&
@@ -2274,15 +2294,8 @@ export async function POST(req: NextRequest) {
                     stream: true,
                     temperature: 0.7,
                     signal: req.signal,
-                    tools: [
-                      {
-                        type: 'openrouter:web_search',
-                        parameters: {
-                          max_results: 3,
-                          max_total_results: 6,
-                        },
-                      },
-                    ],
+                    tools: REQUEST_EVIDENCE_TOOL,
+                    tool_choice: 'none',
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
                       : {}),
