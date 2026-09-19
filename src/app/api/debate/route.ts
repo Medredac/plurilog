@@ -62,6 +62,10 @@ import {
   finalizeAllToolCalls,
   AccumulatedToolCall,
 } from '@/utils/streamToolCalls';
+import {
+  resolveRequestedEvidence,
+  toModelSafeBrokerResult,
+} from '@/utils/resourceBroker';
 
 export const GEMINI_IMAGE_TOOLS = [
   {
@@ -86,6 +90,50 @@ export const GEMINI_IMAGE_TOOLS = [
   },
 ];
 
+export const REQUEST_EVIDENCE_TOOL = [
+  {
+    type: 'function',
+    function: {
+      name: 'request_evidence',
+      description:
+        'Request canonical visual evidence from earlier in this discussion when answering accurately requires the actual pixels or rendered PDF rather than text, OCR, filenames, memory, or another panelist\'s description. Use this for visual appearance, layout, colours, photographs, signatures, stamps, image comparison, or another visual detail that is not actually attached to your current call. Do not use it for ordinary document text or conversation history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          resource_type: {
+            type: 'string',
+            enum: ['auto', 'image', 'document'],
+            description:
+              'Use "image" for a prior image, "document" for rendered PDF inspection, and "auto" when the visual resource type is genuinely unclear.',
+          },
+          need: {
+            type: 'string',
+            description:
+              'A concise description of the exact visual evidence needed to answer the user.',
+          },
+          filename: {
+            type: 'string',
+            description:
+              'Optional filename only when the user explicitly named it or it is listed in the known document context.',
+          },
+        },
+        required: ['need'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+export function isEvidenceRequestToolEnabled(): boolean {
+  return process.env.EVIDENCE_REQUEST_TOOL_ENABLED === 'true';
+}
+
+export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
+  // Canary rollout: keep Gemini's proven image-generation execution path byte-for-byte
+  // outside the evidence retry mechanism while visual inspection is validated.
+  return isEvidenceRequestToolEnabled() && seatId === 'claude';
+}
+
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' When the user asks something substantive, answer from your own assessment first. Treat other panelists' responses as provisional contributions to compare against that assessment, not as a foundation you are expected to continue. Where useful, address, qualify, correct, question, or add to their points naturally. Do not turn the exchange into a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
 
 Only treat a message as directed at a specific panelist if the user's CURRENT message literally contains that panelist's name. The mere fact that another panelist already responded in this round, or was addressed in an earlier turn, is NOT a signal that the current question excludes you — if no name appears in the user's current message, treat it as open to the whole panel.
@@ -108,7 +156,7 @@ Search policy:
   2. Derived source representations (e.g. OCR, parsed text, retrieved document chunks).
   3. Your own reasoning and calibrated knowledge.
   4. Peer claims and conversational contributions (provisional claims to evaluate, never source evidence).
-When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
+When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or rendered PDF and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 Contribute only as much as is genuinely useful. Do not repeat or paraphrase earlier panelists merely to fill space. However, this brevity rule never excuses independent assessment: do not assume an earlier factual analysis is correct simply because redoing it aloud would be repetitive. Genuine agreement is completely acceptable, but a standalone acknowledgement such as "Agreed", "Yes", "Settled", or "That matches my assessment" is not normally a useful panel contribution. When you agree with earlier panelists, respond naturally while advancing the discussion where possible: contribute your own distinct reasoning, a relevant implication, a necessary qualification, a practical consequence or example, an overlooked assumption, an alternative framing, or another meaningful insight. Do not manufacture disagreement or adopt contrarian stances merely to create activity, and do not become verbose simply to fill a turn. If a topic is genuinely simple, narrow, or completely exhausted and there is truly no useful addition to make, extreme brevity remains acceptable, but advancing the substance is the default goal. Never paraphrase or summarize another panelist's response simply to generate content, and do not act as a narrator, moderator, or play-by-play commentator for what others have said. Do not speak merely to echo what was already said, but do not force brevity when a substantive correction, disagreement, or novel insight requires explanation.
 
@@ -370,6 +418,19 @@ export function buildPanelMessages(
     if (nonCurrentImages.length > 0) {
       sections.push(
         `VISUAL CONTEXT PROVENANCE:\nSome visual evidence supplied in this turn may come from earlier discussion context or from images generated by panelists. The provenance labels attached to each image are authoritative. Do not state or imply that a historical or assistant-generated image was newly uploaded by the user in the current turn.`
+      );
+    }
+  }
+
+  // 6.55. [authoritative current-call visual availability]
+  if (attachments && attachments.length > 0) {
+    const currentVisualCount = attachments.filter((a: RouteAttachment) => {
+      const cleanUrl = a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
+      return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
+    }).length;
+    if (currentVisualCount > 0) {
+      sections.push(
+        `CURRENT VISUAL EVIDENCE:\n${currentVisualCount} visual resource${currentVisualCount === 1 ? ' is' : 's are'} actually attached to your current model call. This count is authoritative for CURRENT-CALL visual access only. It does not establish what visual evidence was or was not supplied to any earlier model call.`
       );
     }
   }
@@ -1759,8 +1820,11 @@ export async function POST(req: NextRequest) {
             let seatUsage: any = null;
             let accumulatedToolCalls: AccumulatedToolCall[] = [];
             let incurredImageCostUsd: number | null = null;
+            let incurredEvidenceFirstPassCostUsd = 0;
             let spendRecorded = false;
             let imageToolBranchActive = false;
+            let evidenceToolBranchActive = false;
+            const bufferedSeatChunks: string[] = [];
 
             sendEvent('seat_start', {
               seatId: seat.seatId,
@@ -1771,6 +1835,7 @@ export async function POST(req: NextRequest) {
 
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
+            const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
@@ -1895,6 +1960,7 @@ export async function POST(req: NextRequest) {
                     },
                   },
                   ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
+                  ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
@@ -1940,10 +2006,14 @@ export async function POST(req: NextRequest) {
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
-                  sendEvent('seat_chunk', {
-                    seatId: seat.seatId,
-                    text: text,
-                  });
+                  if (isEvidenceEnabledForSeat) {
+                    bufferedSeatChunks.push(text);
+                  } else {
+                    sendEvent('seat_chunk', {
+                      seatId: seat.seatId,
+                      text: text,
+                    });
+                  }
                 }
               }
 
@@ -1952,20 +2022,317 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
-              // Check if Gemini invoked a tool call (generate_image)
+              // Route custom tool calls without wrapping the seat in a generic retry loop.
+              // Gemini image generation remains the existing terminal path; only request_evidence
+              // gets one dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
 
-                if (
-                  finalizedCalls.length !== 1 ||
-                  finalizedCalls[0]?.name !== 'generate_image' ||
-                  seat.seatId !== 'gemini' ||
-                  !isGeminiImageEnabled
-                ) {
-                  throw new Error(
-                    `Unsupported or unexpected tool calls (${finalizedCalls.length} calls, primary: "${finalizedCalls[0]?.name}") for ${seat.name}.`
+                const isGenerateImageCall =
+                  finalizedCalls.length === 1 &&
+                  finalizedCalls[0]?.name === 'generate_image' &&
+                  seat.seatId === 'gemini' &&
+                  isGeminiImageEnabled;
+
+                const isEvidenceRequestCall =
+                  finalizedCalls.length === 1 &&
+                  finalizedCalls[0]?.name === 'request_evidence' &&
+                  seat.seatId === 'claude' &&
+                  isEvidenceEnabledForSeat;
+
+                if (isEvidenceRequestCall) {
+                  evidenceToolBranchActive = true;
+                  incurredEvidenceFirstPassCostUsd =
+                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+
+                  const toolCall = finalizedCalls[0];
+                  const toolArgs = (toolCall.arguments || {}) as {
+                    resource_type?: 'auto' | 'image' | 'document';
+                    need?: string;
+                    filename?: string;
+                  };
+                  const toolNeed =
+                    typeof toolArgs.need === 'string' ? toolArgs.need.trim() : '';
+                  const toolResourceType = toolArgs.resource_type || 'auto';
+                  const toolFilename =
+                    typeof toolArgs.filename === 'string' ? toolArgs.filename.trim() : undefined;
+
+                  let latestKnownSources: KnownImageSource[] = [];
+                  let lastRoundEvidenceForBroker: MessageVisualEvidenceItem[] = [];
+                  let serviceClientForEvidence: ReturnType<typeof createServiceClient> | null = null;
+
+                  if (discussionId) {
+                    const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                    if (isOwner) {
+                      serviceClientForEvidence = createServiceClient();
+                      latestKnownSources = await fetchKnownImageSources(
+                        serviceClientForEvidence,
+                        discussionId
+                      );
+                      if (lastRound?.userMessageId) {
+                        lastRoundEvidenceForBroker = await fetchMessageVisualEvidence(
+                          serviceClientForEvidence,
+                          discussionId,
+                          lastRound.userMessageId
+                        );
+                      }
+                    }
+                  }
+
+                  const brokerResult = resolveRequestedEvidence(
+                    {
+                      modality: 'visual',
+                      resource_type: toolResourceType,
+                      need: toolNeed || prompt,
+                      filename: toolFilename,
+                    },
+                    {
+                      knownDocuments: discussionMemory?.knownDocuments,
+                      retrievedDocuments,
+                      recentRounds: discussionMemory?.recentRounds,
+                      knownImageSources: latestKnownSources,
+                      lastRoundEvidence: lastRoundEvidenceForBroker,
+                      recentEvidenceSets: [],
+                      visualContext: isPersistentVisualContextReadsEnabled()
+                        ? visualContextState
+                        : null,
+                      previousUserPrompt: lastRound?.userPrompt,
+                      allUserMessageIds: discussionMemory?.allUserMessageIds,
+                    }
                   );
-                }
+                  let modelSafeBrokerResult = toModelSafeBrokerResult(brokerResult);
+                  const materializedEvidenceAttachments: RouteAttachment[] = [];
+
+                  if (
+                    brokerResult.status === 'resolved' &&
+                    brokerResult.evidence &&
+                    serviceClientForEvidence
+                  ) {
+                    const ev = brokerResult.evidence;
+
+                    if (ev.kind === 'pdf' && ev.storagePath) {
+                      const { data: signedData, error: signErr } =
+                        await serviceClientForEvidence.storage
+                          .from('message-images')
+                          .createSignedUrl(ev.storagePath, 900);
+
+                      if (!signErr && signedData?.signedUrl) {
+                        materializedEvidenceAttachments.push({
+                          url: signedData.signedUrl,
+                          filename: ev.filename,
+                          provenance: 'historical_user_upload',
+                        });
+                      } else {
+                        modelSafeBrokerResult = {
+                          status: 'not_found',
+                          kind: 'pdf',
+                          message:
+                            'The requested PDF visual evidence could not be retrieved for this call.',
+                        };
+                      }
+                    } else if (ev.kind === 'image' && ev.sources && ev.sources.length > 0) {
+                      const signedImages: RouteAttachment[] = [];
+
+                      for (const source of ev.sources) {
+                        if (!source.storagePath) continue;
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForEvidence.storage
+                            .from('message-images')
+                            .createSignedUrl(source.storagePath, 900);
+
+                        if (signErr || !signedData?.signedUrl) continue;
+
+                        let provenance: AttachmentProvenance = 'historical_user_upload';
+                        let creatorSeatId: string | undefined;
+                        if (source.sender) {
+                          const senderLower = source.sender.toLowerCase();
+                          if (['gemini', 'chatgpt', 'claude'].includes(senderLower)) {
+                            provenance = 'historical_assistant_generated';
+                            creatorSeatId = senderLower;
+                          }
+                        }
+
+                        signedImages.push({
+                          url: signedData.signedUrl,
+                          filename: source.filename || 'image.jpg',
+                          provenance,
+                          creatorSeatId,
+                        });
+                      }
+
+                      if (signedImages.length === ev.sources.length) {
+                        materializedEvidenceAttachments.push(...signedImages);
+                      } else {
+                        modelSafeBrokerResult = {
+                          status: 'not_found',
+                          kind: 'image',
+                          message:
+                            'The requested image evidence could not be completely retrieved for this call.',
+                        };
+                      }
+                    }
+                  } else if (
+                    brokerResult.status === 'resolved' &&
+                    brokerResult.evidence &&
+                    !serviceClientForEvidence
+                  ) {
+                    modelSafeBrokerResult = {
+                      status: 'not_found',
+                      kind: brokerResult.kind,
+                      message:
+                        'The requested visual evidence could not be securely retrieved for this call.',
+                    };
+                  }
+
+                  // Do not duplicate an already-attached resource when a model requests evidence it
+                  // already has. Compare canonical storage paths, not signed-URL tokens.
+                  const existingStoragePaths = new Set(
+                    currentRoundAttachments
+                      .map((a) => extractStoragePathFromSignedUrl(a.url))
+                      .filter((p): p is string => Boolean(p))
+                  );
+                  const newEvidenceAttachments = materializedEvidenceAttachments.filter((a) => {
+                    const storagePath = extractStoragePathFromSignedUrl(a.url);
+                    return !storagePath || !existingStoragePaths.has(storagePath);
+                  });
+                  const evidenceAttachments = [
+                    ...currentRoundAttachments,
+                    ...newEvidenceAttachments,
+                  ];
+
+                  const evidenceWasMaterialized = newEvidenceAttachments.length > 0;
+                  const evidenceBaseMessages = buildPanelMessages(
+                    seat.name,
+                    prompt,
+                    priorResponses,
+                    discussionMemory,
+                    evidenceAttachments,
+                    null,
+                    retrievedMemory,
+                    retrievedDocuments,
+                    evidenceWasMaterialized ? false : isVisualUnavailable,
+                    currentTurnDocuments,
+                    visualDeliveryMismatch
+                  );
+
+                  const evidenceMessages = [
+                    ...evidenceBaseMessages,
+                    {
+                      role: 'assistant',
+                      content: seatResponse || null,
+                      tool_calls: [
+                        {
+                          id: toolCall.id || 'call_request_evidence',
+                          type: 'function',
+                          function: {
+                            name: 'request_evidence',
+                            arguments:
+                              toolCall.rawArguments || JSON.stringify(toolCall.arguments),
+                          },
+                        },
+                      ],
+                    } as any,
+                    {
+                      role: 'tool',
+                      tool_call_id: toolCall.id || 'call_request_evidence',
+                      name: 'request_evidence',
+                      content: JSON.stringify(modelSafeBrokerResult),
+                    } as any,
+                  ];
+
+                  const evidencePdfAttachments = evidenceAttachments.filter((a) =>
+                    a.url?.split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
+                  );
+                  const evidenceHasPdf = evidencePdfAttachments.length > 0;
+
+                  console.log('[Evidence Broker Request]', {
+                    discussionId,
+                    seatId: seat.seatId,
+                    requestedResourceType: toolResourceType,
+                    status: modelSafeBrokerResult.status,
+                    kind: modelSafeBrokerResult.kind,
+                    attachedCount: newEvidenceAttachments.length,
+                  });
+
+                  // The provisional first-pass prose is never shown. The second inference receives
+                  // the same user request plus the actual evidence and a model-safe tool result.
+                  seatResponse = '';
+                  seatUsage = null;
+                  accumulatedToolCalls = [];
+                  seatWebCitations.length = 0;
+                  seenCitationUrls.clear();
+
+                  const evidenceStream = await (openai.chat.completions.create as any)({
+                    model: primaryModel,
+                    models,
+                    messages: evidenceMessages,
+                    stream: true,
+                    temperature: 0.7,
+                    signal: req.signal,
+                    tools: [
+                      {
+                        type: 'openrouter:web_search',
+                        parameters: {
+                          max_results: 3,
+                          max_total_results: 6,
+                        },
+                      },
+                    ],
+                    ...(discussionId
+                      ? { session_id: `${discussionId}:${seat.seatId}` }
+                      : {}),
+                    ...(evidenceHasPdf
+                      ? {
+                          plugins: [
+                            {
+                              id: 'file-parser',
+                              pdf: { engine: 'native' },
+                            },
+                          ],
+                        }
+                      : {}),
+                  });
+
+                  for await (const chunk of evidenceStream) {
+                    if (req.signal.aborted) break;
+                    if (chunk.model) respondingModel = chunk.model;
+                    if ((chunk as any).usage) seatUsage = (chunk as any).usage;
+
+                    const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
+                    if (deltaAnnotations) {
+                      addFileAnnotations(deltaAnnotations);
+                      addWebCitations(deltaAnnotations);
+                    }
+
+                    const text = chunk.choices?.[0]?.delta?.content || '';
+                    if (text) {
+                      seatResponse += text;
+                      sendEvent('seat_chunk', {
+                        seatId: seat.seatId,
+                        text,
+                      });
+                    }
+                  }
+
+                  if (req.signal.aborted) {
+                    safeClose();
+                    return;
+                  }
+
+                  // Preserve exact spend accounting: one user-visible seat response may require two
+                  // model calls, so combine their text-model costs before existing billing executes.
+                  const evidenceSecondPassCostUsd =
+                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                  seatUsage = {
+                    ...(seatUsage || {}),
+                    cost: incurredEvidenceFirstPassCostUsd + evidenceSecondPassCostUsd,
+                  };
+                } else {
+                  if (!isGenerateImageCall) {
+                    throw new Error(
+                      `Unsupported or unexpected tool calls (${finalizedCalls.length} calls, primary: "${finalizedCalls[0]?.name}") for ${seat.name}.`
+                    );
+                  }
 
                 const imageCall = finalizedCalls[0];
 
@@ -2237,6 +2604,16 @@ export async function POST(req: NextRequest) {
                   // Successfully completed image seat turn -> advance to next seat
                   continue;
                 }
+
+                }
+              } else if (isEvidenceEnabledForSeat && bufferedSeatChunks.length > 0) {
+                // No evidence tool call: release the buffered first-pass response unchanged.
+                for (const chunkText of bufferedSeatChunks) {
+                  sendEvent('seat_chunk', {
+                    seatId: seat.seatId,
+                    text: chunkText,
+                  });
+                }
               }
 
               // Capture conversational peer response text sanitized against web-search citation URLs
@@ -2401,6 +2778,35 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted || err?.name === 'AbortError') {
                 safeClose();
                 return;
+              }
+
+              // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
+              if (evidenceToolBranchActive && !spendRecorded) {
+                const secondPassCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                const evidenceCostCents =
+                  (incurredEvidenceFirstPassCostUsd + secondPassCostUsd) * 100;
+                if (evidenceCostCents > 0) {
+                  try {
+                    await supabase.rpc('spend_credits', {
+                      p_cents: evidenceCostCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        evidenceRequest: true,
+                        firstPassCostUsd: incurredEvidenceFirstPassCostUsd,
+                        secondPassCostUsd,
+                        error: err?.message || 'Evidence request failed',
+                      },
+                    });
+                    spendRecorded = true;
+                  } catch (spendErr) {
+                    console.error(
+                      `[Spend Tracking] Failed to record evidence-request spend on error for ${seat.name}:`,
+                      spendErr
+                    );
+                  }
+                }
               }
 
               // Ensure incurred costs are charged even if persistence or downstream steps fail on an active image tool branch
