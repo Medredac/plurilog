@@ -4753,6 +4753,89 @@ export function resolveImageEvidence(
     return !isAssistantSource(s);
   });
 
+  // Subset parser helper: extracts multi-image index arrays for ranges, counts, pairs, and "both"
+  function parseSubsetIndices(text: string, totalCount: number): number[] | null {
+    const t = text.toLowerCase();
+
+    // 1. "both images", "both photos", "both pictures", "both"
+    if (/\bboth\b/i.test(t)) {
+      if (totalCount === 2) {
+        return [0, 1];
+      }
+      return null;
+    }
+
+    // 2. Count / Range: "first two", "1st two", "first 2", "first three", "last two", etc.
+    if (/\b(?:first|1st|initial|earliest)\s+(?:two|2)\b/i.test(t) || /\b(?:first|1st)\s+2\b/i.test(t)) {
+      return [0, 1];
+    }
+    if (/\b(?:first|1st|initial|earliest)\s+(?:three|3)\b/i.test(t) || /\b(?:first|1st)\s+3\b/i.test(t)) {
+      return [0, 1, 2];
+    }
+    if (/\b(?:first|1st|initial|earliest)\s+(?:four|4)\b/i.test(t) || /\b(?:first|1st)\s+4\b/i.test(t)) {
+      return [0, 1, 2, 3];
+    }
+    if (/\b(?:first|1st|initial|earliest)\s+(?:five|5)\b/i.test(t) || /\b(?:first|1st)\s+5\b/i.test(t)) {
+      return [0, 1, 2, 3, 4];
+    }
+
+    if (/\b(?:last|latest|most recent)\s+(?:two|2)\b/i.test(t)) {
+      if (totalCount >= 2) {
+        return [totalCount - 2, totalCount - 1];
+      }
+      return null;
+    }
+    if (/\b(?:last|latest|most recent)\s+(?:three|3)\b/i.test(t)) {
+      if (totalCount >= 3) {
+        return [totalCount - 3, totalCount - 2, totalCount - 1];
+      }
+      return null;
+    }
+
+    // 3. Explicit Multi-Number: "images 1 and 2", "image 1 and image 2", "photos 1 and 3", etc.
+    const multiNumRegex = /\b(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+(?:no\.?\s*|#\s*)?(\d+)\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+)?(?:no\.?\s*|#\s*)?(\d+)\b/i;
+    const numMatch = multiNumRegex.exec(t);
+    if (numMatch) {
+      const n1 = parseInt(numMatch[1], 10) - 1;
+      const n2 = parseInt(numMatch[2], 10) - 1;
+      if (n1 >= 0 && n2 >= 0 && n1 !== n2) {
+        const sorted = Array.from(new Set([n1, n2])).sort((a, b) => a - b);
+        return sorted;
+      }
+    }
+
+    // 4. Explicit Multi-Ordinal Pairs: "first and second", "1st and 2nd", "first and third", "1st & 3rd", "2nd and 3rd", etc.
+    const ordMap: Record<string, number> = {
+      first: 0, '1st': 0, initial: 0, earliest: 0,
+      second: 1, '2nd': 1,
+      third: 2, '3rd': 2,
+      fourth: 3, '4th': 3,
+      fifth: 4, '5th': 4,
+      sixth: 5, '6th': 5,
+      seventh: 6, '7th': 6,
+      eighth: 7, '8th': 7,
+      ninth: 8, '9th': 8,
+      tenth: 9, '10th': 9,
+    };
+
+    const ordPattern = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)';
+    const multiOrdRegex = new RegExp(
+      `\\b(${ordPattern})\\s*(?:and|&|or|vs|versus|,)\\s*(?:the\\s+)?(${ordPattern})\\b`,
+      'i'
+    );
+    const ordMatch = multiOrdRegex.exec(t);
+    if (ordMatch) {
+      const o1 = ordMap[ordMatch[1].toLowerCase()];
+      const o2 = ordMap[ordMatch[2].toLowerCase()];
+      if (typeof o1 === 'number' && typeof o2 === 'number' && o1 !== o2) {
+        const sorted = Array.from(new Set([o1, o2])).sort((a, b) => a - b);
+        return sorted;
+      }
+    }
+
+    return null;
+  }
+
   // Ordinal parser helper: maps textual and numeric ordinals to 0-based index or 'last'
   function parseOrdinalIndex(text: string): number | 'last' | null {
     const t = text.toLowerCase();
@@ -4992,7 +5075,7 @@ export function resolveImageEvidence(
     }
 
     // Pattern 1: Explicit visual/file noun preceding or following the number (e.g. "photo 1400", "image #1402", "Which photo was 1400?")
-    const nounBeforeRegex = /\b(?:image|picture|photo|screenshot|pic|file)s?(?:\s+(?:no\.?|number|#|was|showing|with|of))?\s+(\d{3,})\b/gi;
+    const nounBeforeRegex = /\b(?:image|picture|photo|screenshot|pic|file)s?(?:\s+(?:no\.?\s*|number|#|was|showing|with|of))?\s+(\d{3,})\b/gi;
     let patternMatch: RegExpExecArray | null;
     while ((patternMatch = nounBeforeRegex.exec(pLower)) !== null) {
       const token = patternMatch[1];
@@ -5144,22 +5227,31 @@ export function resolveImageEvidence(
 
   // 2. PRIORITY 1 — Explicit Current-Turn Scoped Ordinals & Scoped Generation Queries
   if (discussionSources.length > 0) {
-    // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st image Gemini generated", "what did Gemini generate")
+    // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st two images Gemini generated", "what did Gemini generate")
     for (const seatId of KNOWN_MODEL_SEATS) {
-      const seatRegex = new RegExp(
-        `\\b(?:what\\s+(?:did\\s+)?${seatId}\\s+(?:generate|draw|create|make|render|produce)(?:d)?|` +
-        `what\\s+(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
-        `${seatId}(?:'s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?|` +
-        `(?:the\\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
-        `(?:the\\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced)|` +
-        `(?:can\\s+you\\s+)?(?:see|view|look\\s+at|show(?:\\s+me)?|check|inspect|examine|reopen|open|display)\\s+(?:what\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced))\\b`,
-        'i'
-      );
+      const hasSeatMention = new RegExp(`\\b${seatId}\\b`, 'i').test(pLower);
+      if (!hasSeatMention) continue;
 
-      if (seatRegex.test(pLower)) {
+      const hasGenAction = /\b(generate|generated|draw|drew|create|created|make|made|render|rendered|produce|produced|generation|artwork|illustration|drawing)\b/i.test(pLower);
+      const hasSeatPossessive = new RegExp(`\\b${seatId}(?:'s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|last|latest|both|all|two|2|three|3)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\b`, 'i').test(pLower);
+      const hasVisualNoun = /\b(image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\b/i.test(pLower);
+
+      if ((hasGenAction && hasVisualNoun) || hasSeatPossessive) {
         const seatSources = getSeatGeneratedSources(seatId);
-        const ord = parseOrdinalIndex(pLower);
 
+        // Check multi-image subset first!
+        const subset = parseSubsetIndices(pLower, seatSources.length);
+        if (subset !== null) {
+          if (subset.length > 0 && subset.every((idx) => idx >= 0 && idx < seatSources.length)) {
+            return {
+              sources: subset.map((idx) => seatSources[idx]),
+              reason: 'comparative_subset',
+            };
+          }
+          return null; // Requested subset cannot be fully satisfied
+        }
+
+        const ord = parseOrdinalIndex(pLower);
         if (ord !== null) {
           const targetIndex = ord === 'last' ? seatSources.length - 1 : ord;
           if (targetIndex >= 0 && targetIndex < seatSources.length) {
@@ -5184,13 +5276,27 @@ export function resolveImageEvidence(
 
     // 2b. Explicit User-Upload Scoped Ordinals & Selectors (e.g. "first image I uploaded", "the second photo I sent", "my second image", "latest image I uploaded")
     const isExplicitUserUploadQuery =
-      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial)\s+(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
-      /\b(?:my)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial)\s+(?:image|picture|photo|screenshot|file)\b/i.test(pLower) ||
-      /\b(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning|second|2nd|third|3rd|last|latest|most recently)\b/i.test(pLower) ||
-      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently|first|initially|earliest)\b/i.test(pLower) ||
-      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)\s+i\s+(?:uploaded|sent|provided|shared|posted)\b/i.test(pLower);
+      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial|both|two|2|three|3)\s+(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
+      /\b(?:my)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial|both|two|2|three|3|first\s+and\s+second|1st\s+and\s+2nd)\s+(?:image|picture|photo|screenshot|file)s?\b/i.test(pLower) ||
+      /\b(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning|second|2nd|third|3rd|last|latest|most recently|both)\b/i.test(pLower) ||
+      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently|first|initially|earliest)\b/i.test(pLower) ||
+      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)s?\s+i\s+(?:uploaded|sent|provided|shared|posted)\b/i.test(pLower) ||
+      (/\b(?:compare|show(\s+me)?|look\s+at)\s+(?:the\s+|my\s+)?(?:first\s+two|1st\s+two|first\s+2|first\s+and\s+second|1st\s+and\s+2nd|both)\s+(?:image|picture|photo|screenshot|file)s?\b/i.test(pLower) &&
+        /\b(?:i\s+)?(?:uploaded|sent|provided|shared|posted|my)\b/i.test(pLower));
 
     if (isExplicitUserUploadQuery) {
+      // Check multi-image subset first!
+      const subset = parseSubsetIndices(pLower, userUploadSources.length);
+      if (subset !== null) {
+        if (subset.length > 0 && subset.every((idx) => idx >= 0 && idx < userUploadSources.length)) {
+          return {
+            sources: subset.map((idx) => userUploadSources[idx]),
+            reason: 'comparative_subset',
+          };
+        }
+        return null; // Requested subset cannot be fully satisfied
+      }
+
       const ord = parseOrdinalIndex(pLower);
       if (ord !== null) {
         const targetIndex = ord === 'last' ? userUploadSources.length - 1 : ord;
@@ -5215,12 +5321,24 @@ export function resolveImageEvidence(
 
     // 2c. Explicit Generic Generated-Image References (e.g. "first generated image", "second generated photo", "the generated image")
     const isGenericGeneratedQuery =
-      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
-      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
       /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
 
     if (isGenericGeneratedQuery) {
+      // Check multi-image subset first!
+      const subset = parseSubsetIndices(pLower, allGeneratedSources.length);
+      if (subset !== null) {
+        if (subset.length > 0 && subset.every((idx) => idx >= 0 && idx < allGeneratedSources.length)) {
+          return {
+            sources: subset.map((idx) => allGeneratedSources[idx]),
+            reason: 'comparative_subset',
+          };
+        }
+        return null;
+      }
+
       const ord = parseOrdinalIndex(pLower);
       if (ord !== null) {
         const targetIndex = ord === 'last' ? allGeneratedSources.length - 1 : ord;
@@ -5466,14 +5584,30 @@ export function resolveImageEvidence(
     }
   }
 
-  // 5. PRIORITY 4 — Discussion-Wide Bare Ordinal Fallback
-  // Matches explicit image ordinals: "the second image", "1st image", "2nd image", "image 1", "image 2", "image #2", "10th image"
-  const isBareImageOrdinal =
-    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
-    /\bwhat about (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|last)(?:\s+(?:image|picture|photo|screenshot))?\b/i.test(pLower) ||
-    /\b(?:image|picture|photo)\s+(?:no\.?\s*|#\s*)?(\d+)\b/i.test(pLower);
+  // 5. PRIORITY 4 — Discussion-Wide Bare Ordinal & Subset Fallback
+  // Matches explicit image ordinals: "the second image", "1st image", "2nd image", "image 1", "image 2", "image #2", "10th image", "first two images", "images 1 and 2", "both images"
+  const isBareImageOrdinalOrSubset =
+    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower) ||
+    /\bwhat about (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|last)(?:\s+(?:image|picture|photo|screenshot)s?)?\b/i.test(pLower) ||
+    /\b(?:image|picture|photo)s?\s+(?:no\.?\s*|#\s*)?(\d+)\b/i.test(pLower) ||
+    /\b(?:first|1st|last|latest)\s+(?:two|2|three|3|four|4|five|5)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower) ||
+    /\bboth\s+(?:images|photos|pictures|screenshots)\b/i.test(pLower) ||
+    /\b(?:image|picture|photo)s?\s+(?:no\.?\s*|#\s*)?\d+\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo)s?\s+)?(?:no\.?\s*|#\s*)?\d+\b/i.test(pLower) ||
+    /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s*(?:and|&|or|vs|versus|,)\s*(?:the\s+)?(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower);
 
-  if (isBareImageOrdinal && discussionSources.length > 0) {
+  if (isBareImageOrdinalOrSubset && discussionSources.length > 0) {
+    // Check multi-image subset first!
+    const subset = parseSubsetIndices(pLower, discussionSources.length);
+    if (subset !== null) {
+      if (subset.length > 0 && subset.every((idx) => idx >= 0 && idx < discussionSources.length)) {
+        return {
+          sources: subset.map((idx) => discussionSources[idx]),
+          reason: 'comparative_subset',
+        };
+      }
+      return null; // Out of range subset
+    }
+
     const ord = parseOrdinalIndex(pLower);
     if (ord !== null) {
       const targetIndex = ord === 'last' ? discussionSources.length - 1 : ord;
