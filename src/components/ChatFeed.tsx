@@ -900,6 +900,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             : 'mt-3.5 sm:mt-4';
 
         const isThinking = message.isStreaming && !message.content.trim();
+        const attachments: string[] =
+          message.attachment_urls && message.attachment_urls.length > 0
+            ? message.attachment_urls
+            : [];
+        const imageAttachments = attachments.filter((url) => {
+          const filename = getAttachmentDisplayFilename(url);
+          return isImageUrl(url, filename);
+        });
 
         return (
           <React.Fragment key={message.id}>
@@ -949,10 +957,43 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               ) : (
-                <StreamingMessageBody
-                  content={message.content}
-                  isStreaming={message.isStreaming}
-                />
+                <>
+                  <StreamingMessageBody
+                    content={message.content}
+                    isStreaming={message.isStreaming}
+                  />
+
+                  {/* Attached Images (if present) */}
+                  {imageAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
+                      {imageAttachments.map((url, i) => {
+                        const filename = getAttachmentDisplayFilename(url);
+                        return (
+                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setLightboxImageUrl(url)}
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                              title={`Click to view ${filename}`}
+                            >
+                              <img
+                                src={url}
+                                alt={filename}
+                                className="w-full h-full object-cover"
+                              />
+                            </button>
+                            <span
+                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              title={filename}
+                            >
+                              {filename}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Bottom Actions Bar: Copy & Export (Rendered once content exists) */}
