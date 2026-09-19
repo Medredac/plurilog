@@ -2421,6 +2421,489 @@ export async function POST(req: NextRequest) {
                       incurredEvidenceFirstPassCostUsd +
                       incurredEvidenceSecondPassCostUsd,
                   };
+                } else if (isEditImageCall) {
+                  const imageCall = finalizedCalls[0];
+                  const editArgs = (imageCall.arguments || {}) as {
+                    instruction?: string;
+                    reference?: string;
+                  };
+                  const editInstruction =
+                    typeof editArgs.instruction === 'string'
+                      ? editArgs.instruction.trim()
+                      : '';
+                  const editReference =
+                    typeof editArgs.reference === 'string'
+                      ? editArgs.reference.trim()
+                      : '';
+
+                  if (!editInstruction) {
+                    throw new Error('A non-empty instruction is required for image editing.');
+                  }
+
+                  let referenceImageUrl: string | null = null;
+                  let referenceImageLabel = 'image';
+                  let editReferentSourceIds: string[] = [];
+                  let editReferenceError: string | null = null;
+
+                  const isStandaloneImageAttachment = (att: RouteAttachment) => {
+                    const cleanUrl =
+                      att?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
+                    return isImageUrl(att?.url || '') && !cleanUrl.endsWith('.pdf');
+                  };
+
+                  const currentUserImages = currentRoundAttachments.filter(
+                    (att) =>
+                      att.provenance === 'current_user_upload' &&
+                      isStandaloneImageAttachment(att)
+                  );
+
+                  const referenceText = editReference || prompt;
+                  const explicitlyHistoricalReference =
+                    /\b(?:earlier|previous|generated|gemini|chatgpt|claude)\b/i.test(
+                      referenceText
+                    );
+
+                  if (!explicitlyHistoricalReference && currentUserImages.length === 1) {
+                    referenceImageUrl = currentUserImages[0].url;
+                    referenceImageLabel =
+                      currentUserImages[0].filename || 'currently attached image';
+                  } else if (
+                    !explicitlyHistoricalReference &&
+                    currentUserImages.length > 1
+                  ) {
+                    const refLower = referenceText.toLowerCase();
+                    const filenameMatches = currentUserImages.filter((att) => {
+                      const filename = (att.filename || '').toLowerCase();
+                      const base = filename
+                        .replace(/\.(png|jpe?g|webp|gif)$/i, '')
+                        .trim();
+                      return (
+                        (filename.length >= 4 && refLower.includes(filename)) ||
+                        (base.length >= 4 && refLower.includes(base))
+                      );
+                    });
+
+                    if (filenameMatches.length === 1) {
+                      referenceImageUrl = filenameMatches[0].url;
+                      referenceImageLabel =
+                        filenameMatches[0].filename || 'currently attached image';
+                    } else {
+                      editReferenceError =
+                        'I need you to specify which currently attached image you want me to edit.';
+                    }
+                  } else if (discussionId) {
+                    const isOwner = await verifyDiscussionOwnership(
+                      supabase,
+                      discussionId
+                    );
+
+                    if (!isOwner) {
+                      editReferenceError =
+                        'I could not securely retrieve the image you want to edit.';
+                    } else {
+                      const serviceClientForEdit = createServiceClient();
+                      const latestKnownSources = await fetchKnownImageSources(
+                        serviceClientForEdit,
+                        discussionId
+                      );
+                      const lastRoundEvidenceForEdit = lastRound?.userMessageId
+                        ? await fetchMessageVisualEvidence(
+                            serviceClientForEdit,
+                            discussionId,
+                            lastRound.userMessageId
+                          )
+                        : [];
+
+                      const brokerResult = resolveRequestedEvidence(
+                        {
+                          modality: 'visual',
+                          resource_type: 'image',
+                          need: referenceText || prompt,
+                        },
+                        {
+                          knownDocuments: discussionMemory?.knownDocuments,
+                          retrievedDocuments,
+                          recentRounds: discussionMemory?.recentRounds,
+                          knownImageSources: latestKnownSources,
+                          lastRoundEvidence: lastRoundEvidenceForEdit,
+                          recentEvidenceSets: [],
+                          visualContext: isPersistentVisualContextReadsEnabled()
+                            ? visualContextState
+                            : null,
+                          previousUserPrompt: lastRound?.userPrompt,
+                          currentUserPrompt: prompt,
+                          allUserMessageIds: discussionMemory?.allUserMessageIds,
+                        }
+                      );
+
+                      if (
+                        brokerResult.status === 'resolved' &&
+                        brokerResult.evidence?.kind === 'image' &&
+                        brokerResult.evidence.sources?.length === 1
+                      ) {
+                        const source = brokerResult.evidence.sources[0];
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForEdit.storage
+                            .from('message-images')
+                            .createSignedUrl(source.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          referenceImageUrl = signedData.signedUrl;
+                          referenceImageLabel =
+                            source.filename || 'earlier image';
+                          editReferentSourceIds = [source.sourceId];
+                          pendingResolvedImageSources = [source];
+                        } else {
+                          editReferenceError =
+                            'The image you want to edit could not be retrieved for this call.';
+                        }
+                      } else if (
+                        brokerResult.status === 'resolved' &&
+                        brokerResult.evidence?.kind === 'image' &&
+                        (brokerResult.evidence.sources?.length || 0) > 1
+                      ) {
+                        editReferenceError =
+                          'I need you to specify one image to edit; this edit path uses one source image at a time.';
+                      } else {
+                        const safeBrokerResult =
+                          toModelSafeBrokerResult(brokerResult);
+                        editReferenceError =
+                          safeBrokerResult.message ||
+                          'I need you to clarify which image you want me to edit.';
+                      }
+
+                      console.log('[Gemini Image Editing] Reference resolution', {
+                        discussionId,
+                        status: brokerResult.status,
+                        reason: brokerResult.evidence?.reason,
+                        sourceCount:
+                          brokerResult.evidence?.sources?.length || 0,
+                      });
+                    }
+                  } else {
+                    editReferenceError =
+                      'I need an image in this discussion before I can edit it.';
+                  }
+
+                  if (!referenceImageUrl) {
+                    const clarification =
+                      editReferenceError ||
+                      'I need you to clarify which image you want me to edit.';
+                    seatResponse = clarification;
+                    sendEvent('seat_chunk', {
+                      seatId: seat.seatId,
+                      text: clarification,
+                    });
+                  } else {
+                    // Image Credit Preflight Check
+                    const { data: currentBalanceRows, error: checkBalErr } =
+                      await supabase.rpc('get_my_balance');
+                    if (checkBalErr) {
+                      console.error(
+                        '[Image Preflight] Failed to fetch balance for image editing:',
+                        checkBalErr
+                      );
+                      throw new Error(
+                        'Could not verify account balance for image editing.'
+                      );
+                    }
+
+                    const currentBalance = currentBalanceRows?.[0];
+                    const remainingCents = Number(
+                      currentBalance?.remaining_cents ?? 0
+                    );
+
+                    if (remainingCents <= 0) {
+                      const lowCreditNotice =
+                        "You’ve used all of your available usage credit, so I can’t edit another image right now.";
+                      seatResponse = lowCreditNotice;
+                      sendEvent('seat_chunk', {
+                        seatId: seat.seatId,
+                        text: lowCreditNotice,
+                      });
+                    } else {
+                      imageToolBranchActive = true;
+
+                      console.log(
+                        '[Gemini Image Editing] Executing editGeminiImage:',
+                        {
+                          seatId: seat.seatId,
+                          instructionLength: editInstruction.length,
+                          reference: referenceImageLabel,
+                          historicalSourceCount:
+                            editReferentSourceIds.length,
+                        }
+                      );
+
+                      const imageResult = await editGeminiImage({
+                        prompt: editInstruction,
+                        referenceImageUrl,
+                        signal: req.signal,
+                      });
+
+                      incurredImageCostUsd = imageResult.costUsd;
+                      console.log(
+                        '[Gemini Image Editing] Incurred provider cost:',
+                        {
+                          costUsd: imageResult.costUsd,
+                          model: imageResult.model,
+                        }
+                      );
+
+                      const finalContent =
+                        seatResponse.trim() ||
+                        'Edited the image based on your request.';
+
+                      let persistedMsg: {
+                        id: string;
+                        created_at: string;
+                      } | null = null;
+
+                      if (discussionId) {
+                        for (let attempt = 1; attempt <= 2; attempt++) {
+                          const { data, error } = await supabase
+                            .from('messages')
+                            .insert({
+                              id: messageId,
+                              discussion_id: discussionId,
+                              sender: seat.seatId,
+                              content: finalContent,
+                            })
+                            .select(
+                              'id, created_at, discussion_id, sender, content'
+                            )
+                            .maybeSingle();
+
+                          if (!error && data) {
+                            persistedMsg = {
+                              id: data.id,
+                              created_at: data.created_at,
+                            };
+                            console.log('[Message Persistence]', {
+                              seatId: seat.seatId,
+                              messageId,
+                              status: 'inserted',
+                              attempt,
+                            });
+                            break;
+                          }
+
+                          if (error?.code === '23505') {
+                            const { data: existing, error: fetchErr } =
+                              await supabase
+                                .from('messages')
+                                .select(
+                                  'id, created_at, discussion_id, sender, content'
+                                )
+                                .eq('id', messageId)
+                                .maybeSingle();
+
+                            if (
+                              !fetchErr &&
+                              existing &&
+                              existing.id === messageId &&
+                              existing.discussion_id === discussionId &&
+                              existing.sender === seat.seatId
+                            ) {
+                              persistedMsg = {
+                                id: existing.id,
+                                created_at: existing.created_at,
+                              };
+                              break;
+                            }
+                          }
+
+                          if (attempt < 2) {
+                            await new Promise((resolve) =>
+                              setTimeout(resolve, 100)
+                            );
+                          }
+                        }
+                      }
+
+                      if (discussionId && !persistedMsg) {
+                        throw new Error(
+                          `Failed to persist completed response from ${seat.name}.`
+                        );
+                      }
+
+                      const persistedImage = await persistGeneratedImage({
+                        supabase,
+                        discussionId: discussionId || '',
+                        messageId: persistedMsg?.id || messageId,
+                        seatId: 'gemini',
+                        b64Json: imageResult.b64Json,
+                        mediaType: imageResult.mediaType,
+                      });
+
+                      hadGeneratedImageInTurn = true;
+
+                      if (discussionId) {
+                        try {
+                          const serviceClient = createServiceClient();
+                          const editIngestResult =
+                            await ingestDiscussionArtifacts({
+                              serviceSupabase: serviceClient,
+                              discussionId,
+                              attachments: [
+                                {
+                                  url: persistedImage.signedUrl,
+                                  filename: persistedImage.filename,
+                                },
+                              ],
+                              sourceUserMessageId:
+                                persistedMsg?.id || messageId,
+                              signal: req.signal,
+                            });
+
+                          if (
+                            isPersistentVisualContextWritesEnabled() &&
+                            editIngestResult?.ingestedSourceIds &&
+                            editIngestResult.ingestedSourceIds.length > 0
+                          ) {
+                            try {
+                              const latestKnownSources =
+                                await fetchKnownImageSources(
+                                  serviceClient,
+                                  discussionId
+                                );
+
+                              visualContextState =
+                                await updateDiscussionVisualContextCAS(
+                                  serviceClient,
+                                  discussionId,
+                                  visualContextState,
+                                  {
+                                    resolvedReferentSourceIds:
+                                      editReferentSourceIds,
+                                    newArtifactSourceIds:
+                                      editIngestResult.ingestedSourceIds,
+                                    isComparison: false,
+                                    knownSources: latestKnownSources,
+                                  }
+                                );
+
+                              console.log(
+                                '[Visual Context: Assistant Edit Transition]',
+                                {
+                                  discussionId,
+                                  referencedSources:
+                                    editReferentSourceIds,
+                                  newSources:
+                                    editIngestResult.ingestedSourceIds,
+                                  activeSourceCount:
+                                    visualContextState
+                                      ?.active_session_source_ids?.length || 0,
+                                  focusSourceCount:
+                                    visualContextState?.focus_source_ids
+                                      ?.length || 0,
+                                }
+                              );
+                            } catch (casErr) {
+                              console.warn(
+                                '[Visual Context] Error updating state for edited image:',
+                                casErr
+                              );
+                            }
+                          }
+
+                          try {
+                            await indexDiscussionImageArtifacts({
+                              serviceSupabase: serviceClient,
+                              openai,
+                              discussionId,
+                              attachments: [
+                                {
+                                  url: persistedImage.signedUrl,
+                                  filename: persistedImage.filename,
+                                },
+                              ],
+                              signal: req.signal,
+                            });
+                          } catch (indexErr) {
+                            console.warn(
+                              '[Visual Indexer] Non-critical error during edited image indexing:',
+                              indexErr
+                            );
+                          }
+                        } catch (imgIngestErr) {
+                          console.warn(
+                            '[Image Artifact Ingest] Non-critical error during edited image artifact ingestion:',
+                            imgIngestErr
+                          );
+                        }
+                      }
+
+                      currentRoundAttachments.push({
+                        url: persistedImage.signedUrl,
+                        filename: persistedImage.filename,
+                        provenance: 'same_round_assistant_generated',
+                        creatorSeatId: 'gemini',
+                      });
+
+                      const textCostUsd =
+                        typeof seatUsage?.cost === 'number'
+                          ? seatUsage.cost
+                          : 0;
+                      const imageCostUsd =
+                        typeof imageResult.costUsd === 'number'
+                          ? imageResult.costUsd
+                          : 0;
+                      const totalCostUsd = textCostUsd + imageCostUsd;
+                      const costCents = totalCostUsd * 100;
+
+                      if (costCents > 0) {
+                        const { error: spendError } =
+                          await supabase.rpc('spend_credits', {
+                            p_cents: costCents,
+                            p_model: respondingModel,
+                            p_discussion_id: discussionId || null,
+                            p_meta: {
+                              seatId: seat.seatId,
+                              textModel: respondingModel,
+                              imageModel: imageResult.model,
+                              textCostUsd,
+                              imageCostUsd,
+                              imageEditing: true,
+                            },
+                          });
+
+                        if (spendError) {
+                          console.error(
+                            `[Spend Tracking] Failed to record spend for ${seat.name} image editing:`,
+                            spendError
+                          );
+                          throw new Error(
+                            'Failed to record image editing usage.'
+                          );
+                        }
+                        spendRecorded = true;
+                      }
+
+                      sendEvent('seat_done', {
+                        seatId: seat.seatId,
+                        modelId: respondingModel,
+                        content: finalContent,
+                        messageId: persistedMsg?.id || messageId,
+                        createdAt:
+                          persistedMsg?.created_at ||
+                          new Date().toISOString(),
+                        attachment_urls: [persistedImage.signedUrl],
+                      });
+
+                      const peerResponseText =
+                        sanitizePeerResponseForWebCitations(
+                          finalContent,
+                          seatWebCitations
+                        );
+                      priorResponses.push({
+                        name: seat.name,
+                        response: peerResponseText,
+                      });
+
+                      continue seatLoop;
+                    }
+                  }
                 } else {
                   if (!isGenerateImageCall) {
                     throw new Error(
@@ -3073,7 +3556,12 @@ export async function POST(req: NextRequest) {
                     });
 
                     // Update persistent visual context for user upload
-                    if (isPersistentVisualContextWritesEnabled() && uploadIngestResult?.ingestedSourceIds && uploadIngestResult.ingestedSourceIds.length > 0) {
+                    if (
+                      isPersistentVisualContextWritesEnabled() &&
+                      !hadGeneratedImageInTurn &&
+                      uploadIngestResult?.ingestedSourceIds &&
+                      uploadIngestResult.ingestedSourceIds.length > 0
+                    ) {
                       try {
                         const latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
                         let transitionReferentSourceIds = (pendingMixedHistoricalSources || []).map((s) => s.sourceId);
