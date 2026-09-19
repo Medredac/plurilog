@@ -43,6 +43,37 @@ import {
 } from '@/utils/semanticImageRetrieval';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { getSeatCapabilities } from '@/data/seatCapabilities';
+import { generateGeminiImage } from '@/utils/openrouterImages';
+import { persistGeneratedImage } from '@/utils/generatedImageStorage';
+import {
+  mergeStreamingToolCalls,
+  finalizeAllToolCalls,
+  AccumulatedToolCall,
+} from '@/utils/streamToolCalls';
+
+export const GEMINI_IMAGE_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'generate_image',
+      description:
+        'Generate a new image when the user explicitly asks you to create, draw, render, visualize, design, or otherwise produce visual image output. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description:
+              'A complete visual prompt faithfully representing the user request and relevant conversation context.',
+          },
+        },
+        required: ['prompt'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' When the user asks something substantive, answer from your own assessment first. Treat other panelists' responses as provisional contributions to compare against that assessment, not as a foundation you are expected to continue. Where useful, address, qualify, correct, question, or add to their points naturally. Do not turn the exchange into a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
 
@@ -51,7 +82,7 @@ Only treat a message as directed at a specific panelist if the user's CURRENT me
 Treat earlier panelist responses as contributions to evaluate, not conclusions to inherit. Form your own independent judgment about the user's question and about what earlier panelists have said; seeing another panelist's answer is never a reason to assume it is correct. When evaluating a peer's factual claim, rely only on evidence actually available in your own turn context. Evidence is not transferable between panelists. A peer's quotation, citation, source summary, claim that they checked a document, or description of a tool result remains part of that peer's claim unless the underlying source evidence is independently available in your own context. Before adopting, repeating, or extending a material factual claim made by a peer, independently establish it from your own available evidence when such evidence is available. If you cannot independently establish a material peer claim, do not convert it into established fact — leave it unverified, qualify it if relevant, or avoid relying on it. For factual or source-dependent claims, independently establish them from your own available evidence before relying on them. For subjective judgments, recommendations, interpretations, or strategy, independently evaluate the reasoning rather than automatically inheriting the peer's conclusion. If multiple panelists repeat the same factual claim, that repetition does not create multiple independent pieces of evidence. A claim repeated by a later panelist may simply be the same unverified claim propagating through the panel; agreement among multiple panelists is conversational consensus, not factual verification. If an earlier response contains a material factual error, reasoning error, contradiction, unsupported assumption, hallucination, or missed user constraint, identify the problem naturally and correct it. If you genuinely disagree on a substantive point, state the disagreement clearly and explain why. If you independently agree, agreement is completely appropriate — do not manufacture disagreement or adopt contrarian stances merely for the sake of the panel format. Avoid rigid labels like CRITIQUE:, CORRECTION:, or AGREEMENT:; keep the conversation thoughtful, grounded, and human.
 
 Plurilog platform capabilities:
-- IMAGE GENERATION: Plurilog does not currently generate or render standalone images. If the user asks you to create, generate, draw, render, or otherwise produce an image, clearly explain that image generation is not currently available in Plurilog. You may still help the user create, refine, or adapt an image-generation prompt. Do not claim that you generated an image, and do not suggest that another panelist can generate one. Do not confuse this limitation with image analysis: Plurilog can analyze images that the user uploads.
+- IMAGE GENERATION: Image generation is capability-dependent by panelist. If an image-generation capability or tool is available to you in the current turn and the user requests image creation (e.g. asking to draw, render, visualize, generate, or produce an image), use it naturally. If image generation is not available to you, do not pretend you can generate an image or claim to have created one; you may still contribute textual ideas, suggest prompt refinements, or analyze images that are actually available in the discussion. Do not claim that Plurilog as a whole lacks image generation merely because your own seat cannot generate images, and never claim an image was generated unless the generation actually succeeded. Image analysis of uploaded or shared images remains distinct from image generation.
 - FILE AND IMAGE UPLOADS: Plurilog supports uploading and analyzing documents and images. Supported document types include PDFs, Word .docx files, and supported text-based files, and uploaded images can also be visually analyzed. Files and images attached by the user are made available to the participating models in the discussion. If the user asks whether they can upload a file or image, confirm that they can and direct them to the "+" button in the chat interface to attach it. Do not incorrectly claim that Plurilog lacks file or image analysis.
 - PLATFORM AWARENESS: When answering questions about what Plurilog can or cannot do, rely on the capabilities described in these internal instructions. Do not assume that Plurilog has the same tools, plugins, features, or limitations as your standalone ChatGPT, Claude, or Gemini consumer application.
 
@@ -1463,6 +1494,8 @@ export async function POST(req: NextRequest) {
               ? attachments
               : visualAttachments;
 
+          let currentRoundAttachments = [...(effectiveAttachments || [])];
+
           if (!isVisualUnavailable && isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0)) {
             isVisualUnavailable = true;
           }
@@ -1481,6 +1514,10 @@ export async function POST(req: NextRequest) {
             let respondingModel = primaryModel;
             let seatResponse = '';
             let seatUsage: any = null;
+            let accumulatedToolCalls: AccumulatedToolCall[] = [];
+            let incurredImageCostUsd: number | null = null;
+            let spendRecorded = false;
+            let imageToolBranchActive = false;
 
             sendEvent('seat_start', {
               seatId: seat.seatId,
@@ -1489,7 +1526,10 @@ export async function POST(req: NextRequest) {
               messageId,
             });
 
-            const pdfAttachments = effectiveAttachments?.filter((att: any) =>
+            const isGeminiImageEnabled =
+              seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
+
+            const pdfAttachments = currentRoundAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
             ) || [];
             const hasPdf = pdfAttachments.length > 0;
@@ -1532,8 +1572,8 @@ export async function POST(req: NextRequest) {
 
             const seatAttachments =
               seat.seatId === 'gemini'
-                ? await prepareGeminiVisionAttachments(effectiveAttachments)
-                : effectiveAttachments;
+                ? await prepareGeminiVisionAttachments(currentRoundAttachments)
+                : currentRoundAttachments;
 
             const seatMessages = buildPanelMessages(
               seat.name,
@@ -1610,6 +1650,7 @@ export async function POST(req: NextRequest) {
                       max_total_results: 6,
                     },
                   },
+                  ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
                 ],
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
@@ -1646,6 +1687,12 @@ export async function POST(req: NextRequest) {
                   addWebCitations(deltaAnnotations);
                 }
 
+                // Capture streaming tool calls from chunk.choices[0].delta.tool_calls
+                const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
+                if (deltaToolCalls) {
+                  accumulatedToolCalls = mergeStreamingToolCalls(accumulatedToolCalls, deltaToolCalls);
+                }
+
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
@@ -1659,6 +1706,253 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted) {
                 safeClose();
                 return;
+              }
+
+              // Check if Gemini invoked a tool call (generate_image)
+              if (accumulatedToolCalls.length > 0) {
+                const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
+
+                if (
+                  finalizedCalls.length !== 1 ||
+                  finalizedCalls[0]?.name !== 'generate_image' ||
+                  seat.seatId !== 'gemini' ||
+                  !isGeminiImageEnabled
+                ) {
+                  throw new Error(
+                    `Unsupported or unexpected tool calls (${finalizedCalls.length} calls, primary: "${finalizedCalls[0]?.name}") for ${seat.name}.`
+                  );
+                }
+
+                const imageCall = finalizedCalls[0];
+
+                // 1. Tool Prompt Validation
+                const toolArgs = imageCall.arguments as { prompt?: string };
+                const toolPrompt = typeof toolArgs?.prompt === 'string' ? toolArgs.prompt.trim() : '';
+                if (!toolPrompt) {
+                  throw new Error('A non-empty prompt is required for image generation.');
+                }
+
+                imageToolBranchActive = true;
+
+                // 2. Image Credit Preflight Check
+                const configuredReserve = Number(process.env.GEMINI_IMAGE_MIN_RESERVE_CENTS ?? '10');
+                const imageReserveCents =
+                  Number.isFinite(configuredReserve) && configuredReserve > 0 ? configuredReserve : 10;
+
+                const { data: currentBalanceRows, error: checkBalErr } = await supabase.rpc('get_my_balance');
+                if (checkBalErr) {
+                  console.error('[Image Preflight] Failed to fetch balance for image generation:', checkBalErr);
+                  throw new Error('Could not verify account balance for image generation.');
+                }
+
+                const currentBalance = currentBalanceRows?.[0];
+                const remainingCents = Number(currentBalance?.remaining_cents ?? 0);
+
+                if (remainingCents < imageReserveCents) {
+                  console.log('[Image Preflight] User balance below required image reserve:', {
+                    remainingCents,
+                    imageReserveCents,
+                  });
+                  const lowCreditNotice =
+                    "You don’t have enough usage credit remaining to generate an image right now.";
+                  seatResponse = seatResponse ? `${seatResponse}\n\n${lowCreditNotice}` : lowCreditNotice;
+                  sendEvent('seat_chunk', {
+                    seatId: seat.seatId,
+                    text: lowCreditNotice,
+                  });
+                  // Fall through to normal text message persistence below
+                } else {
+                  // 3. Provider Execution
+                  console.log('[Gemini Image Generation] Executing generateGeminiImage:', {
+                    seatId: seat.seatId,
+                    promptLength: toolPrompt.length,
+                  });
+                  const imageResult = await generateGeminiImage({
+                    prompt: toolPrompt,
+                    signal: req.signal,
+                  });
+
+                  incurredImageCostUsd = imageResult.costUsd;
+                  console.log('[Gemini Image Generation] Incurred provider cost:', {
+                    costUsd: imageResult.costUsd,
+                    model: imageResult.model,
+                  });
+
+                  // 4. Model Message Content
+                  const finalContent = seatResponse.trim() || 'Generated an image based on your request.';
+
+                  // 5. Message INSERT (reuse existing retry/idempotency logic)
+                  let persistedMsg: { id: string; created_at: string } | null = null;
+                  if (discussionId) {
+                    for (let attempt = 1; attempt <= 2; attempt++) {
+                      const { data, error } = await supabase
+                        .from('messages')
+                        .insert({
+                          id: messageId,
+                          discussion_id: discussionId,
+                          sender: seat.seatId,
+                          content: finalContent,
+                        })
+                        .select('id, created_at, discussion_id, sender, content')
+                        .maybeSingle();
+
+                      if (!error && data) {
+                        persistedMsg = { id: data.id, created_at: data.created_at };
+                        console.log(`[Message Persistence]`, {
+                          seatId: seat.seatId,
+                          messageId,
+                          status: 'inserted',
+                          attempt,
+                        });
+                        break;
+                      }
+
+                      if (error?.code === '23505') {
+                        const { data: existing, error: fetchErr } = await supabase
+                          .from('messages')
+                          .select('id, created_at, discussion_id, sender, content')
+                          .eq('id', messageId)
+                          .maybeSingle();
+
+                        if (
+                          !fetchErr &&
+                          existing &&
+                          existing.id === messageId &&
+                          existing.discussion_id === discussionId &&
+                          existing.sender === seat.seatId
+                        ) {
+                          persistedMsg = { id: existing.id, created_at: existing.created_at };
+                          console.log(`[Message Persistence]`, {
+                            seatId: seat.seatId,
+                            messageId,
+                            status: 'confirmed-existing',
+                            attempt,
+                          });
+                          break;
+                        } else {
+                          break;
+                        }
+                      }
+
+                      console.warn(
+                        `[Message Persistence] Attempt ${attempt} failed for ${seat.name}:`,
+                        error?.message || error
+                      );
+                      if (attempt < 2) {
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+                      }
+                    }
+                  }
+
+                  if (discussionId && !persistedMsg) {
+                    throw new Error(`Failed to persist completed response from ${seat.name}.`);
+                  }
+
+                  // 6. Generated Image Storage
+                  const persistedImage = await persistGeneratedImage({
+                    supabase,
+                    discussionId: discussionId || '',
+                    messageId: persistedMsg?.id || messageId,
+                    seatId: 'gemini',
+                    b64Json: imageResult.b64Json,
+                    mediaType: imageResult.mediaType,
+                  });
+
+                  // 7. Non-Critical Artifact / Memory Registration & Visual Indexing
+                  if (discussionId) {
+                    try {
+                      const serviceClient = createServiceClient();
+                      await ingestDiscussionArtifacts({
+                        serviceSupabase: serviceClient,
+                        discussionId,
+                        attachments: [
+                          {
+                            url: persistedImage.signedUrl,
+                            filename: persistedImage.filename,
+                          },
+                        ],
+                        sourceUserMessageId: persistedMsg?.id || messageId,
+                        signal: req.signal,
+                      });
+
+                      try {
+                        await indexDiscussionImageArtifacts({
+                          serviceSupabase: serviceClient,
+                          openai,
+                          discussionId,
+                          attachments: [
+                            {
+                              url: persistedImage.signedUrl,
+                              filename: persistedImage.filename,
+                            },
+                          ],
+                          signal: req.signal,
+                        });
+                      } catch (indexErr) {
+                        console.warn('[Visual Indexer] Non-critical error during generated image indexing:', indexErr);
+                      }
+                    } catch (imgIngestErr) {
+                      console.warn('[Image Artifact Ingest] Non-critical error during generated image artifact ingestion:', imgIngestErr);
+                    }
+                  }
+
+                  // 8. Same-Round Image Sharing
+                  currentRoundAttachments.push({
+                    url: persistedImage.signedUrl,
+                    filename: persistedImage.filename,
+                  });
+
+                  // 9. Billing — Exactly Once
+                  const textCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                  const imageCostUsd = typeof imageResult.costUsd === 'number' ? imageResult.costUsd : 0;
+                  const totalCostUsd = textCostUsd + imageCostUsd;
+                  const costCents = totalCostUsd * 100;
+
+                  if (costCents > 0) {
+                    const { error: spendError } = await supabase.rpc('spend_credits', {
+                      p_cents: costCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        textModel: respondingModel,
+                        imageModel: imageResult.model,
+                        textCostUsd,
+                        imageCostUsd,
+                        imageGeneration: true,
+                      },
+                    });
+                    if (spendError) {
+                      console.error(`[Spend Tracking] Failed to record spend for ${seat.name} image generation:`, spendError);
+                      throw new Error('Failed to record image generation usage.');
+                    } else {
+                      spendRecorded = true;
+                    }
+                  }
+
+                  // 10. Emit seat_done with attachment_urls
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: respondingModel,
+                    content: finalContent,
+                    messageId: persistedMsg?.id || messageId,
+                    createdAt: persistedMsg?.created_at || new Date().toISOString(),
+                    attachment_urls: [persistedImage.signedUrl],
+                  });
+
+                  // 11. Record in prior responses for subsequent speakers (untainted by web citation URLs)
+                  const peerResponseText = sanitizePeerResponseForWebCitations(
+                    finalContent,
+                    seatWebCitations
+                  );
+                  priorResponses.push({
+                    name: seat.name,
+                    response: peerResponseText,
+                  });
+
+                  // Successfully completed image seat turn -> advance to next seat
+                  continue;
+                }
               }
 
               // Capture conversational peer response text sanitized against web-search citation URLs
@@ -1788,6 +2082,8 @@ export async function POST(req: NextRequest) {
                       `[Spend Tracking] Failed to record spend for ${seat.name}:`,
                       spendError
                     );
+                  } else {
+                    spendRecorded = true;
                   }
                 }
               } else {
@@ -1821,6 +2117,33 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted || err?.name === 'AbortError') {
                 safeClose();
                 return;
+              }
+
+              // Ensure incurred costs are charged even if persistence or downstream steps fail on an active image tool branch
+              if (imageToolBranchActive && !spendRecorded) {
+                const textCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                const incurredTotalUsd = textCostUsd + (incurredImageCostUsd || 0);
+                const costCents = incurredTotalUsd * 100;
+                if (costCents > 0) {
+                  try {
+                    await supabase.rpc('spend_credits', {
+                      p_cents: costCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        textModel: respondingModel,
+                        imageCostUsd: incurredImageCostUsd,
+                        textCostUsd,
+                        imageGeneration: incurredImageCostUsd !== null,
+                        error: err?.message || 'Seat execution failed',
+                      },
+                    });
+                    spendRecorded = true;
+                  } catch (spendErr) {
+                    console.error(`[Spend Tracking] Failed to record spend on error for ${seat.name}:`, spendErr);
+                  }
+                }
               }
 
               // Capture reusable file annotations from error path if present
