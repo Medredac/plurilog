@@ -4185,6 +4185,7 @@ export interface KnownImageSource {
   sourceMessageId: string | null;
   attachmentIndex: number;
   createdAt: string;
+  sender?: string | null;
 }
 
 export interface MessageVisualEvidenceItem {
@@ -4216,7 +4217,9 @@ export interface ResolvedImageEvidenceResult {
     | 'multiple_filename_shorthands'
     | 'comparative_subset'
     | 'recent_ordinal'
-    | 'singleton_inheritance';
+    | 'singleton_inheritance'
+    | 'generated_artifact_sender_reference'
+    | 'generated_artifact_recent';
 }
 
 /**
@@ -4254,19 +4257,25 @@ export async function fetchKnownImageSources(
       artifactRows.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
     );
 
-    // 2. Fetch source user messages to establish authoritative user upload chronology
+    // 2. Fetch source messages to establish authoritative upload/generation chronology and sender provenance
     const messageIds = Array.from(new Set(sourceRows.map((s: any) => s.source_message_id).filter(Boolean)));
     const messageCreatedAtMap = new Map<string, string>();
+    const messageSenderMap = new Map<string, string>();
     if (messageIds.length > 0) {
       const { data: messageRows } = await serviceSupabase
         .from('messages')
-        .select('id, created_at')
+        .select('id, created_at, sender')
         .in('id', messageIds);
 
       if (Array.isArray(messageRows)) {
         for (const m of messageRows) {
-          if (m.id && m.created_at) {
-            messageCreatedAtMap.set(m.id, m.created_at);
+          if (m.id) {
+            if (m.created_at) {
+              messageCreatedAtMap.set(m.id, m.created_at);
+            }
+            if (m.sender) {
+              messageSenderMap.set(m.id, m.sender);
+            }
           }
         }
       }
@@ -4277,6 +4286,7 @@ export async function fetchKnownImageSources(
       if (s.discussion_id !== discussionId) continue;
       if (imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
         const messageCreatedAt = (s.source_message_id && messageCreatedAtMap.get(s.source_message_id)) || s.created_at;
+        const sender = s.source_message_id ? (messageSenderMap.get(s.source_message_id) || null) : null;
         result.push({
           sourceId: s.id,
           artifactId: s.artifact_id,
@@ -4286,6 +4296,7 @@ export async function fetchKnownImageSources(
           sourceMessageId: s.source_message_id || null,
           attachmentIndex: s.attachment_index ?? 0,
           createdAt: messageCreatedAt,
+          sender,
         });
       }
     }
@@ -5242,7 +5253,77 @@ export function resolveImageEvidence(
     }
   }
 
-  // 4. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
+  // 4. Generated-Artifact Deterministic Resolution (Seat-Specific and Explicit Generic Model Generations)
+  if (Array.isArray(knownSources) && knownSources.length > 0) {
+    const KNOWN_MODEL_SEATS = ['gemini', 'chatgpt', 'claude'] as const;
+
+    // 4a. Seat-Specific Generation References (e.g. "what gemini generated", "Gemini's image", "the picture ChatGPT made")
+    for (const seatId of KNOWN_MODEL_SEATS) {
+      const seatRegex = new RegExp(
+        `\\b(?:what\\s+(?:did\\s+)?${seatId}\\s+(?:generate|draw|create|make|render|produce)(?:d)?|` +
+        `what\\s+(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
+        `${seatId}(?:'s)?\\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?|` +
+        `(?:the\\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
+        `(?:the\\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced)|` +
+        `(?:can\\s+you\\s+)?(?:see|view|look\\s+at|show(?:\\s+me)?|check|inspect|examine|reopen|open|display)\\s+(?:what\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced))\\b`,
+        'i'
+      );
+
+      if (seatRegex.test(pLower)) {
+        // Filter knownSources by source.sender === seatId (or conservative filename fallback if sender is unavailable)
+        const matchingSeatSources = knownSources.filter((s) => {
+          if (s.sender) {
+            return s.sender.toLowerCase() === seatId;
+          }
+          if (s.filename) {
+            return s.filename.toLowerCase().startsWith(`${seatId}-generated`);
+          }
+          return false;
+        });
+
+        if (matchingSeatSources.length > 0) {
+          // Select most recent source (knownSources is ordered chronologically by createdAt)
+          const targetSource = matchingSeatSources[matchingSeatSources.length - 1];
+          return {
+            sources: [targetSource],
+            reason: 'generated_artifact_sender_reference',
+          };
+        }
+      }
+    }
+
+    // 4b. Explicit Generic Generated-Image References (e.g. "the generated image", "the image that was generated", "what was generated?")
+    const isGenericGeneratedQuery =
+      /\b(?:the|that|this)\s+generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:the|that|this)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+
+    if (isGenericGeneratedQuery) {
+      const modelSeatSet = new Set<string>(KNOWN_MODEL_SEATS);
+      const modelGeneratedSources = knownSources.filter((s) => {
+        if (s.sender) {
+          return modelSeatSet.has(s.sender.toLowerCase());
+        }
+        // Conservative filename fallback only if sender metadata is missing
+        if (s.filename) {
+          const fn = s.filename.toLowerCase();
+          return fn.includes('generated') || KNOWN_MODEL_SEATS.some((m) => fn.startsWith(`${m}-`));
+        }
+        return false;
+      });
+
+      if (modelGeneratedSources.length > 0) {
+        const targetSource = modelGeneratedSources[modelGeneratedSources.length - 1];
+        return {
+          sources: [targetSource],
+          reason: 'generated_artifact_recent',
+        };
+      }
+    }
+  }
+
+  // 5. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
   // CRITICAL: Does NOT search backward. Inherits ONLY immediate lastRoundEvidence.
   if (isVerificationFollowUpQuery(p)) {
     if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
@@ -5260,7 +5341,7 @@ export function resolveImageEvidence(
     return null;
   }
 
-  // 5. Safe Singleton Inheritance / Pronoun-like references
+  // 6. Safe Singleton Inheritance / Pronoun-like references
   const isSingletonQuery =
     /\b(?:that|this|the)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
     /\b(?:how about|what about)\s+(?:the\s+)?(?:color|colour|layout|appearance|look)\b/i.test(pLower) ||
