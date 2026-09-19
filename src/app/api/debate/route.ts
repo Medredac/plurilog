@@ -158,6 +158,7 @@ export function isEvidenceRequestToolEnabled(): boolean {
 }
 
 export function isGeminiImageEditingEnabled(): boolean {
+  // Feature-gated Preview rollout; Production remains unchanged until explicitly enabled.
   return process.env.GEMINI_IMAGE_EDITING_ENABLED === 'true';
 }
 
