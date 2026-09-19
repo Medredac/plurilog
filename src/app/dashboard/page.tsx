@@ -23,6 +23,7 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
 };
 
 const SIGNUP_SOURCE_ROLLOUT_AT = new Date('2026-09-13T00:00:00.000Z').getTime();
+const COUNTRY_CODE_ROLLOUT_AT = new Date('2026-09-19T04:00:00.000Z').getTime();
 
 const DEFAULT_SEAT_ORDER: ModelId[] = [
   'chatgpt',
@@ -211,6 +212,7 @@ export default function DashboardPage() {
   const [pendingTitleDiscussionIds, setPendingTitleDiscussionIds] = useState<Set<string>>(new Set());
   const pendingTitleDiscussionIdsRef = useRef<Set<string>>(new Set());
   const titleGenerationStartedIdsRef = useRef<Set<string>>(new Set());
+  const hasAttemptedCountryRecordRef = useRef(false);
 
   const markTitlePending = useCallback((discussionId: string) => {
     pendingTitleDiscussionIdsRef.current.add(discussionId);
@@ -499,20 +501,34 @@ export default function DashboardPage() {
         if (freshUser) {
           const { data: profileRow } = await supabase
             .from('profiles')
-            .select('period_reset_at, plan_status, signup_source')
+            .select('period_reset_at, plan_status, signup_source, country_code')
             .eq('id', freshUser.id)
             .single();
           setPeriodResetAt(profileRow?.period_reset_at || null);
           setPlanStatus(profileRow?.plan_status || null);
+
+          const createdAtMs = freshUser.created_at
+            ? new Date(freshUser.created_at).getTime()
+            : 0;
+
+          // Record country_code once server-side for new accounts created on/after rollout
+          const isEligibleForCountryCapture = createdAtMs >= COUNTRY_CODE_ROLLOUT_AT;
+          if (
+            isEligibleForCountryCapture &&
+            !profileRow?.country_code &&
+            !hasAttemptedCountryRecordRef.current
+          ) {
+            hasAttemptedCountryRecordRef.current = true;
+            fetch('/api/user/record-country', { method: 'POST' }).catch((err) => {
+              console.warn('[Record Country] Non-critical error recording country:', err);
+            });
+          }
 
           // Reconcile signup_source for genuinely new accounts
           if (!profileRow?.signup_source) {
             let sourceToPersist: string | null = null;
             let shouldCleanLocalStorage = false;
 
-            const createdAtMs = freshUser.created_at
-              ? new Date(freshUser.created_at).getTime()
-              : 0;
             const accountCreatedAfterAttributionLaunch =
               createdAtMs >= SIGNUP_SOURCE_ROLLOUT_AT;
 

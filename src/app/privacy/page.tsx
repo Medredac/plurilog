@@ -44,7 +44,7 @@ export default function PrivacyPage() {
             </h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>
-                <strong className="font-medium text-zinc-800">Account information</strong>: your email address, a password (stored securely, never in plain text), and an optional display name. If you sign in with Google, we receive your name, email, and profile photo from Google.
+                <strong className="font-medium text-zinc-800">Account information</strong>: your email address, a password (stored securely, never in plain text), and an optional display name. If you sign in with Google, we receive your name, email, and profile photo from Google. We may also record a general country of registration derived from request network information for aggregate analytics and understanding service usage; we do not store your precise geographic location or persist raw IP addresses in your user profile.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Your content</strong>: the messages you send and the AI responses you receive, so you can revisit past discussions.
