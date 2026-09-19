@@ -1887,7 +1887,7 @@ export async function POST(req: NextRequest) {
                 : currentRoundAttachments;
 
             if (seat.seatId === 'claude') {
-              const currentVisualAttachmentCount = seatAttachments.filter((a) => {
+              const currentVisualAttachmentCount = (seatAttachments || []).filter((a) => {
                 const cleanUrl = a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
                 return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
               }).length;
