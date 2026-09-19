@@ -2120,6 +2120,7 @@ export async function POST(req: NextRequest) {
                         ? visualContextState
                         : null,
                       previousUserPrompt: lastRound?.userPrompt,
+                      currentUserPrompt: prompt,
                       allUserMessageIds: discussionMemory?.allUserMessageIds,
                     }
                   );
