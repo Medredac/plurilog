@@ -1257,6 +1257,10 @@ export default function DashboardPage() {
                           ...m,
                           isStreaming: false,
                           content: completedContent,
+                          attachment_urls:
+                            Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
+                              ? data.attachment_urls
+                              : m.attachment_urls,
                         }
                       : m
                   )
