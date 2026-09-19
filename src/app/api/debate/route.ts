@@ -55,7 +55,7 @@ import {
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { getSeatCapabilities } from '@/data/seatCapabilities';
-import { generateGeminiImage } from '@/utils/openrouterImages';
+import { generateGeminiImage, editGeminiImage } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import {
   mergeStreamingToolCalls,
@@ -84,6 +84,35 @@ export const GEMINI_IMAGE_TOOLS = [
           },
         },
         required: ['prompt'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+
+export const GEMINI_IMAGE_EDIT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'edit_image',
+      description:
+        'Edit or transform one existing image when the user explicitly asks to change, modify, restyle, remove, add, recolor, replace, or otherwise alter visual content in an image. This works for a user-uploaded image or an image generated earlier in the discussion. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          instruction: {
+            type: 'string',
+            description:
+              'A complete edit instruction describing exactly how the selected image should be changed while preserving anything the user did not ask to change.',
+          },
+          reference: {
+            type: 'string',
+            description:
+              'A short natural-language reference to the intended image, such as "the currently attached photo", "Gemini\'s latest generated image", or "the image the user uploaded earlier". Never use a URL or internal ID.',
+          },
+        },
+        required: ['instruction'],
         additionalProperties: false,
       },
     },
@@ -126,6 +155,10 @@ export const REQUEST_EVIDENCE_TOOL = [
 
 export function isEvidenceRequestToolEnabled(): boolean {
   return process.env.EVIDENCE_REQUEST_TOOL_ENABLED === 'true';
+}
+
+export function isGeminiImageEditingEnabled(): boolean {
+  return process.env.GEMINI_IMAGE_EDITING_ENABLED === 'true';
 }
 
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
@@ -1842,6 +1875,10 @@ export async function POST(req: NextRequest) {
 
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
+            const isGeminiImageEditingEnabledForSeat =
+              seat.seatId === 'gemini' &&
+              getSeatCapabilities('gemini').imageEditing === true &&
+              isGeminiImageEditingEnabled();
             const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
@@ -1980,6 +2017,7 @@ export async function POST(req: NextRequest) {
                     },
                   },
                   ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
+                  ...(isGeminiImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(discussionId
@@ -2061,6 +2099,12 @@ export async function POST(req: NextRequest) {
                   finalizedCalls[0]?.name === 'generate_image' &&
                   seat.seatId === 'gemini' &&
                   isGeminiImageEnabled;
+
+                const isEditImageCall =
+                  finalizedCalls.length === 1 &&
+                  finalizedCalls[0]?.name === 'edit_image' &&
+                  seat.seatId === 'gemini' &&
+                  isGeminiImageEditingEnabledForSeat;
 
                 const isEvidenceRequestCall =
                   finalizedCalls.length === 1 &&
