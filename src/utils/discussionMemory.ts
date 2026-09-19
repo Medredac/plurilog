@@ -4225,7 +4225,8 @@ export interface ResolvedImageEvidenceResult {
     | 'scoped_ordinal'
     | 'discussion_ordinal'
     | 'ordinal_scope_inheritance'
-    | 'active_referent_recovery';
+    | 'active_referent_recovery'
+    | 'comparative_contextual_set';
 }
 
 /**
@@ -5229,11 +5230,11 @@ export function resolveImageEvidence(
   if (discussionSources.length > 0) {
     // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st two images Gemini generated", "what did Gemini generate")
     for (const seatId of KNOWN_MODEL_SEATS) {
-      const hasSeatMention = new RegExp(`\\b${seatId}\\b`, 'i').test(pLower);
+      const hasSeatMention = new RegExp(`\\b${seatId}(?:'s|s)?\\b`, 'i').test(pLower);
       if (!hasSeatMention) continue;
 
       const hasGenAction = /\b(generate|generated|draw|drew|create|created|make|made|render|rendered|produce|produced|generation|artwork|illustration|drawing)\b/i.test(pLower);
-      const hasSeatPossessive = new RegExp(`\\b${seatId}(?:'s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|last|latest|both|all|two|2|three|3)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\b`, 'i').test(pLower);
+      const hasSeatPossessive = new RegExp(`\\b${seatId}(?:'s|s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|latest|both|all|two|2|three|3|first\\s+and\\s+second|1st\\s+and\\s+2nd)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\b`, 'i').test(pLower);
       const hasVisualNoun = /\b(image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\b/i.test(pLower);
 
       if ((hasGenAction && hasVisualNoun) || hasSeatPossessive) {
@@ -5619,6 +5620,169 @@ export function resolveImageEvidence(
       }
       // PRIORITY 5: Requested ordinal is out of range -> return null safely, do not guess or fall through to embeddings!
       return null;
+    }
+  }
+
+  // 5.5 PRIORITY 4.5 — Contextual Two-Image Set Resolution
+  // Resolves natural conversational set references such as "compare the two images", "compare both images",
+  // "look at both images", "what changed between the two images?", "are the two images identical?", "compare them"
+  const visualNounRegex = /^(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?$/i;
+
+  const twoMatch = pLower.match(
+    /\b(?:(?:the|these|those)\s+(?:two|2)|both(?:\s+of\s+(?:the|these|those))?)\s+([a-z0-9_\-]+)(?:\s+([a-z0-9_\-]+))?/i
+  );
+
+  let isExplicitTwoImageSetQuery = false;
+  if (twoMatch) {
+    const w1 = twoMatch[1].toLowerCase();
+    const w2 = twoMatch[2]?.toLowerCase();
+
+    // Directly followed by visual noun (e.g. "two images", "both photos")
+    if (visualNounRegex.test(w1)) {
+      isExplicitTwoImageSetQuery = true;
+    }
+    // Followed by modifier + visual noun (e.g. "two generated images", "both uploaded photos")
+    else if (
+      ['generated', 'uploaded', 'created', 'rendered', 'attached', 'prior', 'previous'].includes(w1) &&
+      w2 &&
+      visualNounRegex.test(w2)
+    ) {
+      isExplicitTwoImageSetQuery = true;
+    }
+    // Allowed predicate adjectives, adverbs, and particles after bare "two" / "both"
+    else {
+      const allowedBareContinuations = new Set([
+        'identical', 'the', 'same', 'different', 'alike', 'together', 'side', 'for', 'in', 'to', 'now', 'again', 'closely', 'carefully', 'please', 'detail'
+      ]);
+
+      if (allowedBareContinuations.has(w1)) {
+        const hasComparativeIntent =
+          /\b(?:compare|contrast|between|differ|difference|differences|versus|vs)\b/i.test(pLower) ||
+          /\b(?:look\s+at|show(?:\s+me)?|view|check|inspect|examine|reopen|display)\b/i.test(pLower) ||
+          /\bwhat\s+(?:changed|is\s+different|differs)\b/i.test(pLower) ||
+          /\bare\s+(?:the\s+two|both)\b/i.test(pLower);
+
+        isExplicitTwoImageSetQuery = hasComparativeIntent;
+      } else {
+        // Explicit non-visual object following "two" / "both" (e.g. "files", "pdfs", "documents", "reports", "approaches", "spreadsheets", "answers", "responses", "you")
+        isExplicitTwoImageSetQuery = false;
+      }
+    }
+  } else {
+    // Bare "two" or "both" without following word (e.g. "compare the two", "compare both", "look at both")
+    const hasComparativeIntent =
+      /\b(?:compare|contrast|between|differ|difference|differences|versus|vs)\b/i.test(pLower) ||
+      /\b(?:look\s+at|show(?:\s+me)?|view|check|inspect|examine|reopen|display)\b/i.test(pLower) ||
+      /\bwhat\s+(?:changed|is\s+different|differs)\b/i.test(pLower) ||
+      /\bare\s+(?:the\s+two|both)\b/i.test(pLower);
+
+    const hasTwoOrBoth = /\b(?:the\s+two|these\s+two|those\s+two|the\s+2|both)\b/i.test(pLower);
+
+    isExplicitTwoImageSetQuery = hasComparativeIntent && hasTwoOrBoth;
+  }
+
+  const isPronounTwoImageQuery =
+    /\b(?:compare|contrast|between|look\s+at|show(?:\s+me)?|view|check|inspect|examine)\s+them\b/i.test(pLower) ||
+    /\bwhat\s+(?:changed|is\s+different|differs)\s+between\s+them\b/i.test(pLower) ||
+    /\bwhat\s+are\s+the\s+differences\s+between\s+them\b/i.test(pLower) ||
+    /\bare\s+they\s+(?:identical|the\s+same|different)\b/i.test(pLower);
+
+  if (isExplicitTwoImageSetQuery || isPronounTwoImageQuery) {
+    const hasImmediateEvidence = Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0;
+    const hasVisualPrevPrompt = Boolean(
+      previousUserPrompt &&
+        (/\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(
+          previousUserPrompt
+        ) ||
+          isVisualEvidenceQuery(previousUserPrompt))
+    );
+    const hasImmediateVisualContext = hasImmediateEvidence || hasVisualPrevPrompt;
+
+    if (hasImmediateVisualContext) {
+      // Pronoun-only queries require stricter context: either last round held exactly 2 distinct images,
+      // or previous prompt explicitly established a two-image set.
+      const lastRoundDistinctSourceIds = Array.from(
+        new Set((lastRoundEvidence || []).map((e) => e.sourceId).filter(Boolean))
+      );
+
+      const prevEstablishedTwoImages = Boolean(
+        previousUserPrompt &&
+          /\b(?:two|2|both|1st\s+and\s+2nd|first\s+and\s+second|image\s+1\s+and\s+image\s+2)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(
+            previousUserPrompt
+          )
+      );
+
+      const isAllowedPronoun =
+        isExplicitTwoImageSetQuery ||
+        (isPronounTwoImageQuery && (lastRoundDistinctSourceIds.length === 2 || prevEstablishedTwoImages));
+
+      if (isAllowedPronoun) {
+        let pairSourceIds: [string, string] | null = null;
+
+        // Case A: Previous turn already had 2 distinct active images
+        if (lastRoundDistinctSourceIds.length === 2) {
+          pairSourceIds = [lastRoundDistinctSourceIds[0], lastRoundDistinctSourceIds[1]];
+        }
+        // Case B: Previous turn had 1 distinct active image -> find nearest prior distinct active image
+        else if (lastRoundDistinctSourceIds.length === 1) {
+          const firstSourceId = lastRoundDistinctSourceIds[0];
+          let secondSourceId: string | null = null;
+
+          if (Array.isArray(recentEvidenceSets)) {
+            for (const set of recentEvidenceSets) {
+              if (!Array.isArray(set)) continue;
+              for (const item of set) {
+                if (item.sourceId && item.sourceId !== firstSourceId) {
+                  secondSourceId = item.sourceId;
+                  break;
+                }
+              }
+              if (secondSourceId) break;
+            }
+          }
+
+          if (secondSourceId) {
+            pairSourceIds = [firstSourceId, secondSourceId];
+          }
+        }
+        // Case C: Previous turn had 0 evidence, but previous prompt established visual context
+        else if (hasVisualPrevPrompt && Array.isArray(recentEvidenceSets)) {
+          const distinctFound: string[] = [];
+          for (const set of recentEvidenceSets) {
+            if (!Array.isArray(set)) continue;
+            for (const item of set) {
+              if (item.sourceId && !distinctFound.includes(item.sourceId)) {
+                distinctFound.push(item.sourceId);
+                if (distinctFound.length === 2) break;
+              }
+            }
+            if (distinctFound.length === 2) break;
+          }
+
+          if (distinctFound.length === 2) {
+            pairSourceIds = [distinctFound[0], distinctFound[1]];
+          }
+        }
+
+        if (pairSourceIds) {
+          const src1 = knownSources.find((ks) => ks.sourceId === pairSourceIds![0]);
+          const src2 = knownSources.find((ks) => ks.sourceId === pairSourceIds![1]);
+
+          if (src1 && src2) {
+            // Return pair in stable discussion chronology
+            const pair = [src1, src2].sort((a, b) => {
+              const idxA = discussionSources.findIndex((s) => s.sourceId === a.sourceId);
+              const idxB = discussionSources.findIndex((s) => s.sourceId === b.sourceId);
+              return idxA - idxB;
+            });
+
+            return {
+              sources: pair,
+              reason: 'comparative_contextual_set',
+            };
+          }
+        }
+      }
     }
   }
 
