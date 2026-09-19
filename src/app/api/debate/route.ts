@@ -1308,6 +1308,7 @@ export async function POST(req: NextRequest) {
                     knownSources,
                     lastRoundEvidence,
                     recentEvidenceSets,
+                    previousUserPrompt: lastRound?.userPrompt,
                   });
 
                   if (resolvedImage && resolvedImage.sources.length > 0) {
@@ -1414,6 +1415,7 @@ export async function POST(req: NextRequest) {
                     knownSources: historicalKnownSources,
                     lastRoundEvidence: historicalLastRoundEvidence,
                     recentEvidenceSets: historicalRecentEvidenceSets,
+                    previousUserPrompt: historicalPrecedingRound?.userPrompt,
                   });
 
                   if (mixedResolution && mixedResolution.sources.length > 0) {

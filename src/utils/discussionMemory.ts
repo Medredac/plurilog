@@ -4204,6 +4204,7 @@ export interface ResolveImageEvidenceOptions {
   knownSources: KnownImageSource[];
   lastRoundEvidence?: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
+  previousUserPrompt?: string;
 }
 
 export interface ResolvedImageEvidenceResult {
@@ -4220,7 +4221,11 @@ export interface ResolvedImageEvidenceResult {
     | 'recent_ordinal'
     | 'singleton_inheritance'
     | 'generated_artifact_sender_reference'
-    | 'generated_artifact_recent';
+    | 'generated_artifact_recent'
+    | 'scoped_ordinal'
+    | 'discussion_ordinal'
+    | 'ordinal_scope_inheritance'
+    | 'active_referent_recovery';
 }
 
 /**
@@ -4710,56 +4715,79 @@ export async function persistResolvedImageEvidence(
 export function resolveImageEvidence(
   options: ResolveImageEvidenceOptions
 ): ResolvedImageEvidenceResult | null {
-  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets } = options;
+  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p) return null; // Continue / empty prompt
 
   const pLower = p.toLowerCase();
 
-  // 1. Explicit Discussion-Wide Chronology (strictly requires explicit visual noun and upload/sent reference)
-  const isExplicitDiscussionUploadQuery =
-    /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|earliest|initial)\s+(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
-    /\b(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning)\b/i.test(pLower) ||
-    /\b(?:latest|most recent|last)\s+(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
-    /\b(?:the\s+)?(?:image|picture|photo|screenshot)\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently)\b/i.test(pLower);
+  // Scoped Image Source Collections
+  const KNOWN_MODEL_SEATS = ['gemini', 'chatgpt', 'claude'] as const;
 
-  if (isExplicitDiscussionUploadQuery && Array.isArray(knownSources) && knownSources.length > 0) {
-    if (/\b(earliest|initial)\b/i.test(pLower) || /\b(first|1st)\b/i.test(pLower)) {
-      return { sources: [knownSources[0]], reason: 'discussion_chronology' };
+  const isAssistantSource = (s: KnownImageSource): boolean => {
+    if (s.sender) {
+      return KNOWN_MODEL_SEATS.includes(s.sender.toLowerCase() as any);
     }
-    if (/\b(second|2nd)\b/i.test(pLower)) {
-      if (knownSources.length >= 2) {
-        return { sources: [knownSources[1]], reason: 'discussion_chronology' };
-      }
-      return null;
+    const fn = (s.filename || '').toLowerCase();
+    return KNOWN_MODEL_SEATS.some((m) => fn.startsWith(`${m}-generated`) || fn.startsWith(`${m}-`));
+  };
+
+  const discussionSources = Array.isArray(knownSources) ? knownSources : [];
+
+  const getSeatGeneratedSources = (seatId: string): KnownImageSource[] => {
+    const sLower = seatId.toLowerCase();
+    return discussionSources.filter((s) => {
+      if (s.sender) return s.sender.toLowerCase() === sLower;
+      const fn = (s.filename || '').toLowerCase();
+      return fn.startsWith(`${sLower}-generated`) || fn.startsWith(`${sLower}-`);
+    });
+  };
+
+  const allGeneratedSources = discussionSources.filter((s) => isAssistantSource(s));
+
+  const userUploadSources = discussionSources.filter((s) => {
+    if (s.sender) {
+      return s.sender.toLowerCase() === 'user';
     }
-    if (/\b(third|3rd)\b/i.test(pLower)) {
-      if (knownSources.length >= 3) {
-        return { sources: [knownSources[2]], reason: 'discussion_chronology' };
-      }
-      return null;
+    return !isAssistantSource(s);
+  });
+
+  // Ordinal parser helper: maps textual and numeric ordinals to 0-based index or 'last'
+  function parseOrdinalIndex(text: string): number | 'last' | null {
+    const t = text.toLowerCase();
+    if (/\b(latest|most recent|last)\b/i.test(t)) return 'last';
+    if (/\b(first|1st|earliest|initial)\b/i.test(t)) return 0;
+    if (/\b(second|2nd)\b/i.test(t)) return 1;
+    if (/\b(third|3rd)\b/i.test(t)) return 2;
+    if (/\b(fourth|4th)\b/i.test(t)) return 3;
+    if (/\b(fifth|5th)\b/i.test(t)) return 4;
+    if (/\b(sixth|6th)\b/i.test(t)) return 5;
+    if (/\b(seventh|7th)\b/i.test(t)) return 6;
+    if (/\b(eighth|8th)\b/i.test(t)) return 7;
+    if (/\b(ninth|9th)\b/i.test(t)) return 8;
+    if (/\b(tenth|10th)\b/i.test(t)) return 9;
+
+    // Numeric forms: "image 1", "image #2", "photo 3", "image no. 2", "image no 2"
+    const numMatch = /\b(?:image|picture|photo|screenshot|pic|snapshot|generation)\s+(?:no\.?\s*|#\s*)?(\d+)\b/i.exec(t);
+    if (numMatch) {
+      const num = parseInt(numMatch[1], 10);
+      if (!isNaN(num) && num > 0) return num - 1;
     }
-    if (/\b(fourth|4th)\b/i.test(pLower)) {
-      if (knownSources.length >= 4) {
-        return { sources: [knownSources[3]], reason: 'discussion_chronology' };
-      }
-      return null;
+
+    // Bare number ordinal pattern: "10th", "12th", etc.
+    const nthMatch = /\b(\d+)(?:st|nd|rd|th)\b/i.exec(t);
+    if (nthMatch) {
+      const num = parseInt(nthMatch[1], 10);
+      if (!isNaN(num) && num > 0) return num - 1;
     }
-    if (/\b(fifth|5th)\b/i.test(pLower)) {
-      if (knownSources.length >= 5) {
-        return { sources: [knownSources[4]], reason: 'discussion_chronology' };
-      }
-      return null;
-    }
-    if (/\b(latest|most recent|last)\b/i.test(pLower)) {
-      return { sources: [knownSources[knownSources.length - 1]], reason: 'discussion_chronology' };
-    }
+
+    return null;
   }
 
-  // 2. Explicit Filename & Unique Numeric Shorthand Resolution
+  // 1. Explicit Filename & Unique Numeric Shorthand Resolution
   if (Array.isArray(knownSources) && knownSources.length > 0) {
-    // 2a. Precompute metadata for ALL source aliases
+    // 1a. Precompute metadata for ALL source aliases
     interface SourceAliasMeta {
       source: KnownImageSource;
       artifactId: string;
@@ -4798,7 +4826,7 @@ export function resolveImageEvidence(
       });
     }
 
-    // 2b. Detect exact full-filename or basename matches in prompt across all aliases
+    // 1b. Detect exact full-filename or basename matches in prompt across all aliases
     interface RawAliasMatch {
       start: number;
       end: number;
@@ -4912,7 +4940,7 @@ export function resolveImageEvidence(
       }
     }
 
-    // 2c. Check for unknown explicit filename patterns in prompt (e.g. "IMG_9999.JPG")
+    // 1c. Check for unknown explicit filename patterns in prompt (e.g. "IMG_9999.JPG")
     // If prompt explicitly mentions filenames with image extensions that do not match any known source, fail-safe
     const promptFilenameRegex = /\b[a-zA-Z0-9_.-]+\.(?:png|jpe?g|webp|gif)\b/gi;
     let fileMatch: RegExpExecArray | null;
@@ -4940,7 +4968,7 @@ export function resolveImageEvidence(
       return null;
     }
 
-    // 2d. Evaluate candidate numeric shorthand tokens (>= 3 digits) from reference-intent patterns
+    // 1d. Evaluate candidate numeric shorthand tokens (>= 3 digits) from reference-intent patterns
     const hasImmediateVisualContext = Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0;
 
     interface CandidateShorthand {
@@ -5082,7 +5110,7 @@ export function resolveImageEvidence(
       }
     }
 
-    // 2e. Combine resolved exact and shorthand matches
+    // 1e. Combine resolved exact and shorthand matches
     const allResolved = [...matchedArtifacts, ...shorthandMatches];
 
     if (allResolved.length > 0) {
@@ -5114,8 +5142,108 @@ export function resolveImageEvidence(
     }
   }
 
-  // 3. Explicit Recent Ordinal / Comparative Subsets
-  // Candidate sets sequence: immediate set first, then earlier sets newest -> oldest
+  // 2. PRIORITY 1 — Explicit Current-Turn Scoped Ordinals & Scoped Generation Queries
+  if (discussionSources.length > 0) {
+    // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st image Gemini generated", "what did Gemini generate")
+    for (const seatId of KNOWN_MODEL_SEATS) {
+      const seatRegex = new RegExp(
+        `\\b(?:what\\s+(?:did\\s+)?${seatId}\\s+(?:generate|draw|create|make|render|produce)(?:d)?|` +
+        `what\\s+(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
+        `${seatId}(?:'s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?|` +
+        `(?:the\\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
+        `(?:the\\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\\d+(?:st|nd|rd|th)|latest|last)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced)|` +
+        `(?:can\\s+you\\s+)?(?:see|view|look\\s+at|show(?:\\s+me)?|check|inspect|examine|reopen|open|display)\\s+(?:what\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced))\\b`,
+        'i'
+      );
+
+      if (seatRegex.test(pLower)) {
+        const seatSources = getSeatGeneratedSources(seatId);
+        const ord = parseOrdinalIndex(pLower);
+
+        if (ord !== null) {
+          const targetIndex = ord === 'last' ? seatSources.length - 1 : ord;
+          if (targetIndex >= 0 && targetIndex < seatSources.length) {
+            return {
+              sources: [seatSources[targetIndex]],
+              reason: 'scoped_ordinal',
+            };
+          }
+          return null; // Requested ordinal does not exist for this seat
+        }
+
+        // Non-ordinal query: select latest matching source
+        if (seatSources.length > 0) {
+          return {
+            sources: [seatSources[seatSources.length - 1]],
+            reason: 'generated_artifact_sender_reference',
+          };
+        }
+        return null;
+      }
+    }
+
+    // 2b. Explicit User-Upload Scoped Ordinals & Selectors (e.g. "first image I uploaded", "the second photo I sent", "my second image", "latest image I uploaded")
+    const isExplicitUserUploadQuery =
+      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial)\s+(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
+      /\b(?:my)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial)\s+(?:image|picture|photo|screenshot|file)\b/i.test(pLower) ||
+      /\b(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning|second|2nd|third|3rd|last|latest|most recently)\b/i.test(pLower) ||
+      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently|first|initially|earliest)\b/i.test(pLower) ||
+      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)\s+i\s+(?:uploaded|sent|provided|shared|posted)\b/i.test(pLower);
+
+    if (isExplicitUserUploadQuery) {
+      const ord = parseOrdinalIndex(pLower);
+      if (ord !== null) {
+        const targetIndex = ord === 'last' ? userUploadSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < userUploadSources.length) {
+          return {
+            sources: [userUploadSources[targetIndex]],
+            reason: 'scoped_ordinal',
+          };
+        }
+        return null; // Requested user upload ordinal does not exist
+      }
+
+      // Non-ordinal user upload reference -> latest user upload
+      if (userUploadSources.length > 0) {
+        return {
+          sources: [userUploadSources[userUploadSources.length - 1]],
+          reason: 'scoped_ordinal',
+        };
+      }
+      return null;
+    }
+
+    // 2c. Explicit Generic Generated-Image References (e.g. "first generated image", "second generated photo", "the generated image")
+    const isGenericGeneratedQuery =
+      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+
+    if (isGenericGeneratedQuery) {
+      const ord = parseOrdinalIndex(pLower);
+      if (ord !== null) {
+        const targetIndex = ord === 'last' ? allGeneratedSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < allGeneratedSources.length) {
+          return {
+            sources: [allGeneratedSources[targetIndex]],
+            reason: 'scoped_ordinal',
+          };
+        }
+        return null; // Requested generated image ordinal does not exist
+      }
+
+      if (allGeneratedSources.length > 0) {
+        return {
+          sources: [allGeneratedSources[allGeneratedSources.length - 1]],
+          reason: 'generated_artifact_recent',
+        };
+      }
+      return null;
+    }
+  }
+
+  // 3. PRIORITY 2 — Active Multi-Image Evidence Set
   const candidateEvidenceSets: MessageVisualEvidenceItem[][] = [];
   if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
     candidateEvidenceSets.push(lastRoundEvidence);
@@ -5135,6 +5263,7 @@ export function resolveImageEvidence(
   }
 
   if (candidateEvidenceSets.length > 0) {
+    // 3a. Comparative subset queries (e.g. "compare the first two", "last two", "1st and 2nd")
     const isSubsetQuery =
       /\b(compare|between|vs|versus|better than|worse than|differ|difference)\b/i.test(pLower) ||
       /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:and|or|vs)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\b/i.test(pLower) ||
@@ -5217,114 +5346,149 @@ export function resolveImageEvidence(
       }
     }
 
-    // Recent Evidence-Set Single Ordinals (including "second one", "are you sure about the second one", "what about the last image?")
-    const isRecentOrdinalQuery =
-      /\b(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)\s+(?:one|image|picture|photo)\b/i.test(pLower) ||
-      /\bwhat about (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
-      /\blook at (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
-      /\b(?:are you sure about|check|double[- ]?check)\s+(?:about\s+)?(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|last)(?:\s+(?:one|image|picture|photo))?\b/i.test(pLower) ||
-      /\b(?:image|picture|photo)\s+(1|2|3|4|5)\b/i.test(pLower);
+    // 3b. Context-dependent pronoun/relative ordinals on active multi-image sets
+    // e.g. "the second one", "what about the other one", "look at the 2nd one"
+    const isContextualRelativeOrdinal =
+      /\b(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|other|last)\s+one\b/i.test(pLower) ||
+      /\bwhat about (?:the\s+)?(other\s+one|other)\b/i.test(pLower) ||
+      /\blook at (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|other|last)\s+one\b/i.test(pLower);
 
-    if (isRecentOrdinalQuery) {
+    if (isContextualRelativeOrdinal && Array.isArray(lastRoundEvidence) && lastRoundEvidence.length >= 2) {
+      const isOther = /\b(other|other\s+one)\b/i.test(pLower);
       const isLast = /\blast\b/i.test(pLower);
       let targetOrd = -1;
-      if (/\b(first|1st)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+1\b/i.test(pLower)) targetOrd = 0;
-      else if (/\b(second|2nd)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+2\b/i.test(pLower)) targetOrd = 1;
-      else if (/\b(third|3rd)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+3\b/i.test(pLower)) targetOrd = 2;
-      else if (/\b(fourth|4th)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+4\b/i.test(pLower)) targetOrd = 3;
-      else if (/\b(fifth|5th)\b/i.test(pLower) || /\b(?:image|picture|photo)\s+5\b/i.test(pLower)) targetOrd = 4;
 
-      for (const evSet of candidateEvidenceSets) {
-        const ordToCheck = isLast ? evSet.length - 1 : targetOrd;
-        if (ordToCheck >= 0 && ordToCheck < evSet.length) {
-          const ev = evSet[ordToCheck];
-          const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
-          if (matched) {
-            return { sources: [matched], reason: 'recent_ordinal' };
-          }
+      if (isOther && lastRoundEvidence.length === 2) {
+        targetOrd = 1;
+      } else if (isLast) {
+        targetOrd = lastRoundEvidence.length - 1;
+      } else {
+        const parsed = parseOrdinalIndex(pLower);
+        if (parsed !== null && parsed !== 'last') {
+          targetOrd = parsed;
+        }
+      }
+
+      if (targetOrd >= 0 && targetOrd < lastRoundEvidence.length) {
+        const ev = lastRoundEvidence[targetOrd];
+        const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+        if (matched) {
+          return { sources: [matched], reason: 'recent_ordinal' };
         }
       }
       return null;
     }
-  } else if (Array.isArray(knownSources) && knownSources.length > 0) {
-    // If no recent evidence set exists, a clearly temporal "latest image" or "last image" safely falls back to discussion chronology
-    const isFallbackLatestQuery = /\b(?:the\s+)?(?:latest|most recent|last)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower);
-    if (isFallbackLatestQuery) {
-      return { sources: [knownSources[knownSources.length - 1]], reason: 'discussion_chronology' };
-    }
   }
 
-  // 4. Generated-Artifact Deterministic Resolution (Seat-Specific and Explicit Generic Model Generations)
-  if (Array.isArray(knownSources) && knownSources.length > 0) {
-    const KNOWN_MODEL_SEATS = ['gemini', 'chatgpt', 'claude'] as const;
+  // 4. PRIORITY 3 — Elliptical Ordinal Scope Inheritance
+  // Detects continuation queries with ordinals: "what about the second image?", "and the 2nd?", "how about image 2?", "what about the third?"
+  const isOrdinalContinuationQuery =
+    /\b(?:what\s+about|how\s+about|and|look\s+at|check|see|show(?:\s+me)?)\s+(?:the\s+)?(?:second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|last)(?:\s+(?:one|image|picture|photo|screenshot))?[\?\!\.]*$/i.test(pLower) ||
+    /^(?:and\s+)?(?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|last)(?:\s+(?:one|image|picture|photo|screenshot))?[\?\!\.]*$/i.test(pLower) ||
+    /\b(?:image|picture|photo)\s+(?:no\.?\s*|#\s*)?(\d+)[\?\!\.]*$/i.test(pLower);
 
-    // 4a. Seat-Specific Generation References (e.g. "what gemini generated", "Gemini's image", "the picture ChatGPT made")
-    for (const seatId of KNOWN_MODEL_SEATS) {
-      const seatRegex = new RegExp(
-        `\\b(?:what\\s+(?:did\\s+)?${seatId}\\s+(?:generate|draw|create|make|render|produce)(?:d)?|` +
-        `what\\s+(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
-        `${seatId}(?:'s)?\\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?|` +
-        `(?:the\\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was\\s+)?(?:generated|drawn|created|made|rendered|produced)\\s+by\\s+${seatId}|` +
-        `(?:the\\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced)|` +
-        `(?:can\\s+you\\s+)?(?:see|view|look\\s+at|show(?:\\s+me)?|check|inspect|examine|reopen|open|display)\\s+(?:what\\s+)?${seatId}\\s+(?:generated|drew|created|made|rendered|produced))\\b`,
-        'i'
-      );
+  if (isOrdinalContinuationQuery && previousUserPrompt && previousUserPrompt.trim()) {
+    const prev = previousUserPrompt.toLowerCase().trim();
+    const ord = parseOrdinalIndex(pLower);
 
-      if (seatRegex.test(pLower)) {
-        // Filter knownSources by source.sender === seatId (or conservative filename fallback if sender is unavailable)
-        const matchingSeatSources = knownSources.filter((s) => {
-          if (s.sender) {
-            return s.sender.toLowerCase() === seatId;
-          }
-          if (s.filename) {
-            return s.filename.toLowerCase().startsWith(`${seatId}-generated`);
-          }
-          return false;
-        });
+    if (ord !== null) {
+      // 4a. Check if previous turn had explicit seat generation scope
+      let inheritedSeatId: string | null = null;
+      for (const seatId of KNOWN_MODEL_SEATS) {
+        if (
+          new RegExp(`\\b${seatId}\\b`, 'i').test(prev) &&
+          /\b(generate|generated|draw|drew|create|created|make|made|render|rendered|produce|produced|generation|artwork|illustration)\b/i.test(prev)
+        ) {
+          inheritedSeatId = seatId;
+          break;
+        }
+      }
 
-        if (matchingSeatSources.length > 0) {
-          // Select most recent source (knownSources is ordered chronologically by createdAt)
-          const targetSource = matchingSeatSources[matchingSeatSources.length - 1];
+      if (inheritedSeatId) {
+        const seatSources = getSeatGeneratedSources(inheritedSeatId);
+        const targetIndex = ord === 'last' ? seatSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < seatSources.length) {
           return {
-            sources: [targetSource],
-            reason: 'generated_artifact_sender_reference',
+            sources: [seatSources[targetIndex]],
+            reason: 'ordinal_scope_inheritance',
           };
         }
+        return null; // Requested ordinal outside inherited seat scope
       }
-    }
 
-    // 4b. Explicit Generic Generated-Image References (e.g. "the generated image", "the image that was generated", "what was generated?")
-    const isGenericGeneratedQuery =
-      /\b(?:the|that|this)\s+generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
-      /\b(?:the|that|this)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+      // 4b. Check if previous turn had explicit user upload scope
+      const isPrevUserUpload =
+        /\b(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(prev) &&
+        /\b(?:image|picture|photo|screenshot|file|i)\b/i.test(prev);
 
-    if (isGenericGeneratedQuery) {
-      const modelSeatSet = new Set<string>(KNOWN_MODEL_SEATS);
-      const modelGeneratedSources = knownSources.filter((s) => {
-        if (s.sender) {
-          return modelSeatSet.has(s.sender.toLowerCase());
+      if (isPrevUserUpload) {
+        const targetIndex = ord === 'last' ? userUploadSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < userUploadSources.length) {
+          return {
+            sources: [userUploadSources[targetIndex]],
+            reason: 'ordinal_scope_inheritance',
+          };
         }
-        // Conservative filename fallback only if sender metadata is missing
-        if (s.filename) {
-          const fn = s.filename.toLowerCase();
-          return fn.includes('generated') || KNOWN_MODEL_SEATS.some((m) => fn.startsWith(`${m}-`));
-        }
-        return false;
-      });
+        return null; // Requested ordinal outside user upload scope
+      }
 
-      if (modelGeneratedSources.length > 0) {
-        const targetSource = modelGeneratedSources[modelGeneratedSources.length - 1];
-        return {
-          sources: [targetSource],
-          reason: 'generated_artifact_recent',
-        };
+      // 4c. Check if previous turn had generic generated scope
+      const isPrevGenericGenerated =
+        /\bgenerated\s+(?:image|picture|photo|screenshot|snapshot|render|artwork)\b/i.test(prev) ||
+        /\b(?:image|picture|photo)\s+(?:that\s+was\s+)?(?:generated|created|rendered|drawn|produced)\b/i.test(prev);
+
+      if (isPrevGenericGenerated) {
+        const targetIndex = ord === 'last' ? allGeneratedSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < allGeneratedSources.length) {
+          return {
+            sources: [allGeneratedSources[targetIndex]],
+            reason: 'ordinal_scope_inheritance',
+          };
+        }
+        return null; // Requested ordinal outside all generated scope
+      }
+
+      // 4d. Check if previous turn had explicit discussion-wide ordinal scope
+      const isPrevDiscussionOrdinal =
+        /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+(?:image|picture|photo|screenshot)\b/i.test(prev) ||
+        /\b(?:image|picture|photo|screenshot)\s+(?:\d+)\b/i.test(prev);
+
+      if (isPrevDiscussionOrdinal) {
+        const targetIndex = ord === 'last' ? discussionSources.length - 1 : ord;
+        if (targetIndex >= 0 && targetIndex < discussionSources.length) {
+          return {
+            sources: [discussionSources[targetIndex]],
+            reason: 'ordinal_scope_inheritance',
+          };
+        }
+        return null;
       }
     }
   }
 
-  // 5. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
+  // 5. PRIORITY 4 — Discussion-Wide Bare Ordinal Fallback
+  // Matches explicit image ordinals: "the second image", "1st image", "2nd image", "image 1", "image 2", "image #2", "10th image"
+  const isBareImageOrdinal =
+    /\b(?:the\s+)?(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
+    /\bwhat about (?:the\s+)?(second|2nd|first|1st|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|last)(?:\s+(?:image|picture|photo|screenshot))?\b/i.test(pLower) ||
+    /\b(?:image|picture|photo)\s+(?:no\.?\s*|#\s*)?(\d+)\b/i.test(pLower);
+
+  if (isBareImageOrdinal && discussionSources.length > 0) {
+    const ord = parseOrdinalIndex(pLower);
+    if (ord !== null) {
+      const targetIndex = ord === 'last' ? discussionSources.length - 1 : ord;
+      if (targetIndex >= 0 && targetIndex < discussionSources.length) {
+        return {
+          sources: [discussionSources[targetIndex]],
+          reason: 'discussion_ordinal',
+        };
+      }
+      // PRIORITY 5: Requested ordinal is out of range -> return null safely, do not guess or fall through to embeddings!
+      return null;
+    }
+  }
+
+  // 6. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
   // CRITICAL: Does NOT search backward. Inherits ONLY immediate lastRoundEvidence.
   if (isVerificationFollowUpQuery(p)) {
     if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
@@ -5342,7 +5506,7 @@ export function resolveImageEvidence(
     return null;
   }
 
-  // 6. Conversational Continuation / Active Referent Inheritance
+  // 7. Conversational Continuation / Active Referent Inheritance
   // Strictly requires non-empty lastRoundEvidence from immediately preceding user turn.
   const isContinuationFollowUp =
     /^(?:and\s+)?(?:now|what\s+about\s+now|how\s+about\s+now|can\s+you\s+see\s+(?:it|this|anything)\s+now|do\s+you\s+see\s+(?:it|this|anything)\s+now|look\s+now|see\s+now)[\?\!\.]*$/i.test(p) ||
@@ -5365,14 +5529,24 @@ export function resolveImageEvidence(
     return null;
   }
 
-  // 7. Safe Singleton Inheritance / Pronoun-like references
-  const isSingletonQuery =
+  // 8. Strong Anaphoric / Identity References across Gaps
+  // Handles: "same image", "the same image", "same exact image", "use the same image", "same one", "that image",
+  // "make that image grey", "the image we were looking at", "the one from before", "the previous image", "the earlier image", "the original image"
+  const isStrongAnaphoricQuery =
+    /\b(?:same|that\s+same|the\s+same)\s+(?:exact\s+)?(?:image|picture|photo|screenshot|snapshot|one)\b/i.test(pLower) ||
+    /\b(?:use|make|change|modify|keep)\s+(?:the\s+same|that\s+same|that|this)\s+(?:exact\s+)?(?:image|picture|photo|screenshot|snapshot|one)\b/i.test(pLower) ||
+    /\b(?:the\s+)?image\s+(?:we\s+were\s+looking\s+at|we\s+discussed|from\s+before|earlier|previously)\b/i.test(pLower) ||
+    /\b(?:the\s+)?(?:one|picture|photo|screenshot)\s+from\s+before\b/i.test(pLower) ||
+    /\b(?:the\s+)?(?:previous|earlier|original)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
+    /\bgo\s+back\s+to\s+(?:that|the|the\s+first)\s+(?:image|picture|photo|screenshot|one)\b/i.test(pLower) ||
+    /\b(?:make|turn)\s+that\s+image\b/i.test(pLower) ||
     /\b(?:that|this|the)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
     /\b(?:how about|what about)\s+(?:the\s+)?(?:color|colour|layout|appearance|look)\b/i.test(pLower) ||
     /\bcheck\s+(?:the|that)\s+(?:photo|picture|image)\s*(?:again)?\b/i.test(pLower) ||
     /\bwhat\s+(?:colour|color)\s+was\s+(?:it|the\s+image|the\s+photo|the\s+picture)\b/i.test(pLower);
 
-  if (isSingletonQuery) {
+  if (isStrongAnaphoricQuery) {
+    // 8a. Immediate preceding turn had visual evidence
     if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length === 1) {
       const ev = lastRoundEvidence[0];
       const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
@@ -5380,12 +5554,27 @@ export function resolveImageEvidence(
       return { sources: [matched], reason: 'singleton_inheritance' };
     }
 
-    if (
-      (!Array.isArray(lastRoundEvidence) || lastRoundEvidence.length === 0) &&
-      Array.isArray(knownSources) &&
-      knownSources.length === 1
-    ) {
-      return { sources: [knownSources[0]], reason: 'singleton_inheritance' };
+    // 8b. Intervening non-visual gap: recover most recently ACTIVE visual referent from recentEvidenceSets[0]
+    if (!Array.isArray(lastRoundEvidence) || lastRoundEvidence.length === 0) {
+      if (Array.isArray(recentEvidenceSets) && recentEvidenceSets.length > 0) {
+        const mostRecentSet = recentEvidenceSets[0];
+        if (Array.isArray(mostRecentSet) && mostRecentSet.length === 1) {
+          const ev = mostRecentSet[0];
+          const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+          if (matched) {
+            return { sources: [matched], reason: 'active_referent_recovery' };
+          }
+        }
+        // If the most recent active set had multiple images (>1), ambiguous which one -> return null safely
+        if (Array.isArray(mostRecentSet) && mostRecentSet.length > 1) {
+          return null;
+        }
+      }
+
+      // Single image discussion fallback if only 1 image exists in total discussion history
+      if (discussionSources.length === 1) {
+        return { sources: [discussionSources[0]], reason: 'singleton_inheritance' };
+      }
     }
 
     return null;
@@ -5406,6 +5595,7 @@ export interface ResolveMixedHistoricalReferencesOptions {
   knownSources: KnownImageSource[];
   lastRoundEvidence: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
+  previousUserPrompt?: string;
 }
 
 export interface ResolveMixedHistoricalReferencesResult {
@@ -5476,6 +5666,7 @@ export function resolveMixedHistoricalReferences(
     knownSources,
     lastRoundEvidence,
     recentEvidenceSets,
+    previousUserPrompt: options.previousUserPrompt,
   });
 
   if (resolved && resolved.sources.length > 0) {
