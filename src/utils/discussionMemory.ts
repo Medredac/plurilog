@@ -2719,6 +2719,7 @@ export interface IngestArtifactsOptions {
 export interface IngestArtifactsResult {
   ingestedCount: number;
   skippedCount: number;
+  ingestedSourceIds?: string[];
   errors: {
     filename?: string;
     storagePath?: string;
@@ -2742,6 +2743,7 @@ export async function ingestDiscussionArtifacts(
   const result: IngestArtifactsResult = {
     ingestedCount: 0,
     skippedCount: 0,
+    ingestedSourceIds: [],
     errors: [],
   };
 
@@ -2798,7 +2800,35 @@ export async function ingestDiscussionArtifacts(
         continue;
       }
 
-      // Clean filename fail-safely inside per-item try/catch
+      // Read remote bytes via storage or fetch
+      let fileBlob: Blob | null = null;
+      try {
+        const { data: downloadData, error: dlErr } = await serviceSupabase.storage
+          .from('message-images')
+          .download(storagePath);
+
+        if (!dlErr && downloadData) {
+          fileBlob = downloadData;
+        } else {
+          // Fallback to fetch via signed URL
+          const res = await fetch(url, { signal });
+          if (res.ok) {
+            fileBlob = await res.blob();
+          }
+        }
+      } catch (dlException) {
+        console.warn('[Artifact Ingest] Error fetching file data:', dlException);
+      }
+
+      if (!fileBlob) {
+        result.errors.push({
+          filename: attachment.filename || 'attachment',
+          storagePath,
+          error: 'Could not retrieve attachment content for hashing',
+        });
+        continue;
+      }
+
       let filename = attachment.filename || 'attachment';
       const rawFilename = storagePath.split('/').pop() || '';
       const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
@@ -2808,24 +2838,6 @@ export async function ingestDiscussionArtifacts(
         } catch {
           filename = cleaned || filename;
         }
-      }
-
-      // 1. Download raw image bytes from Supabase storage using serviceSupabase
-      const { data: fileBlob, error: downloadErr } = await serviceSupabase.storage
-        .from('message-images')
-        .download(storagePath);
-
-      if (downloadErr || !fileBlob) {
-        console.warn('[Artifact Ingest] Error downloading storage object for image:', {
-          storagePath,
-          error: downloadErr?.message || downloadErr,
-        });
-        result.errors.push({
-          filename,
-          storagePath,
-          error: downloadErr?.message || 'Storage download failed',
-        });
-        continue;
       }
 
       // 2. Compute authoritative SHA-256 byte hash & byte size
@@ -2893,7 +2905,7 @@ export async function ingestDiscussionArtifacts(
       }
 
       // 4. Upsert physical source alias into discussion_artifact_sources preserving original array index
-      const { error: sourceErr } = await serviceSupabase
+      const { data: upsertedSource, error: sourceErr } = await serviceSupabase
         .from('discussion_artifact_sources')
         .upsert(
           {
@@ -2905,7 +2917,9 @@ export async function ingestDiscussionArtifacts(
             attachment_index: i,
           },
           { onConflict: 'discussion_id,storage_path' }
-        );
+        )
+        .select('id')
+        .maybeSingle();
 
       if (sourceErr) {
         console.warn('[Artifact Ingest] Source alias upsert failed for image artifact:', {
@@ -2920,6 +2934,10 @@ export async function ingestDiscussionArtifacts(
           error: sourceErr.message || 'Failed to upsert discussion_artifact_sources alias',
         });
         continue;
+      }
+
+      if (upsertedSource?.id) {
+        result.ingestedSourceIds?.push(upsertedSource.id);
       }
 
       console.log('[Artifact Ingest] Successfully indexed canonical image artifact:', {
@@ -4206,6 +4224,18 @@ export interface MessageVisualEvidenceItem {
   createdAt: string;
 }
 
+export interface DiscussionVisualContextState {
+  discussion_id: string;
+  active_session_source_ids: string[];
+  focus_source_ids: string[];
+  user_id?: string | null;
+  display_name?: string | null;
+  email?: string | null;
+  version: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ResolveImageEvidenceOptions {
   prompt: string;
   knownSources: KnownImageSource[];
@@ -4213,6 +4243,7 @@ export interface ResolveImageEvidenceOptions {
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   previousUserPrompt?: string;
   allUserMessageIds?: string[];
+  visualContext?: DiscussionVisualContextState | null;
 }
 
 export interface ResolvedImageEvidenceResult {
@@ -4946,8 +4977,21 @@ export function requiresCompleteVisualEvidenceHistory(
  * Zero AI calls, zero embeddings, zero OCR, zero source fabrication.
  */
 export function resolveImageEvidence(
-  options: ResolveImageEvidenceOptions
+  promptOrOptions: string | ResolveImageEvidenceOptions,
+  legacyKnownSources?: KnownImageSource[],
+  legacyLastRoundEvidence?: MessageVisualEvidenceItem[],
+  legacyOptions?: Partial<ResolveImageEvidenceOptions>
 ): ResolvedImageEvidenceResult | null {
+  const options: ResolveImageEvidenceOptions =
+    typeof promptOrOptions === 'string'
+      ? {
+          prompt: promptOrOptions,
+          knownSources: legacyKnownSources || [],
+          lastRoundEvidence: legacyLastRoundEvidence || [],
+          ...legacyOptions,
+        }
+      : promptOrOptions;
+
   const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, allUserMessageIds } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
@@ -6007,68 +6051,108 @@ export function resolveImageEvidence(
   const requestedVisualSet = parseRequestedVisualSet(p);
 
   if (requestedVisualSet) {
-    const activeThread = extractActiveVisualThread();
-    const activeThreadSources = activeThread.sources;
-
     let resolvedSources: KnownImageSource[] | null = null;
+    const sourcesMap = new Map<string, KnownImageSource>(discussionSources.map((s) => [s.sourceId, s]));
 
-    // Mode 1: EXACT_COUNT (N >= 2)
-    if (requestedVisualSet.mode === 'EXACT_COUNT' && requestedVisualSet.count) {
-      const N = requestedVisualSet.count;
-      if (activeThreadSources.length >= N) {
-        // Select N most recent distinct images from active thread
-        resolvedSources = activeThreadSources.slice(0, N);
-      }
-    }
-    // Mode 2: ALL_ACTIVE (all images belonging to the active visual thread)
-    else if (requestedVisualSet.mode === 'ALL_ACTIVE') {
-      if (activeThreadSources.length >= 2) {
-        resolvedSources = activeThreadSources;
-      }
-    }
-    // Mode 3: INHERIT (pronoun-only or bare set inheritance)
-    else if (requestedVisualSet.mode === 'INHERIT') {
-      const lastRoundDistinctSources: KnownImageSource[] = [];
-      const seenLast = new Set<string>();
-      for (const ev of lastRoundEvidence || []) {
-        if (ev.sourceId && !seenLast.has(ev.sourceId)) {
-          seenLast.add(ev.sourceId);
-          const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
-          if (matched) lastRoundDistinctSources.push(matched);
+    const hasPersistentContext =
+      Array.isArray(options.visualContext?.active_session_source_ids) &&
+      options.visualContext.active_session_source_ids.length > 0;
+
+    if (hasPersistentContext) {
+      const activeSources = (options.visualContext!.active_session_source_ids || [])
+        .map((id) => sourcesMap.get(id))
+        .filter(Boolean) as KnownImageSource[];
+
+      const focusSources = (options.visualContext!.focus_source_ids || [])
+        .map((id) => sourcesMap.get(id))
+        .filter(Boolean) as KnownImageSource[];
+
+      // Mode 1: EXACT_COUNT (N >= 2)
+      if (requestedVisualSet.mode === 'EXACT_COUNT' && requestedVisualSet.count) {
+        const N = requestedVisualSet.count;
+        if (activeSources.length >= N) {
+          // Select N most recent distinct images from active session
+          resolvedSources = activeSources.slice(-N);
         }
       }
+      // Mode 2: ALL_ACTIVE (all images belonging to the active visual session)
+      else if (requestedVisualSet.mode === 'ALL_ACTIVE') {
+        if (activeSources.length >= 1) {
+          resolvedSources = activeSources;
+        }
+      }
+      // Mode 3: INHERIT (pronoun-only or bare set inheritance)
+      else if (requestedVisualSet.mode === 'INHERIT') {
+        if (focusSources.length >= 1) {
+          resolvedSources = focusSources;
+        } else if (activeSources.length >= 1) {
+          resolvedSources = activeSources;
+        }
+      }
+    }
 
-      if (lastRoundDistinctSources.length >= 2) {
-        resolvedSources = lastRoundDistinctSources;
-      } else if (previousUserPrompt) {
-        const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
-        const prevEstablishedCountMatch = previousUserPrompt.match(
-          new RegExp(
-            `\\b(?:the\\s+)?(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|both|all)\\s+${visualNounGroup}\\b`,
-            'i'
-          )
-        );
+    // Fallback: If persistent context did not resolve, use legacy active-thread extractor
+    if (!resolvedSources) {
+      const activeThread = extractActiveVisualThread();
+      const activeThreadSources = activeThread.sources;
 
-        if (prevEstablishedCountMatch) {
-          const countToken = prevEstablishedCountMatch[1].toLowerCase();
-          const N = countToken === 'all' ? null : parseCountNumber(countToken);
+      // Mode 1: EXACT_COUNT (N >= 2)
+      if (requestedVisualSet.mode === 'EXACT_COUNT' && requestedVisualSet.count) {
+        const N = requestedVisualSet.count;
+        if (activeThreadSources.length >= N) {
+          resolvedSources = activeThreadSources.slice(0, N);
+        }
+      }
+      // Mode 2: ALL_ACTIVE (all images belonging to the active visual thread)
+      else if (requestedVisualSet.mode === 'ALL_ACTIVE') {
+        if (activeThreadSources.length >= 2) {
+          resolvedSources = activeThreadSources;
+        }
+      }
+      // Mode 3: INHERIT (pronoun-only or bare set inheritance)
+      else if (requestedVisualSet.mode === 'INHERIT') {
+        const lastRoundDistinctSources: KnownImageSource[] = [];
+        const seenLast = new Set<string>();
+        for (const ev of lastRoundEvidence || []) {
+          if (ev.sourceId && !seenLast.has(ev.sourceId)) {
+            seenLast.add(ev.sourceId);
+            const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+            if (matched) lastRoundDistinctSources.push(matched);
+          }
+        }
 
-          if (N && N >= 2) {
-            if (activeThreadSources.length >= N) {
-              resolvedSources = activeThreadSources.slice(0, N);
+        if (lastRoundDistinctSources.length >= 2) {
+          resolvedSources = lastRoundDistinctSources;
+        } else if (previousUserPrompt) {
+          const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
+          const prevEstablishedCountMatch = previousUserPrompt.match(
+            new RegExp(
+              `\\b(?:the\\s+)?(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|both|all)\\s+${visualNounGroup}\\b`,
+              'i'
+            )
+          );
+
+          if (prevEstablishedCountMatch) {
+            const countToken = prevEstablishedCountMatch[1].toLowerCase();
+            const N = countToken === 'all' ? null : parseCountNumber(countToken);
+
+            if (N && N >= 2) {
+              if (activeThreadSources.length >= N) {
+                resolvedSources = activeThreadSources.slice(0, N);
+              }
+            } else if (countToken === 'all' && activeThreadSources.length >= 2) {
+              resolvedSources = activeThreadSources;
             }
-          } else if (countToken === 'all' && activeThreadSources.length >= 2) {
+          } else if (activeThreadSources.length >= 2) {
             resolvedSources = activeThreadSources;
           }
         } else if (activeThreadSources.length >= 2) {
           resolvedSources = activeThreadSources;
         }
-      } else if (activeThreadSources.length >= 2) {
-        resolvedSources = activeThreadSources;
       }
     }
 
-    if (resolvedSources && resolvedSources.length >= 2) {
+    if (resolvedSources && resolvedSources.length >= 1) {
       // Return in stable discussion chronology
       const sorted = [...resolvedSources].sort((a, b) => {
         const idxA = discussionSources.findIndex((s) => s.sourceId === a.sourceId);
@@ -6153,7 +6237,25 @@ export function resolveImageEvidence(
       return { sources: [matched], reason: 'singleton_inheritance' };
     }
 
-    // 8b. Intervening non-visual gap: recover most recently ACTIVE visual referent from recentEvidenceSets[0]
+    // 8b. Check persistent visual context if active
+    if (options.visualContext) {
+      const focusIds = options.visualContext.focus_source_ids || [];
+      if (focusIds.length === 1) {
+        const matched = knownSources.find((ks) => ks.sourceId === focusIds[0]);
+        if (matched) {
+          return { sources: [matched], reason: 'singleton_inheritance' };
+        }
+      }
+      const activeIds = options.visualContext.active_session_source_ids || [];
+      if (activeIds.length === 1) {
+        const matched = knownSources.find((ks) => ks.sourceId === activeIds[0]);
+        if (matched) {
+          return { sources: [matched], reason: 'singleton_inheritance' };
+        }
+      }
+    }
+
+    // 8c. Intervening non-visual gap: recover most recently ACTIVE visual referent from recentEvidenceSets[0]
     if (!Array.isArray(lastRoundEvidence) || lastRoundEvidence.length === 0) {
       if (Array.isArray(recentEvidenceSets) && recentEvidenceSets.length > 0) {
         const mostRecentSet = recentEvidenceSets[0];
@@ -6192,10 +6294,11 @@ export interface ResolveMixedHistoricalReferencesOptions {
   prompt: string;
   currentImageCount: number;
   knownSources: KnownImageSource[];
-  lastRoundEvidence: MessageVisualEvidenceItem[];
+  lastRoundEvidence?: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   previousUserPrompt?: string;
   allUserMessageIds?: string[];
+  visualContext?: DiscussionVisualContextState | null;
 }
 
 export interface ResolveMixedHistoricalReferencesResult {
@@ -6217,7 +6320,7 @@ export interface ResolveMixedHistoricalReferencesResult {
 export function resolveMixedHistoricalReferences(
   options: ResolveMixedHistoricalReferencesOptions
 ): ResolveMixedHistoricalReferencesResult | null {
-  const { prompt, currentImageCount, knownSources, lastRoundEvidence, recentEvidenceSets, allUserMessageIds } = options;
+  const { prompt, currentImageCount, knownSources, lastRoundEvidence = [], recentEvidenceSets = [], allUserMessageIds } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p || currentImageCount === 0 || !Array.isArray(knownSources) || knownSources.length === 0) {
@@ -6268,6 +6371,7 @@ export function resolveMixedHistoricalReferences(
     recentEvidenceSets,
     previousUserPrompt: options.previousUserPrompt,
     allUserMessageIds,
+    visualContext: options.visualContext,
   });
 
   if (resolved && resolved.sources.length > 0) {
@@ -6538,4 +6642,385 @@ export async function persistMixedImageEvidence(
     result.errors.push(err?.message || String(err));
     return result;
   }
+}
+
+export interface VisualContextFetchResult {
+  state: DiscussionVisualContextState | null;
+  exists: boolean;
+  error?: any;
+  bootstrapUsed?: boolean;
+  bootstrapReason?: string;
+}
+
+export function isPersistentVisualContextWritesEnabled(): boolean {
+  return process.env.PERSIST_VISUAL_CONTEXT_WRITES === 'true';
+}
+
+export function isPersistentVisualContextReadsEnabled(): boolean {
+  return (
+    process.env.USE_PERSISTENT_VISUAL_CONTEXT_READS === 'true' ||
+    process.env.PERSIST_VISUAL_CONTEXT_READS === 'true'
+  );
+}
+
+/**
+ * Fetches the persistent visual context state for a discussion.
+ * Distinguishes cleanly between:
+ * - Existing row: { state: data, exists: true }
+ * - No row (legacy unbootstrapped discussion): { state: null, exists: false }
+ * - Database read error: { state: null, exists: false, error }
+ */
+export async function fetchDiscussionVisualContext(
+  serviceSupabase: SupabaseClient,
+  discussionId: string
+): Promise<VisualContextFetchResult> {
+  if (!serviceSupabase || !discussionId) {
+    return { state: null, exists: false };
+  }
+
+  try {
+    const { data, error } = await serviceSupabase
+      .from('discussion_visual_context')
+      .select('*')
+      .eq('discussion_id', discussionId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('[Visual Context] Database read error for discussion:', {
+        discussionId,
+        error: error.message || error,
+      });
+      return { state: null, exists: false, error };
+    }
+
+    if (!data) {
+      return { state: null, exists: false };
+    }
+
+    return {
+      state: data as DiscussionVisualContextState,
+      exists: true,
+    };
+  } catch (err: any) {
+    console.warn('[Visual Context] Unexpected exception reading discussion_visual_context:', err);
+    return { state: null, exists: false, error: err };
+  }
+}
+
+/**
+ * Conservative one-time legacy bootstrap for discussions lacking visual context state.
+ * Uses available stored facts:
+ * - Known discussion image sources ordered chronologically
+ * - Sender provenance and sourceMessageId
+ */
+export async function bootstrapDiscussionVisualContext(
+  serviceSupabase: SupabaseClient,
+  discussionId: string,
+  knownSources: KnownImageSource[]
+): Promise<VisualContextFetchResult> {
+  if (!serviceSupabase || !discussionId) {
+    return { state: null, exists: false };
+  }
+
+  let activeIds: string[] = [];
+  let focusIds: string[] = [];
+  let reason = 'empty_discussion_history';
+
+  if (Array.isArray(knownSources) && knownSources.length > 0) {
+    const lastSource = knownSources[knownSources.length - 1];
+
+    // Check if trailing sources form an unbroken generation sequence from the same assistant sender
+    if (lastSource.sender && ['gemini', 'chatgpt', 'claude'].includes(lastSource.sender.toLowerCase())) {
+      const targetSender = lastSource.sender.toLowerCase();
+      const trailingGenSources: KnownImageSource[] = [];
+      for (let i = knownSources.length - 1; i >= 0; i--) {
+        const s = knownSources[i];
+        if (s.sender && s.sender.toLowerCase() === targetSender) {
+          trailingGenSources.unshift(s);
+        } else {
+          break;
+        }
+      }
+      activeIds = trailingGenSources.map((s) => s.sourceId);
+      focusIds = [lastSource.sourceId];
+      reason = 'trailing_assistant_generation_sequence';
+    } else if (lastSource.sourceMessageId) {
+      // Trailing upload event from same user message
+      const targetMessageId = lastSource.sourceMessageId;
+      const trailingUploadSources = knownSources.filter((s) => s.sourceMessageId === targetMessageId);
+      activeIds = trailingUploadSources.map((s) => s.sourceId);
+      focusIds = trailingUploadSources.map((s) => s.sourceId);
+      reason = 'trailing_upload_event';
+    } else {
+      activeIds = [lastSource.sourceId];
+      focusIds = [lastSource.sourceId];
+      reason = 'most_recent_visual_source_fallback';
+    }
+  }
+
+  console.log('[Visual Context: Conservative Bootstrap Initialized]', {
+    discussionId,
+    bootstrapReason: reason,
+    activeSourceCount: activeIds.length,
+    activeSourceIds: activeIds,
+  });
+
+  const { data: inserted, error: insertErr } = await serviceSupabase
+    .from('discussion_visual_context')
+    .insert({
+      discussion_id: discussionId,
+      active_session_source_ids: activeIds,
+      focus_source_ids: focusIds,
+      version: 1,
+      updated_at: new Date().toISOString(),
+    })
+    .select('*')
+    .maybeSingle();
+
+  if (insertErr) {
+    // If concurrent insert happened, fetch existing row
+    const { data: existing } = await serviceSupabase
+      .from('discussion_visual_context')
+      .select('*')
+      .eq('discussion_id', discussionId)
+      .maybeSingle();
+
+    if (existing) {
+      return {
+        state: existing as DiscussionVisualContextState,
+        exists: true,
+        bootstrapUsed: true,
+        bootstrapReason: reason,
+      };
+    }
+    console.warn('[Visual Context] Error bootstrapping visual context:', insertErr);
+    return { state: null, exists: false, error: insertErr };
+  }
+
+  return {
+    state: inserted as DiscussionVisualContextState,
+    exists: true,
+    bootstrapUsed: true,
+    bootstrapReason: reason,
+  };
+}
+
+export interface VisualContextTransitionOptions {
+  resolvedReferentSourceIds?: string[];
+  newArtifactSourceIds?: string[];
+  isComparison?: boolean;
+  knownSources?: KnownImageSource[];
+}
+
+export interface VisualContextTransitionResult {
+  nextActiveSourceIds: string[];
+  nextFocusSourceIds: string[];
+  hasChanged: boolean;
+}
+
+/**
+ * Computes deterministic 3-way state transitions for visual context.
+ * Invariants:
+ * - focus_source_ids ⊆ active_session_source_ids
+ * - Stable first-seen deduplication
+ * - Text-only turns (R=[], N=[]) perform zero mutation
+ */
+export function computeVisualContextTransition(
+  currentState: DiscussionVisualContextState | null,
+  options: VisualContextTransitionOptions
+): VisualContextTransitionResult {
+  const {
+    resolvedReferentSourceIds = [],
+    newArtifactSourceIds = [],
+    isComparison = false,
+    knownSources,
+  } = options;
+
+  const hasValidationSources = knownSources !== undefined;
+  const validSourceIdSet = hasValidationSources
+    ? new Set(knownSources.map((s) => s.sourceId))
+    : null;
+
+  // If knownSources was explicitly provided (even as empty array []), filter against validSourceIdSet.
+  // Only if knownSources was undefined is validation considered not provided.
+  const filterValid = (ids: string[]) =>
+    validSourceIdSet !== null ? ids.filter((id) => validSourceIdSet.has(id)) : ids;
+
+  const R = Array.from(new Set(filterValid(resolvedReferentSourceIds)));
+  const N = Array.from(new Set(filterValid(newArtifactSourceIds)));
+
+  const currentActive = filterValid(currentState?.active_session_source_ids || []);
+  const currentFocus = filterValid(currentState?.focus_source_ids || []);
+  const currentActiveSet = new Set(currentActive);
+
+  let nextActive: string[] = [];
+  let nextFocus: string[] = [];
+
+  const rIntersectsActive = R.some((id) => currentActiveSet.has(id));
+
+  // Helper for stable union preserving first-seen order
+  function stableUnion(...arrays: string[][]): string[] {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const arr of arrays) {
+      for (const item of arr) {
+        if (!seen.has(item) && (validSourceIdSet === null || validSourceIdSet.has(item))) {
+          seen.add(item);
+          result.push(item);
+        }
+      }
+    }
+    return result;
+  }
+
+  if (N.length === 0) {
+    if (R.length === 0) {
+      // Text-only turn or unreferenced: no state mutation
+      nextActive = [...currentActive];
+      nextFocus = [...currentFocus];
+    } else if (rIntersectsActive) {
+      // Case B (No new artifact, R intersects active):
+      // extend current active session to include any historical members in R, focus = R
+      nextActive = stableUnion(currentActive, R);
+      nextFocus = [...R];
+    } else {
+      // Case C (No new artifact, R is purely historical outside active):
+      // reopens historical working set
+      nextActive = [...R];
+      nextFocus = [...R];
+    }
+  } else {
+    // N.length > 0 (new artifact created or uploaded)
+    if (R.length === 0) {
+      // Case A: independent new visual task
+      nextActive = [...N];
+      nextFocus = [...N];
+    } else if (rIntersectsActive) {
+      // Case B: continues/extends current visual task
+      nextActive = stableUnion(currentActive, R, N);
+      nextFocus = isComparison ? stableUnion(R, N) : [...N];
+    } else {
+      // Case C: branches/reopens from historical visual material (do not carry unrelated old active sources)
+      nextActive = stableUnion(R, N);
+      nextFocus = isComparison ? stableUnion(R, N) : [...N];
+    }
+  }
+
+  // Enforce invariant: focus_source_ids ⊆ active_session_source_ids
+  const nextActiveSet = new Set(nextActive);
+  nextFocus = nextFocus.filter((id) => nextActiveSet.has(id));
+
+  const hasChanged =
+    !currentState ||
+    nextActive.length !== currentActive.length ||
+    nextFocus.length !== currentFocus.length ||
+    !nextActive.every((id, idx) => id === currentActive[idx]) ||
+    !nextFocus.every((id, idx) => id === currentFocus[idx]);
+
+  return {
+    nextActiveSourceIds: nextActive,
+    nextFocusSourceIds: nextFocus,
+    hasChanged,
+  };
+}
+
+/**
+ * Updates persistent visual context using bounded optimistic CAS concurrency control.
+ * On version conflict, reloads fresh state, recomputes the transition using transitionInput,
+ * and retries up to maxRetries.
+ */
+export async function updateDiscussionVisualContextCAS(
+  serviceSupabase: SupabaseClient,
+  discussionId: string,
+  currentState: DiscussionVisualContextState | null,
+  transitionInput: VisualContextTransitionOptions,
+  maxRetries = 3
+): Promise<DiscussionVisualContextState | null> {
+  if (!serviceSupabase || !discussionId) return null;
+
+  let state = currentState;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (!state || state.version === undefined) {
+      // Initial insert: compute initial transition against null state
+      const initialTransition = computeVisualContextTransition(null, transitionInput);
+      const { data, error } = await serviceSupabase
+        .from('discussion_visual_context')
+        .insert({
+          discussion_id: discussionId,
+          active_session_source_ids: initialTransition.nextActiveSourceIds,
+          focus_source_ids: initialTransition.nextFocusSourceIds,
+          version: 1,
+          updated_at: new Date().toISOString(),
+        })
+        .select('*')
+        .maybeSingle();
+
+      if (!error && data) {
+        return data as DiscussionVisualContextState;
+      }
+
+      // If insert failed due to concurrent insert (PK conflict), reload existing state and retry with recomputation
+      const { data: existingRow } = await serviceSupabase
+        .from('discussion_visual_context')
+        .select('*')
+        .eq('discussion_id', discussionId)
+        .maybeSingle();
+
+      if (existingRow) {
+        state = existingRow as DiscussionVisualContextState;
+      } else {
+        if (attempt === maxRetries) {
+          console.warn('[Visual Context CAS] Failed to insert initial state after retries:', error);
+          return null;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        continue;
+      }
+    }
+
+    // Recompute transition against the current/reloaded state
+    const transition = computeVisualContextTransition(state, transitionInput);
+    if (!transition.hasChanged) {
+      return state;
+    }
+
+    const expectedVersion = state.version;
+    const { data: updateData, error: updateErr } = await serviceSupabase
+      .from('discussion_visual_context')
+      .update({
+        active_session_source_ids: transition.nextActiveSourceIds,
+        focus_source_ids: transition.nextFocusSourceIds,
+        version: expectedVersion + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('discussion_id', discussionId)
+      .eq('version', expectedVersion)
+      .select('*');
+
+    if (!updateErr && Array.isArray(updateData) && updateData.length > 0) {
+      return updateData[0] as DiscussionVisualContextState;
+    }
+
+    // CAS conflict: re-read fresh state and recompute on next iteration
+    console.warn(
+      `[Visual Context CAS] Version conflict on attempt ${attempt} (expected version ${expectedVersion}), reloading state and recomputing...`
+    );
+    const { data: reloadedRow } = await serviceSupabase
+      .from('discussion_visual_context')
+      .select('*')
+      .eq('discussion_id', discussionId)
+      .maybeSingle();
+
+    if (reloadedRow) {
+      state = reloadedRow as DiscussionVisualContextState;
+    }
+
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+    }
+  }
+
+  console.warn('[Visual Context CAS] Exhausted retries updating discussion_visual_context for discussion:', discussionId);
+  return null;
 }
