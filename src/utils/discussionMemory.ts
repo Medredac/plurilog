@@ -4210,6 +4210,7 @@ export interface ResolvedImageEvidenceResult {
   sources: KnownImageSource[];
   reason:
     | 'verification_inheritance'
+    | 'continuation_inheritance'
     | 'discussion_chronology'
     | 'exact_filename'
     | 'multiple_exact_filenames'
@@ -5341,7 +5342,30 @@ export function resolveImageEvidence(
     return null;
   }
 
-  // 6. Safe Singleton Inheritance / Pronoun-like references
+  // 6. Conversational Continuation / Active Referent Inheritance
+  // Strictly requires non-empty lastRoundEvidence from immediately preceding user turn.
+  const isContinuationFollowUp =
+    /^(?:and\s+)?(?:now|what\s+about\s+now|how\s+about\s+now|can\s+you\s+see\s+(?:it|this|anything)\s+now|do\s+you\s+see\s+(?:it|this|anything)\s+now|look\s+now|see\s+now)[\?\!\.]*$/i.test(p) ||
+    /^(?:and\s+)?(?:what\s+about|how\s+about|can\s+you\s+see|do\s+you\s+see)\s+(?:it|this)[\?\!\.]*$/i.test(p) ||
+    /^(?:now\??|and\s+now\??|and\s+this\??|what\s+about\s+this\??)$/i.test(p);
+
+  if (isContinuationFollowUp) {
+    if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
+      const sources: KnownImageSource[] = [];
+      for (const ev of lastRoundEvidence) {
+        const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+        if (!matched) return null; // Unresolvable authoritative source -> fail safe
+        sources.push(matched);
+      }
+      return {
+        sources,
+        reason: 'continuation_inheritance',
+      };
+    }
+    return null;
+  }
+
+  // 7. Safe Singleton Inheritance / Pronoun-like references
   const isSingletonQuery =
     /\b(?:that|this|the)\s+(?:image|picture|photo|screenshot)\b/i.test(pLower) ||
     /\b(?:how about|what about)\s+(?:the\s+)?(?:color|colour|layout|appearance|look)\b/i.test(pLower) ||
