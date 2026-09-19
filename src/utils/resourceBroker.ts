@@ -493,7 +493,7 @@ export function resolveRequestedEvidence(
   }
 
   // 4. Modality === 'visual' with Explicit resource_type === 'image'
-  if (resource_type === 'image') {
+  if (effectiveResourceType === 'image') {
     const { resolved: resolvedImg } = resolveImageVisual(searchPrompt, context);
     if (resolvedImg && resolvedImg.sources.length > 0) {
       const primarySource = resolvedImg.sources[0];
