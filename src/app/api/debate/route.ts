@@ -2143,13 +2143,15 @@ export async function POST(req: NextRequest) {
 
                         if (signErr || !signedData?.signedUrl) continue;
 
-                        let provenance: AttachmentProvenance = 'historical_user_upload';
+                        let provenance: AttachmentProvenance | undefined;
                         let creatorSeatId: string | undefined;
                         if (source.sender) {
                           const senderLower = source.sender.toLowerCase();
                           if (['gemini', 'chatgpt', 'claude'].includes(senderLower)) {
                             provenance = 'historical_assistant_generated';
                             creatorSeatId = senderLower;
+                          } else if (senderLower === 'user') {
+                            provenance = 'historical_user_upload';
                           }
                         }
 
@@ -2306,7 +2308,8 @@ export async function POST(req: NextRequest) {
 
                     const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
                     if (deltaAnnotations) {
-                      addFileAnnotations(deltaAnnotations);
+                      // Historical evidence is inspection-only here. Do not let annotations from
+                      // a reopened PDF bleed into current-upload OCR reuse or durable document ingest.
                       addWebCitations(deltaAnnotations);
                     }
 
