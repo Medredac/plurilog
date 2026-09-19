@@ -57,6 +57,7 @@ export interface ResourceBrokerContext {
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   visualContext?: DiscussionVisualContextState | null;
   previousUserPrompt?: string;
+  currentUserPrompt?: string;
   allUserMessageIds?: string[];
 }
 
@@ -145,6 +146,59 @@ function isDocxOrText(filenameOrPath?: string | null): boolean {
     clean.endsWith('.csv') ||
     clean.endsWith('.json')
   );
+}
+
+function inferExplicitUserResourceType(
+  userPrompt: string,
+  context: ResourceBrokerContext
+): 'image' | 'document' | null {
+  const prompt = (userPrompt || '').trim().toLowerCase();
+  if (!prompt) return null;
+
+  const normalizeBase = (name?: string | null) =>
+    (name || '')
+      .split('?')[0]
+      .split('#')[0]
+      .toLowerCase()
+      .replace(/\.(pdf|png|jpe?g|webp|gif)$/i, '')
+      .trim();
+
+  const docMatches = (context.knownDocuments || []).filter((doc) => {
+    const filename = (doc.filename || '').toLowerCase();
+    const base = normalizeBase(doc.filename);
+    return (
+      (filename.length >= 4 && prompt.includes(filename)) ||
+      (base.length >= 4 && prompt.includes(base))
+    );
+  });
+
+  const imageMatches = (context.knownImageSources || []).filter((source) => {
+    const filename = (source.filename || '').toLowerCase();
+    const base = normalizeBase(source.filename);
+    return (
+      (filename.length >= 4 && prompt.includes(filename)) ||
+      (base.length >= 4 && prompt.includes(base))
+    );
+  });
+
+  if (docMatches.length > 0 && imageMatches.length === 0) return 'document';
+  if (imageMatches.length > 0 && docMatches.length === 0) return 'image';
+
+  const documentCue = /\b(?:pdf|document|cv|resume|résumé)\b/i.test(userPrompt);
+  const imageCue = /\b(?:image|photo|picture|screenshot|pic)\b/i.test(userPrompt);
+
+  // A visual explicitly described as being inside/on a document is still document evidence.
+  const embeddedDocumentCue =
+    /\b(?:image|photo|picture)\s+(?:in|on|from)\s+(?:the\s+)?(?:pdf|document|cv|resume|résumé)\b/i.test(
+      userPrompt
+    ) ||
+    /\b(?:pdf|document|cv|resume|résumé)\s+(?:image|photo|picture)\b/i.test(userPrompt);
+
+  if (embeddedDocumentCue) return 'document';
+  if (documentCue && !imageCue) return 'document';
+  if (imageCue && !documentCue) return 'image';
+
+  return null;
 }
 
 /**
@@ -340,6 +394,29 @@ export function resolveRequestedEvidence(
     ? `${explicitFilename} ${effectiveNeed}`.trim()
     : effectiveNeed;
 
+  const knownPdfs = (context.knownDocuments || []).filter((d) =>
+    isPdf(d.filename || d.storagePath)
+  );
+  const knownImgs = context.knownImageSources || [];
+
+  let effectiveResourceType: RequestedResourceType = resource_type;
+  if (
+    modality === 'visual' &&
+    knownPdfs.length > 0 &&
+    knownImgs.length > 0 &&
+    !explicitFilename
+  ) {
+    const explicitUserType = inferExplicitUserResourceType(
+      context.currentUserPrompt || '',
+      context
+    );
+
+    // In a mixed PDF/image discussion, the model's own resource_type guess is not
+    // enough to select evidence. Prefer an explicit cue from the user's words;
+    // otherwise reconcile both modalities through the broker's ambiguity logic.
+    effectiveResourceType = explicitUserType || 'auto';
+  }
+
   // 1. Guard against visual requests on non-visual document formats (DOCX/TXT/MD)
   if (modality === 'visual') {
     if (explicitFilename && isDocxOrText(explicitFilename)) {
@@ -351,7 +428,7 @@ export function resolveRequestedEvidence(
     }
 
     if (
-      resource_type === 'document' &&
+      effectiveResourceType === 'document' &&
       Array.isArray(context.knownDocuments) &&
       context.knownDocuments.length > 0 &&
       context.knownDocuments.every((d) => isDocxOrText(d.filename || d.storagePath))
@@ -367,7 +444,7 @@ export function resolveRequestedEvidence(
 
   // 2. Modality === 'text'
   if (modality === 'text') {
-    if (resource_type === 'image') {
+    if (effectiveResourceType === 'image') {
       return {
         status: 'unsupported',
         kind: 'image',
@@ -378,7 +455,7 @@ export function resolveRequestedEvidence(
   }
 
   // 3. Modality === 'visual' with Explicit resource_type === 'document'
-  if (resource_type === 'document') {
+  if (effectiveResourceType === 'document') {
     const { resolved: resolvedDoc } = resolvePdfVisual(searchPrompt, context);
     if (resolvedDoc && resolvedDoc.storagePath) {
       return {
@@ -395,9 +472,6 @@ export function resolveRequestedEvidence(
       };
     }
 
-    const knownPdfs = (context.knownDocuments || []).filter((d) =>
-      isPdf(d.filename || d.storagePath)
-    );
     if (knownPdfs.length > 1) {
       return {
         status: 'ambiguous',
@@ -438,7 +512,6 @@ export function resolveRequestedEvidence(
       };
     }
 
-    const knownImgs = context.knownImageSources || [];
     if (knownImgs.length > 1) {
       return {
         status: 'ambiguous',
@@ -461,9 +534,6 @@ export function resolveRequestedEvidence(
 
   // 5. Modality === 'visual' with resource_type === 'auto'
   // Evaluate both PDF and Image resolvers independently and reconcile safely
-  const knownPdfs = (context.knownDocuments || []).filter((d) => isPdf(d.filename || d.storagePath));
-  const knownImgs = context.knownImageSources || [];
-
   const { resolved: pdfMatch, isStrong: isPdfStrong } = resolvePdfVisual(searchPrompt, context);
   const { resolved: imgMatch, isStrong: isImgStrong } = resolveImageVisual(searchPrompt, context);
 
