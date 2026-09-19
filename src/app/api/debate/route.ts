@@ -1804,8 +1804,10 @@ export async function POST(req: NextRequest) {
             isVisualUnavailable = true;
           }
 
-          // Sequential panel execution across configured seats in custom order
-          for (const seat of configuredSeats) {
+          // Sequential panel execution across configured seats in custom order.
+          // Label the seat loop so successful image generation is explicitly terminal for that seat,
+          // even if nested control flow is added around it in the future.
+          seatLoop: for (const seat of configuredSeats) {
             if (req.signal.aborted) {
               safeClose();
               return;
@@ -2610,8 +2612,8 @@ export async function POST(req: NextRequest) {
                     response: peerResponseText,
                   });
 
-                  // Successfully completed image seat turn -> advance to next seat
-                  continue;
+                  // Successfully completed image seat turn -> explicitly advance to the next seat.
+                  continue seatLoop;
                 }
 
                 }
