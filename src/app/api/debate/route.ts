@@ -1821,6 +1821,7 @@ export async function POST(req: NextRequest) {
             let accumulatedToolCalls: AccumulatedToolCall[] = [];
             let incurredImageCostUsd: number | null = null;
             let incurredEvidenceFirstPassCostUsd = 0;
+            let incurredEvidenceSecondPassCostUsd = 0;
             let spendRecorded = false;
             let imageToolBranchActive = false;
             let evidenceToolBranchActive = false;
@@ -2296,7 +2297,12 @@ export async function POST(req: NextRequest) {
                   for await (const chunk of evidenceStream) {
                     if (req.signal.aborted) break;
                     if (chunk.model) respondingModel = chunk.model;
-                    if ((chunk as any).usage) seatUsage = (chunk as any).usage;
+                    if ((chunk as any).usage) {
+                      seatUsage = (chunk as any).usage;
+                      if (typeof seatUsage?.cost === 'number') {
+                        incurredEvidenceSecondPassCostUsd = seatUsage.cost;
+                      }
+                    }
 
                     const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
                     if (deltaAnnotations) {
@@ -2321,11 +2327,11 @@ export async function POST(req: NextRequest) {
 
                   // Preserve exact spend accounting: one user-visible seat response may require two
                   // model calls, so combine their text-model costs before existing billing executes.
-                  const evidenceSecondPassCostUsd =
-                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                   seatUsage = {
                     ...(seatUsage || {}),
-                    cost: incurredEvidenceFirstPassCostUsd + evidenceSecondPassCostUsd,
+                    cost:
+                      incurredEvidenceFirstPassCostUsd +
+                      incurredEvidenceSecondPassCostUsd,
                   };
                 } else {
                   if (!isGenerateImageCall) {
@@ -2782,9 +2788,11 @@ export async function POST(req: NextRequest) {
 
               // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
               if (evidenceToolBranchActive && !spendRecorded) {
-                const secondPassCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 const evidenceCostCents =
-                  (incurredEvidenceFirstPassCostUsd + secondPassCostUsd) * 100;
+                  (
+                    incurredEvidenceFirstPassCostUsd +
+                    incurredEvidenceSecondPassCostUsd
+                  ) * 100;
                 if (evidenceCostCents > 0) {
                   try {
                     await supabase.rpc('spend_credits', {
@@ -2795,7 +2803,7 @@ export async function POST(req: NextRequest) {
                         seatId: seat.seatId,
                         evidenceRequest: true,
                         firstPassCostUsd: incurredEvidenceFirstPassCostUsd,
-                        secondPassCostUsd,
+                        secondPassCostUsd: incurredEvidenceSecondPassCostUsd,
                         error: err?.message || 'Evidence request failed',
                       },
                     });
