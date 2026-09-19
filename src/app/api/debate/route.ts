@@ -2344,6 +2344,23 @@ export async function POST(req: NextRequest) {
                     return;
                   }
 
+                  // Some providers may return no text after an ambiguous/not-found tool result.
+                  // Fail closed with the broker's safe user-facing clarification instead of
+                  // surfacing a generic "Something went wrong" error.
+                  if (
+                    !seatResponse.trim() &&
+                    modelSafeBrokerResult.status !== 'resolved'
+                  ) {
+                    const brokerFallbackText =
+                      modelSafeBrokerResult.message ||
+                      'I need you to clarify which earlier visual you mean.';
+                    seatResponse = brokerFallbackText;
+                    sendEvent('seat_chunk', {
+                      seatId: seat.seatId,
+                      text: brokerFallbackText,
+                    });
+                  }
+
                   // Preserve exact spend accounting: one user-visible seat response may require two
                   // model calls, so combine their text-model costs before existing billing executes.
                   seatUsage = {
