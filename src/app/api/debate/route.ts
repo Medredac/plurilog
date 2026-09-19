@@ -62,10 +62,6 @@ import {
   finalizeAllToolCalls,
   AccumulatedToolCall,
 } from '@/utils/streamToolCalls';
-import {
-  resolveRequestedEvidence,
-  toModelSafeBrokerResult,
-} from '@/utils/resourceBroker';
 
 export const GEMINI_IMAGE_TOOLS = [
   {
@@ -89,48 +85,6 @@ export const GEMINI_IMAGE_TOOLS = [
     },
   },
 ];
-
-export const REQUEST_EVIDENCE_TOOL = [
-  {
-    type: 'function',
-    function: {
-      name: 'request_evidence',
-      description:
-        'Request canonical visual evidence (PDF document or image) from earlier in the discussion when answering accurately requires actual visual inspection of formatting, colors, layout, photographs, signatures, stamps, visual comparison, or image pixels that are not currently available in your supplied evidence. Do not use this tool merely to retrieve ordinary document text or conversation history.',
-      parameters: {
-        type: 'object',
-        properties: {
-          resource_type: {
-            type: 'string',
-            enum: ['auto', 'image', 'document'],
-            description:
-              'The category of visual resource needed. Use "auto" if unsure, "document" for PDF visual inspection, or "image" for image inspection.',
-          },
-          need: {
-            type: 'string',
-            description:
-              'A concise description of the specific visual evidence or detail you need to inspect (e.g. "inspect the color and styling of the language section in the resume", "verify the signature on page 1", "compare with the earlier generated chart").',
-          },
-          filename: {
-            type: 'string',
-            description:
-              'Optional: Specific filename if explicitly mentioned by the user or listed in the known documents registry.',
-          },
-        },
-        required: ['need'],
-        additionalProperties: false,
-      },
-    },
-  },
-];
-
-export function isEvidenceRequestToolEnabled(): boolean {
-  return process.env.EVIDENCE_REQUEST_TOOL_ENABLED === 'true';
-}
-
-export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
-  return isEvidenceRequestToolEnabled() && seatId === 'claude';
-}
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' When the user asks something substantive, answer from your own assessment first. Treat other panelists' responses as provisional contributions to compare against that assessment, not as a foundation you are expected to continue. Where useful, address, qualify, correct, question, or add to their points naturally. Do not turn the exchange into a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
 
@@ -1214,8 +1168,6 @@ export async function POST(req: NextRequest) {
               ? discussionMemory.recentRounds[discussionMemory.recentRounds.length - 1]
               : null;
 
-          let currentTurnLastRoundEvidence: MessageVisualEvidenceItem[] = [];
-
           if (discussionId) {
             if (isVerificationFollowUp && lastRound) {
               const inheritedDocId = lastRound.visualDocumentId;
@@ -1363,7 +1315,6 @@ export async function POST(req: NextRequest) {
             }
 
             // Standalone Image Historical Reopening (Phase 2B - ADDITIVE)
-            currentTurnLastRoundEvidence = [];
             if (!hasCurrentImages && prompt && prompt.trim()) {
               try {
                 const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
@@ -1372,10 +1323,9 @@ export async function POST(req: NextRequest) {
                   const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
 
                   if (knownSources && knownSources.length > 0) {
-                    currentTurnLastRoundEvidence = lastRound?.userMessageId
+                    const lastRoundEvidence = lastRound?.userMessageId
                       ? await fetchMessageVisualEvidence(serviceClient, discussionId, lastRound.userMessageId)
                       : [];
-                    const lastRoundEvidence = currentTurnLastRoundEvidence;
 
                     // Fetch or bootstrap persistent visual context
                     const visualContextFetch = await fetchDiscussionVisualContext(serviceClient, discussionId);
@@ -1819,359 +1769,398 @@ export async function POST(req: NextRequest) {
               messageId,
             });
 
-            try {
-              const isGeminiImageEnabled =
-                seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
-              const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
+            const isGeminiImageEnabled =
+              seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
 
-              let currentPassAttachments =
-                seat.seatId === 'gemini'
-                  ? await prepareGeminiVisionAttachments(currentRoundAttachments)
-                  : currentRoundAttachments;
+            const pdfAttachments = currentRoundAttachments.filter((att: any) =>
+              att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
+            ) || [];
+            const hasPdf = pdfAttachments.length > 0;
 
-              const seatWebCitations: { url: string; title: string }[] = [];
-              const seenCitationUrls = new Set<string>();
+            // When visual reinspection is active, every model seat must independently receive the visual PDF
+            // with engine: 'native' rather than using text-only OCR annotation reuse.
+            const isVisualInspectionActive =
+              hasPdf && (Boolean(visualAttachments && visualAttachments.length > 0) || isVisualQuery);
 
-              const addWebCitations = (raw: any) => {
-                if (!raw) return;
-                const annList = Array.isArray(raw) ? raw : [raw];
-                for (const ann of annList) {
-                  if (ann?.type === 'url_citation' && ann?.url_citation?.url) {
-                    const rawUrl = String(ann.url_citation.url).trim();
-                    if (!rawUrl) continue;
+            // Only reuse text annotations when not in visual inspection mode AND annotations captured for ALL PDFs
+            const hasAllPdfAnnotations =
+              !isVisualInspectionActive &&
+              hasPdf &&
+              roundFileAnnotations.length >= pdfAttachments.length &&
+              pdfAttachments.every((pdf: any) =>
+                roundFileAnnotations.some(
+                  (ann: any) =>
+                    ann?.file?.hash &&
+                    (!pdf.filename || !ann?.file?.name || ann.file.name.toLowerCase() === pdf.filename.toLowerCase())
+                )
+              );
 
-                    try {
-                      const parsed = new URL(rawUrl);
-                      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-                        continue;
-                      }
+            const isReusingAnnotations = hasAllPdfAnnotations;
+            const needsPdfPlugin = hasPdf && !isReusingAnnotations;
+            const pdfEngine = isVisualInspectionActive ? 'native' : 'mistral-ocr';
 
-                      // Escape parentheses in URL to guarantee clean Markdown link formatting
-                      const safeUrl = parsed.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
-                      if (seenCitationUrls.has(safeUrl)) {
-                        continue;
-                      }
-                      seenCitationUrls.add(safeUrl);
+            console.log('[PDF Relay Mode]', {
+              seatId: seat.seatId,
+              mode: hasPdf
+                ? isVisualInspectionActive
+                  ? 'visual-native'
+                  : isReusingAnnotations
+                    ? 'reusing-ocr'
+                    : 'parsing-ocr'
+                : 'none',
+              engine: hasPdf && needsPdfPlugin ? pdfEngine : 'none',
+              annotationCount: roundFileAnnotations.length,
+              pdfCount: pdfAttachments.length,
+            });
 
-                      let rawTitle =
-                        typeof ann.url_citation.title === 'string'
-                          ? ann.url_citation.title.trim()
-                          : '';
-                      if (!rawTitle) {
-                        rawTitle = parsed.hostname.replace(/^www\./, '') || 'Source';
-                      }
+            const seatAttachments =
+              seat.seatId === 'gemini'
+                ? await prepareGeminiVisionAttachments(currentRoundAttachments)
+                : currentRoundAttachments;
 
-                      // Escape backslashes, opening brackets, and closing brackets in display title
-                      const safeTitle = rawTitle
-                        .replace(/\\/g, '\\\\')
-                        .replace(/\[/g, '\\[')
-                        .replace(/\]/g, '\\]');
+            const seatMessages = buildPanelMessages(
+              seat.name,
+              prompt,
+              priorResponses,
+              discussionMemory,
+              seatAttachments,
+              isReusingAnnotations ? roundFileAnnotations : null,
+              retrievedMemory,
+              retrievedDocuments,
+              isVisualUnavailable,
+              currentTurnDocuments,
+              visualDeliveryMismatch
+            );
 
-                      seatWebCitations.push({ url: safeUrl, title: safeTitle });
-                    } catch {
-                      // Ignore malformed or invalid URLs
+            const seatWebCitations: { url: string; title: string }[] = [];
+            const seenCitationUrls = new Set<string>();
+
+            const addWebCitations = (raw: any) => {
+              if (!raw) return;
+              const annList = Array.isArray(raw) ? raw : [raw];
+              for (const ann of annList) {
+                if (ann?.type === 'url_citation' && ann?.url_citation?.url) {
+                  const rawUrl = String(ann.url_citation.url).trim();
+                  if (!rawUrl) continue;
+
+                  try {
+                    const parsed = new URL(rawUrl);
+                    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                      continue;
                     }
+
+                    // Escape parentheses in URL to guarantee clean Markdown link formatting
+                    const safeUrl = parsed.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+                    if (seenCitationUrls.has(safeUrl)) {
+                      continue;
+                    }
+                    seenCitationUrls.add(safeUrl);
+
+                    let rawTitle =
+                      typeof ann.url_citation.title === 'string'
+                        ? ann.url_citation.title.trim()
+                        : '';
+                    if (!rawTitle) {
+                      rawTitle = parsed.hostname.replace(/^www\./, '') || 'Source';
+                    }
+
+                    // Escape backslashes, opening brackets, and closing brackets in display title
+                    const safeTitle = rawTitle
+                      .replace(/\\/g, '\\\\')
+                      .replace(/\[/g, '\\[')
+                      .replace(/\]/g, '\\]');
+
+                    seatWebCitations.push({ url: safeUrl, title: safeTitle });
+                  } catch {
+                    // Ignore malformed or invalid URLs
                   }
                 }
-              };
+              }
+            };
 
-              let totalSeatCostUsd = 0;
-              let executedEvidenceTool = false;
-              let currentPassMessages: any[] = [];
+            try {
+              const stream = await (openai.chat.completions.create as any)({
+                model: primaryModel,
+                models: models,
+                messages: seatMessages,
+                stream: true,
+                temperature: 0.7,
+                signal: req.signal,
+                tools: [
+                  {
+                    type: 'openrouter:web_search',
+                    parameters: {
+                      max_results: 3,
+                      max_total_results: 6,
+                    },
+                  },
+                  ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
+                ],
+                ...(discussionId
+                  ? { session_id: `${discussionId}:${seat.seatId}` }
+                  : {}),
+                ...(needsPdfPlugin
+                  ? {
+                      plugins: [
+                        {
+                          id: 'file-parser',
+                          pdf: {
+                            engine: pdfEngine,
+                          },
+                        },
+                      ],
+                    }
+                  : {}),
+              });
 
-              for (let pass = 1; pass <= 2; pass++) {
-                accumulatedToolCalls = [];
-                let passResponse = '';
-                let passUsage: any = null;
-                const shouldBufferPassChunks = isEvidenceEnabledForSeat && pass === 1;
-                const bufferedPassChunks: string[] = [];
+              for await (const chunk of stream) {
+                if (req.signal.aborted) {
+                  break;
+                }
+                if (chunk.model) {
+                  respondingModel = chunk.model;
+                }
+                if ((chunk as any).usage) {
+                  seatUsage = (chunk as any).usage;
+                }
 
-                const passPdfAttachments = (currentPassAttachments || []).filter((att: any) =>
-                  att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
-                );
-                const passHasPdf = passPdfAttachments.length > 0;
+                // Capture file annotations and web url_citation annotations from chunk.choices[0].delta.annotations
+                const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
+                if (deltaAnnotations) {
+                  addFileAnnotations(deltaAnnotations);
+                  addWebCitations(deltaAnnotations);
+                }
 
-                // When visual reinspection or evidence tool is active, seat independently receives visual PDF with engine: 'native'
-                const passIsVisualInspectionActive =
-                  passHasPdf && (Boolean(visualAttachments && visualAttachments.length > 0) || isVisualQuery || executedEvidenceTool);
+                // Capture streaming tool calls from chunk.choices[0].delta.tool_calls
+                const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
+                if (deltaToolCalls) {
+                  accumulatedToolCalls = mergeStreamingToolCalls(accumulatedToolCalls, deltaToolCalls);
+                }
 
-                // Only reuse text annotations when not in visual inspection mode AND annotations captured for ALL PDFs
-                const passHasAllPdfAnnotations =
-                  !passIsVisualInspectionActive &&
-                  passHasPdf &&
-                  roundFileAnnotations.length >= passPdfAttachments.length &&
-                  passPdfAttachments.every((pdf: any) =>
-                    roundFileAnnotations.some(
-                      (ann: any) =>
-                        ann?.file?.hash &&
-                        (!pdf.filename || !ann?.file?.name || ann.file.name.toLowerCase() === pdf.filename.toLowerCase())
-                    )
-                  );
-
-                const passIsReusingAnnotations = passHasAllPdfAnnotations;
-                const passNeedsPdfPlugin = passHasPdf && !passIsReusingAnnotations;
-                const passPdfEngine = passIsVisualInspectionActive ? 'native' : 'mistral-ocr';
-
-                if (pass === 1) {
-                  currentPassMessages = buildPanelMessages(
-                    seat.name,
-                    prompt,
-                    priorResponses,
-                    discussionMemory,
-                    currentPassAttachments,
-                    passIsReusingAnnotations ? roundFileAnnotations : null,
-                    retrievedMemory,
-                    retrievedDocuments,
-                    isVisualUnavailable,
-                    currentTurnDocuments,
-                    visualDeliveryMismatch
-                  );
-
-                  console.log('[PDF Relay Mode]', {
+                const text = chunk.choices[0]?.delta?.content || '';
+                if (text) {
+                  seatResponse += text;
+                  sendEvent('seat_chunk', {
                     seatId: seat.seatId,
-                    mode: passHasPdf
-                      ? passIsVisualInspectionActive
-                        ? 'visual-native'
-                        : passIsReusingAnnotations
-                          ? 'reusing-ocr'
-                          : 'parsing-ocr'
-                      : 'none',
-                    engine: passHasPdf && passNeedsPdfPlugin ? passPdfEngine : 'none',
-                    annotationCount: roundFileAnnotations.length,
-                    pdfCount: passPdfAttachments.length,
+                    text: text,
                   });
                 }
+              }
 
-              const passTools = [
-                {
-                  type: 'openrouter:web_search',
-                  parameters: {
-                    max_results: 3,
-                    max_total_results: 6,
-                  },
-                },
-                ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
-                ...(isEvidenceEnabledForSeat && pass === 1 ? REQUEST_EVIDENCE_TOOL : []),
-              ];
+              if (req.signal.aborted) {
+                safeClose();
+                return;
+              }
 
-              try {
-                const stream = await (openai.chat.completions.create as any)({
-                  model: primaryModel,
-                  models: models,
-                  messages: currentPassMessages,
-                  stream: true,
-                  temperature: 0.7,
-                  signal: req.signal,
-                  tools: passTools,
-                  ...(discussionId
-                    ? { session_id: `${discussionId}:${seat.seatId}` }
-                    : {}),
-                  ...(passNeedsPdfPlugin
-                    ? {
-                        plugins: [
-                          {
-                            id: 'file-parser',
-                            pdf: {
-                              engine: passPdfEngine,
-                            },
-                          },
-                        ],
+              // Check if Gemini invoked a tool call (generate_image)
+              if (accumulatedToolCalls.length > 0) {
+                const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
+
+                if (
+                  finalizedCalls.length !== 1 ||
+                  finalizedCalls[0]?.name !== 'generate_image' ||
+                  seat.seatId !== 'gemini' ||
+                  !isGeminiImageEnabled
+                ) {
+                  throw new Error(
+                    `Unsupported or unexpected tool calls (${finalizedCalls.length} calls, primary: "${finalizedCalls[0]?.name}") for ${seat.name}.`
+                  );
+                }
+
+                const imageCall = finalizedCalls[0];
+
+                // 1. Tool Prompt Validation
+                const toolArgs = imageCall.arguments as { prompt?: string };
+                const toolPrompt = typeof toolArgs?.prompt === 'string' ? toolArgs.prompt.trim() : '';
+                if (!toolPrompt) {
+                  throw new Error('A non-empty prompt is required for image generation.');
+                }
+
+                imageToolBranchActive = true;
+
+                // 2. Image Credit Preflight Check
+                const { data: currentBalanceRows, error: checkBalErr } = await supabase.rpc('get_my_balance');
+                if (checkBalErr) {
+                  console.error('[Image Preflight] Failed to fetch balance for image generation:', checkBalErr);
+                  throw new Error('Could not verify account balance for image generation.');
+                }
+
+                const currentBalance = currentBalanceRows?.[0];
+                const remainingCents = Number(currentBalance?.remaining_cents ?? 0);
+
+                if (remainingCents <= 0) {
+                  console.log('[Image Preflight] User balance exhausted for image generation:', {
+                    remainingCents,
+                  });
+                  const lowCreditNotice =
+                    "You’ve used all of your available usage credit, so I can’t generate another image right now.";
+                  seatResponse = seatResponse ? `${seatResponse}\n\n${lowCreditNotice}` : lowCreditNotice;
+                  sendEvent('seat_chunk', {
+                    seatId: seat.seatId,
+                    text: lowCreditNotice,
+                  });
+                  // Fall through to normal text message persistence below
+                } else {
+                  // 3. Provider Execution
+                  console.log('[Gemini Image Generation] Executing generateGeminiImage:', {
+                    seatId: seat.seatId,
+                    promptLength: toolPrompt.length,
+                  });
+                  const imageResult = await generateGeminiImage({
+                    prompt: toolPrompt,
+                    signal: req.signal,
+                  });
+
+                  incurredImageCostUsd = imageResult.costUsd;
+                  console.log('[Gemini Image Generation] Incurred provider cost:', {
+                    costUsd: imageResult.costUsd,
+                    model: imageResult.model,
+                  });
+
+                  // 4. Model Message Content
+                  const finalContent = seatResponse.trim() || 'Generated an image based on your request.';
+
+                  // 5. Message INSERT (reuse existing retry/idempotency logic)
+                  let persistedMsg: { id: string; created_at: string } | null = null;
+                  if (discussionId) {
+                    for (let attempt = 1; attempt <= 2; attempt++) {
+                      const { data, error } = await supabase
+                        .from('messages')
+                        .insert({
+                          id: messageId,
+                          discussion_id: discussionId,
+                          sender: seat.seatId,
+                          content: finalContent,
+                        })
+                        .select('id, created_at, discussion_id, sender, content')
+                        .maybeSingle();
+
+                      if (!error && data) {
+                        persistedMsg = { id: data.id, created_at: data.created_at };
+                        console.log(`[Message Persistence]`, {
+                          seatId: seat.seatId,
+                          messageId,
+                          status: 'inserted',
+                          attempt,
+                        });
+                        break;
                       }
-                    : {}),
-                });
 
-                for await (const chunk of stream) {
-                  if (req.signal.aborted) {
-                    break;
-                  }
-                  if (chunk.model) {
-                    respondingModel = chunk.model;
-                  }
-                  if ((chunk as any).usage) {
-                    passUsage = (chunk as any).usage;
-                    seatUsage = (chunk as any).usage;
-                  }
-
-                  // Capture file annotations and web url_citation annotations from chunk.choices[0].delta.annotations
-                  const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
-                  if (deltaAnnotations) {
-                    addFileAnnotations(deltaAnnotations);
-                    addWebCitations(deltaAnnotations);
-                  }
-
-                  // Capture streaming tool calls from chunk.choices[0].delta.tool_calls
-                  const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
-                  if (deltaToolCalls) {
-                    accumulatedToolCalls = mergeStreamingToolCalls(accumulatedToolCalls, deltaToolCalls);
-                  }
-
-                  const text = chunk.choices[0]?.delta?.content || '';
-                  if (text) {
-                    passResponse += text;
-                    if (shouldBufferPassChunks) {
-                      bufferedPassChunks.push(text);
-                    } else {
-                      sendEvent('seat_chunk', {
-                        seatId: seat.seatId,
-                        text: text,
-                      });
-                    }
-                  }
-                }
-
-                if (req.signal.aborted) {
-                  safeClose();
-                  return;
-                }
-
-                if (passUsage && typeof passUsage.cost === 'number') {
-                  totalSeatCostUsd += passUsage.cost;
-                }
-
-                // Check if model invoked a tool call
-                if (accumulatedToolCalls.length > 0) {
-                  const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
-
-                  // Branch 1: Gemini image generation
-                  if (
-                    finalizedCalls.length === 1 &&
-                    finalizedCalls[0]?.name === 'generate_image' &&
-                    seat.seatId === 'gemini' &&
-                    isGeminiImageEnabled
-                  ) {
-                    const imageCall = finalizedCalls[0];
-                    const toolArgs = imageCall.arguments as { prompt?: string };
-                    const toolPrompt = typeof toolArgs?.prompt === 'string' ? toolArgs.prompt.trim() : '';
-                    if (!toolPrompt) {
-                      throw new Error('A non-empty prompt is required for image generation.');
-                    }
-
-                    imageToolBranchActive = true;
-
-                    // Image Credit Preflight Check
-                    const { data: currentBalanceRows, error: checkBalErr } = await supabase.rpc('get_my_balance');
-                    if (checkBalErr) {
-                      console.error('[Image Preflight] Failed to fetch balance for image generation:', checkBalErr);
-                      throw new Error('Could not verify account balance for image generation.');
-                    }
-
-                    const currentBalance = currentBalanceRows?.[0];
-                    const remainingCents = Number(currentBalance?.remaining_cents ?? 0);
-
-                    if (remainingCents <= 0) {
-                      console.log('[Image Preflight] User balance exhausted for image generation:', {
-                        remainingCents,
-                      });
-                      const lowCreditNotice =
-                        "You’ve used all of your available usage credit, so I can’t generate another image right now.";
-                      seatResponse = passResponse ? `${passResponse}\n\n${lowCreditNotice}` : lowCreditNotice;
-                      sendEvent('seat_chunk', {
-                        seatId: seat.seatId,
-                        text: lowCreditNotice,
-                      });
-                      break;
-                    }
-
-                    console.log('[Gemini Image Generation] Executing generateGeminiImage:', {
-                      seatId: seat.seatId,
-                      promptLength: toolPrompt.length,
-                    });
-                      const imageResult = await generateGeminiImage({
-                        prompt: toolPrompt,
-                        signal: req.signal,
-                      });
-
-                      incurredImageCostUsd = imageResult.costUsd;
-                      console.log('[Gemini Image Generation] Incurred provider cost:', {
-                        costUsd: imageResult.costUsd,
-                        model: imageResult.model,
-                      });
-
-                      const finalContent = passResponse.trim() || 'Generated an image based on your request.';
-                    seatResponse = finalContent;
-
-                    let persistedMsg: { id: string; created_at: string } | null = null;
-                    if (discussionId) {
-                      for (let attempt = 1; attempt <= 2; attempt++) {
-                        const { data, error } = await supabase
+                      if (error?.code === '23505') {
+                        const { data: existing, error: fetchErr } = await supabase
                           .from('messages')
-                          .insert({
-                            id: messageId,
-                            discussion_id: discussionId,
-                            sender: seat.seatId,
-                            content: finalContent,
-                          })
                           .select('id, created_at, discussion_id, sender, content')
+                          .eq('id', messageId)
                           .maybeSingle();
 
-                        if (!error && data) {
-                          persistedMsg = { id: data.id, created_at: data.created_at };
+                        if (
+                          !fetchErr &&
+                          existing &&
+                          existing.id === messageId &&
+                          existing.discussion_id === discussionId &&
+                          existing.sender === seat.seatId
+                        ) {
+                          persistedMsg = { id: existing.id, created_at: existing.created_at };
                           console.log(`[Message Persistence]`, {
                             seatId: seat.seatId,
                             messageId,
-                            status: 'inserted',
+                            status: 'confirmed-existing',
                             attempt,
                           });
                           break;
-                        }
-
-                        if (error?.code === '23505') {
-                          const { data: existing, error: fetchErr } = await supabase
-                            .from('messages')
-                            .select('id, created_at, discussion_id, sender, content')
-                            .eq('id', messageId)
-                            .maybeSingle();
-
-                          if (
-                            !fetchErr &&
-                            existing &&
-                            existing.id === messageId &&
-                            existing.discussion_id === discussionId &&
-                            existing.sender === seat.seatId
-                          ) {
-                            persistedMsg = { id: existing.id, created_at: existing.created_at };
-                            console.log(`[Message Persistence]`, {
-                              seatId: seat.seatId,
-                              messageId,
-                              status: 'confirmed-existing',
-                              attempt,
-                            });
-                            break;
-                          } else {
-                            break;
-                          }
-                        }
-
-                        console.warn(
-                          `[Message Persistence] Attempt ${attempt} failed for ${seat.name}:`,
-                          error?.message || error
-                        );
-                        if (attempt < 2) {
-                          await new Promise((resolve) => setTimeout(resolve, 100));
+                        } else {
+                          break;
                         }
                       }
+
+                      console.warn(
+                        `[Message Persistence] Attempt ${attempt} failed for ${seat.name}:`,
+                        error?.message || error
+                      );
+                      if (attempt < 2) {
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+                      }
                     }
+                  }
 
-                    if (discussionId && !persistedMsg) {
-                      throw new Error(`Failed to persist completed response from ${seat.name}.`);
-                    }
+                  if (discussionId && !persistedMsg) {
+                    throw new Error(`Failed to persist completed response from ${seat.name}.`);
+                  }
 
-                    const persistedImage = await persistGeneratedImage({
-                      supabase,
-                      discussionId: discussionId || '',
-                      messageId: persistedMsg?.id || messageId,
-                      seatId: 'gemini',
-                      b64Json: imageResult.b64Json,
-                      mediaType: imageResult.mediaType,
-                    });
+                  // 6. Generated Image Storage
+                  const persistedImage = await persistGeneratedImage({
+                    supabase,
+                    discussionId: discussionId || '',
+                    messageId: persistedMsg?.id || messageId,
+                    seatId: 'gemini',
+                    b64Json: imageResult.b64Json,
+                    mediaType: imageResult.mediaType,
+                  });
 
-                    hadGeneratedImageInTurn = true;
+                  hadGeneratedImageInTurn = true;
 
-                    if (discussionId) {
+                  // 7. Non-Critical Artifact / Memory Registration & Visual Indexing
+                  if (discussionId) {
+                    try {
+                      const serviceClient = createServiceClient();
+                      const genIngestResult = await ingestDiscussionArtifacts({
+                        serviceSupabase: serviceClient,
+                        discussionId,
+                        attachments: [
+                          {
+                            url: persistedImage.signedUrl,
+                            filename: persistedImage.filename,
+                          },
+                        ],
+                        sourceUserMessageId: persistedMsg?.id || messageId,
+                        signal: req.signal,
+                      });
+
+                      // Update persistent visual context for assistant generation
+                      if (isPersistentVisualContextWritesEnabled() && genIngestResult?.ingestedSourceIds && genIngestResult.ingestedSourceIds.length > 0) {
+                        try {
+                          const latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                          let transitionReferentSourceIds = (pendingResolvedImageSources || []).map((s) => s.sourceId);
+                          // In shadow writes mode (reads=false), if pendingResolvedImageSources is empty, check if prompt referenced persistent context
+                          if (transitionReferentSourceIds.length === 0 && visualContextState) {
+                            const shadowResolved = resolveImageEvidence({
+                              prompt,
+                              knownSources: latestKnownSources,
+                              visualContext: visualContextState,
+                              previousUserPrompt: lastRound?.userPrompt,
+                              allUserMessageIds: discussionMemory?.allUserMessageIds,
+                            });
+                            if (shadowResolved && shadowResolved.sources.length > 0) {
+                              transitionReferentSourceIds = shadowResolved.sources.map((s) => s.sourceId);
+                            }
+                          }
+
+                          visualContextState = await updateDiscussionVisualContextCAS(
+                            serviceClient,
+                            discussionId,
+                            visualContextState,
+                            {
+                              resolvedReferentSourceIds: transitionReferentSourceIds,
+                              newArtifactSourceIds: genIngestResult.ingestedSourceIds,
+                              isComparison: false,
+                              knownSources: latestKnownSources,
+                            }
+                          );
+                          console.log('[Visual Context: Assistant Generation Transition]', {
+                            discussionId,
+                            newSources: genIngestResult.ingestedSourceIds,
+                            activeSourceCount: visualContextState?.active_session_source_ids?.length || 0,
+                            focusSourceCount: visualContextState?.focus_source_ids?.length || 0,
+                          });
+                        } catch (casErr) {
+                          console.warn('[Visual Context] Error updating state for generated image:', casErr);
+                        }
+                      }
+
                       try {
-                        const serviceClient = createServiceClient();
-                        const genIngestResult = await ingestDiscussionArtifacts({
+                        await indexDiscussionImageArtifacts({
                           serviceSupabase: serviceClient,
+                          openai,
                           discussionId,
                           attachments: [
                             {
@@ -2179,377 +2168,76 @@ export async function POST(req: NextRequest) {
                               filename: persistedImage.filename,
                             },
                           ],
-                          sourceUserMessageId: persistedMsg?.id || messageId,
                           signal: req.signal,
                         });
-
-                        if (isPersistentVisualContextWritesEnabled() && genIngestResult?.ingestedSourceIds && genIngestResult.ingestedSourceIds.length > 0) {
-                          try {
-                            const latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
-                            let transitionReferentSourceIds = (pendingResolvedImageSources || []).map((s) => s.sourceId);
-                            if (transitionReferentSourceIds.length === 0 && visualContextState) {
-                              const shadowResolved = resolveImageEvidence({
-                                prompt,
-                                knownSources: latestKnownSources,
-                                visualContext: visualContextState,
-                                previousUserPrompt: lastRound?.userPrompt,
-                                allUserMessageIds: discussionMemory?.allUserMessageIds,
-                              });
-                              if (shadowResolved && shadowResolved.sources.length > 0) {
-                                transitionReferentSourceIds = shadowResolved.sources.map((s) => s.sourceId);
-                              }
-                            }
-
-                            visualContextState = await updateDiscussionVisualContextCAS(
-                              serviceClient,
-                              discussionId,
-                              visualContextState,
-                              {
-                                resolvedReferentSourceIds: transitionReferentSourceIds,
-                                newArtifactSourceIds: genIngestResult.ingestedSourceIds,
-                                isComparison: false,
-                                knownSources: latestKnownSources,
-                              }
-                            );
-                            console.log('[Visual Context: Assistant Generation Transition]', {
-                              discussionId,
-                              newSources: genIngestResult.ingestedSourceIds,
-                              activeSourceCount: visualContextState?.active_session_source_ids?.length || 0,
-                              focusSourceCount: visualContextState?.focus_source_ids?.length || 0,
-                            });
-                          } catch (casErr) {
-                            console.warn('[Visual Context] Error updating state for generated image:', casErr);
-                          }
-                        }
-
-                        try {
-                          await indexDiscussionImageArtifacts({
-                            serviceSupabase: serviceClient,
-                            openai,
-                            discussionId,
-                            attachments: [
-                              {
-                                url: persistedImage.signedUrl,
-                                filename: persistedImage.filename,
-                              },
-                            ],
-                            signal: req.signal,
-                          });
-                        } catch (indexErr) {
-                          console.warn('[Visual Indexer] Non-critical error during generated image indexing:', indexErr);
-                        }
-                      } catch (imgIngestErr) {
-                        console.warn('[Image Artifact Ingest] Non-critical error during generated image artifact ingestion:', imgIngestErr);
+                      } catch (indexErr) {
+                        console.warn('[Visual Indexer] Non-critical error during generated image indexing:', indexErr);
                       }
+                    } catch (imgIngestErr) {
+                      console.warn('[Image Artifact Ingest] Non-critical error during generated image artifact ingestion:', imgIngestErr);
                     }
-
-                    // Same-Round Image Sharing
-                    currentRoundAttachments.push({
-                      url: persistedImage.signedUrl,
-                      filename: persistedImage.filename,
-                      provenance: 'same_round_assistant_generated',
-                      creatorSeatId: 'gemini',
-                    });
-
-                    // Billing — Exactly Once
-                    const textCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-                    const imageCostUsd = typeof imageResult.costUsd === 'number' ? imageResult.costUsd : 0;
-                    const totalCostUsd = textCostUsd + imageCostUsd;
-                    const costCents = totalCostUsd * 100;
-
-                    if (costCents > 0) {
-                      const { error: spendError } = await supabase.rpc('spend_credits', {
-                        p_cents: costCents,
-                        p_model: respondingModel,
-                        p_discussion_id: discussionId || null,
-                        p_meta: {
-                          seatId: seat.seatId,
-                          textModel: respondingModel,
-                          imageModel: imageResult.model,
-                          textCostUsd,
-                          imageCostUsd,
-                          imageGeneration: true,
-                        },
-                      });
-                      if (spendError) {
-                        console.error(`[Spend Tracking] Failed to record spend for ${seat.name} image generation:`, spendError);
-                        throw new Error('Failed to record image generation usage.');
-                      } else {
-                        spendRecorded = true;
-                      }
-                    }
-
-                    // Emit seat_done with attachment_urls
-                    sendEvent('seat_done', {
-                      seatId: seat.seatId,
-                      modelId: respondingModel,
-                      content: finalContent,
-                      messageId: persistedMsg?.id || messageId,
-                      createdAt: persistedMsg?.created_at || new Date().toISOString(),
-                      attachment_urls: [persistedImage.signedUrl],
-                    });
-
-                    // Record in prior responses for subsequent speakers (untainted by web citation URLs)
-                    const peerResponseText = sanitizePeerResponseForWebCitations(
-                      finalContent,
-                      seatWebCitations
-                    );
-                    priorResponses.push({
-                      name: seat.name,
-                      response: peerResponseText,
-                    });
-
-                    // Successfully completed image seat turn -> advance to next seat
-                    continue;
                   }
 
-                  // Branch 2: Claude request_evidence on Pass 1
-                  if (
-                    pass === 1 &&
-                    finalizedCalls.length === 1 &&
-                    finalizedCalls[0]?.name === 'request_evidence' &&
-                    seat.seatId === 'claude' &&
-                    isEvidenceEnabledForSeat
-                  ) {
-                    const toolCall = finalizedCalls[0];
-                    const toolArgs = (toolCall.arguments || {}) as {
-                      resource_type?: 'auto' | 'image' | 'document';
-                      need?: string;
-                      filename?: string;
-                    };
-
-                    const toolNeed = typeof toolArgs?.need === 'string' ? toolArgs.need.trim() : '';
-                    const toolResourceType = toolArgs?.resource_type || 'auto';
-                    const toolFilename = typeof toolArgs?.filename === 'string' ? toolArgs.filename.trim() : undefined;
-
-                    const brokerStartTime = Date.now();
-                    let latestKnownSources: KnownImageSource[] = [];
-                    if (discussionId) {
-                      try {
-                        const serviceClient = createServiceClient();
-                        latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
-                      } catch (fetchErr) {
-                        console.warn('[Evidence Broker] Non-critical error fetching known image sources:', fetchErr);
-                      }
-                    }
-
-                    const brokerResult = resolveRequestedEvidence(
-                      {
-                        modality: 'visual',
-                        resource_type: toolResourceType,
-                        need: toolNeed || prompt,
-                        filename: toolFilename,
-                      },
-                      {
-                        knownDocuments: discussionMemory?.knownDocuments,
-                        retrievedDocuments,
-                        recentRounds: discussionMemory?.recentRounds,
-                        knownImageSources: latestKnownSources,
-                        lastRoundEvidence: currentTurnLastRoundEvidence,
-                        recentEvidenceSets: [],
-                        visualContext: isPersistentVisualContextReadsEnabled() ? visualContextState : null,
-                        previousUserPrompt: lastRound?.userPrompt,
-                        allUserMessageIds: discussionMemory?.allUserMessageIds,
-                      }
-                    );
-                    const brokerDurationMs = Date.now() - brokerStartTime;
-                    let modelSafeResult = toModelSafeBrokerResult(brokerResult);
-
-                    console.log('[Evidence Broker Request]', {
-                      discussionId,
-                      seatId: seat.seatId,
-                      pass: 1,
-                      requestedResourceType: toolResourceType,
-                      brokerStatus: brokerResult.status,
-                      brokerKind: brokerResult.kind,
-                      candidateCount: brokerResult.candidates?.length || 0,
-                      resolvedCount: brokerResult.evidence ? 1 : 0,
-                      durationMs: brokerDurationMs,
-                    });
-
-                    executedEvidenceTool = true;
-                    const pass2NewAttachments: RouteAttachment[] = [];
-
-                    // Materialize evidence if resolved
-                    if (brokerResult.status === 'resolved' && brokerResult.evidence) {
-                      const ev = brokerResult.evidence;
-                      if (ev.kind === 'pdf' && ev.storagePath) {
-                        let signedPdfUrl: string | null = null;
-                        try {
-                          const { data: signedData, error: signErr } = await supabase.storage
-                            .from('message-images')
-                            .createSignedUrl(ev.storagePath, 3600);
-
-                          if (!signErr && signedData?.signedUrl) {
-                            signedPdfUrl = signedData.signedUrl;
-                          } else {
-                            console.warn('[Evidence Broker] Failed to create signed URL for PDF:', signErr);
-                          }
-                        } catch (signEx) {
-                          console.warn('[Evidence Broker] Exception creating signed URL for PDF:', signEx);
-                        }
-
-                        if (signedPdfUrl) {
-                          pass2NewAttachments.push({
-                            url: signedPdfUrl,
-                            filename: ev.filename,
-                            provenance: 'historical_user_upload',
-                          });
-                        } else {
-                          // PDF signing failed -> fail closed, report unavailable
-                          modelSafeResult = {
-                            status: 'not_found',
-                            kind: 'pdf',
-                            message: 'The requested document visual evidence could not be retrieved at this time.',
-                          };
-                        }
-                      } else if (ev.kind === 'image' && ev.sources && ev.sources.length > 0) {
-                        const totalExpected = ev.sources.length;
-                        const signedImageAttachments: RouteAttachment[] = [];
-
-                        for (const s of ev.sources) {
-                          if (!s.storagePath) continue;
-                          try {
-                            const { data: signedData, error: signErr } = await supabase.storage
-                              .from('message-images')
-                              .createSignedUrl(s.storagePath, 3600);
-
-                            if (!signErr && signedData?.signedUrl) {
-                              let provenance: AttachmentProvenance = 'historical_user_upload';
-                              let creatorSeatId: string | undefined;
-                              if (s.sender) {
-                                const senderLower = s.sender.toLowerCase();
-                                if (['gemini', 'chatgpt', 'claude'].includes(senderLower)) {
-                                  provenance = 'historical_assistant_generated';
-                                  creatorSeatId = senderLower;
-                                }
-                              }
-                              signedImageAttachments.push({
-                                url: signedData.signedUrl,
-                                filename: s.filename || 'image.png',
-                                provenance,
-                                creatorSeatId,
-                              });
-                            } else {
-                              console.warn('[Evidence Broker] Failed to create signed URL for image source:', signErr);
-                            }
-                          } catch (signEx) {
-                            console.warn('[Evidence Broker] Exception creating signed URL for image source:', signEx);
-                          }
-                        }
-
-                        // Fail closed: require all expected sources to sign successfully
-                        if (signedImageAttachments.length === totalExpected && totalExpected > 0) {
-                          pass2NewAttachments.push(...signedImageAttachments);
-                        } else {
-                          console.warn('[Evidence Broker] Incomplete or failed image signing:', {
-                            expected: totalExpected,
-                            signed: signedImageAttachments.length,
-                          });
-                          modelSafeResult = {
-                            status: 'not_found',
-                            kind: 'image',
-                            message: 'The requested image visual evidence could not be completely retrieved at this time.',
-                          };
-                        }
-                      }
-                    }
-
-                    currentPassAttachments = [...currentRoundAttachments, ...pass2NewAttachments];
-
-                    const pass2BaseMessages = buildPanelMessages(
-                      seat.name,
-                      prompt,
-                      priorResponses,
-                      discussionMemory,
-                      currentPassAttachments,
-                      null, // Do not reuse OCR annotations when newly materializing visual evidence
-                      retrievedMemory,
-                      retrievedDocuments,
-                      isVisualUnavailable,
-                      currentTurnDocuments,
-                      visualDeliveryMismatch
-                    );
-
-                    currentPassMessages = [
-                      ...pass2BaseMessages,
-                      {
-                        role: 'assistant',
-                        content: passResponse || null,
-                        tool_calls: [
-                          {
-                            id: toolCall.id || 'call_request_evidence',
-                            type: 'function',
-                            function: {
-                              name: 'request_evidence',
-                              arguments: toolCall.rawArguments || JSON.stringify(toolCall.arguments),
-                            },
-                          },
-                        ],
-                      } as any,
-                      {
-                        role: 'tool',
-                        tool_call_id: toolCall.id || 'call_request_evidence',
-                        name: 'request_evidence',
-                        content: JSON.stringify(modelSafeResult),
-                      } as any,
-                    ];
-
-                    // Continue to Pass 2 (provisional Pass-1 text is discarded from UI)
-                    continue;
-                  }
-
-                  // Branch 3: Unexpected or repeated tool calls (e.g. Pass 2 tool call, unsupported Pass 1 tool call)
-                  console.warn('[Tool Routing] Unexpected or unsupported tool call received:', {
-                    seatId: seat.seatId,
-                    pass,
-                    finalizedCallCount: finalizedCalls.length,
-                    primaryTool: finalizedCalls[0]?.name,
+                  // 8. Same-Round Image Sharing
+                  currentRoundAttachments.push({
+                    url: persistedImage.signedUrl,
+                    filename: persistedImage.filename,
+                    provenance: 'same_round_assistant_generated',
+                    creatorSeatId: 'gemini',
                   });
 
-                  // Conclude safely without throwing and without entering another pass
-                  if (passResponse.trim()) {
-                    if (shouldBufferPassChunks && bufferedPassChunks.length > 0) {
-                      for (const chunkText of bufferedPassChunks) {
-                        sendEvent('seat_chunk', {
-                          seatId: seat.seatId,
-                          text: chunkText,
-                        });
-                      }
+                  // 9. Billing — Exactly Once
+                  const textCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                  const imageCostUsd = typeof imageResult.costUsd === 'number' ? imageResult.costUsd : 0;
+                  const totalCostUsd = textCostUsd + imageCostUsd;
+                  const costCents = totalCostUsd * 100;
+
+                  if (costCents > 0) {
+                    const { error: spendError } = await supabase.rpc('spend_credits', {
+                      p_cents: costCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        textModel: respondingModel,
+                        imageModel: imageResult.model,
+                        textCostUsd,
+                        imageCostUsd,
+                        imageGeneration: true,
+                      },
+                    });
+                    if (spendError) {
+                      console.error(`[Spend Tracking] Failed to record spend for ${seat.name} image generation:`, spendError);
+                      throw new Error('Failed to record image generation usage.');
+                    } else {
+                      spendRecorded = true;
                     }
-                    seatResponse = passResponse;
-                  } else {
-                    const fallbackText = pass === 2
-                      ? 'I apologize, but I could not retrieve additional evidence to complete this request.'
-                      : 'I apologize, but the requested action could not be completed.';
-                    sendEvent('seat_chunk', {
-                      seatId: seat.seatId,
-                      text: fallbackText,
-                    });
-                    seatResponse = fallbackText;
                   }
-                  break;
-                }
 
-                // Normal completion without tool call on this pass
-                if (shouldBufferPassChunks && bufferedPassChunks.length > 0) {
-                  for (const chunkText of bufferedPassChunks) {
-                    sendEvent('seat_chunk', {
-                      seatId: seat.seatId,
-                      text: chunkText,
-                    });
-                  }
+                  // 10. Emit seat_done with attachment_urls
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: respondingModel,
+                    content: finalContent,
+                    messageId: persistedMsg?.id || messageId,
+                    createdAt: persistedMsg?.created_at || new Date().toISOString(),
+                    attachment_urls: [persistedImage.signedUrl],
+                  });
+
+                  // 11. Record in prior responses for subsequent speakers (untainted by web citation URLs)
+                  const peerResponseText = sanitizePeerResponseForWebCitations(
+                    finalContent,
+                    seatWebCitations
+                  );
+                  priorResponses.push({
+                    name: seat.name,
+                    response: peerResponseText,
+                  });
+
+                  // Successfully completed image seat turn -> advance to next seat
+                  continue;
                 }
-                seatResponse = passResponse;
-                break;
-              } catch (passErr) {
-                throw passErr;
               }
-            }
-
-            if (imageToolBranchActive) {
-              continue;
-            }
 
               // Capture conversational peer response text sanitized against web-search citation URLs
               const peerResponseText = sanitizePeerResponseForWebCitations(
@@ -2664,9 +2352,8 @@ export async function POST(req: NextRequest) {
                 );
               }
 
-              const effectiveCostUsd = totalSeatCostUsd > 0 ? totalSeatCostUsd : (typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0);
-              if (effectiveCostUsd > 0) {
-                const costCents = effectiveCostUsd * 100; // dollars → cents, full precision, no rounding
+              if (seatUsage && typeof seatUsage.cost === 'number') {
+                const costCents = seatUsage.cost * 100; // dollars → cents, full precision, no rounding
                 if (costCents > 0) {
                   const { error: spendError } = await supabase.rpc('spend_credits', {
                     p_cents: costCents,
