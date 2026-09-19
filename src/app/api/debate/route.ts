@@ -129,9 +129,13 @@ export function isEvidenceRequestToolEnabled(): boolean {
 }
 
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
-  // Canary rollout: keep Gemini's proven image-generation execution path byte-for-byte
-  // outside the evidence retry mechanism while visual inspection is validated.
-  return isEvidenceRequestToolEnabled() && seatId === 'claude';
+  // Preview rollout: evidence inspection is available to all three panel seats when
+  // the feature flag is enabled. Gemini image generation remains a separate,
+  // terminal tool branch below.
+  return (
+    isEvidenceRequestToolEnabled() &&
+    ['claude', 'chatgpt', 'gemini'].includes(seatId)
+  );
 }
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' When the user asks something substantive, answer from your own assessment first. Treat other panelists' responses as provisional contributions to compare against that assessment, not as a foundation you are expected to continue. Where useful, address, qualify, correct, question, or add to their points naturally. Do not turn the exchange into a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
@@ -1886,7 +1890,7 @@ export async function POST(req: NextRequest) {
                 ? await prepareGeminiVisionAttachments(currentRoundAttachments)
                 : currentRoundAttachments;
 
-            if (seat.seatId === 'claude') {
+            if (isEvidenceEnabledForSeat) {
               const currentVisualAttachmentCount = (seatAttachments || []).filter((a) => {
                 const cleanUrl = a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
                 return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
@@ -2044,8 +2048,9 @@ export async function POST(req: NextRequest) {
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
 
-                if (seat.seatId === 'claude') {
+                if (isEvidenceEnabledForSeat) {
                   console.log('[Evidence Tool Decision]', {
+                    seatId: seat.seatId,
                     enabled: isEvidenceEnabledForSeat,
                     calls: finalizedCalls.map((call) => call.name),
                   });
@@ -2060,7 +2065,6 @@ export async function POST(req: NextRequest) {
                 const isEvidenceRequestCall =
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'request_evidence' &&
-                  seat.seatId === 'claude' &&
                   isEvidenceEnabledForSeat;
 
                 if (isEvidenceRequestCall) {
@@ -2227,12 +2231,16 @@ export async function POST(req: NextRequest) {
                   ];
 
                   const evidenceWasMaterialized = newEvidenceAttachments.length > 0;
+                  const evidenceSeatAttachments =
+                    seat.seatId === 'gemini'
+                      ? await prepareGeminiVisionAttachments(evidenceAttachments)
+                      : evidenceAttachments;
                   const evidenceBaseMessages = buildPanelMessages(
                     seat.name,
                     prompt,
                     priorResponses,
                     discussionMemory,
-                    evidenceAttachments,
+                    evidenceSeatAttachments,
                     null,
                     retrievedMemory,
                     retrievedDocuments,
