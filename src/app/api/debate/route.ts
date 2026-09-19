@@ -18,6 +18,9 @@ import {
   fetchKnownImageSources,
   fetchMessageVisualEvidence,
   fetchRecentVisualEvidenceSets,
+  fetchAllVisualEvidenceSets,
+  requiresCompleteVisualEvidenceHistory,
+  parseRequestedVisualSet,
   resolveImageEvidence,
   persistResolvedImageEvidence,
   resolveMixedHistoricalReferences,
@@ -32,6 +35,7 @@ import {
   resolveVisualDocument,
   isImageUrl,
   KnownImageSource,
+  MessageVisualEvidenceItem,
 } from '@/utils/discussionMemory';
 import { parseDocx } from '@/utils/docxParser';
 import { parseTextFile, isTextFileUrl, isTextFileName } from '@/utils/textFileParser';
@@ -1298,18 +1302,36 @@ export async function POST(req: NextRequest) {
                 if (isOwner) {
                   const serviceClient = createServiceClient();
                   const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
-                  const lastRoundEvidence = lastRound?.userMessageId
-                    ? await fetchMessageVisualEvidence(serviceClient, discussionId, lastRound.userMessageId)
-                    : [];
-                  const recentEvidenceSets = await fetchRecentVisualEvidenceSets(serviceClient, discussionId);
 
-                  const resolvedImage = resolveImageEvidence({
-                    prompt,
-                    knownSources,
-                    lastRoundEvidence,
-                    recentEvidenceSets,
-                    previousUserPrompt: lastRound?.userPrompt,
-                  });
+                  if (knownSources && knownSources.length > 0) {
+                    const lastRoundEvidence = lastRound?.userMessageId
+                      ? await fetchMessageVisualEvidence(serviceClient, discussionId, lastRound.userMessageId)
+                      : [];
+
+                    // Pass 1: Cheap resolution using knownSources + lastRoundEvidence (empty recentEvidenceSets)
+                    let resolvedImage = resolveImageEvidence({
+                      prompt,
+                      knownSources,
+                      lastRoundEvidence,
+                      recentEvidenceSets: [],
+                      previousUserPrompt: lastRound?.userPrompt,
+                      allUserMessageIds: discussionMemory?.allUserMessageIds,
+                    });
+
+                    // Pass 2: If Pass 1 did not resolve and prompt requests a contextual visual set, fetch complete evidence history
+                    if (!resolvedImage && parseRequestedVisualSet(prompt)) {
+                      const allEvidenceSets = await fetchAllVisualEvidenceSets(serviceClient, discussionId);
+                      if (allEvidenceSets.length > 0) {
+                        resolvedImage = resolveImageEvidence({
+                          prompt,
+                          knownSources,
+                          lastRoundEvidence,
+                          recentEvidenceSets: allEvidenceSets,
+                          previousUserPrompt: lastRound?.userPrompt,
+                          allUserMessageIds: discussionMemory?.allUserMessageIds,
+                        });
+                      }
+                    }
 
                   if (resolvedImage && resolvedImage.sources.length > 0) {
                     const successfulImageAttachments: RouteAttachment[] = [];
@@ -1351,20 +1373,21 @@ export async function POST(req: NextRequest) {
                       }
                     }
 
-                    if (successfulImageAttachments.length > 0) {
-                      visualAttachments = [
-                        ...(visualAttachments || []),
-                        ...successfulImageAttachments,
-                      ];
-                      pendingResolvedImageSources = successfulResolvedSources;
-                      hadSuccessfulHistoricalImageDelivery = true;
+                      if (successfulImageAttachments.length > 0) {
+                        visualAttachments = [
+                          ...(visualAttachments || []),
+                          ...successfulImageAttachments,
+                        ];
+                        pendingResolvedImageSources = successfulResolvedSources;
+                        hadSuccessfulHistoricalImageDelivery = true;
 
-                      console.log('[Image Reopening] Reopened historical image evidence for turn:', {
-                        discussionId,
-                        sourceUserMessageId,
-                        reason: resolvedImage.reason,
-                        reopenedCount: successfulImageAttachments.length,
-                      });
+                        console.log('[Image Reopening] Reopened historical image evidence for turn:', {
+                          discussionId,
+                          sourceUserMessageId,
+                          reason: resolvedImage.reason,
+                          reopenedCount: successfulImageAttachments.length,
+                        });
+                      }
                     }
                   }
                 }
@@ -1380,43 +1403,61 @@ export async function POST(req: NextRequest) {
                 if (isOwner) {
                   const serviceClient = createServiceClient();
                   const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
-                  const recentEvidenceSets = await fetchRecentVisualEvidenceSets(serviceClient, discussionId);
 
-                  // Exclude the current message from its own historical scope (for retries / Try Again)
-                  const historicalKnownSources = sourceUserMessageId
-                    ? knownSources.filter((s) => s.sourceMessageId !== sourceUserMessageId)
-                    : knownSources;
+                  if (knownSources && knownSources.length > 0) {
+                    // Exclude the current message from its own historical scope (for retries / Try Again)
+                    const historicalKnownSources = sourceUserMessageId
+                      ? knownSources.filter((s) => s.sourceMessageId !== sourceUserMessageId)
+                      : knownSources;
 
-                  const rounds = discussionMemory?.recentRounds || [];
-                  const currentRoundIndex = sourceUserMessageId
-                    ? rounds.findIndex((r) => r.userMessageId === sourceUserMessageId)
-                    : -1;
+                    const rounds = discussionMemory?.recentRounds || [];
+                    const currentRoundIndex = sourceUserMessageId
+                      ? rounds.findIndex((r) => r.userMessageId === sourceUserMessageId)
+                      : -1;
 
-                  let historicalPrecedingRound = null;
-                  if (currentRoundIndex > 0) {
-                    // Retry where M is already represented in recentRounds
-                    historicalPrecedingRound = rounds[currentRoundIndex - 1];
-                  } else if (currentRoundIndex === -1) {
-                    // Fresh/in-flight execution where M is not yet a completed round
-                    historicalPrecedingRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
-                  }
+                    let historicalPrecedingRound = null;
+                    if (currentRoundIndex > 0) {
+                      // Retry where M is already represented in recentRounds
+                      historicalPrecedingRound = rounds[currentRoundIndex - 1];
+                    } else if (currentRoundIndex === -1) {
+                      // Fresh/in-flight execution where M is not yet a completed round
+                      historicalPrecedingRound = rounds.length > 0 ? rounds[rounds.length - 1] : null;
+                    }
 
-                  const historicalLastRoundEvidence = historicalPrecedingRound?.userMessageId
-                    ? await fetchMessageVisualEvidence(serviceClient, discussionId, historicalPrecedingRound.userMessageId)
-                    : [];
+                    const historicalLastRoundEvidence = historicalPrecedingRound?.userMessageId
+                      ? await fetchMessageVisualEvidence(serviceClient, discussionId, historicalPrecedingRound.userMessageId)
+                      : [];
 
-                  const historicalRecentEvidenceSets = sourceUserMessageId
-                    ? recentEvidenceSets.filter((set) => !set.some((item) => item.messageId === sourceUserMessageId))
-                    : recentEvidenceSets;
+                    // Pass 1: Cheap resolution using knownSources + lastRoundEvidence (empty recentEvidenceSets)
+                    let mixedResolution = resolveMixedHistoricalReferences({
+                      prompt,
+                      currentImageCount: expectedCurrentImageSources.length,
+                      knownSources: historicalKnownSources,
+                      lastRoundEvidence: historicalLastRoundEvidence,
+                      recentEvidenceSets: [],
+                      previousUserPrompt: historicalPrecedingRound?.userPrompt,
+                      allUserMessageIds: discussionMemory?.allUserMessageIds,
+                    });
 
-                  const mixedResolution = resolveMixedHistoricalReferences({
-                    prompt,
-                    currentImageCount: expectedCurrentImageSources.length,
-                    knownSources: historicalKnownSources,
-                    lastRoundEvidence: historicalLastRoundEvidence,
-                    recentEvidenceSets: historicalRecentEvidenceSets,
-                    previousUserPrompt: historicalPrecedingRound?.userPrompt,
-                  });
+                    // Pass 2: If Pass 1 did not resolve and prompt requests a contextual visual set, fetch complete evidence history
+                    if (!mixedResolution && parseRequestedVisualSet(prompt)) {
+                      const allEvidenceSets = await fetchAllVisualEvidenceSets(serviceClient, discussionId);
+                      const historicalRecentEvidenceSets = sourceUserMessageId
+                        ? allEvidenceSets.filter((set) => !set.some((item) => item.messageId === sourceUserMessageId))
+                        : allEvidenceSets;
+
+                      if (historicalRecentEvidenceSets.length > 0) {
+                        mixedResolution = resolveMixedHistoricalReferences({
+                          prompt,
+                          currentImageCount: expectedCurrentImageSources.length,
+                          knownSources: historicalKnownSources,
+                          lastRoundEvidence: historicalLastRoundEvidence,
+                          recentEvidenceSets: historicalRecentEvidenceSets,
+                          previousUserPrompt: historicalPrecedingRound?.userPrompt,
+                          allUserMessageIds: discussionMemory?.allUserMessageIds,
+                        });
+                      }
+                    }
 
                   if (mixedResolution && mixedResolution.sources.length > 0) {
                     const successfulHistoricalAttachments: RouteAttachment[] = [];
@@ -1458,18 +1499,19 @@ export async function POST(req: NextRequest) {
                       }
                     }
 
-                    if (successfulHistoricalAttachments.length > 0) {
-                      mixedHistoricalAttachments = successfulHistoricalAttachments;
-                      pendingMixedHistoricalSources = successfulHistoricalSources;
-                      hadSuccessfulMixedHistoricalImageDelivery = true;
+                      if (successfulHistoricalAttachments.length > 0) {
+                        mixedHistoricalAttachments = successfulHistoricalAttachments;
+                        pendingMixedHistoricalSources = successfulHistoricalSources;
+                        hadSuccessfulMixedHistoricalImageDelivery = true;
 
-                      console.log('[Mixed Reopening] Reopened historical image evidence for mixed turn:', {
-                        discussionId,
-                        sourceUserMessageId,
-                        reason: mixedResolution.reason,
-                        currentCount: expectedCurrentImageSources.length,
-                        historicalCount: successfulHistoricalAttachments.length,
-                      });
+                        console.log('[Mixed Reopening] Reopened historical image evidence for mixed turn:', {
+                          discussionId,
+                          sourceUserMessageId,
+                          reason: mixedResolution.reason,
+                          currentCount: expectedCurrentImageSources.length,
+                          historicalCount: successfulHistoricalAttachments.length,
+                        });
+                      }
                     }
                   }
                 }

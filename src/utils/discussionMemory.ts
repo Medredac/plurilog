@@ -60,6 +60,7 @@ export interface ChronologicalMemoryResult {
 export interface DiscussionMemoryResult {
   summary?: string;
   recentRounds: Round[];
+  allUserMessageIds?: string[];
   chronologicalMemory?: ChronologicalMemoryResult;
   knownDocuments?: KnownDiscussionDocument[];
 }
@@ -1493,10 +1494,15 @@ export async function getScopedDiscussionMemory(
     console.log(`[Memory] Grouped into ${allRounds.length} prior rounds`);
     const totalRounds = allRounds.length;
 
+    const allUserMessageIds = allRounds
+      .map((r) => r.userMessageId)
+      .filter(Boolean) as string[];
+
     if (totalRounds === 0) {
       return {
         summary: discussion?.summary || undefined,
         recentRounds: [],
+        allUserMessageIds: [],
         knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
       };
     }
@@ -1577,6 +1583,7 @@ export async function getScopedDiscussionMemory(
     return {
       summary: formattedSummary || undefined,
       recentRounds,
+      allUserMessageIds,
       chronologicalMemory: chronologicalMemory || undefined,
       knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
     };
@@ -4205,6 +4212,7 @@ export interface ResolveImageEvidenceOptions {
   lastRoundEvidence?: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   previousUserPrompt?: string;
+  allUserMessageIds?: string[];
 }
 
 export interface ResolvedImageEvidenceResult {
@@ -4413,7 +4421,19 @@ export async function fetchMessageVisualEvidence(
 }
 
 /**
- * Fetches recent historical visual evidence sets for a discussion,
+ * Fetches all historical visual evidence sets for a discussion across all pages (unbounded),
+ * ordered by user message chronology (newest message first -> oldest message).
+ * Strictly validates discussion scoping, artifact_type = 'image', and contiguous 0..N-1 ordinals.
+ */
+export async function fetchAllVisualEvidenceSets(
+  serviceSupabase: SupabaseClient,
+  discussionId: string
+): Promise<MessageVisualEvidenceItem[][]> {
+  return fetchVisualEvidenceSetsInternal(serviceSupabase, discussionId, null);
+}
+
+/**
+ * Fetches recent historical visual evidence sets for a discussion with a maximum limit,
  * ordered by user message chronology (newest message first -> oldest message).
  * Strictly validates discussion scoping, artifact_type = 'image', and contiguous 0..N-1 ordinals.
  */
@@ -4422,65 +4442,117 @@ export async function fetchRecentVisualEvidenceSets(
   discussionId: string,
   limit = 10
 ): Promise<MessageVisualEvidenceItem[][]> {
+  return fetchVisualEvidenceSetsInternal(serviceSupabase, discussionId, limit);
+}
+
+async function fetchVisualEvidenceSetsInternal(
+  serviceSupabase: SupabaseClient,
+  discussionId: string,
+  limit: number | null
+): Promise<MessageVisualEvidenceItem[][]> {
   if (!serviceSupabase || !discussionId) return [];
 
   try {
-    const { data: evidenceRows, error: evErr } = await serviceSupabase
-      .from('message_visual_evidence')
-      .select('id, message_id, source_id, ordinal, created_at, discussion_id')
-      .eq('discussion_id', discussionId);
+    const PAGE_SIZE = 1000;
+    let allEvidenceRows: any[] = [];
+    let offset = 0;
+    let hasMore = true;
 
-    if (evErr || !Array.isArray(evidenceRows) || evidenceRows.length === 0) {
-      return [];
-    }
+    while (hasMore) {
+      const { data: pageRows, error: evErr } = await serviceSupabase
+        .from('message_visual_evidence')
+        .select('id, message_id, source_id, ordinal, created_at, discussion_id')
+        .eq('discussion_id', discussionId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    const messageIds = Array.from(new Set(evidenceRows.map((e: any) => e.message_id).filter(Boolean)));
-    if (messageIds.length === 0) return [];
+      if (evErr || !Array.isArray(pageRows) || pageRows.length === 0) {
+        if (evErr) {
+          console.warn('[Fetch Visual Evidence Sets] Error fetching evidence rows page:', evErr);
+        }
+        break;
+      }
 
-    const { data: messageRows, error: msgErr } = await serviceSupabase
-      .from('messages')
-      .select('id, discussion_id, created_at, sender')
-      .in('id', messageIds);
-
-    if (msgErr || !Array.isArray(messageRows) || messageRows.length === 0) return [];
-
-    const messageMap = new Map<string, { createdAt: string; sender: string }>();
-    for (const m of messageRows) {
-      if (m.discussion_id === discussionId && m.sender === 'user') {
-        messageMap.set(m.id, { createdAt: m.created_at, sender: m.sender });
+      allEvidenceRows.push(...pageRows);
+      if (pageRows.length < PAGE_SIZE) {
+        hasMore = false;
+      } else {
+        offset += PAGE_SIZE;
       }
     }
 
-    const sourceIds = Array.from(new Set(evidenceRows.map((e: any) => e.source_id).filter(Boolean)));
+    if (allEvidenceRows.length === 0) {
+      return [];
+    }
+
+    const messageIds = Array.from(new Set(allEvidenceRows.map((e: any) => e.message_id).filter(Boolean)));
+    if (messageIds.length === 0) return [];
+
+    const messageMap = new Map<string, { createdAt: string; sender: string }>();
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < messageIds.length; i += CHUNK_SIZE) {
+      const chunk = messageIds.slice(i, i + CHUNK_SIZE);
+      const { data: messageRows, error: msgErr } = await serviceSupabase
+        .from('messages')
+        .select('id, discussion_id, created_at, sender')
+        .in('id', chunk);
+
+      if (!msgErr && Array.isArray(messageRows)) {
+        for (const m of messageRows) {
+          if (m.discussion_id === discussionId && m.sender === 'user') {
+            messageMap.set(m.id, { createdAt: m.created_at, sender: m.sender });
+          }
+        }
+      }
+    }
+
+    const sourceIds = Array.from(new Set(allEvidenceRows.map((e: any) => e.source_id).filter(Boolean)));
     if (sourceIds.length === 0) return [];
 
-    const { data: sourceRows, error: srcErr } = await serviceSupabase
-      .from('discussion_artifact_sources')
-      .select('id, discussion_id, artifact_id, storage_path, filename, created_at')
-      .in('id', sourceIds);
+    const sourceRowsMap = new Map<string, any>();
+    for (let i = 0; i < sourceIds.length; i += CHUNK_SIZE) {
+      const chunk = sourceIds.slice(i, i + CHUNK_SIZE);
+      const { data: sourceRows, error: srcErr } = await serviceSupabase
+        .from('discussion_artifact_sources')
+        .select('id, discussion_id, artifact_id, storage_path, filename, created_at')
+        .in('id', chunk);
 
-    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) return [];
+      if (!srcErr && Array.isArray(sourceRows)) {
+        for (const s of sourceRows) {
+          sourceRowsMap.set(s.id, s);
+        }
+      }
+    }
 
-    const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));
-    const { data: artifactRows } = await serviceSupabase
-      .from('discussion_artifacts')
-      .select('id, artifact_type')
-      .in('id', artifactIds);
+    const artifactIds = Array.from(new Set(Array.from(sourceRowsMap.values()).map((s: any) => s.artifact_id).filter(Boolean)));
+    const imageArtifactIdSet = new Set<string>();
+    for (let i = 0; i < artifactIds.length; i += CHUNK_SIZE) {
+      const chunk = artifactIds.slice(i, i + CHUNK_SIZE);
+      const { data: artifactRows } = await serviceSupabase
+        .from('discussion_artifacts')
+        .select('id, artifact_type')
+        .in('id', chunk);
 
-    const imageArtifactIdSet = new Set(
-      (artifactRows || []).filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
-    );
+      if (Array.isArray(artifactRows)) {
+        for (const a of artifactRows) {
+          if (a.artifact_type === 'image') {
+            imageArtifactIdSet.add(a.id);
+          }
+        }
+      }
+    }
 
     const sourceMap = new Map<string, any>();
-    for (const s of sourceRows) {
+    for (const [sId, s] of sourceRowsMap.entries()) {
       if (s.discussion_id === discussionId && imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
-        sourceMap.set(s.id, s);
+        sourceMap.set(sId, s);
       }
     }
 
     // Group items by message_id
     const setsByMessageId = new Map<string, MessageVisualEvidenceItem[]>();
-    for (const e of evidenceRows) {
+    for (const e of allEvidenceRows) {
       if (e.discussion_id !== discussionId) continue;
       if (!messageMap.has(e.message_id)) continue;
       const src = sourceMap.get(e.source_id);
@@ -4510,7 +4582,7 @@ export async function fetchRecentVisualEvidenceSets(
         items.sort((a, b) => a.ordinal - b.ordinal);
         const isContiguous = items.every((item, idx) => item.ordinal === idx);
         if (!isContiguous) {
-          console.warn('[Fetch Recent Evidence Sets] Excluding malformed non-contiguous evidence set:', {
+          console.warn('[Fetch Visual Evidence Sets] Excluding malformed non-contiguous evidence set:', {
             discussionId,
             messageId: msgId,
             ordinals: items.map((i) => i.ordinal),
@@ -4529,9 +4601,12 @@ export async function fetchRecentVisualEvidenceSets(
     // Sort sets by user message createdAt DESC (newest -> oldest)
     groupedSets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    return groupedSets.slice(0, limit).map((g) => g.items);
+    if (typeof limit === 'number' && limit > 0) {
+      return groupedSets.slice(0, limit).map((g) => g.items);
+    }
+    return groupedSets.map((g) => g.items);
   } catch (err) {
-    console.warn('[Fetch Recent Evidence Sets] Error fetching evidence sets:', err);
+    console.warn('[Fetch Visual Evidence Sets] Error fetching evidence sets:', err);
     return [];
   }
 }
@@ -4709,6 +4784,163 @@ export async function persistResolvedImageEvidence(
   }
 }
 
+// Helper to parse count numbers (digits or English words)
+export function parseCountNumber(token: string): number | null {
+  if (/^\d+$/.test(token)) {
+    const n = parseInt(token, 10);
+    return !isNaN(n) && n > 0 ? n : null;
+  }
+  const map: Record<string, number> = {
+    two: 2, '2': 2,
+    three: 3, '3': 3,
+    four: 4, '4': 4,
+    five: 5, '5': 5,
+    six: 6, '6': 6,
+    seven: 7, '7': 7,
+    eight: 8, '8': 8,
+    nine: 9, '9': 9,
+    ten: 10, '10': 10,
+    eleven: 11, '11': 11,
+    twelve: 12, '12': 12,
+    thirteen: 13, '13': 13,
+    fourteen: 14, '14': 14,
+    fifteen: 15, '15': 15,
+    sixteen: 16, '16': 16,
+    seventeen: 17, '17': 17,
+    eighteen: 18, '18': 18,
+    nineteen: 19, '19': 19,
+    twenty: 20, '20': 20,
+    both: 2,
+  };
+  return map[token.toLowerCase()] ?? null;
+}
+
+export interface ParsedRequestedVisualSet {
+  mode: 'EXACT_COUNT' | 'ALL_ACTIVE' | 'INHERIT';
+  count?: number;
+}
+
+/**
+ * Pure parser for contextual visual-set reference intent:
+ * - EXACT_COUNT: "compare the 3 images", "compare the 100 images", "both images", "the two images", "differences between the 3"
+ * - ALL_ACTIVE: "compare all the images", "show me all the photos", "what changed across all the images?", "compare every image"
+ * - INHERIT: "compare them again", "look at them again", "are they all different?", "which one changed most?", "are they identical?"
+ */
+export function parseRequestedVisualSet(prompt?: string | null): ParsedRequestedVisualSet | null {
+  if (!prompt || typeof prompt !== 'string') return null;
+  const pLower = prompt.trim().toLowerCase();
+  if (!pLower) return null;
+
+  const hasExplicitNonVisualNoun =
+    /\b(file|files|document|documents|pdf|pdfs|spreadsheet|spreadsheets|report|reports|answer|answers|response|responses)\b/i.test(
+      pLower
+    );
+
+  if (hasExplicitNonVisualNoun) return null;
+
+  const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
+  const visualNounRegex = /^(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?$/i;
+
+  // Pattern A: "all images", "all the images", "every image", "all the photos", "all these images", "all those images"
+  const isAllActiveVisualQuery =
+    new RegExp(`\\b(?:all|every|all\\s+the|all\\s+of\\s+the|all\\s+these|all\\s+those)\\s+(?:(?:generated|uploaded|attached|prior|previous)\\s+)?${visualNounGroup}\\b`, 'i').test(pLower) ||
+    new RegExp(`\\b(?:compare|show(?:\\s+me)?|look\\s+at|view|check|inspect|examine|reopen|display|contrast)\\s+(?:all|every)\\s+${visualNounGroup}\\b`, 'i').test(pLower) ||
+    new RegExp(`\\bwhat\\s+(?:changed|is\\s+different|differs)\\s+across\\s+(?:all|every)(?:\\s+the)?\\s+${visualNounGroup}\\b`, 'i').test(pLower);
+
+  if (isAllActiveVisualQuery) {
+    const allCountMatch = pLower.match(
+      new RegExp(`\\ball\\s+(?:the\\s+)?(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\\s+${visualNounGroup}\\b`, 'i')
+    );
+    if (allCountMatch) {
+      const n = parseCountNumber(allCountMatch[1]);
+      if (n && n >= 2) {
+        return { mode: 'EXACT_COUNT', count: n };
+      }
+      return { mode: 'ALL_ACTIVE' };
+    }
+    return { mode: 'ALL_ACTIVE' };
+  }
+
+  // Pattern B: Counted set queries with visual noun (e.g. "the 3 images", "these 4 photos", "both images", "the 17 images", "the 100 images", "the two images")
+  const countNounMatch = pLower.match(
+    new RegExp(
+      `\\b(?:(?:the|these|those|my)\\s+(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)|both(?:\\s+of\\s+(?:the|these|those))?)\\s+([a-z0-9_\\-]+)(?:\\s+([a-z0-9_\\-]+))?`,
+      'i'
+    )
+  );
+
+  if (countNounMatch) {
+    const numRaw = countNounMatch[1] || (countNounMatch[0].toLowerCase().startsWith('both') ? '2' : null);
+    const w1 = countNounMatch[2].toLowerCase();
+    const w2 = countNounMatch[3]?.toLowerCase();
+
+    if (visualNounRegex.test(w1)) {
+      const n = numRaw ? parseCountNumber(numRaw) : null;
+      if (n && n >= 2) {
+        return { mode: 'EXACT_COUNT', count: n };
+      }
+    } else if (
+      ['generated', 'uploaded', 'created', 'rendered', 'attached', 'prior', 'previous'].includes(w1) &&
+      w2 &&
+      visualNounRegex.test(w2)
+    ) {
+      const n = numRaw ? parseCountNumber(numRaw) : null;
+      if (n && n >= 2) {
+        return { mode: 'EXACT_COUNT', count: n };
+      }
+    }
+  }
+
+  // Pattern C: Bare elliptical comparative counts (e.g. "compare the two", "compare the 3", "compare both", "what changed between the two?", "differences between the 3")
+  const bareCountMatch = pLower.match(
+    /\b(?:compare|contrast|between|differ|difference|differences|versus|vs|look\s+at|show(?:\s+me)?|view|check|inspect|examine|reopen|display|are|what\s+changed\s+between|what\s+is\s+different\s+between)\s+(?:the\s+|these\s+|those\s+|all\s+)?(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|both)\b/i
+  );
+  if (bareCountMatch) {
+    const n = parseCountNumber(bareCountMatch[1]);
+    if (n && n >= 2) {
+      return { mode: 'EXACT_COUNT', count: n };
+    }
+  }
+
+  // Pattern D: Pronoun / active set inheritance (e.g. "compare them", "compare them again", "look at them again", "are they all different?", "which one changed most?", "are they identical?")
+  const isPronounSetQuery =
+    /\b(?:compare|contrast|between|look\s+at|show(?:\s+me)?|view|check|inspect|examine)\s+them(?:\s+again)?\b/i.test(pLower) ||
+    /\bwhat\s+(?:changed|is\s+different|differs)\s+between\s+them\b/i.test(pLower) ||
+    /\bwhat\s+are\s+the\s+differences\s+between\s+them\b/i.test(pLower) ||
+    /\bare\s+they\s+(?:all\s+)?(?:identical|the\s+same|different|alike)\b/i.test(pLower) ||
+    /\bwhich\s+one\s+changed\s+(?:the\s+)?most\b/i.test(pLower);
+
+  if (isPronounSetQuery) {
+    return { mode: 'INHERIT' };
+  }
+
+  return null;
+}
+
+/**
+ * Determines whether a prompt and turn context genuinely require full-history visual evidence pagination.
+ * Returns true only for EXACT_COUNT, ALL_ACTIVE, or INHERIT where lastRoundEvidence is insufficient (< 2 images).
+ */
+export function requiresCompleteVisualEvidenceHistory(
+  prompt: string,
+  lastRoundEvidence?: MessageVisualEvidenceItem[] | null
+): boolean {
+  const parsed = parseRequestedVisualSet(prompt);
+  if (!parsed) return false;
+
+  if (parsed.mode === 'EXACT_COUNT' || parsed.mode === 'ALL_ACTIVE') {
+    return true;
+  }
+
+  if (parsed.mode === 'INHERIT') {
+    // If last round evidence already contains 2+ images, no historical scan is needed!
+    const distinctLast = new Set((lastRoundEvidence || []).map((e) => e.sourceId).filter(Boolean));
+    return distinctLast.size < 2;
+  }
+
+  return false;
+}
+
 /**
  * Deterministically resolves historical image evidence for follow-up questions, ordinals, comparative subsets, filenames, and chronology.
  * Zero AI calls, zero embeddings, zero OCR, zero source fabrication.
@@ -4716,7 +4948,7 @@ export async function persistResolvedImageEvidence(
 export function resolveImageEvidence(
   options: ResolveImageEvidenceOptions
 ): ResolvedImageEvidenceResult | null {
-  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt } = options;
+  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, allUserMessageIds } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p) return null; // Continue / empty prompt
@@ -4754,11 +4986,69 @@ export function resolveImageEvidence(
     return !isAssistantSource(s);
   });
 
-  // Subset parser helper: extracts multi-image index arrays for ranges, counts, pairs, and "both"
+  // Subset parser helper: extracts multi-image index arrays for arbitrary counts, ranges, pairs, and "all"
   function parseSubsetIndices(text: string, totalCount: number): number[] | null {
+    if (totalCount <= 0) return null;
     const t = text.toLowerCase();
+    const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
 
-    // 1. "both images", "both photos", "both pictures", "both"
+    // 1. "all images", "all the photos", "every screenshot", "all 4 images", "all of the images"
+    if (
+      new RegExp(`\\b(?:all|every|all\\s+the|all\\s+of\\s+the|all\\s+these|all\\s+those)\\s+(?:(?:generated|uploaded|my|discussion|chat|panel)\\s+)?${visualNounGroup}\\b`, 'i').test(t) ||
+      /\b(?:compare|show(?:\s+me)?|look\s+at|view|check|inspect|examine|reopen|display)\s+(?:all|every)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(t) ||
+      (/\ball\b/i.test(t) && /\b(?:images|photos|pictures|screenshots)\b/i.test(t))
+    ) {
+      // Check if an explicit count like "all 3 images" was specified
+      const allCountMatch = t.match(
+        new RegExp(`\\ball\\s+(?:the\\s+)?(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\\s+${visualNounGroup}\\b`, 'i')
+      );
+      if (allCountMatch) {
+        const requestedN = parseCountNumber(allCountMatch[1]);
+        if (requestedN !== null && requestedN >= 2) {
+          if (totalCount < requestedN) return null; // Requested count cannot be fully satisfied
+          return Array.from({ length: requestedN }, (_, i) => i);
+        }
+      }
+      return Array.from({ length: totalCount }, (_, i) => i);
+    }
+
+    // 2. Prefix count / range: "first 4", "first four", "1st 3", "initial 5", "earliest two"
+    const prefixMatch = t.match(
+      /\b(?:first|1st|initial|earliest)\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/i
+    );
+    if (prefixMatch) {
+      const n = parseCountNumber(prefixMatch[1]);
+      if (n !== null && n >= 1) {
+        if (totalCount < n) return null;
+        return Array.from({ length: n }, (_, i) => i);
+      }
+    }
+
+    // 3. Suffix count / range: "last 3", "latest two", "most recent 4"
+    const suffixMatch = t.match(
+      /\b(?:last|latest|most\s+recent)\s+(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b/i
+    );
+    if (suffixMatch) {
+      const n = parseCountNumber(suffixMatch[1]);
+      if (n !== null && n >= 1) {
+        if (totalCount < n) return null;
+        return Array.from({ length: n }, (_, i) => totalCount - n + i);
+      }
+    }
+
+    // 4. Scoped exact count: "the 3 images I uploaded", "these 4 photos Gemini generated", "my 2 images"
+    const exactCountMatch = t.match(
+      new RegExp(`\\b(?:the|these|those|my)\\s+(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\\s+${visualNounGroup}\\b`, 'i')
+    );
+    if (exactCountMatch) {
+      const n = parseCountNumber(exactCountMatch[1]);
+      if (n !== null && n >= 2) {
+        if (totalCount < n) return null;
+        return Array.from({ length: n }, (_, i) => i);
+      }
+    }
+
+    // 5. "both images", "both photos", "both"
     if (/\bboth\b/i.test(t)) {
       if (totalCount === 2) {
         return [0, 1];
@@ -4766,46 +5056,29 @@ export function resolveImageEvidence(
       return null;
     }
 
-    // 2. Count / Range: "first two", "1st two", "first 2", "first three", "last two", etc.
-    if (/\b(?:first|1st|initial|earliest)\s+(?:two|2)\b/i.test(t) || /\b(?:first|1st)\s+2\b/i.test(t)) {
-      return [0, 1];
-    }
-    if (/\b(?:first|1st|initial|earliest)\s+(?:three|3)\b/i.test(t) || /\b(?:first|1st)\s+3\b/i.test(t)) {
-      return [0, 1, 2];
-    }
-    if (/\b(?:first|1st|initial|earliest)\s+(?:four|4)\b/i.test(t) || /\b(?:first|1st)\s+4\b/i.test(t)) {
-      return [0, 1, 2, 3];
-    }
-    if (/\b(?:first|1st|initial|earliest)\s+(?:five|5)\b/i.test(t) || /\b(?:first|1st)\s+5\b/i.test(t)) {
-      return [0, 1, 2, 3, 4];
-    }
-
-    if (/\b(?:last|latest|most recent)\s+(?:two|2)\b/i.test(t)) {
-      if (totalCount >= 2) {
-        return [totalCount - 2, totalCount - 1];
-      }
-      return null;
-    }
-    if (/\b(?:last|latest|most recent)\s+(?:three|3)\b/i.test(t)) {
-      if (totalCount >= 3) {
-        return [totalCount - 3, totalCount - 2, totalCount - 1];
-      }
-      return null;
-    }
-
-    // 3. Explicit Multi-Number: "images 1 and 2", "image 1 and image 2", "photos 1 and 3", etc.
-    const multiNumRegex = /\b(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+(?:no\.?\s*|#\s*)?(\d+)\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+)?(?:no\.?\s*|#\s*)?(\d+)\b/i;
+    // 6. Explicit Multi-Number: "images 1 and 2", "image 1 and image 2", "photos 1 and 3", "images 1, 2 and 3"
+    const multiNumRegex = /\b(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+(?:no\.?\s*|#\s*)?(\d+)\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+)?(?:no\.?\s*|#\s*)?(\d+)(?:\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo|screenshot|pic|snapshot|generation)s?\s+)?(?:no\.?\s*|#\s*)?(\d+))?\b/i;
     const numMatch = multiNumRegex.exec(t);
     if (numMatch) {
-      const n1 = parseInt(numMatch[1], 10) - 1;
-      const n2 = parseInt(numMatch[2], 10) - 1;
-      if (n1 >= 0 && n2 >= 0 && n1 !== n2) {
-        const sorted = Array.from(new Set([n1, n2])).sort((a, b) => a - b);
-        return sorted;
+      const indices: number[] = [];
+      for (let i = 1; i <= 3; i++) {
+        if (numMatch[i]) {
+          const parsed = parseInt(numMatch[i], 10) - 1;
+          if (parsed >= 0 && !indices.includes(parsed)) {
+            indices.push(parsed);
+          }
+        }
+      }
+      if (indices.length >= 2) {
+        indices.sort((a, b) => a - b);
+        if (indices.every((idx) => idx < totalCount)) {
+          return indices;
+        }
+        return null;
       }
     }
 
-    // 4. Explicit Multi-Ordinal Pairs: "first and second", "1st and 2nd", "first and third", "1st & 3rd", "2nd and 3rd", etc.
+    // 7. Explicit Multi-Ordinal Pairs: "first and second", "1st and 2nd", "first and third", "1st & 3rd", etc.
     const ordMap: Record<string, number> = {
       first: 0, '1st': 0, initial: 0, earliest: 0,
       second: 1, '2nd': 1,
@@ -4817,20 +5090,32 @@ export function resolveImageEvidence(
       eighth: 7, '8th': 7,
       ninth: 8, '9th': 8,
       tenth: 9, '10th': 9,
+      eleventh: 10, '11th': 10,
+      twelfth: 11, '12th': 11,
     };
 
-    const ordPattern = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th)';
+    const ordPattern = '(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|eleventh|11th|twelfth|12th)';
     const multiOrdRegex = new RegExp(
-      `\\b(${ordPattern})\\s*(?:and|&|or|vs|versus|,)\\s*(?:the\\s+)?(${ordPattern})\\b`,
+      `\\b(${ordPattern})\\s*(?:and|&|or|vs|versus|,)\\s*(?:the\\s+)?(${ordPattern})(?:\\s*(?:and|&|or|vs|versus|,)\\s*(?:the\\s+)?(${ordPattern}))?\\b`,
       'i'
     );
     const ordMatch = multiOrdRegex.exec(t);
     if (ordMatch) {
-      const o1 = ordMap[ordMatch[1].toLowerCase()];
-      const o2 = ordMap[ordMatch[2].toLowerCase()];
-      if (typeof o1 === 'number' && typeof o2 === 'number' && o1 !== o2) {
-        const sorted = Array.from(new Set([o1, o2])).sort((a, b) => a - b);
-        return sorted;
+      const indices: number[] = [];
+      for (let i = 1; i <= 3; i++) {
+        if (ordMatch[i]) {
+          const o = ordMap[ordMatch[i].toLowerCase()];
+          if (typeof o === 'number' && !indices.includes(o)) {
+            indices.push(o);
+          }
+        }
+      }
+      if (indices.length >= 2) {
+        indices.sort((a, b) => a - b);
+        if (indices.every((idx) => idx < totalCount)) {
+          return indices;
+        }
+        return null;
       }
     }
 
@@ -4867,6 +5152,88 @@ export function resolveImageEvidence(
     }
 
     return null;
+  }
+
+  // Helper to extract the contiguous active visual thread backwards from turn N-1
+  interface ActiveVisualThread {
+    sources: KnownImageSource[];
+    roundIndices: number[];
+  }
+
+  function extractActiveVisualThread(): ActiveVisualThread {
+    const sourcesMap = new Map<string, KnownImageSource>();
+    for (const s of discussionSources) {
+      sourcesMap.set(s.sourceId, s);
+    }
+
+    const roundIndexToEvidenceSet = new Map<number, MessageVisualEvidenceItem[]>();
+    let anchorRoundIndex = -1;
+
+    if (Array.isArray(allUserMessageIds) && allUserMessageIds.length > 0) {
+      const messageIdToRoundIndex = new Map<string, number>(
+        allUserMessageIds.map((id, idx) => [id, idx])
+      );
+      const totalRounds = allUserMessageIds.length;
+      anchorRoundIndex = totalRounds - 1;
+
+      if (Array.isArray(recentEvidenceSets)) {
+        for (const set of recentEvidenceSets) {
+          if (!Array.isArray(set) || set.length === 0) continue;
+          const msgId = set[0].messageId;
+          if (msgId && messageIdToRoundIndex.has(msgId)) {
+            const rIdx = messageIdToRoundIndex.get(msgId)!;
+            if (!roundIndexToEvidenceSet.has(rIdx)) {
+              roundIndexToEvidenceSet.set(rIdx, set);
+            }
+          }
+        }
+      }
+
+      if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
+        const lastMsgId = lastRoundEvidence[0].messageId;
+        const rIdx = (lastMsgId && messageIdToRoundIndex.has(lastMsgId))
+          ? messageIdToRoundIndex.get(lastMsgId)!
+          : anchorRoundIndex;
+        roundIndexToEvidenceSet.set(rIdx, lastRoundEvidence);
+      }
+    } else {
+      // Safe fallback when allUserMessageIds is omitted:
+      // Only anchor to the known last round evidence. Do NOT fabricate synthetic round adjacency
+      // across recentEvidenceSets because intermediate non-visual rounds cannot be verified.
+      if (Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0) {
+        anchorRoundIndex = 0;
+        roundIndexToEvidenceSet.set(0, lastRoundEvidence);
+      }
+    }
+
+    if (anchorRoundIndex < 0 || !roundIndexToEvidenceSet.has(anchorRoundIndex)) {
+      return { sources: [], roundIndices: [] };
+    }
+
+    const distinctSources: KnownImageSource[] = [];
+    const seenSourceIds = new Set<string>();
+    const threadRoundIndices: number[] = [];
+    let r = anchorRoundIndex;
+
+    while (roundIndexToEvidenceSet.has(r)) {
+      threadRoundIndices.push(r);
+      const evSet = roundIndexToEvidenceSet.get(r)!;
+      for (const item of evSet) {
+        if (item.sourceId && !seenSourceIds.has(item.sourceId)) {
+          seenSourceIds.add(item.sourceId);
+          const src = sourcesMap.get(item.sourceId);
+          if (src) {
+            distinctSources.push(src);
+          }
+        }
+      }
+      r = r - 1;
+    }
+
+    return {
+      sources: distinctSources,
+      roundIndices: threadRoundIndices,
+    };
   }
 
   // 1. Explicit Filename & Unique Numeric Shorthand Resolution
@@ -5157,33 +5524,36 @@ export function resolveImageEvidence(
           alias.numericSegments.includes(token)
         );
 
+        if (matchingAliases.length === 0) {
+          hasUnknownShorthand = true;
+          break;
+        }
+
         // Group by distinct canonical artifactId to evaluate uniqueness
         const distinctArtifactIds = Array.from(
           new Set(matchingAliases.map((a) => a.artifactId))
         );
 
-        if (distinctArtifactIds.length === 1) {
-          const targetArtifactId = distinctArtifactIds[0];
-          // Select the latest matching source alias for this artifact
-          const matchingForArt = matchingAliases.filter((a) => a.artifactId === targetArtifactId);
-          const bestAlias = matchingForArt[matchingForArt.length - 1];
-
-          const alreadyMatched = matchedArtifacts.some((m) => m.artifactId === targetArtifactId);
-          if (!alreadyMatched) {
-            shorthandMatches.push({
-              artifactId: targetArtifactId,
-              source: bestAlias.source,
-              mentionIndex: tokenIdx,
-              matchType: 'shorthand',
-              matchedText: token,
-            });
-          }
-        } else if (distinctArtifactIds.length > 1) {
+        if (distinctArtifactIds.length > 1) {
           // Ambiguous shorthand across distinct artifacts
           hasAmbiguousShorthand = true;
-        } else {
-          // Unknown numeric token
-          hasUnknownShorthand = true;
+          break;
+        }
+
+        const targetArtifactId = distinctArtifactIds[0];
+        // Select the latest matching source alias for this artifact
+        const matchingForArt = matchingAliases.filter((a) => a.artifactId === targetArtifactId);
+        const bestAlias = matchingForArt[matchingForArt.length - 1];
+
+        const alreadyMatched = shorthandMatches.some((m) => m.artifactId === targetArtifactId);
+        if (!alreadyMatched) {
+          shorthandMatches.push({
+            artifactId: targetArtifactId,
+            source: bestAlias.source,
+            mentionIndex: tokenIdx,
+            matchType: 'shorthand',
+            matchedText: token,
+          });
         }
       }
 
@@ -5195,7 +5565,12 @@ export function resolveImageEvidence(
     }
 
     // 1e. Combine resolved exact and shorthand matches
-    const allResolved = [...matchedArtifacts, ...shorthandMatches];
+    const allResolved = [...matchedArtifacts];
+    for (const shm of shorthandMatches) {
+      if (!allResolved.some((m) => m.artifactId === shm.artifactId)) {
+        allResolved.push(shm);
+      }
+    }
 
     if (allResolved.length > 0) {
       // Sort by textual mention order in user's prompt
@@ -5228,16 +5603,20 @@ export function resolveImageEvidence(
 
   // 2. PRIORITY 1 — Explicit Current-Turn Scoped Ordinals & Scoped Generation Queries
   if (discussionSources.length > 0) {
-    // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st two images Gemini generated", "what did Gemini generate")
+    // 2a. Explicit Seat-Specific Generation References (e.g. "Gemini's second image", "the 1st two images Gemini generated", "Gemini's first 4 images", "what did Gemini generate")
+    // NOTE: Requires genuine provenance syntax (possessive 's or explicit generation action attached to seat). Vocative model mentions flow to general contextual set resolution.
     for (const seatId of KNOWN_MODEL_SEATS) {
-      const hasSeatMention = new RegExp(`\\b${seatId}(?:'s|s)?\\b`, 'i').test(pLower);
+      const hasSeatMention = new RegExp(`\\b${seatId}(?:'s)?\\b`, 'i').test(pLower);
       if (!hasSeatMention) continue;
 
-      const hasGenAction = /\b(generate|generated|draw|drew|create|created|make|made|render|rendered|produce|produced|generation|artwork|illustration|drawing)\b/i.test(pLower);
-      const hasSeatPossessive = new RegExp(`\\b${seatId}(?:'s|s)?\\s+(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|latest|both|all|two|2|three|3|first\\s+and\\s+second|1st\\s+and\\s+2nd)?\\s*)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\b`, 'i').test(pLower);
-      const hasVisualNoun = /\b(image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\b/i.test(pLower);
+      const hasSeatPossessive = new RegExp(`\\b${seatId}'s\\b`, 'i').test(pLower);
+      const hasSeatGenAction =
+        new RegExp(`\\b${seatId}\\s+(?:generated|created|drew|made|rendered|produced)\\b`, 'i').test(pLower) ||
+        new RegExp(`\\b(?:generated|created|rendered|drawn|produced)\\s+by\\s+${seatId}\\b`, 'i').test(pLower) ||
+        new RegExp(`\\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was|were\\s+)?${seatId}\\s+(?:generated|created|drew|made|rendered|produced)\\b`, 'i').test(pLower) ||
+        new RegExp(`\\bwhat\\s+did\\s+${seatId}\\s+(?:generate|create|draw|make|render|produce)\\b`, 'i').test(pLower);
 
-      if ((hasGenAction && hasVisualNoun) || hasSeatPossessive) {
+      if (hasSeatPossessive || hasSeatGenAction) {
         const seatSources = getSeatGeneratedSources(seatId);
 
         // Check multi-image subset first!
@@ -5275,17 +5654,20 @@ export function resolveImageEvidence(
       }
     }
 
-    // 2b. Explicit User-Upload Scoped Ordinals & Selectors (e.g. "first image I uploaded", "the second photo I sent", "my second image", "latest image I uploaded")
+    // 2b. Explicit User-Upload Scoped Ordinals & Selectors (e.g. "first image I uploaded", "the second photo I sent", "my second image", "compare all uploaded images", "the 3 images I uploaded", "compare my first 3 images", "compare my last 2 images")
     const isExplicitUserUploadQuery =
-      /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial|both|two|2|three|3)\s+(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\b/i.test(pLower) ||
-      /\b(?:my)\s+(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|most recent|last|earliest|initial|both|two|2|three|3|first\s+and\s+second|1st\s+and\s+2nd)\s+(?:image|picture|photo|screenshot|file)s?\b/i.test(pLower) ||
-      /\b(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:sent|uploaded|provided|shared|posted|gave)\s+(?:first|initially|earliest|at the beginning|second|2nd|third|3rd|last|latest|most recently|both)\b/i.test(pLower) ||
-      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)s?\s+(?:i\s+)?(?:just\s+)?(?:sent|uploaded|provided|shared|posted)\s+(?:most recently|last|latest|recently|first|initially|earliest)\b/i.test(pLower) ||
-      /\b(?:the\s+)?(?:image|picture|photo|screenshot|file)s?\s+i\s+(?:uploaded|sent|provided|shared|posted)\b/i.test(pLower) ||
-      (/\b(?:compare|show(\s+me)?|look\s+at)\s+(?:the\s+|my\s+)?(?:first\s+two|1st\s+two|first\s+2|first\s+and\s+second|1st\s+and\s+2nd|both)\s+(?:image|picture|photo|screenshot|file)s?\b/i.test(pLower) &&
-        /\b(?:i\s+)?(?:uploaded|sent|provided|shared|posted|my)\b/i.test(pLower));
+      /\bmy\s+(?:\w+\s+){0,3}(?:uploaded\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:uploaded|user)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?(?:\s+\w+){0,3}\s+(?:that\s+)?(?:i\s+)?(?:uploaded|sent|provided|shared|posted|gave)\b/i.test(pLower) ||
+      /\b(?:all|every|both|\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(?:of\s+the\s+|the\s+)?(?:uploaded|user)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:all|every|both|\d+|two|three|four|five|six|seven|eight|nine|ten)\s+(?:of\s+the\s+|the\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:i\s+)?(?:uploaded|sent|provided|shared|posted|gave)\b/i.test(pLower);
 
-    if (isExplicitUserUploadQuery) {
+    // Narrow legacy singular "file I uploaded" image alias (preserves singular "file I sent/uploaded" without matching plural "files" or non-image documents)
+    const isSingularLegacyFileQuery =
+      !/\b(files|documents|document|pdfs|pdf|spreadsheets|reports)\b/i.test(pLower) &&
+      /\b(?:the\s+)?file\s+(?:that\s+)?(?:i\s+)?(?:uploaded|sent|provided|shared|posted|gave)\b/i.test(pLower);
+
+    if (isExplicitUserUploadQuery || isSingularLegacyFileQuery) {
       // Check multi-image subset first!
       const subset = parseSubsetIndices(pLower, userUploadSources.length);
       if (subset !== null) {
@@ -5320,12 +5702,12 @@ export function resolveImageEvidence(
       return null;
     }
 
-    // 2c. Explicit Generic Generated-Image References (e.g. "first generated image", "second generated photo", "the generated image")
+    // 2c. Explicit Generic Generated-Image References (e.g. "first generated image", "second generated photo", "the generated image", "all generated images")
     const isGenericGeneratedQuery =
-      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
-      /\b(?:the|that|this)?\s*(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
+      /\bgenerated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?(?:\s+\w+){0,3}\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
       /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open)\s+(?:the\s+)?(?:(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|\d+(?:st|nd|rd|th)|latest|last|both|two|2|three|3|first\s+two|1st\s+two|first\s+and\s+second|1st\s+and\s+2nd|first\s+and\s+third|1st\s+and\s+3rd)\s+)?generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open|compare)\s+(?:\w+\s+){0,4}generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
 
     if (isGenericGeneratedQuery) {
       // Check multi-image subset first!
@@ -5408,7 +5790,6 @@ export function resolveImageEvidence(
             }
           }
         }
-        return null;
       }
 
       if (/\b(first two)\b/i.test(pLower)) {
@@ -5430,7 +5811,6 @@ export function resolveImageEvidence(
             }
           }
         }
-        return null;
       }
 
       const requestedOrdinals: number[] = [];
@@ -5461,7 +5841,6 @@ export function resolveImageEvidence(
             }
           }
         }
-        return null;
       }
     }
 
@@ -5594,7 +5973,7 @@ export function resolveImageEvidence(
     /\b(?:first|1st|last|latest)\s+(?:two|2|three|3|four|4|five|5)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower) ||
     /\bboth\s+(?:images|photos|pictures|screenshots)\b/i.test(pLower) ||
     /\b(?:image|picture|photo)s?\s+(?:no\.?\s*|#\s*)?\d+\s*(?:and|&|or|vs|versus|,)\s*(?:(?:image|picture|photo)s?\s+)?(?:no\.?\s*|#\s*)?\d+\b/i.test(pLower) ||
-    /\b(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s*(?:and|&|or|vs|versus|,)\s*(?:the\s+)?(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower);
+    /\b(?:the\s+)?(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s*(?:and|&|or|vs|versus|,)\s*(?:the\s+)?(?:first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th)\s+(?:image|picture|photo|screenshot)s?\b/i.test(pLower);
 
   if (isBareImageOrdinalOrSubset && discussionSources.length > 0) {
     // Check multi-image subset first!
@@ -5623,167 +6002,89 @@ export function resolveImageEvidence(
     }
   }
 
-  // 5.5 PRIORITY 4.5 — Contextual Two-Image Set Resolution
-  // Resolves natural conversational set references such as "compare the two images", "compare both images",
-  // "look at both images", "what changed between the two images?", "are the two images identical?", "compare them"
-  const visualNounRegex = /^(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?$/i;
+  // 5.5 PRIORITY 4.5 — General Contextual Visual-Set Resolution
+  // Resolves contextual visual-set references across arbitrary counts N >= 2, ALL_ACTIVE mode, and contextual set inheritance
+  const requestedVisualSet = parseRequestedVisualSet(p);
 
-  const twoMatch = pLower.match(
-    /\b(?:(?:the|these|those)\s+(?:two|2)|both(?:\s+of\s+(?:the|these|those))?)\s+([a-z0-9_\-]+)(?:\s+([a-z0-9_\-]+))?/i
-  );
+  if (requestedVisualSet) {
+    const activeThread = extractActiveVisualThread();
+    const activeThreadSources = activeThread.sources;
 
-  let isExplicitTwoImageSetQuery = false;
-  if (twoMatch) {
-    const w1 = twoMatch[1].toLowerCase();
-    const w2 = twoMatch[2]?.toLowerCase();
+    let resolvedSources: KnownImageSource[] | null = null;
 
-    // Directly followed by visual noun (e.g. "two images", "both photos")
-    if (visualNounRegex.test(w1)) {
-      isExplicitTwoImageSetQuery = true;
-    }
-    // Followed by modifier + visual noun (e.g. "two generated images", "both uploaded photos")
-    else if (
-      ['generated', 'uploaded', 'created', 'rendered', 'attached', 'prior', 'previous'].includes(w1) &&
-      w2 &&
-      visualNounRegex.test(w2)
-    ) {
-      isExplicitTwoImageSetQuery = true;
-    }
-    // Allowed predicate adjectives, adverbs, and particles after bare "two" / "both"
-    else {
-      const allowedBareContinuations = new Set([
-        'identical', 'the', 'same', 'different', 'alike', 'together', 'side', 'for', 'in', 'to', 'now', 'again', 'closely', 'carefully', 'please', 'detail'
-      ]);
-
-      if (allowedBareContinuations.has(w1)) {
-        const hasComparativeIntent =
-          /\b(?:compare|contrast|between|differ|difference|differences|versus|vs)\b/i.test(pLower) ||
-          /\b(?:look\s+at|show(?:\s+me)?|view|check|inspect|examine|reopen|display)\b/i.test(pLower) ||
-          /\bwhat\s+(?:changed|is\s+different|differs)\b/i.test(pLower) ||
-          /\bare\s+(?:the\s+two|both)\b/i.test(pLower);
-
-        isExplicitTwoImageSetQuery = hasComparativeIntent;
-      } else {
-        // Explicit non-visual object following "two" / "both" (e.g. "files", "pdfs", "documents", "reports", "approaches", "spreadsheets", "answers", "responses", "you")
-        isExplicitTwoImageSetQuery = false;
+    // Mode 1: EXACT_COUNT (N >= 2)
+    if (requestedVisualSet.mode === 'EXACT_COUNT' && requestedVisualSet.count) {
+      const N = requestedVisualSet.count;
+      if (activeThreadSources.length >= N) {
+        // Select N most recent distinct images from active thread
+        resolvedSources = activeThreadSources.slice(0, N);
       }
     }
-  } else {
-    // Bare "two" or "both" without following word (e.g. "compare the two", "compare both", "look at both")
-    const hasComparativeIntent =
-      /\b(?:compare|contrast|between|differ|difference|differences|versus|vs)\b/i.test(pLower) ||
-      /\b(?:look\s+at|show(?:\s+me)?|view|check|inspect|examine|reopen|display)\b/i.test(pLower) ||
-      /\bwhat\s+(?:changed|is\s+different|differs)\b/i.test(pLower) ||
-      /\bare\s+(?:the\s+two|both)\b/i.test(pLower);
+    // Mode 2: ALL_ACTIVE (all images belonging to the active visual thread)
+    else if (requestedVisualSet.mode === 'ALL_ACTIVE') {
+      if (activeThreadSources.length >= 2) {
+        resolvedSources = activeThreadSources;
+      }
+    }
+    // Mode 3: INHERIT (pronoun-only or bare set inheritance)
+    else if (requestedVisualSet.mode === 'INHERIT') {
+      const lastRoundDistinctSources: KnownImageSource[] = [];
+      const seenLast = new Set<string>();
+      for (const ev of lastRoundEvidence || []) {
+        if (ev.sourceId && !seenLast.has(ev.sourceId)) {
+          seenLast.add(ev.sourceId);
+          const matched = knownSources.find((ks) => ks.sourceId === ev.sourceId);
+          if (matched) lastRoundDistinctSources.push(matched);
+        }
+      }
 
-    const hasTwoOrBoth = /\b(?:the\s+two|these\s+two|those\s+two|the\s+2|both)\b/i.test(pLower);
-
-    isExplicitTwoImageSetQuery = hasComparativeIntent && hasTwoOrBoth;
-  }
-
-  const isPronounTwoImageQuery =
-    /\b(?:compare|contrast|between|look\s+at|show(?:\s+me)?|view|check|inspect|examine)\s+them\b/i.test(pLower) ||
-    /\bwhat\s+(?:changed|is\s+different|differs)\s+between\s+them\b/i.test(pLower) ||
-    /\bwhat\s+are\s+the\s+differences\s+between\s+them\b/i.test(pLower) ||
-    /\bare\s+they\s+(?:identical|the\s+same|different)\b/i.test(pLower);
-
-  if (isExplicitTwoImageSetQuery || isPronounTwoImageQuery) {
-    const hasImmediateEvidence = Array.isArray(lastRoundEvidence) && lastRoundEvidence.length > 0;
-    const hasVisualPrevPrompt = Boolean(
-      previousUserPrompt &&
-        (/\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(
-          previousUserPrompt
-        ) ||
-          isVisualEvidenceQuery(previousUserPrompt))
-    );
-    const hasImmediateVisualContext = hasImmediateEvidence || hasVisualPrevPrompt;
-
-    if (hasImmediateVisualContext) {
-      // Pronoun-only queries require stricter context: either last round held exactly 2 distinct images,
-      // or previous prompt explicitly established a two-image set.
-      const lastRoundDistinctSourceIds = Array.from(
-        new Set((lastRoundEvidence || []).map((e) => e.sourceId).filter(Boolean))
-      );
-
-      const prevEstablishedTwoImages = Boolean(
-        previousUserPrompt &&
-          /\b(?:two|2|both|1st\s+and\s+2nd|first\s+and\s+second|image\s+1\s+and\s+image\s+2)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(
-            previousUserPrompt
+      if (lastRoundDistinctSources.length >= 2) {
+        resolvedSources = lastRoundDistinctSources;
+      } else if (previousUserPrompt) {
+        const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
+        const prevEstablishedCountMatch = previousUserPrompt.match(
+          new RegExp(
+            `\\b(?:the\\s+)?(\\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|both|all)\\s+${visualNounGroup}\\b`,
+            'i'
           )
-      );
+        );
 
-      const isAllowedPronoun =
-        isExplicitTwoImageSetQuery ||
-        (isPronounTwoImageQuery && (lastRoundDistinctSourceIds.length === 2 || prevEstablishedTwoImages));
+        if (prevEstablishedCountMatch) {
+          const countToken = prevEstablishedCountMatch[1].toLowerCase();
+          const N = countToken === 'all' ? null : parseCountNumber(countToken);
 
-      if (isAllowedPronoun) {
-        let pairSourceIds: [string, string] | null = null;
-
-        // Case A: Previous turn already had 2 distinct active images
-        if (lastRoundDistinctSourceIds.length === 2) {
-          pairSourceIds = [lastRoundDistinctSourceIds[0], lastRoundDistinctSourceIds[1]];
-        }
-        // Case B: Previous turn had 1 distinct active image -> find nearest prior distinct active image
-        else if (lastRoundDistinctSourceIds.length === 1) {
-          const firstSourceId = lastRoundDistinctSourceIds[0];
-          let secondSourceId: string | null = null;
-
-          if (Array.isArray(recentEvidenceSets)) {
-            for (const set of recentEvidenceSets) {
-              if (!Array.isArray(set)) continue;
-              for (const item of set) {
-                if (item.sourceId && item.sourceId !== firstSourceId) {
-                  secondSourceId = item.sourceId;
-                  break;
-                }
-              }
-              if (secondSourceId) break;
+          if (N && N >= 2) {
+            if (activeThreadSources.length >= N) {
+              resolvedSources = activeThreadSources.slice(0, N);
             }
+          } else if (countToken === 'all' && activeThreadSources.length >= 2) {
+            resolvedSources = activeThreadSources;
           }
-
-          if (secondSourceId) {
-            pairSourceIds = [firstSourceId, secondSourceId];
-          }
+        } else if (activeThreadSources.length >= 2) {
+          resolvedSources = activeThreadSources;
         }
-        // Case C: Previous turn had 0 evidence, but previous prompt established visual context
-        else if (hasVisualPrevPrompt && Array.isArray(recentEvidenceSets)) {
-          const distinctFound: string[] = [];
-          for (const set of recentEvidenceSets) {
-            if (!Array.isArray(set)) continue;
-            for (const item of set) {
-              if (item.sourceId && !distinctFound.includes(item.sourceId)) {
-                distinctFound.push(item.sourceId);
-                if (distinctFound.length === 2) break;
-              }
-            }
-            if (distinctFound.length === 2) break;
-          }
-
-          if (distinctFound.length === 2) {
-            pairSourceIds = [distinctFound[0], distinctFound[1]];
-          }
-        }
-
-        if (pairSourceIds) {
-          const src1 = knownSources.find((ks) => ks.sourceId === pairSourceIds![0]);
-          const src2 = knownSources.find((ks) => ks.sourceId === pairSourceIds![1]);
-
-          if (src1 && src2) {
-            // Return pair in stable discussion chronology
-            const pair = [src1, src2].sort((a, b) => {
-              const idxA = discussionSources.findIndex((s) => s.sourceId === a.sourceId);
-              const idxB = discussionSources.findIndex((s) => s.sourceId === b.sourceId);
-              return idxA - idxB;
-            });
-
-            return {
-              sources: pair,
-              reason: 'comparative_contextual_set',
-            };
-          }
-        }
+      } else if (activeThreadSources.length >= 2) {
+        resolvedSources = activeThreadSources;
       }
     }
+
+    if (resolvedSources && resolvedSources.length >= 2) {
+      // Return in stable discussion chronology
+      const sorted = [...resolvedSources].sort((a, b) => {
+        const idxA = discussionSources.findIndex((s) => s.sourceId === a.sourceId);
+        const idxB = discussionSources.findIndex((s) => s.sourceId === b.sourceId);
+        return idxA - idxB;
+      });
+
+      return {
+        sources: sorted,
+        reason: 'comparative_contextual_set',
+      };
+    }
+
+    // If a visual set was requested but cannot be fulfilled by the active visual thread,
+    // return null so it doesn't fall through to spurious single-image embeddings
+    return null;
   }
 
   // 6. Generic Verification Follow-Up (reads existing isVerificationFollowUpQuery)
@@ -5894,6 +6195,7 @@ export interface ResolveMixedHistoricalReferencesOptions {
   lastRoundEvidence: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   previousUserPrompt?: string;
+  allUserMessageIds?: string[];
 }
 
 export interface ResolveMixedHistoricalReferencesResult {
@@ -5915,7 +6217,7 @@ export interface ResolveMixedHistoricalReferencesResult {
 export function resolveMixedHistoricalReferences(
   options: ResolveMixedHistoricalReferencesOptions
 ): ResolveMixedHistoricalReferencesResult | null {
-  const { prompt, currentImageCount, knownSources, lastRoundEvidence, recentEvidenceSets } = options;
+  const { prompt, currentImageCount, knownSources, lastRoundEvidence, recentEvidenceSets, allUserMessageIds } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p || currentImageCount === 0 || !Array.isArray(knownSources) || knownSources.length === 0) {
@@ -5965,6 +6267,7 @@ export function resolveMixedHistoricalReferences(
     lastRoundEvidence,
     recentEvidenceSets,
     previousUserPrompt: options.previousUserPrompt,
+    allUserMessageIds,
   });
 
   if (resolved && resolved.sources.length > 0) {
