@@ -55,7 +55,12 @@ import {
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { getSeatCapabilities } from '@/data/seatCapabilities';
-import { generateGeminiImage, generateChatGPTImage, editGeminiImage } from '@/utils/openrouterImages';
+import {
+  generateGeminiImage,
+  generateChatGPTImage,
+  editGeminiImage,
+  editChatGPTImage,
+} from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import {
   mergeStreamingToolCalls,
@@ -175,6 +180,15 @@ export function isChatGPTImageGenerationEnabled(): boolean {
 
   // Enable automatically on Vercel Preview so the feature can be tested without
   // changing Production environment configuration.
+  return process.env.VERCEL_ENV === 'preview';
+}
+
+export function isChatGPTImageEditingEnabled(): boolean {
+  const configured = process.env.CHATGPT_IMAGE_EDITING_ENABLED;
+  if (configured === 'true') return true;
+  if (configured === 'false') return false;
+
+  // Preview-only rollout by default. Production remains unchanged until explicitly enabled.
   return process.env.VERCEL_ENV === 'preview';
 }
 
@@ -1902,6 +1916,13 @@ export async function POST(req: NextRequest) {
               seat.seatId === 'gemini' &&
               getSeatCapabilities('gemini').imageEditing === true &&
               isGeminiImageEditingEnabled();
+            const isChatGPTImageEditingEnabledForSeat =
+              seat.seatId === 'chatgpt' &&
+              getSeatCapabilities('chatgpt').imageEditing === true &&
+              isChatGPTImageEditingEnabled();
+            const isImageEditingEnabledForSeat =
+              isGeminiImageEditingEnabledForSeat ||
+              isChatGPTImageEditingEnabledForSeat;
             const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
@@ -2040,7 +2061,7 @@ export async function POST(req: NextRequest) {
                     },
                   },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
-                  ...(isGeminiImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
+                  ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(discussionId
@@ -2125,8 +2146,7 @@ export async function POST(req: NextRequest) {
                 const isEditImageCall =
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'edit_image' &&
-                  seat.seatId === 'gemini' &&
-                  isGeminiImageEditingEnabledForSeat;
+                  isImageEditingEnabledForSeat;
 
                 const isEvidenceRequestCall =
                   finalizedCalls.length === 1 &&
@@ -2867,8 +2887,10 @@ export async function POST(req: NextRequest) {
                     } else {
                       imageToolBranchActive = true;
 
+                      const imageEditProviderLabel =
+                        seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
                       console.log(
-                        '[Gemini Image Editing] Executing editGeminiImage:',
+                        `[${imageEditProviderLabel} Image Editing] Executing image edit:`,
                         {
                           seatId: seat.seatId,
                           instructionLength: editInstruction.length,
@@ -2878,15 +2900,22 @@ export async function POST(req: NextRequest) {
                         }
                       );
 
-                      const imageResult = await editGeminiImage({
-                        prompt: editInstruction,
-                        referenceImageUrl,
-                        signal: req.signal,
-                      });
+                      const imageResult =
+                        seat.seatId === 'chatgpt'
+                          ? await editChatGPTImage({
+                              prompt: editInstruction,
+                              referenceImageUrl,
+                              signal: req.signal,
+                            })
+                          : await editGeminiImage({
+                              prompt: editInstruction,
+                              referenceImageUrl,
+                              signal: req.signal,
+                            });
 
                       incurredImageCostUsd = imageResult.costUsd;
                       console.log(
-                        '[Gemini Image Editing] Incurred provider cost:',
+                        `[${imageEditProviderLabel} Image Editing] Incurred provider cost:`,
                         {
                           costUsd: imageResult.costUsd,
                           model: imageResult.model,
@@ -2974,7 +3003,7 @@ export async function POST(req: NextRequest) {
                         supabase,
                         discussionId: discussionId || '',
                         messageId: persistedMsg?.id || messageId,
-                        seatId: 'gemini',
+                        seatId: seat.seatId,
                         b64Json: imageResult.b64Json,
                         mediaType: imageResult.mediaType,
                       });
@@ -3081,7 +3110,7 @@ export async function POST(req: NextRequest) {
                         url: persistedImage.signedUrl,
                         filename: persistedImage.filename,
                         provenance: 'same_round_assistant_generated',
-                        creatorSeatId: 'gemini',
+                        creatorSeatId: seat.seatId,
                       });
 
                       const textCostUsd =
