@@ -36,4 +36,4 @@ export interface DebateTopic {
   messages: ChatMessage[];
 }
 
-export type SeatStatus = 'idle' | 'waiting' | 'thinking' | 'speaking' | 'done' | 'error';
+export type SeatStatus = 'idle' | 'waiting' | 'thinking' | 'checking_documents' | 'checking_images' | 'generating_image' | 'editing_image' | 'speaking' | 'done' | 'error';
