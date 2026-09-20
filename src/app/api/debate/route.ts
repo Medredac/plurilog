@@ -2132,8 +2132,37 @@ export async function POST(req: NextRequest) {
                   const toolNeed =
                     typeof toolArgs.need === 'string' ? toolArgs.need.trim() : '';
                   const toolResourceType = toolArgs.resource_type || 'auto';
-                  const toolFilename =
+                  const modelSuppliedToolFilename =
                     typeof toolArgs.filename === 'string' ? toolArgs.filename.trim() : undefined;
+
+                  // A model must not silently disambiguate mixed visual resources by inventing
+                  // a filename from context. Only treat filename as explicit when the USER's
+                  // current prompt actually names that filename (or its extensionless base).
+                  const normalizedToolFilename =
+                    modelSuppliedToolFilename?.toLowerCase();
+                  const normalizedToolBase =
+                    normalizedToolFilename
+                      ?.replace(/\.(pdf|png|jpe?g|webp|gif)$/i, '')
+                      .trim();
+                  const promptLowerForEvidence = prompt.toLowerCase();
+                  const toolFilename =
+                    modelSuppliedToolFilename &&
+                    (
+                      (normalizedToolFilename &&
+                        promptLowerForEvidence.includes(normalizedToolFilename)) ||
+                      (normalizedToolBase &&
+                        normalizedToolBase.length >= 4 &&
+                        promptLowerForEvidence.includes(normalizedToolBase))
+                    )
+                      ? modelSuppliedToolFilename
+                      : undefined;
+
+                  if (modelSuppliedToolFilename && !toolFilename) {
+                    console.log('[Evidence Broker] Ignoring model-only filename selector', {
+                      seatId: seat.seatId,
+                      modelSuppliedFilename: modelSuppliedToolFilename,
+                    });
+                  }
 
                   let latestKnownSources: KnownImageSource[] = [];
                   let lastRoundEvidenceForBroker: MessageVisualEvidenceItem[] = [];
