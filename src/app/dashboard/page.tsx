@@ -1176,6 +1176,34 @@ export default function DashboardPage() {
                   });
                 }
               }
+            } else if (eventType === 'seat_activity') {
+              const seatId = data.seatId as ModelId;
+              const activity = data.activity as SeatStatus;
+              const allowedActivities: SeatStatus[] = [
+                'checking_documents',
+                'checking_images',
+                'generating_image',
+                'editing_image',
+              ];
+
+              if (allowedActivities.includes(activity)) {
+                if (discussionId) {
+                  const activeGen = activeGenerationsRef.current.get(discussionId);
+                  if (activeGen) {
+                    activeGen.seatStatuses = {
+                      ...activeGen.seatStatuses,
+                      [seatId]: activity,
+                    };
+                  }
+                }
+
+                if (isCurrentDiscussionActive) {
+                  setSeatStatuses((prev) => ({
+                    ...prev,
+                    [seatId]: activity,
+                  }));
+                }
+              }
             } else if (eventType === 'seat_chunk') {
               const seatId = data.seatId as ModelId;
               const chunk = data.text || '';
