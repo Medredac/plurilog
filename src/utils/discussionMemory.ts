@@ -6166,6 +6166,63 @@ export function resolveImageEvidence(
 
         if (lastRoundDistinctSources.length >= 2) {
           resolvedSources = lastRoundDistinctSources;
+        } else if (
+          lastRoundDistinctSources.length === 1 &&
+          options.visualContext &&
+          (options.visualContext.focus_source_ids || []).length === 1
+        ) {
+          // A common edit/transform flow leaves the source image as the immediately
+          // preceding turn's visual evidence while focus advances to the newly
+          // generated/edited result. A bare comparison follow-up such as
+          // "which one do you prefer?" should compare that source/result pair,
+          // without broadening focus itself (which chained edits rely on).
+          const focusedSourceId = options.visualContext.focus_source_ids[0];
+          const focusedSource = knownSources.find(
+            (ks) => ks.sourceId === focusedSourceId
+          );
+          const priorSource = lastRoundDistinctSources[0];
+
+          if (
+            focusedSource &&
+            focusedSource.sourceId !== priorSource.sourceId
+          ) {
+            resolvedSources = [priorSource, focusedSource];
+          } else if (
+            focusedSource &&
+            focusedSource.sourceId === priorSource.sourceId &&
+            previousUserPrompt &&
+            parseRequestedVisualSet(previousUserPrompt) &&
+            Array.isArray(recentEvidenceSets) &&
+            recentEvidenceSets.length > 0
+          ) {
+            // If a previous comparison attempt itself persisted only the focused
+            // result, a retry would otherwise keep inheriting that singleton forever.
+            // For repeated comparison prompts only, walk backward through recent
+            // visual evidence and recover the nearest distinct source. This preserves
+            // the source/result pair across one or more failed/intervening comparisons
+            // without broadening ordinary continuation/edit behavior.
+            for (const evidenceSet of recentEvidenceSets) {
+              const distinctSourceIds = Array.from(
+                new Set(
+                  (evidenceSet || [])
+                    .map((ev) => ev.sourceId)
+                    .filter(Boolean)
+                )
+              );
+
+              if (distinctSourceIds.length !== 1) continue;
+              const candidateId = distinctSourceIds[0];
+              if (candidateId === focusedSource.sourceId) continue;
+
+              const candidateSource = knownSources.find(
+                (ks) => ks.sourceId === candidateId
+              );
+              if (candidateSource) {
+                resolvedSources = [candidateSource, focusedSource];
+              }
+              break;
+            }
+          }
         } else if (previousUserPrompt) {
           const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
           const prevEstablishedCountMatch = previousUserPrompt.match(

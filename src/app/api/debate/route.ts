@@ -1492,11 +1492,17 @@ export async function POST(req: NextRequest) {
                     visualContext: activeVisualContext,
                   });
 
-                  // Pass 2: If Pass 1 did not resolve and prompt requests a contextual visual set, fetch complete evidence history
-                  if (!resolvedImage && parseRequestedVisualSet(prompt)) {
+                  // Pass 2: Contextual visual-set requests may need broader evidence history.
+                  // Re-run not only when Pass 1 is unresolved, but also when it resolves
+                  // to a singleton: repeated comparison attempts can otherwise inherit
+                  // only the latest focused edit and lose its source counterpart.
+                  if (
+                    parseRequestedVisualSet(prompt) &&
+                    (!resolvedImage || resolvedImage.sources.length < 2)
+                  ) {
                     const allEvidenceSets = await fetchAllVisualEvidenceSets(serviceClient, discussionId);
                     if (allEvidenceSets.length > 0) {
-                      resolvedImage = resolveImageEvidence({
+                      const expandedResolution = resolveImageEvidence({
                         prompt,
                         knownSources,
                         lastRoundEvidence,
@@ -1505,6 +1511,9 @@ export async function POST(req: NextRequest) {
                         allUserMessageIds: discussionMemory?.allUserMessageIds,
                         visualContext: activeVisualContext,
                       });
+                      if (expandedResolution) {
+                        resolvedImage = expandedResolution;
+                      }
                     }
                   }
 
@@ -2076,6 +2085,13 @@ export async function POST(req: NextRequest) {
               pdfCount: pdfAttachments.length,
             });
 
+            if (hasPdf && needsPdfPlugin) {
+              sendEvent('seat_activity', {
+                seatId: seat.seatId,
+                activity: 'checking_documents',
+              });
+            }
+
             const seatAttachments =
               seat.seatId === 'gemini'
                 ? await prepareGeminiVisionAttachments(currentRoundAttachments)
@@ -2523,6 +2539,23 @@ export async function POST(req: NextRequest) {
                     kind: modelSafeBrokerResult.kind,
                     attachedCount: newEvidenceAttachments.length,
                   });
+
+                  if (modelSafeBrokerResult.status === 'resolved') {
+                    const evidenceActivity =
+                      brokerResult.evidence?.kind === 'image'
+                        ? 'checking_images'
+                        : brokerResult.evidence?.kind === 'pdf' ||
+                            brokerResult.evidence?.kind === 'document_text'
+                          ? 'checking_documents'
+                          : null;
+
+                    if (evidenceActivity) {
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: evidenceActivity,
+                      });
+                    }
+                  }
 
                   // The provisional first-pass prose is never shown. The second inference receives
                   // the same user request plus the actual evidence and a model-safe tool result.
@@ -2996,6 +3029,10 @@ export async function POST(req: NextRequest) {
                       });
                     } else {
                       imageToolBranchActive = true;
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: 'editing_image',
+                      });
 
                       const imageEditProviderLabel =
                         seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
@@ -3328,6 +3365,11 @@ export async function POST(req: NextRequest) {
                   // Fall through to normal text message persistence below
                 } else {
                   // 3. Provider Execution
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'generating_image',
+                  });
+
                   const imageProviderLabel =
                     seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
                   console.log(`[${imageProviderLabel} Image Generation] Executing image generation:`, {
