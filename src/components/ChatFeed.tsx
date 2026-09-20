@@ -171,6 +171,21 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
   };
 }
 
+function getSeatActivityLabel(status: SeatStatus): string {
+  switch (status) {
+    case 'checking_documents':
+      return 'Checking documents...';
+    case 'checking_images':
+      return 'Checking images...';
+    case 'generating_image':
+      return 'Generating image...';
+    case 'editing_image':
+      return 'Editing image...';
+    default:
+      return 'Thinking...';
+  }
+}
+
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
   children,
@@ -900,6 +915,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             : 'mt-3.5 sm:mt-4';
 
         const isThinking = message.isStreaming && !message.content.trim();
+        const pendingActivityLabel = getSeatActivityLabel(
+          seatStatuses[modelKey] || 'thinking'
+        );
         const attachments: string[] =
           message.attachment_urls && message.attachment_urls.length > 0
             ? message.attachment_urls
@@ -953,7 +971,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     </svg>
                   </div>
                   <span className="text-xs font-normal animate-text-shimmer tracking-tight select-none">
-                    Thinking...
+                    {pendingActivityLabel}
                   </span>
                 </div>
               ) : (
