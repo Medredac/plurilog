@@ -15,6 +15,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: 'https://plurilogai.com/blog',
     },
     {
+      url: 'https://plurilogai.com/blog/chatgpt-gemini-image-generation-editing',
+    },
+    {
       url: 'https://plurilogai.com/blog/chatgpt-claude-gemini-shared-conversation',
     },
     {

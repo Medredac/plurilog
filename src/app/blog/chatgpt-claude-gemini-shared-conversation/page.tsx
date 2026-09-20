@@ -376,6 +376,9 @@ export default function WhyWeBuiltPlurilogSharedConversationBlogPost() {
                 Plurilog supports files and images as part of the discussion so that the user&apos;s work can remain centred on the task rather than on repeatedly reconstructing the context.
               </p>
               <p>
+                That same principle now extends to generative imagery. Our guide to <Link href="/blog/chatgpt-gemini-image-generation-editing" className="text-zinc-900 underline hover:no-underline font-medium">ChatGPT and Gemini image generation in one shared conversation</Link> explains how generated images, edited versions and visual comparisons can remain part of the same multimodal context.
+              </p>
+              <p>
                 And this is where the question of shared context stops being an abstract technical concern.
               </p>
               <p>
