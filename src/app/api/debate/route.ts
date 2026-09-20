@@ -2604,6 +2604,11 @@ export async function POST(req: NextRequest) {
                     /\b(?:earlier|previous|generated|gemini|chatgpt|claude)\b/i.test(
                       referenceText
                     );
+                  const explicitlyOverridesFocusedContinuation =
+                    explicitlyHistoricalReference ||
+                    /\b(?:original|initial|first one|first image|uploaded image|go back|back to|use the original|use the first)\b/i.test(
+                      referenceText
+                    );
 
                   if (referenceImageUrl) {
                     // Already resolved from a user-grounded Image N selection in this call.
@@ -2640,7 +2645,81 @@ export async function POST(req: NextRequest) {
                       editReferenceError =
                         'I need you to specify which currently attached image you want me to edit.';
                     }
-                  } else if (discussionId) {
+                  } else if (
+                    !referenceImageUrl &&
+                    !explicitlyOverridesFocusedContinuation &&
+                    discussionId &&
+                    isPersistentVisualContextReadsEnabled() &&
+                    visualContextState?.focus_source_ids?.length === 1
+                  ) {
+                    // Chained edit continuation: when exactly one visual source is focused,
+                    // implicit follow-ups such as "now make the shirt red" continue editing
+                    // that focused result. Explicit historical/original references bypass
+                    // this branch and fall through to the normal authoritative resolver.
+                    try {
+                      const focusedSourceId =
+                        visualContextState.focus_source_ids[0];
+                      const serviceClientForFocusedEdit =
+                        createServiceClient();
+                      const knownSourcesForFocusedEdit =
+                        await fetchKnownImageSources(
+                          serviceClientForFocusedEdit,
+                          discussionId
+                        );
+                      const focusedSource =
+                        knownSourcesForFocusedEdit.find(
+                          (source) =>
+                            source.sourceId === focusedSourceId &&
+                            Boolean(source.storagePath)
+                        );
+
+                      if (focusedSource) {
+                        const {
+                          data: focusedSignedData,
+                          error: focusedSignErr,
+                        } = await serviceClientForFocusedEdit.storage
+                          .from('message-images')
+                          .createSignedUrl(
+                            focusedSource.storagePath,
+                            900
+                          );
+
+                        if (
+                          !focusedSignErr &&
+                          focusedSignedData?.signedUrl
+                        ) {
+                          referenceImageUrl =
+                            focusedSignedData.signedUrl;
+                          referenceImageLabel =
+                            focusedSource.filename ||
+                            'focused image';
+                          editReferentSourceIds = [
+                            focusedSource.sourceId,
+                          ];
+                          pendingResolvedImageSources = [
+                            focusedSource,
+                          ];
+
+                          console.log(
+                            '[Gemini Image Editing] Using focused continuation target',
+                            {
+                              discussionId,
+                              focusedSourceId,
+                              filename:
+                                focusedSource.filename,
+                            }
+                          );
+                        }
+                      }
+                    } catch (focusedEditErr) {
+                      console.warn(
+                        '[Gemini Image Editing] Focused continuation resolution failed:',
+                        focusedEditErr
+                      );
+                    }
+                  }
+
+                  if (!referenceImageUrl && discussionId) {
                     const isOwner = await verifyDiscussionOwnership(
                       supabase,
                       discussionId
