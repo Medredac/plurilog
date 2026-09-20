@@ -1260,6 +1260,9 @@ export async function POST(req: NextRequest) {
           let visualContextState: DiscussionVisualContextState | null = null;
           let visualDeliveryMismatch: { requestedCount: number; deliveredCount: number } | null = null;
           let hadGeneratedImageInTurn = false;
+          // Track independent image outputs created by multiple seats for this one user turn.
+          // These must remain a shared visual working set after the round completes.
+          let sameRoundGeneratedSourceIds: string[] = [];
 
           // Identify current standalone image presence and persistent storage identity separately
           const currentImageAttachments = Array.isArray(attachments)
@@ -3451,7 +3454,21 @@ export async function POST(req: NextRequest) {
                       if (isPersistentVisualContextWritesEnabled() && genIngestResult?.ingestedSourceIds && genIngestResult.ingestedSourceIds.length > 0) {
                         try {
                           const latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                          const priorSameRoundGeneratedSourceIds = [...sameRoundGeneratedSourceIds];
                           let transitionReferentSourceIds = (pendingResolvedImageSources || []).map((s) => s.sourceId);
+
+                          // A second (or later) image generator in the same user turn is producing
+                          // a parallel result, not starting an unrelated visual task. Preserve all
+                          // earlier same-round generated outputs as the active/focused comparison set.
+                          if (priorSameRoundGeneratedSourceIds.length > 0) {
+                            transitionReferentSourceIds = Array.from(
+                              new Set([
+                                ...transitionReferentSourceIds,
+                                ...priorSameRoundGeneratedSourceIds,
+                              ])
+                            );
+                          }
+
                           // In shadow writes mode (reads=false), if pendingResolvedImageSources is empty, check if prompt referenced persistent context
                           if (transitionReferentSourceIds.length === 0 && visualContextState) {
                             const shadowResolved = resolveImageEvidence({
@@ -3473,13 +3490,22 @@ export async function POST(req: NextRequest) {
                             {
                               resolvedReferentSourceIds: transitionReferentSourceIds,
                               newArtifactSourceIds: genIngestResult.ingestedSourceIds,
-                              isComparison: false,
+                              isComparison: priorSameRoundGeneratedSourceIds.length > 0,
                               knownSources: latestKnownSources,
                             }
                           );
+
+                          sameRoundGeneratedSourceIds = Array.from(
+                            new Set([
+                              ...sameRoundGeneratedSourceIds,
+                              ...genIngestResult.ingestedSourceIds,
+                            ])
+                          );
+
                           console.log('[Visual Context: Assistant Generation Transition]', {
                             discussionId,
                             newSources: genIngestResult.ingestedSourceIds,
+                            sameRoundGeneratedSources: sameRoundGeneratedSourceIds,
                             activeSourceCount: visualContextState?.active_session_source_ids?.length || 0,
                             focusSourceCount: visualContextState?.focus_source_ids?.length || 0,
                           });
