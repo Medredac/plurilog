@@ -2546,12 +2546,60 @@ export async function POST(req: NextRequest) {
                         }
                       );
 
-                      if (
+                      let resolvedEditSource: KnownImageSource | null =
                         brokerResult.status === 'resolved' &&
                         brokerResult.evidence?.kind === 'image' &&
                         brokerResult.evidence.sources?.length === 1
+                          ? brokerResult.evidence.sources[0]
+                          : null;
+                      let editResolutionReason =
+                        brokerResult.evidence?.reason || null;
+
+                      // A user may disambiguate several earlier images naturally by visual
+                      // content ("the one with the black man") rather than by filename. If
+                      // the deterministic broker cannot resolve that description, allow a
+                      // conservative semantic fallback only for an actual descriptive visual
+                      // reference. This does not relax generic "edit the image" ambiguity.
+                      if (
+                        !resolvedEditSource &&
+                        isSemanticVisualQuery(prompt) &&
+                        brokerResult.status !== 'unsupported'
                       ) {
-                        const source = brokerResult.evidence.sources[0];
+                        const semanticEditResult =
+                          await retrieveSemanticImageCandidates({
+                            serviceSupabase: serviceClientForEdit,
+                            discussionId,
+                            prompt,
+                            openai,
+                            signal: req.signal,
+                            lastRoundEvidence: lastRoundEvidenceForEdit,
+                            minSimilarity: 0.32,
+                            clearGap: 0.1,
+                          });
+
+                        if (
+                          semanticEditResult?.sources?.length === 1 &&
+                          (semanticEditResult.topGap === null ||
+                            semanticEditResult.topGap >= 0.1)
+                        ) {
+                          resolvedEditSource =
+                            semanticEditResult.sources[0];
+                          editResolutionReason =
+                            'semantic_edit_target';
+                          console.log(
+                            '[Gemini Image Editing] Resolved descriptive edit target semantically',
+                            {
+                              sourceId: resolvedEditSource.sourceId,
+                              topSimilarity:
+                                semanticEditResult.topSimilarity,
+                              topGap: semanticEditResult.topGap,
+                            }
+                          );
+                        }
+                      }
+
+                      if (resolvedEditSource) {
+                        const source = resolvedEditSource;
                         const { data: signedData, error: signErr } =
                           await serviceClientForEdit.storage
                             .from('message-images')
@@ -2584,10 +2632,11 @@ export async function POST(req: NextRequest) {
 
                       console.log('[Gemini Image Editing] Reference resolution', {
                         discussionId,
-                        status: brokerResult.status,
-                        reason: brokerResult.evidence?.reason,
-                        sourceCount:
-                          brokerResult.evidence?.sources?.length || 0,
+                        status: resolvedEditSource ? 'resolved' : brokerResult.status,
+                        reason: editResolutionReason,
+                        sourceCount: resolvedEditSource
+                          ? 1
+                          : brokerResult.evidence?.sources?.length || 0,
                       });
                     }
                   } else {
