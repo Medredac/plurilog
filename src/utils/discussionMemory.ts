@@ -5655,10 +5655,10 @@ export function resolveImageEvidence(
 
       const hasSeatPossessive = new RegExp(`\\b${seatId}'s\\b`, 'i').test(pLower);
       const hasSeatGenAction =
-        new RegExp(`\\b${seatId}\\s+(?:generated|created|drew|made|rendered|produced)\\b`, 'i').test(pLower) ||
-        new RegExp(`\\b(?:generated|created|rendered|drawn|produced)\\s+by\\s+${seatId}\\b`, 'i').test(pLower) ||
-        new RegExp(`\\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was|were\\s+)?${seatId}\\s+(?:generated|created|drew|made|rendered|produced)\\b`, 'i').test(pLower) ||
-        new RegExp(`\\bwhat\\s+did\\s+${seatId}\\s+(?:generate|create|draw|make|render|produce)\\b`, 'i').test(pLower);
+        new RegExp(`\\b${seatId}(?:\\s+just)?\\s+(?:generated|created|drew|made|rendered|produced|edited|modified|transformed)\\b`, 'i').test(pLower) ||
+        new RegExp(`\\b(?:generated|created|rendered|drawn|produced|edited|modified|transformed)\\s+by\\s+${seatId}\\b`, 'i').test(pLower) ||
+        new RegExp(`\\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render|generation)s?\\s+(?:that\\s+)?(?:was|were\\s+)?${seatId}(?:\\s+just)?\\s+(?:generated|created|drew|made|rendered|produced|edited|modified|transformed)\\b`, 'i').test(pLower) ||
+        new RegExp(`\\bwhat\\s+did\\s+${seatId}\\s+(?:generate|create|draw|make|render|produce|edit|modify|transform)\\b`, 'i').test(pLower);
 
       if (hasSeatPossessive || hasSeatGenAction) {
         const seatSources = getSeatGeneratedSources(seatId);
@@ -5748,10 +5748,10 @@ export function resolveImageEvidence(
 
     // 2c. Explicit Generic Generated-Image References (e.g. "first generated image", "second generated photo", "the generated image", "all generated images")
     const isGenericGeneratedQuery =
-      /\bgenerated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
-      /\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?(?:\s+\w+){0,3}\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced)\b/i.test(pLower) ||
-      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open|compare)\s+(?:\w+\s+){0,4}generated\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
+      /\b(?:generated|edited|modified|transformed)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower) ||
+      /\b(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?(?:\s+\w+){0,3}\s+(?:that\s+)?(?:was|were)?\s*(?:generated|created|rendered|drawn|produced|edited|modified|transformed)\b/i.test(pLower) ||
+      /\bwhat\s+(?:was|were)\s+(?:generated|created|rendered|drawn|produced|edited|modified|transformed)\b/i.test(pLower) ||
+      /\b(?:show\s+me|look\s+at|see|view|check|inspect|examine|display|reopen|open|compare)\s+(?:\w+\s+){0,4}(?:generated|edited|modified|transformed)\s+(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?\b/i.test(pLower);
 
     if (isGenericGeneratedQuery) {
       // Check multi-image subset first!
