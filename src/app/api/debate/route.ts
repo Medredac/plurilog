@@ -55,7 +55,7 @@ import {
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { getSeatCapabilities } from '@/data/seatCapabilities';
-import { generateGeminiImage, editGeminiImage } from '@/utils/openrouterImages';
+import { generateGeminiImage, generateChatGPTImage, editGeminiImage } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import {
   mergeStreamingToolCalls,
@@ -164,8 +164,18 @@ export function isEvidenceRequestToolEnabled(): boolean {
 }
 
 export function isGeminiImageEditingEnabled(): boolean {
-  // Feature-gated Preview rollout; Production remains unchanged until explicitly enabled.
+  // Feature-gated rollout; Production remains unchanged until explicitly enabled.
   return process.env.GEMINI_IMAGE_EDITING_ENABLED === 'true';
+}
+
+export function isChatGPTImageGenerationEnabled(): boolean {
+  const configured = process.env.CHATGPT_IMAGE_GENERATION_ENABLED;
+  if (configured === 'true') return true;
+  if (configured === 'false') return false;
+
+  // Enable automatically on Vercel Preview so the feature can be tested without
+  // changing Production environment configuration.
+  return process.env.VERCEL_ENV === 'preview';
 }
 
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
@@ -1882,6 +1892,12 @@ export async function POST(req: NextRequest) {
 
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
+            const isChatGPTImageEnabled =
+              seat.seatId === 'chatgpt' &&
+              getSeatCapabilities('chatgpt').imageGeneration === true &&
+              isChatGPTImageGenerationEnabled();
+            const isImageGenerationEnabledForSeat =
+              isGeminiImageEnabled || isChatGPTImageEnabled;
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
               getSeatCapabilities('gemini').imageEditing === true &&
@@ -2023,7 +2039,7 @@ export async function POST(req: NextRequest) {
                       max_total_results: 6,
                     },
                   },
-                  ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
+                  ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isGeminiImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
@@ -2088,7 +2104,7 @@ export async function POST(req: NextRequest) {
               }
 
               // Route custom tool calls without wrapping the seat in a generic retry loop.
-              // Gemini image generation remains the existing terminal path; only request_evidence
+              // Image generation remains a terminal seat path; only request_evidence
               // gets one dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
@@ -2104,8 +2120,7 @@ export async function POST(req: NextRequest) {
                 const isGenerateImageCall =
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'generate_image' &&
-                  seat.seatId === 'gemini' &&
-                  isGeminiImageEnabled;
+                  isImageGenerationEnabledForSeat;
 
                 const isEditImageCall =
                   finalizedCalls.length === 1 &&
@@ -3174,17 +3189,25 @@ export async function POST(req: NextRequest) {
                   // Fall through to normal text message persistence below
                 } else {
                   // 3. Provider Execution
-                  console.log('[Gemini Image Generation] Executing generateGeminiImage:', {
+                  const imageProviderLabel =
+                    seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
+                  console.log(`[${imageProviderLabel} Image Generation] Executing image generation:`, {
                     seatId: seat.seatId,
                     promptLength: toolPrompt.length,
                   });
-                  const imageResult = await generateGeminiImage({
-                    prompt: toolPrompt,
-                    signal: req.signal,
-                  });
+                  const imageResult =
+                    seat.seatId === 'chatgpt'
+                      ? await generateChatGPTImage({
+                          prompt: toolPrompt,
+                          signal: req.signal,
+                        })
+                      : await generateGeminiImage({
+                          prompt: toolPrompt,
+                          signal: req.signal,
+                        });
 
                   incurredImageCostUsd = imageResult.costUsd;
-                  console.log('[Gemini Image Generation] Incurred provider cost:', {
+                  console.log(`[${imageProviderLabel} Image Generation] Incurred provider cost:`, {
                     costUsd: imageResult.costUsd,
                     model: imageResult.model,
                   });
@@ -3264,7 +3287,7 @@ export async function POST(req: NextRequest) {
                     supabase,
                     discussionId: discussionId || '',
                     messageId: persistedMsg?.id || messageId,
-                    seatId: 'gemini',
+                    seatId: seat.seatId,
                     b64Json: imageResult.b64Json,
                     mediaType: imageResult.mediaType,
                   });
@@ -3355,7 +3378,7 @@ export async function POST(req: NextRequest) {
                     url: persistedImage.signedUrl,
                     filename: persistedImage.filename,
                     provenance: 'same_round_assistant_generated',
-                    creatorSeatId: 'gemini',
+                    creatorSeatId: seat.seatId,
                   });
 
                   // 9. Billing — Exactly Once
