@@ -1492,11 +1492,17 @@ export async function POST(req: NextRequest) {
                     visualContext: activeVisualContext,
                   });
 
-                  // Pass 2: If Pass 1 did not resolve and prompt requests a contextual visual set, fetch complete evidence history
-                  if (!resolvedImage && parseRequestedVisualSet(prompt)) {
+                  // Pass 2: Contextual visual-set requests may need broader evidence history.
+                  // Re-run not only when Pass 1 is unresolved, but also when it resolves
+                  // to a singleton: repeated comparison attempts can otherwise inherit
+                  // only the latest focused edit and lose its source counterpart.
+                  if (
+                    parseRequestedVisualSet(prompt) &&
+                    (!resolvedImage || resolvedImage.sources.length < 2)
+                  ) {
                     const allEvidenceSets = await fetchAllVisualEvidenceSets(serviceClient, discussionId);
                     if (allEvidenceSets.length > 0) {
-                      resolvedImage = resolveImageEvidence({
+                      const expandedResolution = resolveImageEvidence({
                         prompt,
                         knownSources,
                         lastRoundEvidence,
@@ -1505,6 +1511,9 @@ export async function POST(req: NextRequest) {
                         allUserMessageIds: discussionMemory?.allUserMessageIds,
                         visualContext: activeVisualContext,
                       });
+                      if (expandedResolution) {
+                        resolvedImage = expandedResolution;
+                      }
                     }
                   }
 
