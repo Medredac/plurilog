@@ -54,6 +54,46 @@ export default function BlogPage() {
           </MotionReveal>
 
           <div className="space-y-8">
+            <MotionReveal delay={0.04}>
+              <Link
+                href="/blog/chatgpt-gemini-image-generation-editing"
+                className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
+              >
+                <div className="relative aspect-[16/9] w-full overflow-hidden bg-gradient-to-br from-amber-50 via-white to-blue-50 border-b border-zinc-100">
+                  <div className="absolute inset-0 bg-tech-grid opacity-60" />
+                  <div className="relative h-full p-6 sm:p-8 flex flex-col justify-between">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex rounded-full border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-[11px] font-medium text-zinc-600 shadow-2xs">
+                        Shared visual context
+                      </span>
+                      <PlurilogMark className="w-6 h-6 text-zinc-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-3 text-[11px] font-medium">
+                        <span className="rounded-lg bg-zinc-900 text-white px-2.5 py-1.5">ChatGPT</span>
+                        <span className="text-zinc-300">+</span>
+                        <span className="rounded-lg border border-zinc-200 bg-white text-zinc-700 px-2.5 py-1.5">Gemini</span>
+                      </div>
+                      <p className="text-2xl sm:text-4xl font-bold tracking-tight text-zinc-900 leading-tight">
+                        Generate. Compare. Edit. Keep the context.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6 sm:p-7">
+                  <time className="text-xs font-medium text-zinc-400 block mb-2">
+                    September 20, 2026
+                  </time>
+                  <h2 className="text-xl sm:text-2xl font-bold text-zinc-900 tracking-tight mb-2.5 group-hover:text-zinc-700 transition-colors">
+                    ChatGPT and Gemini Image Generation in One Shared Conversation
+                  </h2>
+                  <p className="text-sm text-zinc-500 leading-relaxed line-clamp-3">
+                    Generate, compare and edit AI images with ChatGPT and Gemini while multiple AI models share the same visual context inside one ongoing discussion.
+                  </p>
+                </div>
+              </Link>
+            </MotionReveal>
+
             <MotionReveal delay={0.08}>
               <Link
                 href="/blog/chatgpt-claude-gemini-shared-conversation"
