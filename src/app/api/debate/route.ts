@@ -2157,6 +2157,46 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
+                  // Keep the evidence broker's document inventory authoritative even
+                  // if the first seat sees a momentarily stale knownDocuments snapshot.
+                  // Recent-round attachments already carry the same persisted PDF identity, so
+                  // merge them read-only before mixed PDF/image ambiguity resolution.
+                  const brokerKnownDocuments = [
+                    ...(discussionMemory?.knownDocuments || []),
+                  ];
+                  const seenBrokerDocuments = new Set(
+                    brokerKnownDocuments.map(
+                      (doc) =>
+                        doc.storagePath ||
+                        doc.id ||
+                        doc.filename.toLowerCase()
+                    )
+                  );
+
+                  for (const round of discussionMemory?.recentRounds || []) {
+                    for (const attachment of round.attachments || []) {
+                      const filename = attachment.filename || '';
+                      const storagePath = attachment.storagePath || null;
+                      const looksLikePdf =
+                        filename.toLowerCase().endsWith('.pdf') ||
+                        (storagePath || '').toLowerCase().endsWith('.pdf');
+                      if (!looksLikePdf) continue;
+
+                      const identity =
+                        storagePath ||
+                        attachment.documentId ||
+                        filename.toLowerCase();
+                      if (!identity || seenBrokerDocuments.has(identity)) continue;
+
+                      brokerKnownDocuments.push({
+                        id: attachment.documentId || null,
+                        filename: filename || 'document.pdf',
+                        storagePath,
+                      });
+                      seenBrokerDocuments.add(identity);
+                    }
+                  }
+
                   const brokerResult = resolveRequestedEvidence(
                     {
                       modality: 'visual',
@@ -2165,7 +2205,7 @@ export async function POST(req: NextRequest) {
                       filename: toolFilename,
                     },
                     {
-                      knownDocuments: discussionMemory?.knownDocuments,
+                      knownDocuments: brokerKnownDocuments,
                       retrievedDocuments,
                       recentRounds: discussionMemory?.recentRounds,
                       knownImageSources: latestKnownSources,
