@@ -6166,6 +6166,28 @@ export function resolveImageEvidence(
 
         if (lastRoundDistinctSources.length >= 2) {
           resolvedSources = lastRoundDistinctSources;
+        } else if (
+          lastRoundDistinctSources.length === 1 &&
+          options.visualContext &&
+          (options.visualContext.focus_source_ids || []).length === 1
+        ) {
+          // A common edit/transform flow leaves the source image as the immediately
+          // preceding turn's visual evidence while focus advances to the newly
+          // generated/edited result. A bare comparison follow-up such as
+          // "which one do you prefer?" should compare that source/result pair,
+          // without broadening focus itself (which chained edits rely on).
+          const focusedSourceId = options.visualContext.focus_source_ids[0];
+          const focusedSource = knownSources.find(
+            (ks) => ks.sourceId === focusedSourceId
+          );
+          const priorSource = lastRoundDistinctSources[0];
+
+          if (
+            focusedSource &&
+            focusedSource.sourceId !== priorSource.sourceId
+          ) {
+            resolvedSources = [priorSource, focusedSource];
+          }
         } else if (previousUserPrompt) {
           const visualNounGroup = '(?:image|picture|photo|screenshot|snapshot|graphic|drawing|illustration|artwork|render)s?';
           const prevEstablishedCountMatch = previousUserPrompt.match(
