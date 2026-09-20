@@ -34,6 +34,12 @@ export interface EditGeminiImageOptions {
   signal?: AbortSignal;
 }
 
+export interface EditChatGPTImageOptions {
+  prompt: string;
+  referenceImageUrl: string;
+  signal?: AbortSignal;
+}
+
 function getOpenRouterHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey.trim()}`,
@@ -239,4 +245,67 @@ export async function editGeminiImage(
 
   const parsedJson = await response.json();
   return parseAndValidateImageResponse(parsedJson, GEMINI_IMAGE_MODEL);
+}
+
+
+/**
+ * Edit or transform an existing reference image with a prompt using OpenAI GPT Image via OpenRouter.
+ */
+export async function editChatGPTImage(
+  options: EditChatGPTImageOptions
+): Promise<GeneratedImageResult> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey || apiKey.trim() === '') {
+    throw new Error('OPENROUTER_API_KEY is not configured in server environment');
+  }
+
+  const trimmedPrompt = options.prompt?.trim();
+  if (!trimmedPrompt) {
+    throw new Error('A non-empty prompt is required for image editing');
+  }
+
+  const referenceUrl = options.referenceImageUrl?.trim();
+  if (!referenceUrl) {
+    throw new Error('A valid reference image URL is required for image editing');
+  }
+
+  const requestBody = {
+    model: CHATGPT_IMAGE_MODEL,
+    prompt: trimmedPrompt,
+    input_references: [
+      {
+        type: 'image_url',
+        image_url: {
+          url: referenceUrl,
+        },
+      },
+    ],
+  };
+
+  const response = await fetch(OPENROUTER_IMAGES_ENDPOINT, {
+    method: 'POST',
+    headers: getOpenRouterHeaders(apiKey),
+    body: JSON.stringify(requestBody),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    let errorDetail = '';
+    try {
+      const errJson = await response.json();
+      errorDetail = errJson?.error?.message || JSON.stringify(errJson);
+    } catch {
+      try {
+        errorDetail = (await response.text()).slice(0, 300);
+      } catch {
+        errorDetail = `HTTP ${response.status}`;
+      }
+    }
+    throw new Error(
+      `OpenRouter ChatGPT image editing failed (HTTP ${response.status}): ${errorDetail}`
+    );
+  }
+
+  const parsedJson = await response.json();
+  return parseAndValidateImageResponse(parsedJson, CHATGPT_IMAGE_MODEL);
 }
