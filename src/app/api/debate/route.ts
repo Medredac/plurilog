@@ -385,7 +385,8 @@ export function buildPanelMessages(
   retrievedDocuments?: RetrievedDocumentExcerpt[] | null,
   isVisualUnavailable?: boolean,
   currentTurnDocuments?: { filename: string; content: string }[] | null,
-  visualDeliveryMismatch?: { requestedCount: number; deliveredCount: number } | null
+  visualDeliveryMismatch?: { requestedCount: number; deliveredCount: number } | null,
+  numberImageAttachments: boolean = false
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
 
@@ -560,8 +561,11 @@ export function buildPanelMessages(
         // DOCX and Text files are provided as structured text in document context / userContent.
         continue;
       } else {
-        visualOrdinal += 1;
-        const label = formatImageBlockLabel(attachment, visualOrdinal);
+        if (numberImageAttachments) visualOrdinal += 1;
+        const label = formatImageBlockLabel(
+          attachment,
+          numberImageAttachments ? visualOrdinal : undefined
+        );
         nonPdfBlocks.push({
           type: 'text',
           text: label,
@@ -631,8 +635,11 @@ export function buildPanelMessages(
         // DOCX and Text files are provided as structured text in document context / userContent.
         continue;
       } else {
-        visualOrdinal += 1;
-        const label = formatImageBlockLabel(attachment, visualOrdinal);
+        if (numberImageAttachments) visualOrdinal += 1;
+        const label = formatImageBlockLabel(
+          attachment,
+          numberImageAttachments ? visualOrdinal : undefined
+        );
         contentBlocks.push({
           type: 'text',
           text: label,
@@ -1966,7 +1973,14 @@ export async function POST(req: NextRequest) {
               retrievedDocuments,
               isVisualUnavailable,
               currentTurnDocuments,
-              visualDeliveryMismatch
+              visualDeliveryMismatch,
+              seat.seatId === 'gemini' &&
+                isGeminiImageEditingEnabledForSeat &&
+                seatAttachments.filter((att) => {
+                  const cleanUrl =
+                    att?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
+                  return isImageUrl(att?.url || '') && !cleanUrl.endsWith('.pdf');
+                }).length > 1
             );
 
             const seatWebCitations: { url: string; title: string }[] = [];
