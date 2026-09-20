@@ -1741,6 +1741,113 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            // Multi-image focused working-set delivery for descriptive edit follow-ups.
+            // If the prior turn left multiple images focused and the user now identifies one
+            // by visual content, reattach that focused set so the active model can inspect the
+            // actual pixels and return a user-grounded reference_index. This preserves the
+            // conservative semantic thresholds and does not alter persistent memory.
+            if (
+              !hasCurrentImages &&
+              !hadSuccessfulHistoricalImageDelivery &&
+              (!visualAttachments || visualAttachments.length === 0) &&
+              prompt &&
+              prompt.trim() &&
+              isSemanticVisualQuery(prompt) &&
+              isPersistentVisualContextReadsEnabled() &&
+              visualContextState?.focus_source_ids &&
+              visualContextState.focus_source_ids.length > 1
+            ) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                  const focusedSources = visualContextState.focus_source_ids
+                    .map((sourceId) =>
+                      knownSources.find(
+                        (source) =>
+                          source.sourceId === sourceId &&
+                          Boolean(source.storagePath)
+                      )
+                    )
+                    .filter((source): source is KnownImageSource => Boolean(source));
+
+                  if (
+                    focusedSources.length ===
+                    visualContextState.focus_source_ids.length
+                  ) {
+                    const focusedAttachments: RouteAttachment[] = [];
+                    const deliveredFocusedSources: KnownImageSource[] = [];
+
+                    for (const src of focusedSources) {
+                      const { data: signedData, error: signErr } =
+                        await serviceClient.storage
+                          .from('message-images')
+                          .createSignedUrl(src.storagePath, 900);
+
+                      if (signErr || !signedData?.signedUrl) {
+                        console.warn(
+                          '[Focused Visual Set] Failed to sign focused image URL:',
+                          {
+                            sourceId: src.sourceId,
+                            storagePath: src.storagePath,
+                            error: signErr,
+                          }
+                        );
+                        continue;
+                      }
+
+                      let provenance: AttachmentProvenance | undefined;
+                      let creatorSeatId: string | undefined;
+                      if (src.sender) {
+                        const senderLower = src.sender.toLowerCase();
+                        if (
+                          ['gemini', 'chatgpt', 'claude'].includes(senderLower)
+                        ) {
+                          provenance = 'historical_assistant_generated';
+                          creatorSeatId = senderLower;
+                        } else if (senderLower === 'user') {
+                          provenance = 'historical_user_upload';
+                        }
+                      }
+
+                      focusedAttachments.push({
+                        url: signedData.signedUrl,
+                        filename: src.filename || 'image.jpg',
+                        provenance,
+                        creatorSeatId,
+                      });
+                      deliveredFocusedSources.push(src);
+                    }
+
+                    if (
+                      focusedAttachments.length === focusedSources.length &&
+                      focusedAttachments.length > 1
+                    ) {
+                      visualAttachments = focusedAttachments;
+                      pendingResolvedImageSources = deliveredFocusedSources;
+                      hadSuccessfulHistoricalImageDelivery = true;
+
+                      console.log(
+                        '[Focused Visual Set] Reattached multi-image working set for descriptive selection',
+                        {
+                          discussionId,
+                          focusedSourceIds:
+                            visualContextState.focus_source_ids,
+                          deliveredCount: focusedAttachments.length,
+                        }
+                      );
+                    }
+                  }
+                }
+              } catch (focusedSetErr) {
+                console.warn(
+                  '[Focused Visual Set] Non-critical error reattaching focused image set:',
+                  focusedSetErr
+                );
+              }
+            }
+
             // Standalone Image Semantic Historical Retrieval (Phase 3B - ADDITIVE)
             if (
               !hasCurrentImages &&
@@ -2566,7 +2673,7 @@ export async function POST(req: NextRequest) {
                     promptUsesOrdinalImageSelector ||
                     isSemanticVisualQuery(prompt);
 
-                  // Gemini may visually choose Image N only from images actually attached to this
+                  // The active editing seat may visually choose Image N only from images actually attached to this
                   // call, and only after the USER has given a specific disambiguating description.
                   // The server still rejects a model-supplied index for vague prompts.
                   if (
@@ -2612,14 +2719,14 @@ export async function POST(req: NextRequest) {
                         }
                       } catch (visibleSelectionErr) {
                         console.warn(
-                          '[Gemini Image Editing] Non-critical canonical mapping failure for current-call visual selector:',
+                          '[Image Editing Resolver] Non-critical canonical mapping failure for current-call visual selector:',
                           visibleSelectionErr
                         );
                       }
                     }
 
                     console.log(
-                      '[Gemini Image Editing] Current-call visual selector resolved',
+                      '[Image Editing Resolver] Current-call visual selector resolved',
                       {
                         referenceIndex: editReferenceIndex,
                         visibleImageCount: currentVisualImages.length,
@@ -2672,7 +2779,7 @@ export async function POST(req: NextRequest) {
                       referenceImageLabel =
                         filenameMatches[0].filename || 'currently attached image';
                     } else {
-                      console.log('[Gemini Image Editing] Ambiguous current uploads', {
+                      console.log('[Image Editing Resolver] Ambiguous current uploads', {
                         currentUserImageCount: currentUserImages.length,
                         userPromptNamedMatchCount: filenameMatches.length,
                         modelSuppliedReference: editReference || null,
@@ -2736,7 +2843,7 @@ export async function POST(req: NextRequest) {
                           ];
 
                           console.log(
-                            '[Gemini Image Editing] Using focused continuation target',
+                            '[Image Editing Resolver] Using focused continuation target',
                             {
                               discussionId,
                               focusedSourceId,
@@ -2748,7 +2855,7 @@ export async function POST(req: NextRequest) {
                       }
                     } catch (focusedEditErr) {
                       console.warn(
-                        '[Gemini Image Editing] Focused continuation resolution failed:',
+                        '[Image Editing Resolver] Focused continuation resolution failed:',
                         focusedEditErr
                       );
                     }
@@ -2835,7 +2942,7 @@ export async function POST(req: NextRequest) {
                           'I need you to clarify which image you want me to edit.';
                       }
 
-                      console.log('[Gemini Image Editing] Reference resolution', {
+                      console.log('[Image Editing Resolver] Reference resolution', {
                         discussionId,
                         status: brokerResult.status,
                         reason: brokerResult.evidence?.reason,
