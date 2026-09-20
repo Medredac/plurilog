@@ -2458,7 +2458,11 @@ export async function POST(req: NextRequest) {
                       isStandaloneImageAttachment(att)
                   );
 
-                  const referenceText = editReference || prompt;
+                  // Canonical source selection must be grounded in what the USER actually
+                  // referenced. The model may paraphrase an edit target in editReference, but it
+                  // must never be allowed to invent a disambiguating filename/selector and thereby
+                  // silently choose among multiple candidate images.
+                  const referenceText = prompt;
                   const explicitlyHistoricalReference =
                     /\b(?:earlier|previous|generated|gemini|chatgpt|claude)\b/i.test(
                       referenceText
@@ -2472,7 +2476,7 @@ export async function POST(req: NextRequest) {
                     !explicitlyHistoricalReference &&
                     currentUserImages.length > 1
                   ) {
-                    const refLower = referenceText.toLowerCase();
+                    const refLower = prompt.toLowerCase();
                     const filenameMatches = currentUserImages.filter((att) => {
                       const filename = (att.filename || '').toLowerCase();
                       const base = filename
@@ -2489,6 +2493,11 @@ export async function POST(req: NextRequest) {
                       referenceImageLabel =
                         filenameMatches[0].filename || 'currently attached image';
                     } else {
+                      console.log('[Gemini Image Editing] Ambiguous current uploads', {
+                        currentUserImageCount: currentUserImages.length,
+                        userPromptNamedMatchCount: filenameMatches.length,
+                        modelSuppliedReference: editReference || null,
+                      });
                       editReferenceError =
                         'I need you to specify which currently attached image you want me to edit.';
                     }
