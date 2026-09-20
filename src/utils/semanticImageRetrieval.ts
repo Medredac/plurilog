@@ -39,8 +39,6 @@ export interface SemanticImageRetrievalOptions {
   signal?: AbortSignal;
   lastRoundEvidence?: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
-  minSimilarity?: number;
-  clearGap?: number;
 }
 
 export interface SemanticImageRetrievalResult {
@@ -351,9 +349,7 @@ export function isSemanticVisualQuery(prompt?: string | null): boolean {
  * Hard max: 2 candidates, preserving descending similarity order.
  */
 export function rankSemanticImageCandidates(
-  candidates: SemanticCandidateMatch[],
-  minSimilarity: number = SEMANTIC_IMAGE_MIN_SIMILARITY,
-  clearGap: number = SEMANTIC_IMAGE_CLEAR_GAP
+  candidates: SemanticCandidateMatch[]
 ): {
   selected: SemanticCandidateMatch[];
   topSimilarity: number;
@@ -382,7 +378,7 @@ export function rankSemanticImageCandidates(
   const c1 = valid[0];
   const s1 = c1.similarity;
 
-  if (s1 < minSimilarity) {
+  if (s1 < SEMANTIC_IMAGE_MIN_SIMILARITY) {
     return null;
   }
 
@@ -392,7 +388,7 @@ export function rankSemanticImageCandidates(
 
   let selected: SemanticCandidateMatch[] = [];
 
-  if (c2 && s2 !== null && s2 >= minSimilarity && (gap === null || gap < clearGap)) {
+  if (c2 && s2 !== null && s2 >= SEMANTIC_IMAGE_MIN_SIMILARITY && (gap === null || gap < SEMANTIC_IMAGE_CLEAR_GAP)) {
     selected = [c1, c2];
   } else {
     selected = [c1];
@@ -433,8 +429,6 @@ export async function retrieveSemanticImageCandidates(
     signal,
     lastRoundEvidence = [],
     recentEvidenceSets,
-    minSimilarity = SEMANTIC_IMAGE_MIN_SIMILARITY,
-    clearGap = SEMANTIC_IMAGE_CLEAR_GAP,
   } = options;
 
   if (!serviceSupabase || !discussionId || !prompt || !prompt.trim() || !openai) {
@@ -564,11 +558,7 @@ export async function retrieveSemanticImageCandidates(
     );
 
     // 5. Calibrated Semantic Ranking
-    const rankingResult = rankSemanticImageCandidates(
-      candidateMatches,
-      minSimilarity,
-      clearGap
-    );
+    const rankingResult = rankSemanticImageCandidates(candidateMatches);
 
     if (rankingResult && rankingResult.selected.length > 0) {
       const mappedSources: KnownImageSource[] = [];
