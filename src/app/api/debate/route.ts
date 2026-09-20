@@ -55,7 +55,12 @@ import {
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { getSeatCapabilities } from '@/data/seatCapabilities';
-import { generateGeminiImage, editGeminiImage } from '@/utils/openrouterImages';
+import {
+  generateGeminiImage,
+  generateChatGPTImage,
+  editGeminiImage,
+  editChatGPTImage,
+} from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import {
   mergeStreamingToolCalls,
@@ -164,8 +169,27 @@ export function isEvidenceRequestToolEnabled(): boolean {
 }
 
 export function isGeminiImageEditingEnabled(): boolean {
-  // Feature-gated Preview rollout; Production remains unchanged until explicitly enabled.
+  // Feature-gated rollout; Production remains unchanged until explicitly enabled.
   return process.env.GEMINI_IMAGE_EDITING_ENABLED === 'true';
+}
+
+export function isChatGPTImageGenerationEnabled(): boolean {
+  const configured = process.env.CHATGPT_IMAGE_GENERATION_ENABLED;
+  if (configured === 'true') return true;
+  if (configured === 'false') return false;
+
+  // Enable automatically on Vercel Preview so the feature can be tested without
+  // changing Production environment configuration.
+  return process.env.VERCEL_ENV === 'preview';
+}
+
+export function isChatGPTImageEditingEnabled(): boolean {
+  const configured = process.env.CHATGPT_IMAGE_EDITING_ENABLED;
+  if (configured === 'true') return true;
+  if (configured === 'false') return false;
+
+  // Preview-only rollout by default. Production remains unchanged until explicitly enabled.
+  return process.env.VERCEL_ENV === 'preview';
 }
 
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
@@ -1236,6 +1260,9 @@ export async function POST(req: NextRequest) {
           let visualContextState: DiscussionVisualContextState | null = null;
           let visualDeliveryMismatch: { requestedCount: number; deliveredCount: number } | null = null;
           let hadGeneratedImageInTurn = false;
+          // Track independent image outputs created by multiple seats for this one user turn.
+          // These must remain a shared visual working set after the round completes.
+          let sameRoundGeneratedSourceIds: string[] = [];
 
           // Identify current standalone image presence and persistent storage identity separately
           const currentImageAttachments = Array.isArray(attachments)
@@ -1717,6 +1744,113 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            // Multi-image focused working-set delivery for descriptive edit follow-ups.
+            // If the prior turn left multiple images focused and the user now identifies one
+            // by visual content, reattach that focused set so the active model can inspect the
+            // actual pixels and return a user-grounded reference_index. This preserves the
+            // conservative semantic thresholds and does not alter persistent memory.
+            if (
+              !hasCurrentImages &&
+              !hadSuccessfulHistoricalImageDelivery &&
+              (!visualAttachments || visualAttachments.length === 0) &&
+              prompt &&
+              prompt.trim() &&
+              isSemanticVisualQuery(prompt) &&
+              isPersistentVisualContextReadsEnabled() &&
+              visualContextState?.focus_source_ids &&
+              visualContextState.focus_source_ids.length > 1
+            ) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const knownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                  const focusedSources = visualContextState.focus_source_ids
+                    .map((sourceId) =>
+                      knownSources.find(
+                        (source) =>
+                          source.sourceId === sourceId &&
+                          Boolean(source.storagePath)
+                      )
+                    )
+                    .filter((source): source is KnownImageSource => Boolean(source));
+
+                  if (
+                    focusedSources.length ===
+                    visualContextState.focus_source_ids.length
+                  ) {
+                    const focusedAttachments: RouteAttachment[] = [];
+                    const deliveredFocusedSources: KnownImageSource[] = [];
+
+                    for (const src of focusedSources) {
+                      const { data: signedData, error: signErr } =
+                        await serviceClient.storage
+                          .from('message-images')
+                          .createSignedUrl(src.storagePath, 900);
+
+                      if (signErr || !signedData?.signedUrl) {
+                        console.warn(
+                          '[Focused Visual Set] Failed to sign focused image URL:',
+                          {
+                            sourceId: src.sourceId,
+                            storagePath: src.storagePath,
+                            error: signErr,
+                          }
+                        );
+                        continue;
+                      }
+
+                      let provenance: AttachmentProvenance | undefined;
+                      let creatorSeatId: string | undefined;
+                      if (src.sender) {
+                        const senderLower = src.sender.toLowerCase();
+                        if (
+                          ['gemini', 'chatgpt', 'claude'].includes(senderLower)
+                        ) {
+                          provenance = 'historical_assistant_generated';
+                          creatorSeatId = senderLower;
+                        } else if (senderLower === 'user') {
+                          provenance = 'historical_user_upload';
+                        }
+                      }
+
+                      focusedAttachments.push({
+                        url: signedData.signedUrl,
+                        filename: src.filename || 'image.jpg',
+                        provenance,
+                        creatorSeatId,
+                      });
+                      deliveredFocusedSources.push(src);
+                    }
+
+                    if (
+                      focusedAttachments.length === focusedSources.length &&
+                      focusedAttachments.length > 1
+                    ) {
+                      visualAttachments = focusedAttachments;
+                      pendingResolvedImageSources = deliveredFocusedSources;
+                      hadSuccessfulHistoricalImageDelivery = true;
+
+                      console.log(
+                        '[Focused Visual Set] Reattached multi-image working set for descriptive selection',
+                        {
+                          discussionId,
+                          focusedSourceIds:
+                            visualContextState.focus_source_ids,
+                          deliveredCount: focusedAttachments.length,
+                        }
+                      );
+                    }
+                  }
+                }
+              } catch (focusedSetErr) {
+                console.warn(
+                  '[Focused Visual Set] Non-critical error reattaching focused image set:',
+                  focusedSetErr
+                );
+              }
+            }
+
             // Standalone Image Semantic Historical Retrieval (Phase 3B - ADDITIVE)
             if (
               !hasCurrentImages &&
@@ -1882,10 +2016,23 @@ export async function POST(req: NextRequest) {
 
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
+            const isChatGPTImageEnabled =
+              seat.seatId === 'chatgpt' &&
+              getSeatCapabilities('chatgpt').imageGeneration === true &&
+              isChatGPTImageGenerationEnabled();
+            const isImageGenerationEnabledForSeat =
+              isGeminiImageEnabled || isChatGPTImageEnabled;
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
               getSeatCapabilities('gemini').imageEditing === true &&
               isGeminiImageEditingEnabled();
+            const isChatGPTImageEditingEnabledForSeat =
+              seat.seatId === 'chatgpt' &&
+              getSeatCapabilities('chatgpt').imageEditing === true &&
+              isChatGPTImageEditingEnabled();
+            const isImageEditingEnabledForSeat =
+              isGeminiImageEditingEnabledForSeat ||
+              isChatGPTImageEditingEnabledForSeat;
             const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
@@ -2023,8 +2170,8 @@ export async function POST(req: NextRequest) {
                       max_total_results: 6,
                     },
                   },
-                  ...(isGeminiImageEnabled ? GEMINI_IMAGE_TOOLS : []),
-                  ...(isGeminiImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
+                  ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
+                  ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(discussionId
@@ -2088,7 +2235,7 @@ export async function POST(req: NextRequest) {
               }
 
               // Route custom tool calls without wrapping the seat in a generic retry loop.
-              // Gemini image generation remains the existing terminal path; only request_evidence
+              // Image generation remains a terminal seat path; only request_evidence
               // gets one dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
@@ -2104,14 +2251,12 @@ export async function POST(req: NextRequest) {
                 const isGenerateImageCall =
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'generate_image' &&
-                  seat.seatId === 'gemini' &&
-                  isGeminiImageEnabled;
+                  isImageGenerationEnabledForSeat;
 
                 const isEditImageCall =
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'edit_image' &&
-                  seat.seatId === 'gemini' &&
-                  isGeminiImageEditingEnabledForSeat;
+                  isImageEditingEnabledForSeat;
 
                 const isEvidenceRequestCall =
                   finalizedCalls.length === 1 &&
@@ -2531,7 +2676,7 @@ export async function POST(req: NextRequest) {
                     promptUsesOrdinalImageSelector ||
                     isSemanticVisualQuery(prompt);
 
-                  // Gemini may visually choose Image N only from images actually attached to this
+                  // The active editing seat may visually choose Image N only from images actually attached to this
                   // call, and only after the USER has given a specific disambiguating description.
                   // The server still rejects a model-supplied index for vague prompts.
                   if (
@@ -2577,14 +2722,14 @@ export async function POST(req: NextRequest) {
                         }
                       } catch (visibleSelectionErr) {
                         console.warn(
-                          '[Gemini Image Editing] Non-critical canonical mapping failure for current-call visual selector:',
+                          '[Image Editing Resolver] Non-critical canonical mapping failure for current-call visual selector:',
                           visibleSelectionErr
                         );
                       }
                     }
 
                     console.log(
-                      '[Gemini Image Editing] Current-call visual selector resolved',
+                      '[Image Editing Resolver] Current-call visual selector resolved',
                       {
                         referenceIndex: editReferenceIndex,
                         visibleImageCount: currentVisualImages.length,
@@ -2637,7 +2782,7 @@ export async function POST(req: NextRequest) {
                       referenceImageLabel =
                         filenameMatches[0].filename || 'currently attached image';
                     } else {
-                      console.log('[Gemini Image Editing] Ambiguous current uploads', {
+                      console.log('[Image Editing Resolver] Ambiguous current uploads', {
                         currentUserImageCount: currentUserImages.length,
                         userPromptNamedMatchCount: filenameMatches.length,
                         modelSuppliedReference: editReference || null,
@@ -2701,7 +2846,7 @@ export async function POST(req: NextRequest) {
                           ];
 
                           console.log(
-                            '[Gemini Image Editing] Using focused continuation target',
+                            '[Image Editing Resolver] Using focused continuation target',
                             {
                               discussionId,
                               focusedSourceId,
@@ -2713,7 +2858,7 @@ export async function POST(req: NextRequest) {
                       }
                     } catch (focusedEditErr) {
                       console.warn(
-                        '[Gemini Image Editing] Focused continuation resolution failed:',
+                        '[Image Editing Resolver] Focused continuation resolution failed:',
                         focusedEditErr
                       );
                     }
@@ -2800,7 +2945,7 @@ export async function POST(req: NextRequest) {
                           'I need you to clarify which image you want me to edit.';
                       }
 
-                      console.log('[Gemini Image Editing] Reference resolution', {
+                      console.log('[Image Editing Resolver] Reference resolution', {
                         discussionId,
                         status: brokerResult.status,
                         reason: brokerResult.evidence?.reason,
@@ -2852,8 +2997,10 @@ export async function POST(req: NextRequest) {
                     } else {
                       imageToolBranchActive = true;
 
+                      const imageEditProviderLabel =
+                        seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
                       console.log(
-                        '[Gemini Image Editing] Executing editGeminiImage:',
+                        `[${imageEditProviderLabel} Image Editing] Executing image edit:`,
                         {
                           seatId: seat.seatId,
                           instructionLength: editInstruction.length,
@@ -2863,15 +3010,22 @@ export async function POST(req: NextRequest) {
                         }
                       );
 
-                      const imageResult = await editGeminiImage({
-                        prompt: editInstruction,
-                        referenceImageUrl,
-                        signal: req.signal,
-                      });
+                      const imageResult =
+                        seat.seatId === 'chatgpt'
+                          ? await editChatGPTImage({
+                              prompt: editInstruction,
+                              referenceImageUrl,
+                              signal: req.signal,
+                            })
+                          : await editGeminiImage({
+                              prompt: editInstruction,
+                              referenceImageUrl,
+                              signal: req.signal,
+                            });
 
                       incurredImageCostUsd = imageResult.costUsd;
                       console.log(
-                        '[Gemini Image Editing] Incurred provider cost:',
+                        `[${imageEditProviderLabel} Image Editing] Incurred provider cost:`,
                         {
                           costUsd: imageResult.costUsd,
                           model: imageResult.model,
@@ -2959,7 +3113,7 @@ export async function POST(req: NextRequest) {
                         supabase,
                         discussionId: discussionId || '',
                         messageId: persistedMsg?.id || messageId,
-                        seatId: 'gemini',
+                        seatId: seat.seatId,
                         b64Json: imageResult.b64Json,
                         mediaType: imageResult.mediaType,
                       });
@@ -3066,7 +3220,7 @@ export async function POST(req: NextRequest) {
                         url: persistedImage.signedUrl,
                         filename: persistedImage.filename,
                         provenance: 'same_round_assistant_generated',
-                        creatorSeatId: 'gemini',
+                        creatorSeatId: seat.seatId,
                       });
 
                       const textCostUsd =
@@ -3174,17 +3328,25 @@ export async function POST(req: NextRequest) {
                   // Fall through to normal text message persistence below
                 } else {
                   // 3. Provider Execution
-                  console.log('[Gemini Image Generation] Executing generateGeminiImage:', {
+                  const imageProviderLabel =
+                    seat.seatId === 'chatgpt' ? 'ChatGPT' : 'Gemini';
+                  console.log(`[${imageProviderLabel} Image Generation] Executing image generation:`, {
                     seatId: seat.seatId,
                     promptLength: toolPrompt.length,
                   });
-                  const imageResult = await generateGeminiImage({
-                    prompt: toolPrompt,
-                    signal: req.signal,
-                  });
+                  const imageResult =
+                    seat.seatId === 'chatgpt'
+                      ? await generateChatGPTImage({
+                          prompt: toolPrompt,
+                          signal: req.signal,
+                        })
+                      : await generateGeminiImage({
+                          prompt: toolPrompt,
+                          signal: req.signal,
+                        });
 
                   incurredImageCostUsd = imageResult.costUsd;
-                  console.log('[Gemini Image Generation] Incurred provider cost:', {
+                  console.log(`[${imageProviderLabel} Image Generation] Incurred provider cost:`, {
                     costUsd: imageResult.costUsd,
                     model: imageResult.model,
                   });
@@ -3264,7 +3426,7 @@ export async function POST(req: NextRequest) {
                     supabase,
                     discussionId: discussionId || '',
                     messageId: persistedMsg?.id || messageId,
-                    seatId: 'gemini',
+                    seatId: seat.seatId,
                     b64Json: imageResult.b64Json,
                     mediaType: imageResult.mediaType,
                   });
@@ -3292,7 +3454,21 @@ export async function POST(req: NextRequest) {
                       if (isPersistentVisualContextWritesEnabled() && genIngestResult?.ingestedSourceIds && genIngestResult.ingestedSourceIds.length > 0) {
                         try {
                           const latestKnownSources = await fetchKnownImageSources(serviceClient, discussionId);
+                          const priorSameRoundGeneratedSourceIds = [...sameRoundGeneratedSourceIds];
                           let transitionReferentSourceIds = (pendingResolvedImageSources || []).map((s) => s.sourceId);
+
+                          // A second (or later) image generator in the same user turn is producing
+                          // a parallel result, not starting an unrelated visual task. Preserve all
+                          // earlier same-round generated outputs as the active/focused comparison set.
+                          if (priorSameRoundGeneratedSourceIds.length > 0) {
+                            transitionReferentSourceIds = Array.from(
+                              new Set([
+                                ...transitionReferentSourceIds,
+                                ...priorSameRoundGeneratedSourceIds,
+                              ])
+                            );
+                          }
+
                           // In shadow writes mode (reads=false), if pendingResolvedImageSources is empty, check if prompt referenced persistent context
                           if (transitionReferentSourceIds.length === 0 && visualContextState) {
                             const shadowResolved = resolveImageEvidence({
@@ -3314,13 +3490,22 @@ export async function POST(req: NextRequest) {
                             {
                               resolvedReferentSourceIds: transitionReferentSourceIds,
                               newArtifactSourceIds: genIngestResult.ingestedSourceIds,
-                              isComparison: false,
+                              isComparison: priorSameRoundGeneratedSourceIds.length > 0,
                               knownSources: latestKnownSources,
                             }
                           );
+
+                          sameRoundGeneratedSourceIds = Array.from(
+                            new Set([
+                              ...sameRoundGeneratedSourceIds,
+                              ...genIngestResult.ingestedSourceIds,
+                            ])
+                          );
+
                           console.log('[Visual Context: Assistant Generation Transition]', {
                             discussionId,
                             newSources: genIngestResult.ingestedSourceIds,
+                            sameRoundGeneratedSources: sameRoundGeneratedSourceIds,
                             activeSourceCount: visualContextState?.active_session_source_ids?.length || 0,
                             focusSourceCount: visualContextState?.focus_source_ids?.length || 0,
                           });
@@ -3355,7 +3540,7 @@ export async function POST(req: NextRequest) {
                     url: persistedImage.signedUrl,
                     filename: persistedImage.filename,
                     provenance: 'same_round_assistant_generated',
-                    creatorSeatId: 'gemini',
+                    creatorSeatId: seat.seatId,
                   });
 
                   // 9. Billing — Exactly Once

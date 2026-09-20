@@ -4939,7 +4939,9 @@ export function parseRequestedVisualSet(prompt?: string | null): ParsedRequested
     /\bwhat\s+(?:changed|is\s+different|differs)\s+between\s+them\b/i.test(pLower) ||
     /\bwhat\s+are\s+the\s+differences\s+between\s+them\b/i.test(pLower) ||
     /\bare\s+they\s+(?:all\s+)?(?:identical|the\s+same|different|alike)\b/i.test(pLower) ||
-    /\bwhich\s+one\s+changed\s+(?:the\s+)?most\b/i.test(pLower);
+    /\bwhich\s+one\s+changed\s+(?:the\s+)?most\b/i.test(pLower) ||
+    /\bwhich\s+one\s+(?:do\s+you\s+)?(?:prefer|like|choose|pick)\b/i.test(pLower) ||
+    /\bwhich\s+one\s+(?:is|looks)\s+(?:better|best|stronger|more\s+successful)\b/i.test(pLower);
 
   if (isPronounSetQuery) {
     return { mode: 'INHERIT' };
