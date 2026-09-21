@@ -1823,6 +1823,9 @@ export async function POST(req: NextRequest) {
                       const renderedPages = await materializeDocxRenderedPageAttachments({
                         supabase,
                         serviceClient,
+                        discussionId,
+                        sourceUserMessageId,
+                        signal: req.signal,
                         storagePath: resolvedDoc.storagePath,
                         filename: resolvedDoc.filename,
                       });
