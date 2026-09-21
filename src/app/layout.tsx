@@ -76,6 +76,31 @@ const jsonLd = {
         height: 512,
       },
     },
+    {
+      "@type": "WebApplication",
+      "@id": "https://plurilogai.com/#app",
+      name: "Plurilog",
+      alternateName: "Plurilog AI",
+      url: "https://plurilogai.com/",
+      applicationCategory: "ProductivityApplication",
+      operatingSystem: "Web",
+      browserRequirements: "Requires JavaScript and a modern web browser.",
+      description:
+        "A multi-AI panel that brings ChatGPT, Claude and Gemini into one shared conversation with persistent context, document and image analysis, and supported image generation and editing.",
+      image: "https://plurilogai.com/opengraph-image.png",
+      publisher: {
+        "@id": "https://plurilogai.com/#organization",
+      },
+      featureList: [
+        "ChatGPT, Claude and Gemini in one shared conversation",
+        "Cross-model comparison and discussion",
+        "Persistent shared conversation context",
+        "PDF, DOCX, image and text-file analysis",
+        "ChatGPT and Gemini image generation and editing",
+        "Web search for current information",
+        "Voice dictation",
+      ],
+    },
   ],
 };
 
