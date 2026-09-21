@@ -97,6 +97,8 @@ export async function persistDocxEmbeddedImages(
         upsert: false,
       });
 
+    const createdNewObject = !uploadError;
+
     if (
       uploadError &&
       !/already exists|duplicate/i.test(uploadError.message || '')
@@ -119,6 +121,17 @@ export async function persistDocxEmbeddedImages(
         imageIndex: image.index,
         error: signError?.message || 'Unknown signing error',
       });
+      if (createdNewObject) {
+        const { error: cleanupError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .remove([storagePath]);
+        if (cleanupError) {
+          console.warn('[DOCX Visual] Failed to clean unsigned embedded image:', {
+            storagePath,
+            error: cleanupError.message,
+          });
+        }
+      }
       continue;
     }
 
