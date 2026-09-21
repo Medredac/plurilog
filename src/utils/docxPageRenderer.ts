@@ -19,6 +19,16 @@ export interface RenderDocxPagesResult {
   elapsedMs: number;
 }
 
+export interface RenderDocxPagesOptions {
+  snapshotId?: string | null;
+}
+
+export interface CreateDocxRendererSnapshotResult {
+  snapshotId: string;
+  libreOfficeVersion: string;
+  elapsedMs: number;
+}
+
 async function assertCommandSucceeded(
   result: Awaited<ReturnType<InstanceType<typeof Sandbox>['runCommand']>>,
   label: string
@@ -156,6 +166,38 @@ export async function installDocxRendererDependencies(
   return { libreOfficePath };
 }
 
+export async function createDocxRendererSnapshot(): Promise<CreateDocxRendererSnapshotResult> {
+  const startedAt = Date.now();
+  const sandbox = await Sandbox.create({
+    persistent: false,
+    timeout: 5 * 60 * 1000,
+    networkPolicy: 'allow-all',
+  });
+  let snapshotted = false;
+
+  try {
+    const { libreOfficePath } = await installDocxRendererDependencies(sandbox);
+    const version = await sandbox.runCommand({
+      cmd: libreOfficePath,
+      args: ['--version'],
+    });
+    await assertCommandSucceeded(version, 'LibreOffice version check');
+
+    const snapshot = await sandbox.snapshot({ expiration: 0 });
+    snapshotted = true;
+
+    return {
+      snapshotId: snapshot.snapshotId,
+      libreOfficeVersion: (await version.stdout()).trim(),
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    if (!snapshotted) {
+      await sandbox.stop().catch(() => undefined);
+    }
+  }
+}
+
 /**
  * Renders a DOCX into bounded PNG page images inside Vercel Sandbox.
  *
@@ -165,7 +207,8 @@ export async function installDocxRendererDependencies(
  * in a fresh sandbox so the pipeline remains testable.
  */
 export async function renderDocxPages(
-  fileBytes: Buffer
+  fileBytes: Buffer,
+  options: RenderDocxPagesOptions = {}
 ): Promise<RenderDocxPagesResult> {
   if (!Buffer.isBuffer(fileBytes) || fileBytes.length === 0) {
     throw new Error('DOCX renderer requires non-empty file bytes.');
@@ -177,7 +220,9 @@ export async function renderDocxPages(
   }
 
   const startedAt = Date.now();
-  const snapshotId = process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
+  const snapshotId =
+    options.snapshotId?.trim() ||
+    process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
 
   const sandbox = snapshotId
