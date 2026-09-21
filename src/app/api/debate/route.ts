@@ -45,6 +45,7 @@ import {
   isPersistentVisualContextReadsEnabled,
 } from '@/utils/discussionMemory';
 import { parseDocx } from '@/utils/docxParser';
+import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { parseTextFile, isTextFileUrl, isTextFileName } from '@/utils/textFileParser';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
@@ -1212,6 +1213,7 @@ export async function POST(req: NextRequest) {
           }[] = [];
 
           let currentTurnDocuments: { filename: string; content: string }[] = [];
+          const docxEmbeddedImageAttachments: RouteAttachment[] = [];
 
           if (attachments && attachments.length > 0) {
             const documentAttachments = attachments.filter((att: any) => {
@@ -1268,6 +1270,36 @@ export async function POST(req: NextRequest) {
                       if (isDocx) {
                         const parsed = await parseDocx(fileBuffer);
                         parsedMarkdown = parsed?.markdown || '';
+
+                        if (parsed?.embeddedImages?.length) {
+                          try {
+                            const persistedEmbeddedImages = await persistDocxEmbeddedImages({
+                              supabase,
+                              parentFilename: docFilename,
+                              parentFileBytes: fileBuffer,
+                              images: parsed.embeddedImages,
+                            });
+
+                            for (const embedded of persistedEmbeddedImages) {
+                              docxEmbeddedImageAttachments.push({
+                                url: embedded.signedUrl,
+                                filename: embedded.filename,
+                                provenance: 'current_user_upload',
+                              });
+                            }
+
+                            console.log('[DOCX Visual] Materialized embedded images for current turn:', {
+                              filename: docFilename,
+                              extractedCount: parsed.embeddedImages.length,
+                              materializedCount: persistedEmbeddedImages.length,
+                            });
+                          } catch (embeddedErr) {
+                            console.warn(
+                              '[DOCX Visual] Non-critical embedded image materialization error:',
+                              embeddedErr
+                            );
+                          }
+                        }
                       } else {
                         const parsed = await parseTextFile(fileBuffer, docFilename);
                         parsedMarkdown = parsed?.markdown || '';
@@ -1392,12 +1424,16 @@ export async function POST(req: NextRequest) {
           // These must remain a shared visual working set after the round completes.
           let sameRoundGeneratedSourceIds: string[] = [];
 
-          // Identify current standalone image presence and persistent storage identity separately
-          const currentImageAttachments = Array.isArray(attachments)
-            ? attachments
-                .map((att: any, attachmentIndex: number) => ({ att, attachmentIndex }))
-                .filter(({ att }) => isImageUrl(att?.url))
-            : [];
+          // Identify every current visual source, including images embedded inside DOCX files.
+          // Embedded images are hidden transport/evidence assets, not extra user-facing message attachments.
+          const currentArtifactAttachments: RouteAttachment[] = [
+            ...(Array.isArray(attachments) ? attachments : []),
+            ...docxEmbeddedImageAttachments,
+          ];
+
+          const currentImageAttachments = currentArtifactAttachments
+            .map((att: any, attachmentIndex: number) => ({ att, attachmentIndex }))
+            .filter(({ att }) => isImageUrl(att?.url));
 
           const hasCurrentImages = currentImageAttachments.length > 0;
 
@@ -2096,13 +2132,16 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          const userAttachments: RouteAttachment[] = Array.isArray(attachments)
-            ? attachments.map((att: any) => ({
-                url: att.url,
-                filename: att.filename,
-                provenance: 'current_user_upload' as const,
-              }))
-            : [];
+          const userAttachments: RouteAttachment[] = [
+            ...(Array.isArray(attachments)
+              ? attachments.map((att: any) => ({
+                  url: att.url,
+                  filename: att.filename,
+                  provenance: 'current_user_upload' as const,
+                }))
+              : []),
+            ...docxEmbeddedImageAttachments,
+          ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
             ? [
@@ -4251,7 +4290,7 @@ export async function POST(req: NextRequest) {
                     const uploadIngestResult = await ingestDiscussionArtifacts({
                       serviceSupabase: serviceClient,
                       discussionId,
-                      attachments,
+                      attachments: currentArtifactAttachments,
                       sourceUserMessageId,
                       signal: req.signal,
                     });
@@ -4366,7 +4405,7 @@ export async function POST(req: NextRequest) {
                         serviceSupabase: serviceClient,
                         openai,
                         discussionId,
-                        attachments,
+                        attachments: currentArtifactAttachments,
                         signal: req.signal,
                       });
                     } catch (indexErr) {
