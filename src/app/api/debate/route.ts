@@ -62,9 +62,8 @@ import {
   editChatGPTImage,
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
-import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
-import { renderDocx } from '@/utils/docxWriter';
-import type { StructuredDocxInput } from '@/utils/docxWriter';
+import { executeClaudeDocumentCreation } from '@/utils/claudeDocumentCreation';
+import type { ClaudeCreateFileArgs } from '@/utils/claudeDocumentCreation';
 import {
   mergeStreamingToolCalls,
   finalizeAllToolCalls,
@@ -2143,6 +2142,8 @@ export async function POST(req: NextRequest) {
             let spendRecorded = false;
             let imageToolBranchActive = false;
             let evidenceToolBranchActive = false;
+            let documentToolBranchActive = false;
+            let incurredDocumentCallCostUsd = 0;
             const bufferedSeatChunks: string[] = [];
 
             sendEvent('seat_start', {
@@ -2375,7 +2376,7 @@ export async function POST(req: NextRequest) {
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
-                  if (isEvidenceEnabledForSeat) {
+                  if (isEvidenceEnabledForSeat || isDocumentCreationEnabledForSeat) {
                     bufferedSeatChunks.push(text);
                   } else {
                     sendEvent('seat_chunk', {
@@ -2392,7 +2393,7 @@ export async function POST(req: NextRequest) {
               }
 
               // Route custom tool calls without wrapping the seat in a generic retry loop.
-              // Image generation remains a terminal seat path; only request_evidence
+              // Image generation and file creation are terminal seat paths; only request_evidence
               // gets one dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
@@ -2419,6 +2420,77 @@ export async function POST(req: NextRequest) {
                   finalizedCalls.length === 1 &&
                   finalizedCalls[0]?.name === 'request_evidence' &&
                   isEvidenceEnabledForSeat;
+
+                const isCreateFileCall =
+                  finalizedCalls.length === 1 &&
+                  finalizedCalls[0]?.name === 'create_file' &&
+                  isDocumentCreationEnabledForSeat;
+
+                if (isCreateFileCall) {
+                  documentToolBranchActive = true;
+                  incurredDocumentCallCostUsd =
+                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'creating_document',
+                  });
+
+                  const fileCall = finalizedCalls[0];
+                  const documentResult = await executeClaudeDocumentCreation({
+                    supabase,
+                    openai,
+                    discussionId: discussionId || '',
+                    messageId,
+                    seatId: seat.seatId,
+                    args: (fileCall.arguments || {}) as ClaudeCreateFileArgs,
+                    signal: req.signal,
+                  });
+
+                  // Make Claude-created content primary evidence for later seats in the same round.
+                  currentTurnDocuments.push({
+                    filename: documentResult.filename,
+                    content: documentResult.fullText,
+                  });
+                  currentRoundAttachments.push({
+                    url: documentResult.signedUrl,
+                    filename: documentResult.filename,
+                  });
+
+                  const costCents = incurredDocumentCallCostUsd * 100;
+                  if (costCents > 0) {
+                    const { error: spendError } = await supabase.rpc('spend_credits', {
+                      p_cents: costCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        documentCreation: true,
+                        format: 'docx',
+                      },
+                    });
+                    if (spendError) {
+                      throw new Error('Failed to record document creation usage.');
+                    }
+                    spendRecorded = true;
+                  }
+
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: respondingModel,
+                    content: documentResult.finalContent,
+                    messageId: documentResult.messageId,
+                    createdAt: documentResult.createdAt,
+                    attachment_urls: [documentResult.durableUrl],
+                  });
+
+                  priorResponses.push({
+                    name: seat.name,
+                    response: documentResult.finalContent,
+                  });
+
+                  continue seatLoop;
+                }
 
                 if (isEvidenceRequestCall) {
                   evidenceToolBranchActive = true;
@@ -3780,8 +3852,11 @@ export async function POST(req: NextRequest) {
                 }
 
                 }
-              } else if (isEvidenceEnabledForSeat && bufferedSeatChunks.length > 0) {
-                // No evidence tool call: release the buffered first-pass response unchanged.
+              } else if (
+                (isEvidenceEnabledForSeat || isDocumentCreationEnabledForSeat) &&
+                bufferedSeatChunks.length > 0
+              ) {
+                // No custom tool call: release the buffered first-pass response unchanged.
                 for (const chunkText of bufferedSeatChunks) {
                   sendEvent('seat_chunk', {
                     seatId: seat.seatId,
@@ -3952,6 +4027,31 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted || err?.name === 'AbortError') {
                 safeClose();
                 return;
+              }
+
+              if (
+                documentToolBranchActive &&
+                !spendRecorded &&
+                incurredDocumentCallCostUsd > 0
+              ) {
+                try {
+                  await supabase.rpc('spend_credits', {
+                    p_cents: incurredDocumentCallCostUsd * 100,
+                    p_model: respondingModel,
+                    p_discussion_id: discussionId || null,
+                    p_meta: {
+                      seatId: seat.seatId,
+                      documentCreation: true,
+                      failedAfterToolCall: true,
+                    },
+                  });
+                  spendRecorded = true;
+                } catch (documentSpendErr) {
+                  console.error(
+                    '[Spend Tracking] Failed to record document-tool cost after failure:',
+                    documentSpendErr
+                  );
+                }
               }
 
               // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
