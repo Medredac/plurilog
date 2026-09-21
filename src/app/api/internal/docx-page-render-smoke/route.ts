@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { renderDocx } from '@/utils/docxWriter';
-import { renderDocxPages } from '@/utils/docxPageRenderer';
+import {
+  createDocxRendererSnapshot,
+  renderDocxPages,
+} from '@/utils/docxPageRenderer';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-export async function GET() {
+export async function GET(request: Request) {
   if (process.env.VERCEL_ENV !== 'preview') {
     return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
@@ -20,12 +23,33 @@ export async function GET() {
       },
       {
         type: 'paragraph',
-        text: Array.from({ length: 70 }, (_, i) => `Line ${i + 1}: rendered layout verification.`).join('\n'),
+        text: Array.from(
+          { length: 70 },
+          (_, i) => `Line ${i + 1}: rendered layout verification.`
+        ).join('\n'),
       },
     ],
   });
 
-  const rendered = await renderDocxPages(fixture.buffer);
+  const url = new URL(request.url);
+  const shouldBuildSnapshot = url.searchParams.get('snapshot') === '1';
+
+  let snapshotId: string | null = null;
+  let snapshotBuildElapsedMs: number | null = null;
+  let libreOfficeVersion: string | null = null;
+
+  if (shouldBuildSnapshot) {
+    const snapshot = await createDocxRendererSnapshot();
+    snapshotId = snapshot.snapshotId;
+    snapshotBuildElapsedMs = snapshot.elapsedMs;
+    libreOfficeVersion = snapshot.libreOfficeVersion;
+  }
+
+  const rendered = await renderDocxPages(
+    fixture.buffer,
+    snapshotId ? { snapshotId } : undefined
+  );
+
   const signatures = rendered.pages.map((page) => ({
     pageNumber: page.pageNumber,
     byteSize: page.data.length,
@@ -38,6 +62,8 @@ export async function GET() {
     truncated: rendered.truncated,
     usedSnapshot: rendered.usedSnapshot,
     elapsedMs: rendered.elapsedMs,
+    snapshotId,
+    snapshotBuildElapsedMs,
     signatures,
   });
 
@@ -48,6 +74,9 @@ export async function GET() {
     truncated: rendered.truncated,
     usedSnapshot: rendered.usedSnapshot,
     elapsedMs: rendered.elapsedMs,
+    snapshotId,
+    snapshotBuildElapsedMs,
+    libreOfficeVersion,
     signatures,
   });
 }
