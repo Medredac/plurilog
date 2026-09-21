@@ -2711,7 +2711,7 @@ export async function ingestParsedDocument(
 export interface IngestArtifactsOptions {
   serviceSupabase: SupabaseClient;
   discussionId: string;
-  attachments?: { url: string; filename: string }[] | null;
+  attachments?: { url: string; filename?: string }[] | null;
   sourceUserMessageId?: string | null;
   signal?: AbortSignal;
 }
