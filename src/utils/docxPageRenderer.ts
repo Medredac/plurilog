@@ -69,7 +69,6 @@ export async function renderDocxPages(
         networkPolicy: 'allow-all',
       })
     : await Sandbox.create({
-        runtime: 'node24',
         persistent: false,
         timeout: 5 * 60 * 1000,
         networkPolicy: 'allow-all',
