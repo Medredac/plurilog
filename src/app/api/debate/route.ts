@@ -33,6 +33,7 @@ import {
   isVisualEvidenceQuery,
   isVerificationFollowUpQuery,
   resolveVisualDocument,
+  resolveVisualDocxDocument,
   isImageUrl,
   KnownImageSource,
   MessageVisualEvidenceItem,
@@ -527,6 +528,54 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   }
   return `File: ${cleanName}`;
 }
+
+async function materializeDocxRenderedPageAttachments(options: {
+  supabase: any;
+  serviceClient: any;
+  storagePath: string;
+  filename: string;
+}): Promise<RouteAttachment[]> {
+  const { supabase, serviceClient, storagePath, filename } = options;
+
+  const { data: fileBlob, error: downloadError } = await serviceClient.storage
+    .from('message-images')
+    .download(storagePath);
+
+  if (downloadError || !fileBlob) {
+    throw new Error(
+      `Could not download DOCX for visual rendering: ${
+        downloadError?.message || 'missing storage object'
+      }`
+    );
+  }
+
+  const fileBytes = Buffer.from(await fileBlob.arrayBuffer());
+  const rendered = await renderDocxPages(fileBytes);
+  const persistedPages = await persistDocxRenderedPages({
+    supabase,
+    parentFilename: filename,
+    parentFileBytes: fileBytes,
+    pages: rendered.pages,
+  });
+
+  console.log('[DOCX Visual] Materialized historical DOCX pages:', {
+    filename,
+    storagePath,
+    renderedPageCount: rendered.pages.length,
+    persistedPageCount: persistedPages.length,
+    totalPageCount: rendered.totalPageCount,
+    truncated: rendered.truncated,
+    usedSnapshot: rendered.usedSnapshot,
+    elapsedMs: rendered.elapsedMs,
+  });
+
+  return persistedPages.map((page) => ({
+    url: page.signedUrl,
+    filename: page.filename,
+    provenance: 'current_document_render' as const,
+  }));
+}
+
 
 export function buildPanelMessages(
   currentModelName: string,
