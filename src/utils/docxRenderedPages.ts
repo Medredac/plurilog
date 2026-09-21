@@ -83,6 +83,8 @@ export async function persistDocxRenderedPages(
         upsert: false,
       });
 
+    const createdNewObject = !uploadError;
+
     if (uploadError && !/already exists|duplicate/i.test(uploadError.message || '')) {
       console.warn('[DOCX Visual] Rendered page upload failed:', {
         parentFilename,
@@ -102,6 +104,17 @@ export async function persistDocxRenderedPages(
         pageNumber: page.pageNumber,
         error: signError?.message || 'Unknown signing error',
       });
+      if (createdNewObject) {
+        const { error: cleanupError } = await supabase.storage
+          .from(STORAGE_BUCKET)
+          .remove([storagePath]);
+        if (cleanupError) {
+          console.warn('[DOCX Visual] Failed to clean unsigned rendered page:', {
+            storagePath,
+            error: cleanupError.message,
+          });
+        }
+      }
       continue;
     }
 
