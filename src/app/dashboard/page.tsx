@@ -871,55 +871,78 @@ export default function DashboardPage() {
     }
 
     try {
-      // Find and delete any attached files (images & PDFs) in storage for this discussion
-      const { data: attachmentMessages, error: attachmentFetchErr } = await supabase
-        .from('messages')
-        .select('image_url, attachment_urls')
-        .eq('discussion_id', id);
+      // Delete every storage object owned by this discussion, including hidden
+      // derived assets such as images extracted from DOCX files.
+      const [
+        { data: attachmentMessages, error: attachmentFetchErr },
+        { data: artifactSources, error: artifactSourceFetchErr },
+        { data: documentSources, error: documentSourceFetchErr },
+      ] = await Promise.all([
+        supabase
+          .from('messages')
+          .select('image_url, attachment_urls')
+          .eq('discussion_id', id),
+        supabase
+          .from('discussion_artifact_sources')
+          .select('storage_path')
+          .eq('discussion_id', id),
+        supabase
+          .from('discussion_document_sources')
+          .select('storage_path')
+          .eq('discussion_id', id),
+      ]);
 
-      console.log(`[Attachment Cleanup] Found ${attachmentMessages?.length || 0} messages to inspect for discussion ${id}`);
+      console.log(
+        `[Attachment Cleanup] Found ${attachmentMessages?.length || 0} messages, ${artifactSources?.length || 0} artifact sources, and ${documentSources?.length || 0} document sources for discussion ${id}`
+      );
 
       if (attachmentFetchErr) {
-        console.error('[Supabase Error] Error fetching attachments for discussion deletion:', attachmentFetchErr, { discussion_id: id });
-      } else if (attachmentMessages && attachmentMessages.length > 0) {
+        console.error('[Supabase Error] Error fetching message attachments for discussion deletion:', attachmentFetchErr, { discussion_id: id });
+      }
+      if (artifactSourceFetchErr) {
+        console.error('[Supabase Error] Error fetching artifact sources for discussion deletion:', artifactSourceFetchErr, { discussion_id: id });
+      }
+      if (documentSourceFetchErr) {
+        console.error('[Supabase Error] Error fetching document sources for discussion deletion:', documentSourceFetchErr, { discussion_id: id });
+      }
+
+      const filePaths = new Set<string>();
+
+      for (const row of attachmentMessages || []) {
         const rawUrls: string[] = [];
-        for (const row of attachmentMessages) {
-          if (row.image_url) {
-            rawUrls.push(row.image_url);
-          }
-          if (Array.isArray(row.attachment_urls)) {
-            for (const url of row.attachment_urls) {
-              if (url) {
-                rawUrls.push(url);
-              }
-            }
-          }
+        if (row.image_url) rawUrls.push(row.image_url);
+        if (Array.isArray(row.attachment_urls)) {
+          rawUrls.push(...row.attachment_urls.filter(Boolean));
         }
 
-        const filePaths: string[] = [];
         for (const url of rawUrls) {
           const bucketIndex = url.indexOf('message-images/');
-          if (bucketIndex !== -1) {
-            const rawPath = url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
-            const decodedPath = decodeURIComponent(rawPath);
-            if (decodedPath && !filePaths.includes(decodedPath)) {
-              filePaths.push(decodedPath);
-            }
-          }
+          if (bucketIndex === -1) continue;
+          const rawPath = url.slice(bucketIndex + 'message-images/'.length).split('?')[0];
+          const decodedPath = decodeURIComponent(rawPath);
+          if (decodedPath) filePaths.add(decodedPath);
         }
+      }
 
-        console.log('[Attachment Cleanup] Extracted file paths:', filePaths);
+      for (const source of artifactSources || []) {
+        if (source.storage_path) filePaths.add(source.storage_path);
+      }
+      for (const source of documentSources || []) {
+        if (source.storage_path) filePaths.add(source.storage_path);
+      }
 
-        if (filePaths.length > 0) {
-          const { data: storageRemoveData, error: storageRemoveErr } = await supabase.storage
-            .from('message-images')
-            .remove(filePaths);
+      const pathsToDelete = Array.from(filePaths);
+      console.log('[Attachment Cleanup] Extracted file paths:', pathsToDelete);
 
-          console.log('[Attachment Cleanup] Storage remove() returned:', storageRemoveData);
+      if (pathsToDelete.length > 0) {
+        const { data: storageRemoveData, error: storageRemoveErr } = await supabase.storage
+          .from('message-images')
+          .remove(pathsToDelete);
 
-          if (storageRemoveErr) {
-            console.error('[Supabase Error] Error removing discussion attachments from storage:', storageRemoveErr, { filePaths });
-          }
+        console.log('[Attachment Cleanup] Storage remove() returned:', storageRemoveData);
+
+        if (storageRemoveErr) {
+          console.error('[Supabase Error] Error removing discussion attachments from storage:', storageRemoveErr, { filePaths: pathsToDelete });
         }
       }
 
