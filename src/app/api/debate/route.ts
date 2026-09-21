@@ -78,6 +78,9 @@ import {
   toModelSafeBrokerResult,
 } from '@/utils/resourceBroker';
 
+export const runtime = 'nodejs';
+export const maxDuration = 300;
+
 export const GEMINI_IMAGE_TOOLS = [
   {
     type: 'function',
