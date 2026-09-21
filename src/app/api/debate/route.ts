@@ -532,10 +532,21 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
 async function materializeDocxRenderedPageAttachments(options: {
   supabase: any;
   serviceClient: any;
+  discussionId: string;
+  sourceUserMessageId?: string | null;
   storagePath: string;
   filename: string;
+  signal?: AbortSignal;
 }): Promise<RouteAttachment[]> {
-  const { supabase, serviceClient, storagePath, filename } = options;
+  const {
+    supabase,
+    serviceClient,
+    discussionId,
+    sourceUserMessageId,
+    storagePath,
+    filename,
+    signal,
+  } = options;
 
   const { data: fileBlob, error: downloadError } = await serviceClient.storage
     .from('message-images')
@@ -569,11 +580,30 @@ async function materializeDocxRenderedPageAttachments(options: {
     elapsedMs: rendered.elapsedMs,
   });
 
-  return persistedPages.map((page) => ({
+  const attachments: RouteAttachment[] = persistedPages.map((page) => ({
     url: page.signedUrl,
     filename: page.filename,
     provenance: 'current_document_render' as const,
   }));
+
+  if (attachments.length > 0) {
+    try {
+      await ingestDiscussionArtifacts({
+        serviceSupabase: serviceClient,
+        discussionId,
+        attachments,
+        sourceUserMessageId: sourceUserMessageId || null,
+        signal,
+      });
+    } catch (registrationErr) {
+      console.warn(
+        '[DOCX Visual] Non-critical immediate rendered-page registration error:',
+        registrationErr
+      );
+    }
+  }
+
+  return attachments;
 }
 
 
@@ -1337,12 +1367,30 @@ export async function POST(req: NextRequest) {
                               images: parsed.embeddedImages,
                             });
 
-                            for (const embedded of persistedEmbeddedImages) {
-                              docxEmbeddedImageAttachments.push({
+                            const embeddedAttachments: RouteAttachment[] =
+                              persistedEmbeddedImages.map((embedded) => ({
                                 url: embedded.signedUrl,
                                 filename: embedded.filename,
-                                provenance: 'current_user_upload',
-                              });
+                                provenance: 'current_user_upload' as const,
+                              }));
+
+                            docxEmbeddedImageAttachments.push(...embeddedAttachments);
+
+                            if (discussionId && embeddedAttachments.length > 0) {
+                              try {
+                                await ingestDiscussionArtifacts({
+                                  serviceSupabase: serviceClient,
+                                  discussionId,
+                                  attachments: embeddedAttachments,
+                                  sourceUserMessageId: sourceUserMessageId || null,
+                                  signal: req.signal,
+                                });
+                              } catch (registrationErr) {
+                                console.warn(
+                                  '[DOCX Visual] Non-critical immediate embedded-image registration error:',
+                                  registrationErr
+                                );
+                              }
                             }
 
                             console.log('[DOCX Visual] Materialized embedded images for current turn:', {
@@ -1368,12 +1416,30 @@ export async function POST(req: NextRequest) {
                               pages: rendered.pages,
                             });
 
-                            for (const page of persistedPages) {
-                              docxRenderedPageAttachments.push({
+                            const renderedAttachments: RouteAttachment[] =
+                              persistedPages.map((page) => ({
                                 url: page.signedUrl,
                                 filename: page.filename,
-                                provenance: 'current_document_render',
-                              });
+                                provenance: 'current_document_render' as const,
+                              }));
+
+                            docxRenderedPageAttachments.push(...renderedAttachments);
+
+                            if (discussionId && renderedAttachments.length > 0) {
+                              try {
+                                await ingestDiscussionArtifacts({
+                                  serviceSupabase: serviceClient,
+                                  discussionId,
+                                  attachments: renderedAttachments,
+                                  sourceUserMessageId: sourceUserMessageId || null,
+                                  signal: req.signal,
+                                });
+                              } catch (registrationErr) {
+                                console.warn(
+                                  '[DOCX Visual] Non-critical immediate rendered-page registration error:',
+                                  registrationErr
+                                );
+                              }
                             }
 
                             console.log('[DOCX Visual] Rendered current DOCX pages:', {
@@ -1577,6 +1643,9 @@ export async function POST(req: NextRequest) {
                         const renderedPages = await materializeDocxRenderedPageAttachments({
                           supabase,
                           serviceClient,
+                          discussionId,
+                          sourceUserMessageId,
+                          signal: req.signal,
                           storagePath: inheritedPath,
                           filename: inheritedDoc.filename,
                         });
@@ -1665,6 +1734,9 @@ export async function POST(req: NextRequest) {
                         const renderedPages = await materializeDocxRenderedPageAttachments({
                           supabase,
                           serviceClient,
+                          discussionId,
+                          sourceUserMessageId,
+                          signal: req.signal,
                           storagePath: fallbackDoc.storagePath,
                           filename: fallbackDoc.filename,
                         });
