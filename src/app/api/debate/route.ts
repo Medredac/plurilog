@@ -2863,10 +2863,12 @@ export async function POST(req: NextRequest) {
                     for (const attachment of round.attachments || []) {
                       const filename = attachment.filename || '';
                       const storagePath = attachment.storagePath || null;
-                      const looksLikePdf =
+                      const looksLikeVisualDocument =
                         filename.toLowerCase().endsWith('.pdf') ||
-                        (storagePath || '').toLowerCase().endsWith('.pdf');
-                      if (!looksLikePdf) continue;
+                        filename.toLowerCase().endsWith('.docx') ||
+                        (storagePath || '').toLowerCase().endsWith('.pdf') ||
+                        (storagePath || '').toLowerCase().endsWith('.docx');
+                      if (!looksLikeVisualDocument) continue;
 
                       const identity =
                         storagePath ||
@@ -2876,7 +2878,11 @@ export async function POST(req: NextRequest) {
 
                       brokerKnownDocuments.push({
                         id: attachment.documentId || null,
-                        filename: filename || 'document.pdf',
+                        filename:
+                          filename ||
+                          ((storagePath || '').toLowerCase().endsWith('.docx')
+                            ? 'document.docx'
+                            : 'document.pdf'),
                         storagePath,
                       });
                       seenBrokerDocuments.add(identity);
@@ -2933,6 +2939,41 @@ export async function POST(req: NextRequest) {
                           kind: 'pdf',
                           message:
                             'The requested PDF visual evidence could not be retrieved for this call.',
+                        };
+                      }
+                    } else if (ev.kind === 'docx' && ev.storagePath && discussionId) {
+                      try {
+                        const renderedPages =
+                          await materializeDocxRenderedPageAttachments({
+                            supabase,
+                            serviceClient: serviceClientForEvidence,
+                            discussionId,
+                            sourceUserMessageId,
+                            storagePath: ev.storagePath,
+                            filename: ev.filename,
+                            signal: req.signal,
+                          });
+
+                        if (renderedPages.length > 0) {
+                          materializedEvidenceAttachments.push(...renderedPages);
+                        } else {
+                          modelSafeBrokerResult = {
+                            status: 'not_found',
+                            kind: 'docx',
+                            message:
+                              'The requested Word document could not be rendered for visual inspection in this call.',
+                          };
+                        }
+                      } catch (docxEvidenceErr) {
+                        console.warn(
+                          '[Evidence Broker] Non-critical DOCX visual materialization error:',
+                          docxEvidenceErr
+                        );
+                        modelSafeBrokerResult = {
+                          status: 'not_found',
+                          kind: 'docx',
+                          message:
+                            'The requested Word document could not be rendered for visual inspection in this call.',
                         };
                       }
                     } else if (ev.kind === 'image' && ev.sources && ev.sources.length > 0) {
@@ -3071,6 +3112,7 @@ export async function POST(req: NextRequest) {
                       brokerResult.evidence?.kind === 'image'
                         ? 'checking_images'
                         : brokerResult.evidence?.kind === 'pdf' ||
+                            brokerResult.evidence?.kind === 'docx' ||
                             brokerResult.evidence?.kind === 'document_text'
                           ? 'checking_documents'
                           : null;
