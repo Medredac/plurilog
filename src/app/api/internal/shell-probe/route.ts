@@ -20,13 +20,16 @@ export async function GET() {
     body: JSON.stringify({
       model: 'google/gemini-3.7-flash',
       input:
-        'Use the shell tool once. Run exactly: command -v libreoffice || true; command -v soffice || true; command -v pandoc || true; command -v python3 || true. Then report the raw command output only.',
+        'Use the shell tool once. Run exactly: id; command -v apt-get || true; command -v apk || true; command -v chromium || true; command -v google-chrome || true; command -v wkhtmltopdf || true. Then report the raw command output only.',
       tools: [
         {
           type: 'openrouter:shell',
           parameters: {
             engine: 'openrouter',
-            environment: { type: 'container_auto' },
+            environment: {
+              type: 'container_auto',
+              network_policy: { type: 'allowlist', allowed_domains: ['*'] },
+            },
           },
         },
       ],
