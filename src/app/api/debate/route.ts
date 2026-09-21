@@ -2863,6 +2863,38 @@ export async function POST(req: NextRequest) {
                     )
                   );
 
+                  // Current-turn PDF/DOCX uploads may not be in document memory yet.
+                  // Add them read-only so request_evidence can resolve a visual document
+                  // during the same round before normal post-round document ingestion.
+                  for (const attachment of currentRoundAttachments) {
+                    const filename = attachment.filename || '';
+                    const cleanFilename = filename.toLowerCase();
+                    const storagePath = extractStoragePathFromSignedUrl(attachment.url);
+                    const looksLikeVisualDocument =
+                      cleanFilename.endsWith('.pdf') ||
+                      cleanFilename.endsWith('.docx') ||
+                      (storagePath || '').toLowerCase().endsWith('.pdf') ||
+                      (storagePath || '').toLowerCase().endsWith('.docx');
+
+                    if (!looksLikeVisualDocument) continue;
+
+                    const identity =
+                      storagePath ||
+                      filename.toLowerCase();
+                    if (!identity || seenBrokerDocuments.has(identity)) continue;
+
+                    brokerKnownDocuments.push({
+                      id: null,
+                      filename:
+                        filename ||
+                        ((storagePath || '').toLowerCase().endsWith('.docx')
+                          ? 'document.docx'
+                          : 'document.pdf'),
+                      storagePath,
+                    });
+                    seenBrokerDocuments.add(identity);
+                  }
+
                   for (const round of discussionMemory?.recentRounds || []) {
                     for (const attachment of round.attachments || []) {
                       const filename = attachment.filename || '';
