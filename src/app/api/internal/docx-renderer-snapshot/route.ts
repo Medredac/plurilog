@@ -29,7 +29,7 @@ export async function GET() {
 
     const install = await sandbox.runCommand({
       cmd: 'apt-get',
-      args: ['install', '-y', '--no-install-recommends', 'libreoffice-writer'],
+      args: ['install', '-y', '--no-install-recommends', 'libreoffice-writer', 'poppler-utils'],
       sudo: true,
     });
     if (install.exitCode !== 0) {
