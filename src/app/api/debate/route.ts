@@ -1805,7 +1805,14 @@ export async function POST(req: NextRequest) {
             }
 
             // Standalone Image Historical Reopening (Phase 2B - ADDITIVE)
-            if (!hasCurrentImages && prompt && prompt.trim()) {
+            // Do not let a separately resolved document visual (PDF or rendered DOCX pages)
+            // get overwritten by standalone-image recovery later in the same turn.
+            if (
+              !hasCurrentImages &&
+              (!visualAttachments || visualAttachments.length === 0) &&
+              prompt &&
+              prompt.trim()
+            ) {
               try {
                 const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                 if (isOwner) {
