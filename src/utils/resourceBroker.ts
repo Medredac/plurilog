@@ -21,6 +21,7 @@ import {
   ResolvedVisualDocument,
   ResolvedImageEvidenceResult,
   resolveVisualDocument,
+  resolveVisualDocxDocument,
   resolveImageEvidence,
 } from '@/utils/discussionMemory';
 
@@ -36,6 +37,7 @@ export type ResourceBrokerStatus =
 export type ResourceBrokerKind =
   | 'image'
   | 'pdf'
+  | 'docx'
   | 'document_text';
 
 export interface ResourceBrokerRequest {
@@ -136,11 +138,16 @@ function isPdf(filenameOrPath?: string | null): boolean {
   return clean.endsWith('.pdf');
 }
 
-function isDocxOrText(filenameOrPath?: string | null): boolean {
+function isDocx(filenameOrPath?: string | null): boolean {
+  if (!filenameOrPath) return false;
+  const clean = filenameOrPath.split('?')[0].split('#')[0].toLowerCase();
+  return clean.endsWith('.docx');
+}
+
+function isTextOnlyDocument(filenameOrPath?: string | null): boolean {
   if (!filenameOrPath) return false;
   const clean = filenameOrPath.split('?')[0].split('#')[0].toLowerCase();
   return (
-    clean.endsWith('.docx') ||
     clean.endsWith('.txt') ||
     clean.endsWith('.md') ||
     clean.endsWith('.csv') ||
@@ -206,14 +213,14 @@ function inferExplicitUserResourceType(
  * (explicit filename, retrieved chunk match, or recent round attachment)
  * rather than a generic discussion-wide singleton fallback.
  */
-function isStrongPdfResolution(
+function isStrongDocumentResolution(
   resolvedDoc: ResolvedVisualDocument,
   searchPrompt: string,
   context: ResourceBrokerContext
 ): boolean {
   const pLower = searchPrompt.toLowerCase();
   const fn = resolvedDoc.filename.toLowerCase();
-  const base = fn.replace(/\.pdf$/i, '');
+  const base = fn.replace(/\.(?:pdf|docx)$/i, '');
   const hasFilenameMatch =
     pLower.includes(fn) || (base.length >= 4 && pLower.includes(base));
   if (hasFilenameMatch) return true;
@@ -351,8 +358,33 @@ function resolvePdfVisual(
     return { resolved: null, isStrong: false };
   }
 
-  const isStrong = isStrongPdfResolution(resolvedDoc, searchPrompt, context);
+  const isStrong = isStrongDocumentResolution(resolvedDoc, searchPrompt, context);
   return { resolved: resolvedDoc, isStrong };
+}
+
+/**
+ * Resolves visual DOCX evidence. The broker only resolves identity here; the
+ * debate route is responsible for rendering the canonical DOCX into page images.
+ */
+function resolveDocxVisual(
+  searchPrompt: string,
+  context: ResourceBrokerContext
+): { resolved: ResolvedVisualDocument | null; isStrong: boolean } {
+  const resolvedDoc = resolveVisualDocxDocument(
+    searchPrompt,
+    context.knownDocuments,
+    context.retrievedDocuments,
+    context.recentRounds
+  );
+
+  if (!resolvedDoc || !resolvedDoc.storagePath) {
+    return { resolved: null, isStrong: false };
+  }
+
+  return {
+    resolved: resolvedDoc,
+    isStrong: isStrongDocumentResolution(resolvedDoc, searchPrompt, context),
+  };
 }
 
 /**
@@ -397,12 +429,16 @@ export function resolveRequestedEvidence(
   const knownPdfs = (context.knownDocuments || []).filter((d) =>
     isPdf(d.filename || d.storagePath)
   );
+  const knownDocx = (context.knownDocuments || []).filter((d) =>
+    isDocx(d.filename || d.storagePath)
+  );
+  const knownVisualDocuments = [...knownPdfs, ...knownDocx];
   const knownImgs = context.knownImageSources || [];
 
   let effectiveResourceType: RequestedResourceType = resource_type;
   if (
     modality === 'visual' &&
-    knownPdfs.length > 0 &&
+    knownVisualDocuments.length > 0 &&
     knownImgs.length > 0 &&
     !explicitFilename
   ) {
@@ -417,13 +453,14 @@ export function resolveRequestedEvidence(
     effectiveResourceType = explicitUserType || 'auto';
   }
 
-  // 1. Guard against visual requests on non-visual document formats (DOCX/TXT/MD)
+  // 1. Guard against visual requests on genuinely text-only document formats.
+  // DOCX is visual-capable through server-side page rendering.
   if (modality === 'visual') {
-    if (explicitFilename && isDocxOrText(explicitFilename)) {
+    if (explicitFilename && isTextOnlyDocument(explicitFilename)) {
       return {
         status: 'unsupported',
         kind: 'document_text',
-        message: `Visual inspection is not supported for ${explicitFilename}. Only PDF files and images support visual inspection.`,
+        message: `Visual inspection is not supported for ${explicitFilename}. PDF, DOCX, and images support visual inspection.`,
       };
     }
 
@@ -431,13 +468,15 @@ export function resolveRequestedEvidence(
       effectiveResourceType === 'document' &&
       Array.isArray(context.knownDocuments) &&
       context.knownDocuments.length > 0 &&
-      context.knownDocuments.every((d) => isDocxOrText(d.filename || d.storagePath))
+      context.knownDocuments.every((d) =>
+        isTextOnlyDocument(d.filename || d.storagePath)
+      )
     ) {
       return {
         status: 'unsupported',
         kind: 'document_text',
         message:
-          'Visual inspection is not supported for DOCX or plain text files in this discussion. Text extraction is available.',
+          'Visual inspection is not supported for the plain-text documents in this discussion.',
       };
     }
   }
@@ -456,39 +495,82 @@ export function resolveRequestedEvidence(
 
   // 3. Modality === 'visual' with Explicit resource_type === 'document'
   if (effectiveResourceType === 'document') {
-    const { resolved: resolvedDoc } = resolvePdfVisual(searchPrompt, context);
+    const { resolved: resolvedPdf, isStrong: pdfStrong } =
+      resolvePdfVisual(searchPrompt, context);
+    const { resolved: resolvedDocx, isStrong: docxStrong } =
+      resolveDocxVisual(searchPrompt, context);
+
+    if (pdfStrong && docxStrong) {
+      return {
+        status: 'ambiguous',
+        message: 'Multiple documents match this visual evidence request. Please specify the file.',
+        candidates: [
+          {
+            label: resolvedPdf!.filename,
+            filename: resolvedPdf!.filename,
+            kind: 'pdf',
+          },
+          {
+            label: resolvedDocx!.filename,
+            filename: resolvedDocx!.filename,
+            kind: 'docx',
+          },
+        ],
+      };
+    }
+
+    const resolvedDoc = pdfStrong
+      ? resolvedPdf
+      : docxStrong
+        ? resolvedDocx
+        : resolvedPdf || resolvedDocx;
+
     if (resolvedDoc && resolvedDoc.storagePath) {
+      const kind: ResourceBrokerKind = isDocx(
+        resolvedDoc.filename || resolvedDoc.storagePath
+      )
+        ? 'docx'
+        : 'pdf';
       return {
         status: 'resolved',
-        kind: 'pdf',
-        message: `Resolved visual PDF "${resolvedDoc.filename}".`,
+        kind,
+        message:
+          kind === 'docx'
+            ? `Resolved visual Word document "${resolvedDoc.filename}".`
+            : `Resolved visual PDF "${resolvedDoc.filename}".`,
         evidence: {
-          kind: 'pdf',
+          kind,
           filename: resolvedDoc.filename,
           storagePath: resolvedDoc.storagePath,
           documentId: resolvedDoc.documentId || undefined,
-          reason: 'resolved_visual_document',
+          reason:
+            kind === 'docx'
+              ? 'resolved_visual_docx'
+              : 'resolved_visual_document',
         },
       };
     }
 
-    if (knownPdfs.length > 1) {
+    if (knownVisualDocuments.length > 1) {
       return {
         status: 'ambiguous',
-        kind: 'pdf',
-        message: `Multiple PDF documents exist in this discussion (${knownPdfs.length} files). Please specify which document you need.`,
-        candidates: knownPdfs.map((d) => ({
-          label: d.filename || 'Untitled PDF',
-          filename: d.filename,
-          kind: 'pdf',
-        })),
+        message: `Multiple visually inspectable documents exist in this discussion (${knownVisualDocuments.length} files). Please specify which document you need.`,
+        candidates: knownVisualDocuments.map((d) => {
+          const kind: ResourceBrokerKind = isDocx(d.filename || d.storagePath)
+            ? 'docx'
+            : 'pdf';
+          return {
+            label: d.filename || (kind === 'docx' ? 'Untitled Word document' : 'Untitled PDF'),
+            filename: d.filename,
+            kind,
+          };
+        }),
       };
     }
 
     return {
       status: 'not_found',
-      kind: 'pdf',
-      message: 'No PDF documents were found in this discussion.',
+      message: 'No visually inspectable PDF or DOCX document was found in this discussion.',
     };
   }
 
@@ -535,20 +617,36 @@ export function resolveRequestedEvidence(
   // 5. Modality === 'visual' with resource_type === 'auto'
   // Evaluate both PDF and Image resolvers independently and reconcile safely
   const { resolved: pdfMatch, isStrong: isPdfStrong } = resolvePdfVisual(searchPrompt, context);
+  const { resolved: docxMatch, isStrong: isDocxStrong } = resolveDocxVisual(searchPrompt, context);
   const { resolved: imgMatch, isStrong: isImgStrong } = resolveImageVisual(searchPrompt, context);
+  const documentMatch = isPdfStrong
+    ? pdfMatch
+    : isDocxStrong
+      ? docxMatch
+      : pdfMatch || docxMatch;
+  const isDocumentStrong = isPdfStrong || isDocxStrong;
+  const documentKind: ResourceBrokerKind | null = documentMatch
+    ? (isDocx(documentMatch.filename || documentMatch.storagePath) ? 'docx' : 'pdf')
+    : null;
 
   // Case 5a: If one is strong and the other is not -> the strong one wins deterministically
-  if (isPdfStrong && !isImgStrong) {
+  if (isDocumentStrong && !isImgStrong && documentMatch && documentKind) {
     return {
       status: 'resolved',
-      kind: 'pdf',
-      message: `Resolved visual PDF "${pdfMatch!.filename}".`,
+      kind: documentKind,
+      message:
+        documentKind === 'docx'
+          ? `Resolved visual Word document "${documentMatch.filename}".`
+          : `Resolved visual PDF "${documentMatch.filename}".`,
       evidence: {
-        kind: 'pdf',
-        filename: pdfMatch!.filename,
-        storagePath: pdfMatch!.storagePath,
-        documentId: pdfMatch!.documentId || undefined,
-        reason: 'resolved_visual_document_contextual',
+        kind: documentKind,
+        filename: documentMatch.filename,
+        storagePath: documentMatch.storagePath,
+        documentId: documentMatch.documentId || undefined,
+        reason:
+          documentKind === 'docx'
+            ? 'resolved_visual_docx_contextual'
+            : 'resolved_visual_document_contextual',
       },
     };
   }
@@ -571,12 +669,14 @@ export function resolveRequestedEvidence(
   }
 
   // Case 5b: If BOTH are strong -> Ambiguous (prompt matches both a PDF and an Image)
-  if (isPdfStrong && isImgStrong) {
+  if (isDocumentStrong && isImgStrong && documentMatch && documentKind) {
     const candidates: ModelSafeCandidate[] = [
       {
-        label: pdfMatch!.filename || 'PDF Document',
-        filename: pdfMatch!.filename,
-        kind: 'pdf',
+        label:
+          documentMatch.filename ||
+          (documentKind === 'docx' ? 'Word Document' : 'PDF Document'),
+        filename: documentMatch.filename,
+        kind: documentKind,
       },
       ...imgMatch!.sources.slice(0, 3).map((s, idx) => ({
         label: s.filename || `Image ${idx + 1}`,
@@ -594,23 +694,29 @@ export function resolveRequestedEvidence(
 
   // Case 5c: If NEITHER is strong:
   // If the discussion ONLY contains PDFs (and no images) -> singleton PDF resolution is valid
-  if (pdfMatch && knownImgs.length === 0) {
+  if (documentMatch && documentKind && knownImgs.length === 0) {
     return {
       status: 'resolved',
-      kind: 'pdf',
-      message: `Resolved visual PDF "${pdfMatch.filename}".`,
+      kind: documentKind,
+      message:
+        documentKind === 'docx'
+          ? `Resolved visual Word document "${documentMatch.filename}".`
+          : `Resolved visual PDF "${documentMatch.filename}".`,
       evidence: {
-        kind: 'pdf',
-        filename: pdfMatch.filename,
-        storagePath: pdfMatch.storagePath,
-        documentId: pdfMatch.documentId || undefined,
-        reason: 'resolved_visual_document_singleton',
+        kind: documentKind,
+        filename: documentMatch.filename,
+        storagePath: documentMatch.storagePath,
+        documentId: documentMatch.documentId || undefined,
+        reason:
+          documentKind === 'docx'
+            ? 'resolved_visual_docx_singleton'
+            : 'resolved_visual_document_singleton',
       },
     };
   }
 
   // If the discussion ONLY contains Images (and no PDFs) -> image resolution is valid
-  if (imgMatch && knownPdfs.length === 0) {
+  if (imgMatch && knownVisualDocuments.length === 0) {
     const primarySource = imgMatch.sources[0];
     return {
       status: 'resolved',
@@ -628,13 +734,18 @@ export function resolveRequestedEvidence(
   }
 
   // If both PDFs and Images exist in discussion, but neither is strongly identified -> Ambiguous!
-  if (knownPdfs.length > 0 && knownImgs.length > 0) {
+  if (knownVisualDocuments.length > 0 && knownImgs.length > 0) {
     const candidates: ModelSafeCandidate[] = [
-      ...knownPdfs.slice(0, 3).map((d) => ({
-        label: d.filename || 'PDF Document',
-        filename: d.filename,
-        kind: 'pdf' as const,
-      })),
+      ...knownVisualDocuments.slice(0, 3).map((d) => {
+        const kind: ResourceBrokerKind = isDocx(d.filename || d.storagePath)
+          ? 'docx'
+          : 'pdf';
+        return {
+          label: d.filename || (kind === 'docx' ? 'Word Document' : 'PDF Document'),
+          filename: d.filename,
+          kind,
+        };
+      }),
       ...knownImgs.slice(0, 3).map((s, idx) => ({
         label: s.filename || `Image ${idx + 1}`,
         filename: s.filename,
@@ -649,17 +760,21 @@ export function resolveRequestedEvidence(
     };
   }
 
-  // If multiple PDFs exist (no images)
-  if (knownPdfs.length > 1) {
+  // If multiple visually inspectable documents exist (no images)
+  if (knownVisualDocuments.length > 1) {
     return {
       status: 'ambiguous',
-      kind: 'pdf',
-      message: `Multiple PDF documents exist in this discussion (${knownPdfs.length} files). Please specify which document you need.`,
-      candidates: knownPdfs.map((d) => ({
-        label: d.filename || 'Untitled PDF',
-        filename: d.filename,
-        kind: 'pdf',
-      })),
+      message: `Multiple visually inspectable documents exist in this discussion (${knownVisualDocuments.length} files). Please specify which document you need.`,
+      candidates: knownVisualDocuments.map((d) => {
+        const kind: ResourceBrokerKind = isDocx(d.filename || d.storagePath)
+          ? 'docx'
+          : 'pdf';
+        return {
+          label: d.filename || (kind === 'docx' ? 'Untitled Word document' : 'Untitled PDF'),
+          filename: d.filename,
+          kind,
+        };
+      }),
     };
   }
 
