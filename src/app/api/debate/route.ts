@@ -1360,11 +1360,6 @@ export async function POST(req: NextRequest) {
 
                         if (wantsCurrentDocxVisualInspection) {
                           try {
-                            sendEvent('seat_activity', {
-                              seatId: 'system',
-                              activity: 'checking_documents',
-                            });
-
                             const rendered = await renderDocxPages(fileBuffer);
                             const persistedPages = await persistDocxRenderedPages({
                               supabase,
