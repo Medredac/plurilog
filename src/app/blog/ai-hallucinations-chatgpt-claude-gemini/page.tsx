@@ -68,12 +68,41 @@ const articleJsonLd = {
   },
 };
 
+const breadcrumbJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'Home',
+      item: 'https://plurilogai.com/',
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: 'Blog',
+      item: 'https://plurilogai.com/blog',
+    },
+    {
+      '@type': 'ListItem',
+      position: 3,
+      name: "AI Hallucinations",
+      item: "https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini",
+    },
+  ],
+};
+
 export default function AiHallucinationsBlogPost() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
 
       {/* Navigation Header */}

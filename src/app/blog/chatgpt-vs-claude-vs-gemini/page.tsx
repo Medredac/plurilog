@@ -67,12 +67,41 @@ const articleJsonLd = {
   },
 };
 
+const breadcrumbJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'Home',
+      item: 'https://plurilogai.com/',
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: 'Blog',
+      item: 'https://plurilogai.com/blog',
+    },
+    {
+      '@type': 'ListItem',
+      position: 3,
+      name: "ChatGPT vs Claude vs Gemini",
+      item: "https://plurilogai.com/blog/chatgpt-vs-claude-vs-gemini",
+    },
+  ],
+};
+
 export default function ChatgptVsClaudeVsGeminiBlogPost() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
 
       {/* Navigation Header */}
