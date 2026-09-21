@@ -2432,7 +2432,7 @@ export async function POST(req: NextRequest) {
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
                   const fileCall = finalizedCalls[0];
-                  await executeClaudeDocumentCreation({
+                  const documentResult = await executeClaudeDocumentCreation({
                     supabase,
                     openai,
                     discussionId: discussionId || '',
@@ -2442,7 +2442,21 @@ export async function POST(req: NextRequest) {
                     signal: req.signal,
                   });
 
-                  throw new Error('DOCX execution reached preview isolation checkpoint.');
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: respondingModel,
+                    content: documentResult.finalContent,
+                    messageId: documentResult.messageId,
+                    createdAt: documentResult.createdAt,
+                    attachment_urls: [documentResult.durableUrl],
+                  });
+
+                  priorResponses.push({
+                    name: seat.name,
+                    response: documentResult.finalContent,
+                  });
+
+                  continue seatLoop;
                 }
 
                 if (isEvidenceRequestCall) {
