@@ -2830,13 +2830,18 @@ export async function ingestDiscussionArtifacts(
       }
 
       let filename = attachment.filename || 'attachment';
-      const rawFilename = storagePath.split('/').pop() || '';
-      const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
-      if (cleaned) {
-        try {
-          filename = decodeURIComponent(cleaned);
-        } catch {
-          filename = cleaned || filename;
+      // Preserve an explicit logical filename (important for derived DOCX images,
+      // whose storage object name is intentionally hash-based). Fall back to the
+      // physical storage name only for generic/absent attachment labels.
+      if (!attachment.filename || attachment.filename === 'attachment') {
+        const rawFilename = storagePath.split('/').pop() || '';
+        const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
+        if (cleaned) {
+          try {
+            filename = decodeURIComponent(cleaned);
+          } catch {
+            filename = cleaned || filename;
+          }
         }
       }
 
