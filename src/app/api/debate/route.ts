@@ -2391,6 +2391,17 @@ export async function POST(req: NextRequest) {
                 }
               }
 
+              if (
+                seatAbortController.signal.aborted &&
+                !req.signal.aborted
+              ) {
+                throw new Error(
+                  `${seat.name} exceeded its ${Math.round(
+                    seatTimeoutMs / 1000
+                  )}-second turn budget.`
+                );
+              }
+
               if (req.signal.aborted) {
                 safeClose();
                 return;
@@ -2761,6 +2772,17 @@ export async function POST(req: NextRequest) {
                         text,
                       });
                     }
+                  }
+
+                  if (
+                    seatAbortController.signal.aborted &&
+                    !req.signal.aborted
+                  ) {
+                    throw new Error(
+                      `${seat.name} exceeded its ${Math.round(
+                        seatTimeoutMs / 1000
+                      )}-second turn budget.`
+                    );
                   }
 
                   if (req.signal.aborted) {
@@ -4063,7 +4085,7 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Ingest any parsed PDF file annotations into discussion_documents & discussion_document_chunks (non-critical)
+          // Stage parsed PDF text/identity for deferred semantic indexing (non-critical)
           if (
             discussionId &&
             attachments &&
