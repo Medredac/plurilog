@@ -2853,7 +2853,7 @@ export async function POST(req: NextRequest) {
                     messageId,
                     seatId: seat.seatId,
                     args: (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs,
-                    signal: req.signal,
+                    signal: seatAbortController.signal,
                   });
 
                   // Make the newly created document available as primary evidence
@@ -3086,7 +3086,7 @@ export async function POST(req: NextRequest) {
                             sourceUserMessageId,
                             storagePath: ev.storagePath,
                             filename: ev.filename,
-                            signal: req.signal,
+                            signal: seatAbortController.signal,
                             registerImmediately: true,
                           });
 
