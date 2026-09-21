@@ -4480,7 +4480,11 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  // 2. Standalone image artifact ingestion (Phase 1)
+                  // 2. Visual artifact ingestion (standalone images plus derived DOCX visuals)
+                  const hasArtifactImagesAtIngest = currentArtifactAttachments.some((att) =>
+                    isImageUrl(att?.url)
+                  );
+
                   try {
                     const uploadIngestResult = await ingestDiscussionArtifacts({
                       serviceSupabase: serviceClient,
@@ -4578,7 +4582,7 @@ export async function POST(req: NextRequest) {
                   // 4. Standalone image visual evidence persistence (Phase 2A - current-only turns, skipped on true mixed turns)
                   if (
                     sourceUserMessageId &&
-                    hasCurrentImages &&
+                    hasArtifactImagesAtIngest &&
                     !hadSuccessfulMixedHistoricalImageDelivery
                   ) {
                     try {
@@ -4594,7 +4598,7 @@ export async function POST(req: NextRequest) {
                   }
 
                   // 5. Standalone image semantic descriptor & embedding indexing (Phase 3A - post-relay)
-                  if (hasCurrentImages && !req.signal.aborted) {
+                  if (hasArtifactImagesAtIngest && !req.signal.aborted) {
                     try {
                       await indexDiscussionImageArtifacts({
                         serviceSupabase: serviceClient,
