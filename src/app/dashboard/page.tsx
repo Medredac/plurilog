@@ -31,6 +31,17 @@ const DEFAULT_SEAT_ORDER: ModelId[] = [
   'gemini',
 ];
 
+const DEFAULT_ACTIVE_MODELS: ModelId[] = [
+  'gemini',
+  'claude',
+  'chatgpt',
+];
+
+interface PanelLayoutPreference {
+  seatOrder: ModelId[];
+  activeModels: ModelId[];
+}
+
 function validateSeatOrder(raw: unknown): ModelId[] {
   if (!Array.isArray(raw)) {
     return [...DEFAULT_SEAT_ORDER];
@@ -59,6 +70,80 @@ function validateSeatOrder(raw: unknown): ModelId[] {
   }
 
   return result;
+}
+
+function validateActiveModels(raw: unknown): ModelId[] {
+  if (!Array.isArray(raw)) {
+    return [...DEFAULT_ACTIVE_MODELS];
+  }
+
+  const validIds = new Set<ModelId>(DEFAULT_SEAT_ORDER);
+  const seen = new Set<ModelId>();
+  const result: ModelId[] = [];
+
+  for (const value of raw) {
+    if (
+      typeof value === 'string' &&
+      validIds.has(value as ModelId) &&
+      !seen.has(value as ModelId)
+    ) {
+      const id = value as ModelId;
+      seen.add(id);
+      result.push(id);
+    }
+  }
+
+  // The UI intentionally requires at least one active seat.
+  return result.length > 0 ? result : [...DEFAULT_ACTIVE_MODELS];
+}
+
+function readPanelLayoutPreference(userId: string): PanelLayoutPreference {
+  const fallback: PanelLayoutPreference = {
+    seatOrder: [...DEFAULT_SEAT_ORDER],
+    activeModels: [...DEFAULT_ACTIVE_MODELS],
+  };
+
+  try {
+    const savedLayoutRaw = localStorage.getItem(`plurilog-panel-layout:${userId}`);
+    if (savedLayoutRaw) {
+      const parsed = JSON.parse(savedLayoutRaw);
+      return {
+        seatOrder: validateSeatOrder(parsed?.seatOrder),
+        activeModels: validateActiveModels(parsed?.activeModels),
+      };
+    }
+
+    // Backward compatibility: preserve seat ordering saved by older builds.
+    const legacySeatOrderRaw = localStorage.getItem(`plurilog-seat-order:${userId}`);
+    if (legacySeatOrderRaw) {
+      return {
+        seatOrder: validateSeatOrder(JSON.parse(legacySeatOrderRaw)),
+        activeModels: [...DEFAULT_ACTIVE_MODELS],
+      };
+    }
+  } catch (storageErr) {
+    console.warn('[Storage Error] Failed to restore panel layout preference:', storageErr);
+  }
+
+  return fallback;
+}
+
+function savePanelLayoutPreference(
+  userId: string,
+  seatOrder: ModelId[],
+  activeModels: ModelId[]
+) {
+  try {
+    localStorage.setItem(
+      `plurilog-panel-layout:${userId}`,
+      JSON.stringify({
+        seatOrder: validateSeatOrder(seatOrder),
+        activeModels: validateActiveModels(activeModels),
+      })
+    );
+  } catch (storageErr) {
+    console.warn('[Storage Error] Failed to save panel layout preference:', storageErr);
+  }
 }
 
 const CONTINUE_INSTRUCTION =
@@ -138,11 +223,7 @@ export default function DashboardPage() {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
-  const [activeModels, setActiveModels] = useState<ModelId[]>([
-    'gemini',
-    'claude',
-    'chatgpt',
-  ]);
+  const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
@@ -598,18 +679,9 @@ export default function DashboardPage() {
         refreshCreditStatus();
 
         if (session.user?.id) {
-          try {
-            const savedRaw = localStorage.getItem(`plurilog-seat-order:${session.user.id}`);
-            if (savedRaw) {
-              const parsed = JSON.parse(savedRaw);
-              setSeatOrder(validateSeatOrder(parsed));
-            } else {
-              setSeatOrder([...DEFAULT_SEAT_ORDER]);
-            }
-          } catch (storageErr) {
-            console.warn('[Storage Error] Failed to restore seat order preference:', storageErr);
-            setSeatOrder([...DEFAULT_SEAT_ORDER]);
-          }
+          const savedLayout = readPanelLayoutPreference(session.user.id);
+          setSeatOrder(savedLayout.seatOrder);
+          setActiveModels(savedLayout.activeModels);
         }
 
         if (!hasInitializedRef.current) {
@@ -643,18 +715,9 @@ export default function DashboardPage() {
         refreshCreditStatus();
 
         if (session.user?.id) {
-          try {
-            const savedRaw = localStorage.getItem(`plurilog-seat-order:${session.user.id}`);
-            if (savedRaw) {
-              const parsed = JSON.parse(savedRaw);
-              setSeatOrder(validateSeatOrder(parsed));
-            } else {
-              setSeatOrder([...DEFAULT_SEAT_ORDER]);
-            }
-          } catch (storageErr) {
-            console.warn('[Storage Error] Failed to restore seat order preference:', storageErr);
-            setSeatOrder([...DEFAULT_SEAT_ORDER]);
-          }
+          const savedLayout = readPanelLayoutPreference(session.user.id);
+          setSeatOrder(savedLayout.seatOrder);
+          setActiveModels(savedLayout.activeModels);
         }
       }
     });
@@ -716,6 +779,10 @@ export default function DashboardPage() {
     }
     try {
       localStorage.removeItem('plurilog_signup_source');
+      if (userId) {
+        localStorage.removeItem(`plurilog-panel-layout:${userId}`);
+        localStorage.removeItem(`plurilog-seat-order:${userId}`);
+      }
     } catch {
       // Safe catch for restricted storage environments
     }
@@ -724,12 +791,17 @@ export default function DashboardPage() {
 
   const handleToggleModel = (id: ModelId) => {
     setActiveModels((prev) => {
-      if (prev.includes(id)) {
-        if (prev.length === 1) return prev;
-        return prev.filter((m) => m !== id);
-      } else {
-        return [...prev, id];
+      const nextActiveModels = prev.includes(id)
+        ? prev.length === 1
+          ? prev
+          : prev.filter((m) => m !== id)
+        : [...prev, id];
+
+      if (userId && nextActiveModels !== prev) {
+        savePanelLayoutPreference(userId, seatOrder, nextActiveModels);
       }
+
+      return nextActiveModels;
     });
   };
 
@@ -737,17 +809,8 @@ export default function DashboardPage() {
     const validatedOrder = validateSeatOrder(newOrder);
     setSeatOrder(validatedOrder);
 
-    if (!userId) {
-      return;
-    }
-
-    try {
-      localStorage.setItem(
-        `plurilog-seat-order:${userId}`,
-        JSON.stringify(validatedOrder)
-      );
-    } catch (err) {
-      console.warn('[Storage Error] Failed to save seat order:', err);
+    if (userId) {
+      savePanelLayoutPreference(userId, validatedOrder, activeModels);
     }
   };
 
