@@ -1,0 +1,50 @@
+# Plurilog
+
+> Plurilog is a web-based multi-AI panel that brings ChatGPT, Claude and Gemini into one shared conversation.
+
+Plurilog lets users ask multiple leading AI models to work in the same ongoing discussion instead of using separate chatbot threads. Later panel responses can see earlier contributions, allowing the models to compare reasoning, disagree, add missing context and build on the same conversation.
+
+## Product
+
+- [Plurilog home](https://plurilogai.com/): Product overview, current features and pricing.
+- [Blog](https://plurilogai.com/blog): Guides, comparisons and product explanations.
+- [Privacy policy](https://plurilogai.com/privacy): Data handling and service-provider information.
+- [Terms of service](https://plurilogai.com/terms): Account, subscription and usage terms.
+
+## Current capabilities
+
+- Shared multi-model conversations with ChatGPT, Claude and Gemini.
+- Users can choose which AI seats participate and change their order.
+- Shared discussion context across participating AI seats.
+- Web search for current information when needed.
+- Analysis of images and supported documents, including PDF, DOCX and common text-based formats.
+- ChatGPT and Gemini can generate and edit images in Plurilog when their image tools are available.
+- Claude can inspect, compare and critique images and help improve image prompts, but does not generate or edit images in Plurilog.
+- Voice dictation converts speech into a text prompt.
+- Existing discussions can be exported as PDF.
+
+## Current limitations
+
+- No native Android or iOS application; Plurilog is currently a web application.
+- No Gmail, Outlook, one.com mail, calendar, Google Drive, Dropbox or similar personal-service connectors.
+- No background or proactive assistant operation after the user leaves the app.
+- No arbitrary AI-generated downloadable Word, PDF, spreadsheet or presentation files yet.
+- No video upload or video analysis yet.
+
+## Plans
+
+- Free includes a one-time starter usage allowance. It does not reset daily or monthly.
+- Plus provides ongoing monthly usage refreshed each billing cycle.
+- See the current pricing section on the [Plurilog home page](https://plurilogai.com/#pricing) for current pricing.
+
+## Guides and research
+
+- [ChatGPT and Gemini Image Generation in One Shared Conversation](https://plurilogai.com/blog/chatgpt-gemini-image-generation-editing)
+- [Why We Built Plurilog Around One Shared AI Conversation](https://plurilogai.com/blog/chatgpt-claude-gemini-shared-conversation)
+- [ChatGPT vs Claude vs Gemini: Which AI Should You Use?](https://plurilogai.com/blog/chatgpt-vs-claude-vs-gemini)
+- [AI Hallucinations: Why ChatGPT, Claude, Gemini and Other AI Models Get Things Wrong — and How to Catch It](https://plurilogai.com/blog/ai-hallucinations-chatgpt-claude-gemini)
+
+## Discovery
+
+- [XML sitemap](https://plurilogai.com/sitemap.xml)
+- [Robots policy](https://plurilogai.com/robots.txt)
