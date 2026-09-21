@@ -6,14 +6,15 @@ import { buildDurableAttachmentUrl } from './durableAttachments';
 /**
  * Storage & message persistence helper for generated AI images.
  *
- * Persists model-generated images directly into the existing `message-images` bucket
- * and records their signed URLs in `messages.attachment_urls`.
+ * Persists model-generated images directly into the existing `message-images` bucket.
+ * The database stores a stable authenticated Plurilog attachment URL; temporary signed
+ * URLs are returned only for same-round model transport.
  *
  * NOTE: Inert utility — not currently imported or consumed by runtime routes.
  */
 
 const STORAGE_BUCKET = 'message-images';
-const SIGNED_URL_EXPIRY_SECONDS = 259200; // 72 hours (matches Plurilog production convention)
+const MODEL_TRANSPORT_URL_EXPIRY_SECONDS = 3600; // 1 hour; never used as durable attachment identity
 
 const SUPPORTED_MIME_TO_EXT: Record<string, string> = {
   'image/png': 'png',
@@ -140,10 +141,10 @@ export async function persistGeneratedImage(
     throw new Error(`Storage upload failed for generated image: ${uploadError.message}`);
   }
 
-  // 8. Generate Signed URL (72h expiry with filename hash fragment)
+  // 8. Generate a short-lived signed URL for same-round model transport only
   const { data: signedData, error: signError } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(filePath, SIGNED_URL_EXPIRY_SECONDS);
+    .createSignedUrl(filePath, MODEL_TRANSPORT_URL_EXPIRY_SECONDS);
 
   if (signError || !signedData?.signedUrl) {
     // Attempt orphan cleanup on storage file
