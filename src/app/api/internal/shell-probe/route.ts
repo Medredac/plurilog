@@ -20,7 +20,7 @@ export async function GET() {
     body: JSON.stringify({
       model: 'google/gemini-3.7-flash',
       input:
-        'Use the shell tool once. Run exactly: id; command -v apt-get || true; command -v apk || true; command -v chromium || true; command -v google-chrome || true; command -v wkhtmltopdf || true. Then report the raw command output only.',
+        'Use the shell tool once. Run exactly: apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libreoffice-writer >/tmp/apt.log 2>&1 && command -v libreoffice && libreoffice --version; tail -20 /tmp/apt.log. Use a command timeout of 180000 ms. Then report the raw command output only.',
       tools: [
         {
           type: 'openrouter:shell',
