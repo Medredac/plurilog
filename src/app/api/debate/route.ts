@@ -49,6 +49,10 @@ import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { renderDocxPages } from '@/utils/docxPageRenderer';
 import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
+import {
+  cleanupUnregisteredDocxDerivedAssets,
+  isDocxDerivedStoragePath,
+} from '@/utils/docxDerivedAssetCleanup';
 import { parseTextFile, isTextFileUrl, isTextFileName } from '@/utils/textFileParser';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
@@ -4768,6 +4772,51 @@ export async function POST(req: NextRequest) {
               }
             } catch (docIngestErr: any) {
               console.error('[Doc Ingest] Non-critical error during document ingestion:', docIngestErr);
+            }
+          }
+
+          // Storage orphan safety net for DOCX-derived visuals. Run only after
+          // normal pre- and post-relay artifact registration have both had a chance
+          // to establish source rows.
+          if (discussionId && currentArtifactAttachments.length > 0) {
+            try {
+              const derivedStoragePaths = currentArtifactAttachments
+                .map((att) => {
+                  try {
+                    return extractStoragePathFromSignedUrl(att?.url);
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(
+                  (path): path is string =>
+                    typeof path === 'string' && isDocxDerivedStoragePath(path)
+                );
+
+              if (derivedStoragePaths.length > 0) {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const cleanupResult =
+                    await cleanupUnregisteredDocxDerivedAssets({
+                      serviceSupabase: serviceClient,
+                      discussionId,
+                      storagePaths: derivedStoragePaths,
+                    });
+
+                  if (cleanupResult.errors.length > 0) {
+                    console.warn('[DOCX Visual] Derived asset cleanup diagnostics:', {
+                      discussionId,
+                      errors: cleanupResult.errors,
+                    });
+                  }
+                }
+              }
+            } catch (derivedCleanupErr) {
+              console.warn(
+                '[DOCX Visual] Non-critical derived asset cleanup error:',
+                derivedCleanupErr
+              );
             }
           }
 
