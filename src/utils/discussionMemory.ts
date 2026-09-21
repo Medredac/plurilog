@@ -2591,6 +2591,7 @@ export async function ingestParsedDocument(
 
   const result: IngestDocumentsResult = {
     ingestedCount: 0,
+    stagedCount: 0,
     skippedCount: 0,
     errors: [],
   };
