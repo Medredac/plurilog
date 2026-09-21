@@ -2438,7 +2438,7 @@ export async function POST(req: NextRequest) {
                     discussionId: discussionId || '',
                     messageId,
                     seatId: seat.seatId,
-                    args: (fileCall.arguments || {}) as ClaudeCreateFileArgs,
+                    args: (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs,
                     signal: req.signal,
                   });
 
