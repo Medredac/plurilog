@@ -2442,6 +2442,17 @@ export async function POST(req: NextRequest) {
                     signal: req.signal,
                   });
 
+                  // Make the newly created document available as primary evidence
+                  // to later seats in this same sequential round.
+                  currentTurnDocuments.push({
+                    filename: documentResult.filename,
+                    content: documentResult.fullText,
+                  });
+                  currentRoundAttachments.push({
+                    url: documentResult.signedUrl,
+                    filename: documentResult.filename,
+                  });
+
                   sendEvent('seat_done', {
                     seatId: seat.seatId,
                     modelId: respondingModel,
