@@ -541,6 +541,7 @@ async function materializeDocxRenderedPageAttachments(options: {
   storagePath: string;
   filename: string;
   signal?: AbortSignal;
+  registerImmediately?: boolean;
 }): Promise<RouteAttachment[]> {
   const {
     supabase,
@@ -550,6 +551,7 @@ async function materializeDocxRenderedPageAttachments(options: {
     storagePath,
     filename,
     signal,
+    registerImmediately = false,
   } = options;
 
   const { data: fileBlob, error: downloadError } = await serviceClient.storage
@@ -590,7 +592,7 @@ async function materializeDocxRenderedPageAttachments(options: {
     provenance: 'current_document_render' as const,
   }));
 
-  if (attachments.length > 0) {
+  if (registerImmediately && attachments.length > 0) {
     try {
       await ingestDiscussionArtifacts({
         serviceSupabase: serviceClient,
@@ -1380,23 +1382,6 @@ export async function POST(req: NextRequest) {
 
                             docxEmbeddedImageAttachments.push(...embeddedAttachments);
 
-                            if (discussionId && embeddedAttachments.length > 0) {
-                              try {
-                                await ingestDiscussionArtifacts({
-                                  serviceSupabase: serviceClient,
-                                  discussionId,
-                                  attachments: embeddedAttachments,
-                                  sourceUserMessageId: sourceUserMessageId || null,
-                                  signal: req.signal,
-                                });
-                              } catch (registrationErr) {
-                                console.warn(
-                                  '[DOCX Visual] Non-critical immediate embedded-image registration error:',
-                                  registrationErr
-                                );
-                              }
-                            }
-
                             console.log('[DOCX Visual] Materialized embedded images for current turn:', {
                               filename: docFilename,
                               extractedCount: parsed.embeddedImages.length,
@@ -1428,23 +1413,6 @@ export async function POST(req: NextRequest) {
                               }));
 
                             docxRenderedPageAttachments.push(...renderedAttachments);
-
-                            if (discussionId && renderedAttachments.length > 0) {
-                              try {
-                                await ingestDiscussionArtifacts({
-                                  serviceSupabase: serviceClient,
-                                  discussionId,
-                                  attachments: renderedAttachments,
-                                  sourceUserMessageId: sourceUserMessageId || null,
-                                  signal: req.signal,
-                                });
-                              } catch (registrationErr) {
-                                console.warn(
-                                  '[DOCX Visual] Non-critical immediate rendered-page registration error:',
-                                  registrationErr
-                                );
-                              }
-                            }
 
                             console.log('[DOCX Visual] Rendered current DOCX pages:', {
                               filename: docFilename,
@@ -2390,6 +2358,35 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Register the finalized current visual attachment set once, preserving
+          // attachment_index positions from the full array. This gives evidence
+          // resolution canonical sources before the seat loop without transient
+          // subset indices for DOCX-derived images/pages.
+          if (
+            discussionId &&
+            currentArtifactAttachments.some((att) => isImageUrl(att?.url)) &&
+            !req.signal.aborted
+          ) {
+            try {
+              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+              if (isOwner) {
+                const serviceClient = createServiceClient();
+                await ingestDiscussionArtifacts({
+                  serviceSupabase: serviceClient,
+                  discussionId,
+                  attachments: currentArtifactAttachments,
+                  sourceUserMessageId: sourceUserMessageId || null,
+                  signal: req.signal,
+                });
+              }
+            } catch (preRelayArtifactErr) {
+              console.warn(
+                '[Image Artifact Ingest] Non-critical pre-relay registration error:',
+                preRelayArtifactErr
+              );
+            }
+          }
+
           // Persist visual_document_id on current user message if visual escalation succeeded
           if (resolvedVisualDocId && sourceUserMessageId) {
             try {
@@ -2988,6 +2985,7 @@ export async function POST(req: NextRequest) {
                             storagePath: ev.storagePath,
                             filename: ev.filename,
                             signal: req.signal,
+                            registerImmediately: true,
                           });
 
                         if (renderedPages.length > 0) {
