@@ -4072,7 +4072,7 @@ export async function POST(req: NextRequest) {
                 elapsedTurnMs: Date.now() - turnStartedAt,
                 error: err?.message || String(err),
               });
-              sendEvent('error', {
+              sendEvent('seat_error', {
                 seatId: seat.seatId,
                 message: seatTimedOut
                   ? `${seat.name}: this response took too long, so the panel moved to the next seat.`
