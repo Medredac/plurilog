@@ -1822,7 +1822,7 @@ export default function DashboardPage() {
 
           const { data: signedData, error: signError } = await supabase.storage
             .from('message-images')
-            .createSignedUrl(filePath, 3600); // transient transport URL for the current panel turn
+            .createSignedUrl(filePath, 259200); // 72h transport window; never the durable attachment identity
 
           if (signError || !signedData?.signedUrl) {
             console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
