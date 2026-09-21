@@ -15,6 +15,7 @@ import { COUNCIL_MEMBERS } from '../../data/mockDebates';
 import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
+import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
@@ -493,6 +494,13 @@ export default function DashboardPage() {
           else modelId = 'gemini';
         }
 
+        const normalizedAttachmentUrls = Array.isArray(m.attachment_urls)
+          ? m.attachment_urls
+              .map((url: string) => normalizeAttachmentUrlForUi(url))
+              .filter((url: string | null): url is string => Boolean(url))
+          : null;
+        const normalizedImageUrl = normalizeAttachmentUrlForUi(m.image_url || null);
+
         return {
           id: m.id || `msg-${Date.now()}-${Math.random()}`,
           discussionId: m.discussion_id,
@@ -504,8 +512,11 @@ export default function DashboardPage() {
             ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : '',
           createdAt: m.created_at || undefined,
-          image_url: m.image_url || null,
-          attachment_urls: m.attachment_urls || null,
+          image_url: normalizedImageUrl,
+          attachment_urls:
+            normalizedAttachmentUrls && normalizedAttachmentUrls.length > 0
+              ? normalizedAttachmentUrls
+              : null,
           likes: 0,
           isStreaming: false,
         };
@@ -1351,6 +1362,8 @@ export default function DashboardPage() {
                           attachment_urls:
                             Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
                               ? data.attachment_urls
+                                  .map((url: string) => normalizeAttachmentUrlForUi(url))
+                                  .filter((url: string | null): url is string => Boolean(url))
                               : m.attachment_urls,
                         }
                       : m
@@ -1738,6 +1751,7 @@ export default function DashboardPage() {
 
     // 2. Handle files upload to Supabase Storage in background if present
     const realSignedUrls: string[] = [];
+    const durableAttachmentUrls: string[] = [];
     if (preparedUploadBodies.length > 0) {
       try {
         for (let i = 0; i < preparedUploadBodies.length; i++) {
@@ -1808,7 +1822,7 @@ export default function DashboardPage() {
 
           const { data: signedData, error: signError } = await supabase.storage
             .from('message-images')
-            .createSignedUrl(filePath, 259200); // 72 hours
+            .createSignedUrl(filePath, 3600); // transient transport URL for the current panel turn
 
           if (signError || !signedData?.signedUrl) {
             console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
@@ -1825,13 +1839,19 @@ export default function DashboardPage() {
           // Preserve the original display filename in the URL hash fragment
           const signedUrlWithFilename = `${signedData.signedUrl}#filename=${encodeURIComponent(file.name)}`;
           realSignedUrls.push(signedUrlWithFilename);
+          durableAttachmentUrls.push(buildDurableAttachmentUrl(filePath, file.name));
         }
 
-        // Replace temporary object URLs with real signed URLs and revoke object URLs
+        // Replace temporary object URLs with stable authenticated attachment URLs.
+        // Signed URLs are transport-only for the current model call and are never the durable UI identity.
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempUserMsgId
-              ? { ...m, attachment_urls: realSignedUrls.length > 0 ? realSignedUrls : null }
+              ? {
+                  ...m,
+                  attachment_urls:
+                    durableAttachmentUrls.length > 0 ? durableAttachmentUrls : null,
+                }
               : m
           )
         );
@@ -1867,7 +1887,8 @@ export default function DashboardPage() {
           discussion_id: currentDiscussionId,
           sender: 'user',
           content: content,
-          attachment_urls: realSignedUrls.length > 0 ? realSignedUrls : null,
+          attachment_urls:
+            durableAttachmentUrls.length > 0 ? durableAttachmentUrls : null,
         }).select();
 
         if (insertUserErr) {
