@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ModelId } from '../types/chat';
+import { buildDurableAttachmentUrl } from './durableAttachments';
 
 /**
  * Storage & message persistence helper for generated AI images.
@@ -158,12 +159,14 @@ export async function persistGeneratedImage(
 
   const signedUrlWithFilename = `${signedData.signedUrl}#filename=${encodeURIComponent(filename)}`;
 
-  // 9. Safely append to existing attachment_urls array
+  // 9. Persist the stable authenticated Plurilog attachment URL.
+  // The signed URL above is transport-only for same-round model access.
   const currentAttachments: string[] = Array.isArray(existingMsg.attachment_urls)
     ? existingMsg.attachment_urls
     : [];
 
-  const updatedAttachments = [...currentAttachments, signedUrlWithFilename];
+  const durableUrl = buildDurableAttachmentUrl(filePath, filename);
+  const updatedAttachments = [...currentAttachments, durableUrl];
 
   // 10. Update assistant message row (strictly constrained to messageId, discussionId, and sender)
   const { error: updateError } = await supabase
