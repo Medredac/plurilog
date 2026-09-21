@@ -62,9 +62,8 @@ import {
   editChatGPTImage,
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
-import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
-import { renderDocx } from '@/utils/docxWriter';
-import type { StructuredDocxInput } from '@/utils/docxWriter';
+import { executeClaudeDocumentCreation } from '@/utils/claudeDocumentCreation';
+import type { ClaudeCreateFileArgs } from '@/utils/claudeDocumentCreation';
 import {
   mergeStreamingToolCalls,
   finalizeAllToolCalls,
@@ -2431,7 +2430,19 @@ export async function POST(req: NextRequest) {
                   documentToolBranchActive = true;
                   incurredDocumentCallCostUsd =
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-                  throw new Error('DOCX tool execution wiring pending preview build isolation.');
+
+                  const fileCall = finalizedCalls[0];
+                  await executeClaudeDocumentCreation({
+                    supabase,
+                    openai,
+                    discussionId: discussionId || '',
+                    messageId,
+                    seatId: seat.seatId,
+                    args: (fileCall.arguments || {}) as ClaudeCreateFileArgs,
+                    signal: req.signal,
+                  });
+
+                  throw new Error('DOCX execution reached preview isolation checkpoint.');
                 }
 
                 if (isEvidenceRequestCall) {
