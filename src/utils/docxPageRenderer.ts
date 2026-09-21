@@ -3,6 +3,7 @@ import { Sandbox } from '@vercel/sandbox';
 const MAX_DOCX_RENDER_BYTES = 25 * 1024 * 1024;
 export const MAX_DOCX_RENDERED_PAGES = 12;
 const DEFAULT_RENDER_DPI = 120;
+const LIBREOFFICE_VERSION = '26.2.6';
 
 export interface RenderedDocxPage {
   pageNumber: number;
@@ -30,6 +31,32 @@ async function assertCommandSucceeded(
   );
 }
 
+async function runShell(
+  sandbox: InstanceType<typeof Sandbox>,
+  script: string,
+  label: string
+) {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: ['-lc', script],
+  });
+  await assertCommandSucceeded(result, label);
+  return result;
+}
+
+async function commandPath(
+  sandbox: InstanceType<typeof Sandbox>,
+  candidates: string
+): Promise<string | null> {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: ['-lc', `for c in ${candidates}; do command -v "$c" 2>/dev/null && exit 0; done; find /opt -type f -path '*/program/soffice' 2>/dev/null | head -n 1`],
+  });
+  if (result.exitCode !== 0) return null;
+  const value = (await result.stdout()).trim().split(/\r?\n/)[0]?.trim();
+  return value || null;
+}
+
 function parsePdfPageCount(raw: string): number | null {
   const match = raw.match(/^Pages:\s+(\d+)$/im);
   if (!match) return null;
@@ -38,12 +65,104 @@ function parsePdfPageCount(raw: string): number | null {
 }
 
 /**
+ * Installs LibreOffice + Poppler inside a fresh Vercel Sandbox.
+ *
+ * Vercel's current default Sandbox image is Amazon-Linux-style (dnf). Keep an
+ * apt fallback because older/custom Sandbox snapshots may still be Debian based.
+ * LibreOffice is installed from the official RPM bundle on dnf images because
+ * it is not provided as the same distro package used by Debian/Ubuntu.
+ */
+export async function installDocxRendererDependencies(
+  sandbox: InstanceType<typeof Sandbox>
+): Promise<{ libreOfficePath: string }> {
+  let libreOfficePath = await commandPath(sandbox, 'libreoffice soffice');
+  const pdfInfoPath = await commandPath(sandbox, 'pdfinfo');
+  const pdfToPpmPath = await commandPath(sandbox, 'pdftoppm');
+
+  if (libreOfficePath && pdfInfoPath && pdfToPpmPath) {
+    return { libreOfficePath };
+  }
+
+  const packageManagerProbe = await sandbox.runCommand({
+    cmd: 'sh',
+    args: ['-lc', 'if command -v dnf >/dev/null 2>&1; then echo dnf; elif command -v apt-get >/dev/null 2>&1; then echo apt-get; else echo none; fi'],
+  });
+  await assertCommandSucceeded(packageManagerProbe, 'Package manager detection');
+  const packageManager = (await packageManagerProbe.stdout()).trim();
+
+  if (packageManager === 'apt-get') {
+    await runShell(
+      sandbox,
+      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer poppler-utils',
+      'DOCX renderer dependency installation'
+    );
+  } else if (packageManager === 'dnf') {
+    await runShell(
+      sandbox,
+      'sudo dnf install -y poppler-utils curl tar gzip',
+      'Poppler installation'
+    );
+
+    libreOfficePath = await commandPath(sandbox, 'libreoffice soffice');
+    if (!libreOfficePath) {
+      const architectureResult = await sandbox.runCommand({
+        cmd: 'uname',
+        args: ['-m'],
+      });
+      await assertCommandSucceeded(architectureResult, 'Sandbox architecture detection');
+      const architecture = (await architectureResult.stdout()).trim();
+      const rpmArch =
+        architecture === 'aarch64' || architecture === 'arm64'
+          ? 'aarch64'
+          : architecture === 'x86_64' || architecture === 'amd64'
+            ? 'x86-64'
+            : null;
+
+      if (!rpmArch) {
+        throw new Error(`Unsupported Sandbox architecture for LibreOffice: ${architecture}`);
+      }
+
+      const archive =
+        `LibreOffice_${LIBREOFFICE_VERSION}_Linux_${rpmArch}_rpm.tar.gz`;
+      const url =
+        `https://download.documentfoundation.org/libreoffice/stable/${LIBREOFFICE_VERSION}/rpm/${rpmArch}/${archive}`;
+
+      await runShell(
+        sandbox,
+        [
+          'set -eu',
+          'cd /tmp',
+          `curl -fL --retry 3 --connect-timeout 20 "${url}" -o libreoffice.tar.gz`,
+          'rm -rf /tmp/libreoffice-rpm',
+          'mkdir -p /tmp/libreoffice-rpm',
+          'tar -xzf libreoffice.tar.gz -C /tmp/libreoffice-rpm --strip-components=1',
+          'sudo dnf install -y /tmp/libreoffice-rpm/RPMS/*.rpm',
+        ].join(' && '),
+        'LibreOffice RPM installation'
+      );
+    }
+  } else {
+    throw new Error('Vercel Sandbox has neither dnf nor apt-get available.');
+  }
+
+  libreOfficePath = await commandPath(sandbox, 'libreoffice soffice');
+  const finalPdfInfoPath = await commandPath(sandbox, 'pdfinfo');
+  const finalPdfToPpmPath = await commandPath(sandbox, 'pdftoppm');
+
+  if (!libreOfficePath || !finalPdfInfoPath || !finalPdfToPpmPath) {
+    throw new Error('DOCX renderer dependencies were installed but required binaries are still missing.');
+  }
+
+  return { libreOfficePath };
+}
+
+/**
  * Renders a DOCX into bounded PNG page images inside Vercel Sandbox.
  *
  * The sandbox is intentionally isolated from the app runtime because LibreOffice
  * and Poppler are system-level binaries. When DOCX_RENDERER_SNAPSHOT_ID is set,
- * the prebuilt snapshot is used; otherwise Preview can fall back to installing
- * the packages in a fresh sandbox so the pipeline remains testable.
+ * the prebuilt snapshot is used; otherwise Preview can install the dependencies
+ * in a fresh sandbox so the pipeline remains testable.
  */
 export async function renderDocxPages(
   fileBytes: Buffer
@@ -75,27 +194,13 @@ export async function renderDocxPages(
       });
 
   try {
-    if (!snapshotId) {
-      const update = await sandbox.runCommand({
-        cmd: 'apt-get',
-        args: ['update', '-qq'],
-        sudo: true,
-      });
-      await assertCommandSucceeded(update, 'apt-get update');
-
-      const install = await sandbox.runCommand({
-        cmd: 'apt-get',
-        args: [
-          'install',
-          '-y',
-          '--no-install-recommends',
-          'libreoffice-writer',
-          'poppler-utils',
-        ],
-        sudo: true,
-      });
-      await assertCommandSucceeded(install, 'DOCX renderer dependency installation');
-    }
+    const { libreOfficePath } = snapshotId
+      ? {
+          libreOfficePath:
+            (await commandPath(sandbox, 'libreoffice soffice')) ||
+            '/opt/libreoffice26.2/program/soffice',
+        }
+      : await installDocxRendererDependencies(sandbox);
 
     await sandbox.writeFiles([
       {
@@ -105,7 +210,7 @@ export async function renderDocxPages(
     ]);
 
     const convert = await sandbox.runCommand({
-      cmd: 'libreoffice',
+      cmd: libreOfficePath,
       args: [
         '--headless',
         '--convert-to',
