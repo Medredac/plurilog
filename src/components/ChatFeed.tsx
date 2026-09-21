@@ -181,6 +181,8 @@ function getSeatActivityLabel(status: SeatStatus): string {
       return 'Generating image...';
     case 'editing_image':
       return 'Editing image...';
+    case 'creating_document':
+      return 'Creating Word document...';
     default:
       return 'Thinking...';
   }
@@ -926,6 +928,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           const filename = getAttachmentDisplayFilename(url);
           return isImageUrl(url, filename);
         });
+        const documentAttachments = attachments.filter((url) => {
+          const filename = getAttachmentDisplayFilename(url).toLowerCase();
+          return !isImageUrl(url, filename) && filename.endsWith('.docx');
+        });
 
         return (
           <React.Fragment key={message.id}>
@@ -999,6 +1005,36 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                                 alt={filename}
                                 className="w-full h-full object-cover"
                               />
+                            </button>
+                            <span
+                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              title={filename}
+                            >
+                              {filename}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Generated/downloadable documents (if present) */}
+                  {documentAttachments.length > 0 && (
+                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
+                      {documentAttachments.map((url, i) => {
+                        const filename = getAttachmentDisplayFilename(url);
+                        return (
+                          <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => window.open(url, '_blank')}
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
+                              title={`Download ${filename}`}
+                            >
+                              <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-zinc-200/60">
+                                DOCX
+                              </span>
                             </button>
                             <span
                               className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
