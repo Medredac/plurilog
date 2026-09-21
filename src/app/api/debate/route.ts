@@ -46,6 +46,8 @@ import {
 } from '@/utils/discussionMemory';
 import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
+import { renderDocxPages } from '@/utils/docxPageRenderer';
+import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
 import { parseTextFile, isTextFileUrl, isTextFileName } from '@/utils/textFileParser';
 import { prepareGeminiVisionAttachments } from '@/utils/geminiVision';
 import { indexDiscussionImageArtifacts } from '@/utils/visualIndexer';
@@ -482,6 +484,7 @@ export const DOCX_TURN1_TOKEN_BUDGET = DOCUMENT_TURN1_TOKEN_BUDGET;
 
 export type AttachmentProvenance =
   | 'current_user_upload'
+  | 'current_document_render'
   | 'historical_user_upload'
   | 'historical_assistant_generated'
   | 'same_round_assistant_generated';
@@ -518,6 +521,9 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   }
   if (attachment.provenance === 'current_user_upload') {
     return `Image attached by the user in the current turn: ${cleanName}`;
+  }
+  if (attachment.provenance === 'current_document_render') {
+    return `Rendered page from a Word document attached by the user in the current turn: ${cleanName}`;
   }
   return `File: ${cleanName}`;
 }
@@ -1214,6 +1220,8 @@ export async function POST(req: NextRequest) {
 
           let currentTurnDocuments: { filename: string; content: string }[] = [];
           const docxEmbeddedImageAttachments: RouteAttachment[] = [];
+          const docxRenderedPageAttachments: RouteAttachment[] = [];
+          const wantsCurrentDocxVisualInspection = isVisualEvidenceQuery(prompt);
 
           if (attachments && attachments.length > 0) {
             const documentAttachments = attachments.filter((att: any) => {
@@ -1297,6 +1305,46 @@ export async function POST(req: NextRequest) {
                             console.warn(
                               '[DOCX Visual] Non-critical embedded image materialization error:',
                               embeddedErr
+                            );
+                          }
+                        }
+
+                        if (wantsCurrentDocxVisualInspection) {
+                          try {
+                            sendEvent('seat_activity', {
+                              seatId: 'system',
+                              activity: 'checking_documents',
+                            });
+
+                            const rendered = await renderDocxPages(fileBuffer);
+                            const persistedPages = await persistDocxRenderedPages({
+                              supabase,
+                              parentFilename: docFilename,
+                              parentFileBytes: fileBuffer,
+                              pages: rendered.pages,
+                            });
+
+                            for (const page of persistedPages) {
+                              docxRenderedPageAttachments.push({
+                                url: page.signedUrl,
+                                filename: page.filename,
+                                provenance: 'current_document_render',
+                              });
+                            }
+
+                            console.log('[DOCX Visual] Rendered current DOCX pages:', {
+                              filename: docFilename,
+                              renderedPageCount: rendered.pages.length,
+                              persistedPageCount: persistedPages.length,
+                              totalPageCount: rendered.totalPageCount,
+                              truncated: rendered.truncated,
+                              usedSnapshot: rendered.usedSnapshot,
+                              elapsedMs: rendered.elapsedMs,
+                            });
+                          } catch (renderErr) {
+                            console.warn(
+                              '[DOCX Visual] Non-critical DOCX page rendering error:',
+                              renderErr
                             );
                           }
                         }
@@ -1429,6 +1477,7 @@ export async function POST(req: NextRequest) {
           const currentArtifactAttachments: RouteAttachment[] = [
             ...(Array.isArray(attachments) ? attachments : []),
             ...docxEmbeddedImageAttachments,
+            ...docxRenderedPageAttachments,
           ];
 
           const currentImageAttachments = currentArtifactAttachments
@@ -2141,6 +2190,7 @@ export async function POST(req: NextRequest) {
                 }))
               : []),
             ...docxEmbeddedImageAttachments,
+            ...docxRenderedPageAttachments,
           ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
