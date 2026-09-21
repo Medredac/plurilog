@@ -14,7 +14,7 @@ import { buildDurableAttachmentUrl } from './durableAttachments';
  */
 
 const STORAGE_BUCKET = 'message-images';
-const MODEL_TRANSPORT_URL_EXPIRY_SECONDS = 3600; // 1 hour; never used as durable attachment identity
+const MODEL_TRANSPORT_URL_EXPIRY_SECONDS = 259200; // 72h transport window; never used as durable attachment identity
 
 const SUPPORTED_MIME_TO_EXT: Record<string, string> = {
   'image/png': 'png',
