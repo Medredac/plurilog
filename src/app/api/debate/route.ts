@@ -2076,7 +2076,13 @@ export async function POST(req: NextRequest) {
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
-          seatLoop: for (const seat of configuredSeats) {
+          seatLoop: for (
+            let seatIndex = 0;
+            seatIndex < configuredSeats.length;
+            seatIndex += 1
+          ) {
+            const seat = configuredSeats[seatIndex];
+
             if (req.signal.aborted) {
               safeClose();
               return;
@@ -2084,6 +2090,46 @@ export async function POST(req: NextRequest) {
 
             const messageId = crypto.randomUUID();
             const seatStartedAt = Date.now();
+
+            // Reserve time for later seats and post-relay persistence rather than
+            // allowing one provider request to consume the full Vercel invocation.
+            const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
+            const softTurnBudgetRemainingMs = Math.max(
+              30_000,
+              285_000 - elapsedBeforeSeatMs
+            );
+            const seatsRemaining = configuredSeats.length - seatIndex;
+            const fairShareMs =
+              Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
+            const seatTimeoutCapMs =
+              configuredSeats.length === 1
+                ? 240_000
+                : configuredSeats.length === 2
+                  ? 120_000
+                  : 100_000;
+            const seatTimeoutMs = Math.max(
+              30_000,
+              Math.min(seatTimeoutCapMs, fairShareMs)
+            );
+
+            const seatAbortController = new AbortController();
+            const abortSeatFromRequest = () => {
+              if (!seatAbortController.signal.aborted) {
+                seatAbortController.abort(req.signal.reason);
+              }
+            };
+            req.signal.addEventListener('abort', abortSeatFromRequest, {
+              once: true,
+            });
+            const seatTimeoutHandle = setTimeout(() => {
+              if (!seatAbortController.signal.aborted) {
+                seatAbortController.abort(
+                  new Error(`${seat.name} exceeded its ${Math.round(
+                    seatTimeoutMs / 1000
+                  )}-second turn budget.`)
+                );
+              }
+            }, seatTimeoutMs);
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
@@ -2111,6 +2157,7 @@ export async function POST(req: NextRequest) {
               discussionId: discussionId || null,
               seatId: seat.seatId,
               modelId: primaryModel,
+              seatTimeoutMs,
               elapsedTurnMs: Date.now() - turnStartedAt,
             });
 
@@ -2276,7 +2323,7 @@ export async function POST(req: NextRequest) {
                 messages: seatMessages,
                 stream: true,
                 temperature: 0.7,
-                signal: req.signal,
+                signal: seatAbortController.signal,
                 tools: [
                   {
                     type: 'openrouter:web_search',
@@ -2671,7 +2718,7 @@ export async function POST(req: NextRequest) {
                     messages: evidenceMessages,
                     stream: true,
                     temperature: 0.7,
-                    signal: req.signal,
+                    signal: seatAbortController.signal,
                     tools: REQUEST_EVIDENCE_TOOL,
                     tool_choice: 'none',
                     ...(discussionId
@@ -3152,12 +3199,12 @@ export async function POST(req: NextRequest) {
                           ? await editChatGPTImage({
                               prompt: editInstruction,
                               referenceImageUrl,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             })
                           : await editGeminiImage({
                               prompt: editInstruction,
                               referenceImageUrl,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
 
                       incurredImageCostUsd = imageResult.costUsd;
@@ -3272,7 +3319,7 @@ export async function POST(req: NextRequest) {
                               ],
                               sourceUserMessageId:
                                 persistedMsg?.id || messageId,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
 
                           if (
@@ -3337,7 +3384,7 @@ export async function POST(req: NextRequest) {
                                   filename: persistedImage.filename,
                                 },
                               ],
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
                           } catch (indexErr) {
                             console.warn(
@@ -3480,11 +3527,11 @@ export async function POST(req: NextRequest) {
                     seat.seatId === 'chatgpt'
                       ? await generateChatGPTImage({
                           prompt: toolPrompt,
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         })
                       : await generateGeminiImage({
                           prompt: toolPrompt,
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         });
 
                   incurredImageCostUsd = imageResult.costUsd;
@@ -3589,7 +3636,7 @@ export async function POST(req: NextRequest) {
                           },
                         ],
                         sourceUserMessageId: persistedMsg?.id || messageId,
-                        signal: req.signal,
+                        signal: seatAbortController.signal,
                       });
 
                       // Update persistent visual context for assistant generation
@@ -3667,7 +3714,7 @@ export async function POST(req: NextRequest) {
                               filename: persistedImage.filename,
                             },
                           ],
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         });
                       } catch (indexErr) {
                         console.warn('[Visual Indexer] Non-critical error during generated image indexing:', indexErr);
@@ -3916,9 +3963,21 @@ export async function POST(req: NextRequest) {
                 response: peerResponseText,
               });
             } catch (err: any) {
-              if (req.signal.aborted || err?.name === 'AbortError') {
+              if (req.signal.aborted) {
                 safeClose();
                 return;
+              }
+
+              const seatTimedOut = seatAbortController.signal.aborted;
+              if (seatTimedOut) {
+                console.warn('[Seat Timeout]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  seatTimeoutMs,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                });
               }
 
               // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
@@ -3993,9 +4052,14 @@ export async function POST(req: NextRequest) {
               });
               sendEvent('error', {
                 seatId: seat.seatId,
-                message: `${seat.name}: ${err?.message || 'Model request failed'}`,
+                message: seatTimedOut
+                  ? `${seat.name}: this response took too long, so the panel moved to the next seat.`
+                  : `${seat.name}: ${err?.message || 'Model request failed'}`,
               });
               continue;
+            } finally {
+              clearTimeout(seatTimeoutHandle);
+              req.signal.removeEventListener('abort', abortSeatFromRequest);
             }
           }
 
