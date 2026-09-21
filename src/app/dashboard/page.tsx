@@ -1258,6 +1258,7 @@ export default function DashboardPage() {
                 'checking_images',
                 'generating_image',
                 'editing_image',
+                'creating_document',
               ];
 
               if (allowedActivities.includes(activity)) {
