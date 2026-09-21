@@ -111,21 +111,21 @@ export async function installDocxRendererDependencies(
       });
       await assertCommandSucceeded(architectureResult, 'Sandbox architecture detection');
       const architecture = (await architectureResult.stdout()).trim();
-      const rpmArch =
+      const libreOfficeArch =
         architecture === 'aarch64' || architecture === 'arm64'
-          ? 'aarch64'
+          ? { directory: 'aarch64', filename: 'aarch64' }
           : architecture === 'x86_64' || architecture === 'amd64'
-            ? 'x86-64'
+            ? { directory: 'x86_64', filename: 'x86-64' }
             : null;
 
-      if (!rpmArch) {
+      if (!libreOfficeArch) {
         throw new Error(`Unsupported Sandbox architecture for LibreOffice: ${architecture}`);
       }
 
       const archive =
-        `LibreOffice_${LIBREOFFICE_VERSION}_Linux_${rpmArch}_rpm.tar.gz`;
+        `LibreOffice_${LIBREOFFICE_VERSION}_Linux_${libreOfficeArch.filename}_rpm.tar.gz`;
       const url =
-        `https://download.documentfoundation.org/libreoffice/stable/${LIBREOFFICE_VERSION}/rpm/${rpmArch}/${archive}`;
+        `https://download.documentfoundation.org/libreoffice/stable/${LIBREOFFICE_VERSION}/rpm/${libreOfficeArch.directory}/${archive}`;
 
       await runShell(
         sandbox,
