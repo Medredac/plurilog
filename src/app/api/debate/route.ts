@@ -2453,6 +2453,29 @@ export async function POST(req: NextRequest) {
                     filename: documentResult.filename,
                   });
 
+                  const documentCostCents = incurredDocumentCallCostUsd * 100;
+                  if (documentCostCents > 0) {
+                    const { error: spendError } = await supabase.rpc('spend_credits', {
+                      p_cents: documentCostCents,
+                      p_model: respondingModel,
+                      p_discussion_id: discussionId || null,
+                      p_meta: {
+                        seatId: seat.seatId,
+                        documentCreation: true,
+                        format: 'docx',
+                      },
+                    });
+
+                    if (spendError) {
+                      console.error(
+                        '[Spend Tracking] Failed to record Claude document creation spend:',
+                        spendError
+                      );
+                      throw new Error('Failed to record document creation usage.');
+                    }
+                    spendRecorded = true;
+                  }
+
                   sendEvent('seat_done', {
                     seatId: seat.seatId,
                     modelId: respondingModel,
@@ -4005,6 +4028,34 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted || err?.name === 'AbortError') {
                 safeClose();
                 return;
+              }
+
+              // Charge the Claude model call even if rendering, storage, indexing, or message delivery fails
+              // after Claude selected the create_file tool.
+              if (
+                documentToolBranchActive &&
+                !spendRecorded &&
+                incurredDocumentCallCostUsd > 0
+              ) {
+                try {
+                  await supabase.rpc('spend_credits', {
+                    p_cents: incurredDocumentCallCostUsd * 100,
+                    p_model: respondingModel,
+                    p_discussion_id: discussionId || null,
+                    p_meta: {
+                      seatId: seat.seatId,
+                      documentCreation: true,
+                      failedAfterToolCall: true,
+                      error: err?.message || 'Document creation failed',
+                    },
+                  });
+                  spendRecorded = true;
+                } catch (documentSpendErr) {
+                  console.error(
+                    `[Spend Tracking] Failed to record document-tool spend on error for ${seat.name}:`,
+                    documentSpendErr
+                  );
+                }
               }
 
               // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
