@@ -1574,26 +1574,53 @@ export async function POST(req: NextRequest) {
                     const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                     if (isOwner) {
                       const serviceClient = createServiceClient();
-                      const { data: signedData, error: signErr } = await serviceClient.storage
-                        .from('message-images')
-                        .createSignedUrl(inheritedPath, 900); // 15-minute headroom across sequential panel
+                      const inheritedIsDocx =
+                        inheritedDoc.filename?.toLowerCase().endsWith('.docx') ||
+                        inheritedPath.toLowerCase().endsWith('.docx');
 
-                      if (!signErr && signedData?.signedUrl) {
-                        visualAttachments = [
-                          {
-                            url: signedData.signedUrl,
-                            filename: inheritedDoc.filename,
-                          },
-                        ];
-                        resolvedVisualDocId = inheritedDocId;
-                        console.log('[Visual Document Resolution]', {
-                          source: 'exact-provenance',
-                          visualDocumentId: inheritedDoc.id,
+                      if (inheritedIsDocx) {
+                        const renderedPages = await materializeDocxRenderedPageAttachments({
+                          supabase,
+                          serviceClient,
+                          storagePath: inheritedPath,
                           filename: inheritedDoc.filename,
                         });
+
+                        if (renderedPages.length > 0) {
+                          visualAttachments = renderedPages;
+                          currentArtifactAttachments.push(...renderedPages);
+                          resolvedVisualDocId = inheritedDocId;
+                          console.log('[Visual Document Resolution]', {
+                            source: 'exact-provenance-docx-render',
+                            visualDocumentId: inheritedDoc.id,
+                            filename: inheritedDoc.filename,
+                            renderedPageCount: renderedPages.length,
+                          });
+                        } else {
+                          isVisualUnavailable = true;
+                        }
                       } else {
-                        console.warn('[Visual Follow-Up] Failed to sign inherited document URL:', signErr);
-                        isVisualUnavailable = true;
+                        const { data: signedData, error: signErr } = await serviceClient.storage
+                          .from('message-images')
+                          .createSignedUrl(inheritedPath, 900); // 15-minute headroom across sequential panel
+
+                        if (!signErr && signedData?.signedUrl) {
+                          visualAttachments = [
+                            {
+                              url: signedData.signedUrl,
+                              filename: inheritedDoc.filename,
+                            },
+                          ];
+                          resolvedVisualDocId = inheritedDocId;
+                          console.log('[Visual Document Resolution]', {
+                            source: 'exact-provenance',
+                            visualDocumentId: inheritedDoc.id,
+                            filename: inheritedDoc.filename,
+                          });
+                        } else {
+                          console.warn('[Visual Follow-Up] Failed to sign inherited document URL:', signErr);
+                          isVisualUnavailable = true;
+                        }
                       }
                     }
                   } catch (err) {
@@ -1619,35 +1646,69 @@ export async function POST(req: NextRequest) {
                       ? prompt
                       : (lastRound.userPrompt || prompt);
 
-                    const fallbackDoc = resolveVisualDocument(
-                      visualResolutionPrompt,
-                      discussionMemory?.knownDocuments,
-                      retrievedDocuments,
-                      discussionMemory?.recentRounds
-                    );
+                    const fallbackDoc =
+                      resolveVisualDocument(
+                        visualResolutionPrompt,
+                        discussionMemory?.knownDocuments,
+                        retrievedDocuments,
+                        discussionMemory?.recentRounds
+                      ) ||
+                      resolveVisualDocxDocument(
+                        visualResolutionPrompt,
+                        discussionMemory?.knownDocuments,
+                        retrievedDocuments,
+                        discussionMemory?.recentRounds
+                      );
 
                     if (fallbackDoc && fallbackDoc.storagePath) {
                       const serviceClient = createServiceClient();
-                      const { data: signedData, error: signErr } = await serviceClient.storage
-                        .from('message-images')
-                        .createSignedUrl(fallbackDoc.storagePath, 900);
+                      const fallbackIsDocx =
+                        fallbackDoc.filename.toLowerCase().endsWith('.docx') ||
+                        fallbackDoc.storagePath.toLowerCase().endsWith('.docx');
 
-                      if (!signErr && signedData?.signedUrl) {
-                        visualAttachments = [
-                          {
-                            url: signedData.signedUrl,
-                            filename: fallbackDoc.filename,
-                          },
-                        ];
-                        resolvedVisualDocId = fallbackDoc.documentId || null;
-                        console.log('[Visual Document Resolution]', {
-                          source: 'verification-fallback',
-                          visualDocumentId: fallbackDoc.documentId,
+                      if (fallbackIsDocx) {
+                        const renderedPages = await materializeDocxRenderedPageAttachments({
+                          supabase,
+                          serviceClient,
+                          storagePath: fallbackDoc.storagePath,
                           filename: fallbackDoc.filename,
                         });
+
+                        if (renderedPages.length > 0) {
+                          visualAttachments = renderedPages;
+                          currentArtifactAttachments.push(...renderedPages);
+                          resolvedVisualDocId = fallbackDoc.documentId || null;
+                          console.log('[Visual Document Resolution]', {
+                            source: 'verification-fallback-docx-render',
+                            visualDocumentId: fallbackDoc.documentId,
+                            filename: fallbackDoc.filename,
+                            renderedPageCount: renderedPages.length,
+                          });
+                        } else {
+                          isVisualUnavailable = true;
+                        }
                       } else {
-                        console.warn('[Visual Follow-Up] Failed to sign fallback document URL:', signErr);
-                        isVisualUnavailable = true;
+                        const { data: signedData, error: signErr } = await serviceClient.storage
+                          .from('message-images')
+                          .createSignedUrl(fallbackDoc.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          visualAttachments = [
+                            {
+                              url: signedData.signedUrl,
+                              filename: fallbackDoc.filename,
+                            },
+                          ];
+                          resolvedVisualDocId = fallbackDoc.documentId || null;
+                          console.log('[Visual Document Resolution]', {
+                            source: 'verification-fallback',
+                            visualDocumentId: fallbackDoc.documentId,
+                            filename: fallbackDoc.filename,
+                          });
+                        } else {
+                          console.warn('[Visual Follow-Up] Failed to sign fallback document URL:', signErr);
+                          isVisualUnavailable = true;
+                        }
                       }
                     } else {
                       console.log('[Visual Follow-Up] Preceding visual round had null visualDocumentId and could not resolve unambiguous fallback; triggering isVisualUnavailable fail-safe');
@@ -1662,40 +1723,75 @@ export async function POST(req: NextRequest) {
                 // Case C: Preceding round was NOT visual -> normal non-visual turn
                 console.log('[Visual Follow-Up] Preceding round was non-visual; no visual escalation');
               }
-            } else if (isVisualQuery) {
-              // Direct visual question on historical documents
+            } else if (isVisualQuery && docxRenderedPageAttachments.length === 0) {
+              // Direct visual question on historical documents. Current DOCX visual uploads
+              // were already rendered above and must not be reclassified as unavailable here.
               try {
                 const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                 if (isOwner) {
-                  const resolvedDoc = resolveVisualDocument(
-                    prompt,
-                    discussionMemory?.knownDocuments,
-                    retrievedDocuments,
-                    discussionMemory?.recentRounds
-                  );
+                  const resolvedDoc =
+                    resolveVisualDocument(
+                      prompt,
+                      discussionMemory?.knownDocuments,
+                      retrievedDocuments,
+                      discussionMemory?.recentRounds
+                    ) ||
+                    resolveVisualDocxDocument(
+                      prompt,
+                      discussionMemory?.knownDocuments,
+                      retrievedDocuments,
+                      discussionMemory?.recentRounds
+                    );
 
                   if (resolvedDoc && resolvedDoc.storagePath) {
                     const serviceClient = createServiceClient();
-                    const { data: signedData, error: signErr } = await serviceClient.storage
-                      .from('message-images')
-                      .createSignedUrl(resolvedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+                    const resolvedIsDocx =
+                      resolvedDoc.filename.toLowerCase().endsWith('.docx') ||
+                      resolvedDoc.storagePath.toLowerCase().endsWith('.docx');
 
-                    if (!signErr && signedData?.signedUrl) {
-                      visualAttachments = [
-                        {
-                          url: signedData.signedUrl,
-                          filename: resolvedDoc.filename,
-                        },
-                      ];
-                      resolvedVisualDocId = resolvedDoc.documentId || null;
-                      console.log('[Visual Document Resolution]', {
-                        source: 'visual-query',
-                        documentId: resolvedDoc.documentId,
+                    if (resolvedIsDocx) {
+                      const renderedPages = await materializeDocxRenderedPageAttachments({
+                        supabase,
+                        serviceClient,
+                        storagePath: resolvedDoc.storagePath,
                         filename: resolvedDoc.filename,
                       });
+
+                      if (renderedPages.length > 0) {
+                        visualAttachments = renderedPages;
+                        currentArtifactAttachments.push(...renderedPages);
+                        resolvedVisualDocId = resolvedDoc.documentId || null;
+                        console.log('[Visual Document Resolution]', {
+                          source: 'visual-query-docx-render',
+                          documentId: resolvedDoc.documentId,
+                          filename: resolvedDoc.filename,
+                          renderedPageCount: renderedPages.length,
+                        });
+                      } else {
+                        isVisualUnavailable = true;
+                      }
                     } else {
-                      console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);
-                      isVisualUnavailable = true;
+                      const { data: signedData, error: signErr } = await serviceClient.storage
+                        .from('message-images')
+                        .createSignedUrl(resolvedDoc.storagePath, 900); // 15-minute headroom across sequential panel
+
+                      if (!signErr && signedData?.signedUrl) {
+                        visualAttachments = [
+                          {
+                            url: signedData.signedUrl,
+                            filename: resolvedDoc.filename,
+                          },
+                        ];
+                        resolvedVisualDocId = resolvedDoc.documentId || null;
+                        console.log('[Visual Document Resolution]', {
+                          source: 'visual-query',
+                          documentId: resolvedDoc.documentId,
+                          filename: resolvedDoc.filename,
+                        });
+                      } else {
+                        console.warn('[Visual Reinspection] Failed to create signed URL for visual document:', signErr);
+                        isVisualUnavailable = true;
+                      }
                     }
                   } else {
                     console.log('[Visual Reinspection] Ambiguous or unresolved document for visual query — proceeding with fail-safe text retrieval');
