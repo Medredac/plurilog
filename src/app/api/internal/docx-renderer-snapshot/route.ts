@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Sandbox } from '@vercel/sandbox';
+import { installDocxRendererDependencies } from '@/utils/docxPageRenderer';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -18,30 +19,22 @@ export async function GET() {
   let snapshotted = false;
 
   try {
-    const update = await sandbox.runCommand({
-      cmd: 'apt-get',
-      args: ['update', '-qq'],
-      sudo: true,
-    });
-    if (update.exitCode !== 0) {
-      throw new Error(`apt-get update failed: ${await update.stderr()}`);
-    }
-
-    const install = await sandbox.runCommand({
-      cmd: 'apt-get',
-      args: ['install', '-y', '--no-install-recommends', 'libreoffice-writer', 'poppler-utils'],
-      sudo: true,
-    });
-    if (install.exitCode !== 0) {
-      throw new Error(`LibreOffice install failed: ${(await install.stderr()).slice(-4000)}`);
-    }
+    const { libreOfficePath } = await installDocxRendererDependencies(sandbox);
 
     const version = await sandbox.runCommand({
-      cmd: 'libreoffice',
+      cmd: libreOfficePath,
       args: ['--version'],
     });
     if (version.exitCode !== 0) {
       throw new Error(`LibreOffice version check failed: ${await version.stderr()}`);
+    }
+
+    const popplerVersion = await sandbox.runCommand({
+      cmd: 'pdftoppm',
+      args: ['-v'],
+    });
+    if (popplerVersion.exitCode !== 0) {
+      throw new Error(`Poppler version check failed: ${await popplerVersion.stderr()}`);
     }
 
     const snapshot = await sandbox.snapshot({ expiration: 0 });
@@ -51,6 +44,9 @@ export async function GET() {
       ok: true,
       snapshotId: snapshot.snapshotId,
       libreOfficeVersion: (await version.stdout()).trim(),
+      popplerVersion:
+        (await popplerVersion.stderr()).trim() ||
+        (await popplerVersion.stdout()).trim(),
       elapsedMs: Date.now() - startedAt,
     });
   } finally {
