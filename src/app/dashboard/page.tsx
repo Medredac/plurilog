@@ -1434,6 +1434,43 @@ export default function DashboardPage() {
               if (discussionId) {
                 touchDiscussion(discussionId);
               }
+            } else if (eventType === 'seat_error') {
+              const seatId = data.seatId as ModelId;
+
+              inProgressModelId = null;
+              inProgressContent = '';
+              inProgressMessageId = null;
+
+              if (discussionId) {
+                const activeGen = activeGenerationsRef.current.get(discussionId);
+                if (activeGen) {
+                  activeGen.seatStatuses = {
+                    ...activeGen.seatStatuses,
+                    [seatId]: 'done',
+                  };
+                  activeGen.liveSeatMessage = null;
+                  activeGen.activeSpeaker = null;
+                }
+              }
+
+              if (isCurrentDiscussionActive) {
+                setActiveSpeaker(null);
+                setSeatStatuses((prev) => ({
+                  ...prev,
+                  [seatId]: 'done',
+                }));
+                setMessages((prev) =>
+                  prev.filter(
+                    (m) => !(m.modelId === seatId && m.isStreaming)
+                  )
+                );
+              }
+
+              console.warn('[Panel Seat Error]', {
+                discussionId,
+                seatId,
+                message: data.message || 'Model request failed',
+              });
             } else if (eventType === 'error') {
               if (discussionId) {
                 activeGenerationsRef.current.delete(discussionId);
