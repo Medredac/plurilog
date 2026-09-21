@@ -808,6 +808,8 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
 export async function POST(req: NextRequest) {
   try {
     const { prompt, discussionId, seatOrder, isContinueRound, attachments, sourceUserMessageId } = await req.json();
+    const turnId = crypto.randomUUID();
+    const turnStartedAt = Date.now();
 
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
@@ -950,6 +952,20 @@ export async function POST(req: NextRequest) {
             SEAT_DEFINITIONS.chatgpt,
           ];
         }
+
+        console.log('[Turn Start]', {
+          turnId,
+          discussionId: discussionId || null,
+          sourceUserMessageId: sourceUserMessageId || null,
+          requestedSeatOrder: Array.isArray(seatOrder) ? seatOrder : null,
+          configuredSeats: configuredSeats.map((seat) => seat.seatId),
+          attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+          pdfCount: Array.isArray(attachments)
+            ? attachments.filter((att: any) =>
+                String(att?.url || '').split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
+              ).length
+            : 0,
+        });
 
         try {
           // Attempt hybrid discussion-memory retrieval (non-critical)
@@ -1140,6 +1156,21 @@ export async function POST(req: NextRequest) {
               );
             }
           }
+
+          console.log('[Document Retrieval]', {
+            turnId,
+            discussionId: discussionId || null,
+            resultCount: retrievedDocuments.length,
+            results: retrievedDocuments.map((doc) => ({
+              documentId: doc.documentId,
+              filename: doc.filename,
+              chunkIndex: doc.chunkIndex,
+              semanticSimilarity: doc.semanticSimilarity,
+              keywordRank: doc.keywordRank,
+              filenameMatch: doc.filenameMatch,
+              hybridScore: doc.hybridScore,
+            })),
+          });
 
           // DOCX & Text Files V1 Turn-1 Pre-Seat Single Parse & Document Evidence Delivery
           const parsedDocsToIngest: {
@@ -2060,13 +2091,60 @@ export async function POST(req: NextRequest) {
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
-          seatLoop: for (const seat of configuredSeats) {
+          seatLoop: for (
+            let seatIndex = 0;
+            seatIndex < configuredSeats.length;
+            seatIndex += 1
+          ) {
+            const seat = configuredSeats[seatIndex];
+
             if (req.signal.aborted) {
               safeClose();
               return;
             }
 
             const messageId = crypto.randomUUID();
+            const seatStartedAt = Date.now();
+
+            // Reserve time for later seats and post-relay persistence rather than
+            // allowing one provider request to consume the full Vercel invocation.
+            const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
+            const softTurnBudgetRemainingMs = Math.max(
+              30_000,
+              285_000 - elapsedBeforeSeatMs
+            );
+            const seatsRemaining = configuredSeats.length - seatIndex;
+            const fairShareMs =
+              Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
+            const seatTimeoutCapMs =
+              configuredSeats.length === 1
+                ? 240_000
+                : configuredSeats.length === 2
+                  ? 120_000
+                  : 100_000;
+            const seatTimeoutMs = Math.max(
+              30_000,
+              Math.min(seatTimeoutCapMs, fairShareMs)
+            );
+
+            const seatAbortController = new AbortController();
+            const abortSeatFromRequest = () => {
+              if (!seatAbortController.signal.aborted) {
+                seatAbortController.abort(req.signal.reason);
+              }
+            };
+            req.signal.addEventListener('abort', abortSeatFromRequest, {
+              once: true,
+            });
+            const seatTimeoutHandle = setTimeout(() => {
+              if (!seatAbortController.signal.aborted) {
+                seatAbortController.abort(
+                  new Error(`${seat.name} exceeded its ${Math.round(
+                    seatTimeoutMs / 1000
+                  )}-second turn budget.`)
+                );
+              }
+            }, seatTimeoutMs);
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
@@ -2087,6 +2165,15 @@ export async function POST(req: NextRequest) {
               modelId: primaryModel,
               name: seat.name,
               messageId,
+            });
+
+            console.log('[Seat Start]', {
+              turnId,
+              discussionId: discussionId || null,
+              seatId: seat.seatId,
+              modelId: primaryModel,
+              seatTimeoutMs,
+              elapsedTurnMs: Date.now() - turnStartedAt,
             });
 
             const isGeminiImageEnabled =
@@ -2251,7 +2338,7 @@ export async function POST(req: NextRequest) {
                 messages: seatMessages,
                 stream: true,
                 temperature: 0.7,
-                signal: req.signal,
+                signal: seatAbortController.signal,
                 tools: [
                   {
                     type: 'openrouter:web_search',
@@ -2317,6 +2404,17 @@ export async function POST(req: NextRequest) {
                     });
                   }
                 }
+              }
+
+              if (
+                seatAbortController.signal.aborted &&
+                !req.signal.aborted
+              ) {
+                throw new Error(
+                  `${seat.name} exceeded its ${Math.round(
+                    seatTimeoutMs / 1000
+                  )}-second turn budget.`
+                );
               }
 
               if (req.signal.aborted) {
@@ -2646,7 +2744,7 @@ export async function POST(req: NextRequest) {
                     messages: evidenceMessages,
                     stream: true,
                     temperature: 0.7,
-                    signal: req.signal,
+                    signal: seatAbortController.signal,
                     tools: REQUEST_EVIDENCE_TOOL,
                     tool_choice: 'none',
                     ...(discussionId
@@ -2689,6 +2787,17 @@ export async function POST(req: NextRequest) {
                         text,
                       });
                     }
+                  }
+
+                  if (
+                    seatAbortController.signal.aborted &&
+                    !req.signal.aborted
+                  ) {
+                    throw new Error(
+                      `${seat.name} exceeded its ${Math.round(
+                        seatTimeoutMs / 1000
+                      )}-second turn budget.`
+                    );
                   }
 
                   if (req.signal.aborted) {
@@ -3127,12 +3236,12 @@ export async function POST(req: NextRequest) {
                           ? await editChatGPTImage({
                               prompt: editInstruction,
                               referenceImageUrl,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             })
                           : await editGeminiImage({
                               prompt: editInstruction,
                               referenceImageUrl,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
 
                       incurredImageCostUsd = imageResult.costUsd;
@@ -3247,7 +3356,7 @@ export async function POST(req: NextRequest) {
                               ],
                               sourceUserMessageId:
                                 persistedMsg?.id || messageId,
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
 
                           if (
@@ -3312,7 +3421,7 @@ export async function POST(req: NextRequest) {
                                   filename: persistedImage.filename,
                                 },
                               ],
-                              signal: req.signal,
+                              signal: seatAbortController.signal,
                             });
                           } catch (indexErr) {
                             console.warn(
@@ -3455,11 +3564,11 @@ export async function POST(req: NextRequest) {
                     seat.seatId === 'chatgpt'
                       ? await generateChatGPTImage({
                           prompt: toolPrompt,
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         })
                       : await generateGeminiImage({
                           prompt: toolPrompt,
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         });
 
                   incurredImageCostUsd = imageResult.costUsd;
@@ -3564,7 +3673,7 @@ export async function POST(req: NextRequest) {
                           },
                         ],
                         sourceUserMessageId: persistedMsg?.id || messageId,
-                        signal: req.signal,
+                        signal: seatAbortController.signal,
                       });
 
                       // Update persistent visual context for assistant generation
@@ -3642,7 +3751,7 @@ export async function POST(req: NextRequest) {
                               filename: persistedImage.filename,
                             },
                           ],
-                          signal: req.signal,
+                          signal: seatAbortController.signal,
                         });
                       } catch (indexErr) {
                         console.warn('[Visual Indexer] Non-critical error during generated image indexing:', indexErr);
@@ -3876,15 +3985,36 @@ export async function POST(req: NextRequest) {
                 createdAt: persistedMsg?.created_at || new Date().toISOString(),
               });
 
+              console.log('[Seat Done]', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                modelId: respondingModel,
+                seatElapsedMs: Date.now() - seatStartedAt,
+                elapsedTurnMs: Date.now() - turnStartedAt,
+              });
+
               // Record in prior responses for subsequent speakers (untainted by synthetic Sources footer)
               priorResponses.push({
                 name: seat.name,
                 response: peerResponseText,
               });
             } catch (err: any) {
-              if (req.signal.aborted || err?.name === 'AbortError') {
+              if (req.signal.aborted) {
                 safeClose();
                 return;
+              }
+
+              const seatTimedOut = seatAbortController.signal.aborted;
+              if (seatTimedOut) {
+                console.warn('[Seat Timeout]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  seatTimeoutMs,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                });
               }
 
               // Ensure incurred evidence-request cost is charged even if retrieval or the second inference fails.
@@ -3949,15 +4079,28 @@ export async function POST(req: NextRequest) {
               addFileAnnotations(err?.error?.metadata?.file_annotations);
 
               console.error(`Error with ${seat.name}:`, err);
-              sendEvent('error', {
+              console.error('[Seat Failed]', {
+                turnId,
+                discussionId: discussionId || null,
                 seatId: seat.seatId,
-                message: `${seat.name}: ${err?.message || 'Model request failed'}`,
+                seatElapsedMs: Date.now() - seatStartedAt,
+                elapsedTurnMs: Date.now() - turnStartedAt,
+                error: err?.message || String(err),
+              });
+              sendEvent('seat_error', {
+                seatId: seat.seatId,
+                message: seatTimedOut
+                  ? `${seat.name}: this response took too long, so the panel moved to the next seat.`
+                  : `${seat.name}: ${err?.message || 'Model request failed'}`,
               });
               continue;
+            } finally {
+              clearTimeout(seatTimeoutHandle);
+              req.signal.removeEventListener('abort', abortSeatFromRequest);
             }
           }
 
-          // Ingest any parsed PDF file annotations into discussion_documents & discussion_document_chunks (non-critical)
+          // Stage parsed PDF text/identity for deferred semantic indexing (non-critical)
           if (
             discussionId &&
             attachments &&
@@ -3979,79 +4122,39 @@ export async function POST(req: NextRequest) {
                 } else {
                   const serviceClient = createServiceClient();
 
-                  let annotationsToIngest = roundFileAnnotations;
+                  const annotationsToStage = roundFileAnnotations;
+                  const pdfAttachmentsForDeferredIndex = attachments.filter((att: any) =>
+                    String(att?.url || '')
+                      .split('?')[0]
+                      .split('#')[0]
+                      .toLowerCase()
+                      .endsWith('.pdf')
+                  );
 
-                  // If native PDF vision was used for all seats (visual question on active upload),
-                  // roundFileAnnotations will be empty because native models do not emit OCR annotations.
-                  // Run a single dedicated background Mistral OCR extraction to ensure the PDF is durably indexed into memory!
-                  if (annotationsToIngest.length === 0) {
-                    const pdfAttachments = attachments.filter((att: any) =>
-                      att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
-                    );
-
-                    if (pdfAttachments.length > 0) {
-                      console.log('[Doc Ingest] Fetching Mistral OCR annotations for durable background indexing...');
-                      try {
-                        const ocrBlocks = pdfAttachments.map((att: any) => ({
-                          type: 'file',
-                          file: {
-                            filename: att.filename || 'attachment.pdf',
-                            file_data: att.url,
-                          },
-                        }));
-
-                        const stream = await (openai.chat.completions.create as any)({
-                          model: 'google/gemini-3.7-flash',
-                          messages: [
-                            {
-                              role: 'user',
-                              content: [
-                                ...ocrBlocks,
-                                { type: 'text', text: 'Extract index.' },
-                              ],
-                            },
-                          ],
-                          plugins: [
-                            {
-                              id: 'file-parser',
-                              pdf: { engine: 'mistral-ocr' },
-                            },
-                          ],
-                          stream: true,
-                          max_tokens: 10,
-                          signal: req.signal,
-                        });
-
-                        const captured: any[] = [];
-                        for await (const chunk of stream) {
-                          const anns = (chunk.choices?.[0]?.delta as any)?.annotations;
-                          if (anns) {
-                            const annList = Array.isArray(anns) ? anns : [anns];
-                            for (const a of annList) {
-                              if (a?.type === 'file' && a?.file?.hash) {
-                                if (!captured.some((existing) => existing?.file?.hash === a.file.hash)) {
-                                  captured.push(a);
-                                }
-                              }
-                            }
-                          }
-                        }
-                        annotationsToIngest = captured;
-                      } catch (ocrErr) {
-                        console.warn('[Doc Ingest] Non-critical warning during background OCR indexing:', ocrErr);
-                      }
-                    }
-                  }
-
-                  if (annotationsToIngest.length > 0) {
-                    await ingestDiscussionDocuments({
+                  if (annotationsToStage.length > 0) {
+                    const stageResult = await ingestDiscussionDocuments({
                       serviceSupabase: serviceClient,
                       openai,
                       discussionId,
-                      fileAnnotations: annotationsToIngest,
+                      fileAnnotations: annotationsToStage,
                       attachments,
                       sourceUserMessageId,
                       signal: req.signal,
+                      deferEmbedding: true,
+                    });
+
+                    console.log('[Doc Stage] Staged PDF text for deferred indexing:', {
+                      turnId,
+                      discussionId,
+                      stagedCount: stageResult.stagedCount,
+                      skippedCount: stageResult.skippedCount,
+                      errorCount: stageResult.errors.length,
+                    });
+                  } else if (pdfAttachmentsForDeferredIndex.length > 0) {
+                    console.log('[Doc Stage] No reusable PDF annotations; fallback OCR deferred to post-relay indexer:', {
+                      turnId,
+                      discussionId,
+                      pdfCount: pdfAttachmentsForDeferredIndex.length,
                     });
                   }
 
@@ -4356,6 +4459,14 @@ export async function POST(req: NextRequest) {
           }
 
           // Complete event
+          console.log('[Turn Done]', {
+            turnId,
+            discussionId: discussionId || null,
+            configuredSeats: configuredSeats.map((seat) => seat.seatId),
+            completedSeatCount: priorResponses.length,
+            elapsedTurnMs: Date.now() - turnStartedAt,
+          });
+
           sendEvent('council_done', {
             status: 'completed',
           });

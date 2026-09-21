@@ -1907,10 +1907,12 @@ export interface IngestDocumentsOptions {
   attachments?: { url: string; filename: string }[] | null;
   sourceUserMessageId?: string | null;
   signal?: AbortSignal;
+  deferEmbedding?: boolean;
 }
 
 export interface IngestDocumentsResult {
   ingestedCount: number;
+  stagedCount: number;
   skippedCount: number;
   errors: { filename: string; fileHash: string; error: string }[];
 }
@@ -1924,10 +1926,20 @@ export interface IngestDocumentsResult {
 export async function ingestDiscussionDocuments(
   options: IngestDocumentsOptions
 ): Promise<IngestDocumentsResult> {
-  const { serviceSupabase, openai, discussionId, fileAnnotations, attachments, sourceUserMessageId, signal } = options;
+  const {
+    serviceSupabase,
+    openai,
+    discussionId,
+    fileAnnotations,
+    attachments,
+    sourceUserMessageId,
+    signal,
+    deferEmbedding = false,
+  } = options;
 
   const result: IngestDocumentsResult = {
     ingestedCount: 0,
+    stagedCount: 0,
     skippedCount: 0,
     errors: [],
   };
@@ -2226,6 +2238,18 @@ export async function ingestDiscussionDocuments(
         }
       }
 
+      if (deferEmbedding) {
+        console.log('[Doc Ingest] Staged document text; deferred chunk embeddings:', {
+          discussionId,
+          documentId,
+          filename,
+          fileHash,
+          expectedChunks: expectedChunks.length,
+        });
+        result.stagedCount++;
+        continue;
+      }
+
       if (signal?.aborted) {
         console.warn('[Doc Ingest] Ingestion aborted before embedding generation');
         break;
@@ -2346,6 +2370,193 @@ export async function ingestDiscussionDocuments(
   return result;
 }
 
+export interface IndexStoredDiscussionDocumentsOptions {
+  serviceSupabase: SupabaseClient;
+  openai: OpenAI;
+  discussionId: string;
+  storagePaths: string[];
+  signal?: AbortSignal;
+}
+
+export interface IndexStoredDiscussionDocumentsResult {
+  matchedCount: number;
+  indexedCount: number;
+  skippedCount: number;
+  errors: { documentId: string; filename: string; error: string }[];
+}
+
+/**
+ * Completes chunk embedding for PDF documents whose OCR text/identity has already
+ * been staged in discussion_documents. Intended for a separate post-relay request
+ * so durable semantic indexing does not consume the live panel request budget.
+ */
+export async function indexStoredDiscussionDocuments(
+  options: IndexStoredDiscussionDocumentsOptions
+): Promise<IndexStoredDiscussionDocumentsResult> {
+  const { serviceSupabase, openai, discussionId, signal } = options;
+  const storagePaths = Array.from(
+    new Set((options.storagePaths || []).filter((path) => typeof path === 'string' && path.trim()))
+  );
+
+  const result: IndexStoredDiscussionDocumentsResult = {
+    matchedCount: 0,
+    indexedCount: 0,
+    skippedCount: 0,
+    errors: [],
+  };
+
+  if (!serviceSupabase || !openai || !discussionId || storagePaths.length === 0) {
+    return result;
+  }
+
+  const { data: sourceRows, error: sourceErr } = await serviceSupabase
+    .from('discussion_document_sources')
+    .select('document_id, storage_path')
+    .eq('discussion_id', discussionId)
+    .in('storage_path', storagePaths);
+
+  if (sourceErr) {
+    throw new Error(`Failed to resolve staged document sources: ${sourceErr.message}`);
+  }
+
+  const documentIds = Array.from(
+    new Set(
+      (sourceRows || [])
+        .map((row: any) => row?.document_id)
+        .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    )
+  );
+
+  if (documentIds.length === 0) {
+    return result;
+  }
+
+  const { data: documents, error: docsErr } = await serviceSupabase
+    .from('discussion_documents')
+    .select('id, filename, full_text, file_hash')
+    .eq('discussion_id', discussionId)
+    .in('id', documentIds);
+
+  if (docsErr) {
+    throw new Error(`Failed to load staged documents: ${docsErr.message}`);
+  }
+
+  result.matchedCount = documents?.length || 0;
+
+  for (const doc of documents || []) {
+    if (signal?.aborted) break;
+
+    const documentId = String(doc.id);
+    const filename = String(doc.filename || 'document.pdf');
+    const fullText = typeof doc.full_text === 'string' ? doc.full_text : '';
+
+    try {
+      const expectedChunks = chunkDocumentText(fullText);
+      if (expectedChunks.length === 0) {
+        result.skippedCount++;
+        continue;
+      }
+
+      const { count, error: countErr } = await serviceSupabase
+        .from('discussion_document_chunks')
+        .select('id', { count: 'exact', head: true })
+        .eq('document_id', documentId);
+
+      if (!countErr && typeof count === 'number' && count === expectedChunks.length) {
+        result.skippedCount++;
+        continue;
+      }
+
+      const EMBEDDING_BATCH_SIZE = 16;
+      const chunkInserts: {
+        document_id: string;
+        discussion_id: string;
+        chunk_index: number;
+        content: string;
+        embedding: number[];
+      }[] = [];
+
+      for (let batchStart = 0; batchStart < expectedChunks.length; batchStart += EMBEDDING_BATCH_SIZE) {
+        if (signal?.aborted) break;
+
+        const batchEnd = Math.min(batchStart + EMBEDDING_BATCH_SIZE, expectedChunks.length);
+        const batchTexts = expectedChunks.slice(batchStart, batchEnd);
+        const embRes = await (openai.embeddings.create as any)(
+          {
+            model: 'google/gemini-embedding-2',
+            dimensions: 1536,
+            input: batchTexts,
+            encoding_format: 'float',
+          },
+          {
+            timeout: 10000,
+            signal,
+          }
+        );
+
+        const returnedData = embRes?.data;
+        if (!Array.isArray(returnedData) || returnedData.length !== batchTexts.length) {
+          throw new Error(
+            `Batch embedding count mismatch: expected ${batchTexts.length}, received ${returnedData?.length || 0}`
+          );
+        }
+
+        for (let i = 0; i < returnedData.length; i++) {
+          const embedding = returnedData[i]?.embedding;
+          const chunkIndex = batchStart + i;
+          if (!Array.isArray(embedding) || embedding.length !== 1536) {
+            throw new Error(
+              `Embedding generation returned invalid vector for chunk ${chunkIndex} of ${filename}`
+            );
+          }
+
+          chunkInserts.push({
+            document_id: documentId,
+            discussion_id: discussionId,
+            chunk_index: chunkIndex,
+            content: batchTexts[i],
+            embedding,
+          });
+        }
+      }
+
+      if (signal?.aborted || chunkInserts.length !== expectedChunks.length) {
+        continue;
+      }
+
+      const { error: upsertErr } = await serviceSupabase
+        .from('discussion_document_chunks')
+        .upsert(chunkInserts, { onConflict: 'document_id,chunk_index' });
+
+      if (upsertErr) {
+        throw new Error(`Failed to insert document chunks: ${upsertErr.message}`);
+      }
+
+      result.indexedCount++;
+      console.log('[Doc Index] Completed deferred PDF index:', {
+        discussionId,
+        documentId,
+        filename,
+        chunksCount: chunkInserts.length,
+      });
+    } catch (err: any) {
+      result.errors.push({
+        documentId,
+        filename,
+        error: err?.message || String(err),
+      });
+      console.error('[Doc Index] Deferred indexing failed:', {
+        discussionId,
+        documentId,
+        filename,
+        error: err?.message || String(err),
+      });
+    }
+  }
+
+  return result;
+}
+
 export interface IngestParsedDocumentOptions {
   serviceSupabase: SupabaseClient | any;
   openai: OpenAI | any;
@@ -2380,6 +2591,7 @@ export async function ingestParsedDocument(
 
   const result: IngestDocumentsResult = {
     ingestedCount: 0,
+    stagedCount: 0,
     skippedCount: 0,
     errors: [],
   };
