@@ -1157,6 +1157,21 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          console.log('[Document Retrieval]', {
+            turnId,
+            discussionId: discussionId || null,
+            resultCount: retrievedDocuments.length,
+            results: retrievedDocuments.map((doc) => ({
+              documentId: doc.documentId,
+              filename: doc.filename,
+              chunkIndex: doc.chunkIndex,
+              semanticSimilarity: doc.semanticSimilarity,
+              keywordRank: doc.keywordRank,
+              filenameMatch: doc.filenameMatch,
+              hybridScore: doc.hybridScore,
+            })),
+          });
+
           // DOCX & Text Files V1 Turn-1 Pre-Seat Single Parse & Document Evidence Delivery
           const parsedDocsToIngest: {
             filename: string;
