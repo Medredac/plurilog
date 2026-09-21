@@ -46,7 +46,7 @@ const articleJsonLd = {
     'Why Plurilog puts ChatGPT, Claude and Gemini into one shared AI conversation, how shared context works, and why multiple perspectives are more useful when they stay part of the same discussion.',
   image: 'https://plurilogai.com/blog/why-we-built-plurilog-shared-ai-conversation.png',
   datePublished: '2026-09-17T00:00:00.000Z',
-  dateModified: '2026-09-17T00:00:00.000Z',
+  dateModified: '2026-09-20T00:00:00.000Z',
   author: {
     '@type': 'Organization',
     name: 'Plurilog',
@@ -67,12 +67,41 @@ const articleJsonLd = {
   },
 };
 
+const breadcrumbJsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    {
+      '@type': 'ListItem',
+      position: 1,
+      name: 'Home',
+      item: 'https://plurilogai.com/',
+    },
+    {
+      '@type': 'ListItem',
+      position: 2,
+      name: 'Blog',
+      item: 'https://plurilogai.com/blog',
+    },
+    {
+      '@type': 'ListItem',
+      position: 3,
+      name: "ChatGPT, Claude and Gemini in One Conversation",
+      item: "https://plurilogai.com/blog/chatgpt-claude-gemini-shared-conversation",
+    },
+  ],
+};
+
 export default function WhyWeBuiltPlurilogSharedConversationBlogPost() {
   return (
     <div className="min-h-screen flex flex-col bg-white text-zinc-900 font-sans selection:bg-amber-100 selection:text-zinc-900">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
 
       {/* Navigation Header */}
