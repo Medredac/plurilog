@@ -629,6 +629,25 @@ export function resolveRequestedEvidence(
     ? (isDocx(documentMatch.filename || documentMatch.storagePath) ? 'docx' : 'pdf')
     : null;
 
+  if (isPdfStrong && isDocxStrong) {
+    return {
+      status: 'ambiguous',
+      message: 'Multiple documents match this visual evidence request. Please specify the file.',
+      candidates: [
+        {
+          label: pdfMatch!.filename,
+          filename: pdfMatch!.filename,
+          kind: 'pdf',
+        },
+        {
+          label: docxMatch!.filename,
+          filename: docxMatch!.filename,
+          kind: 'docx',
+        },
+      ],
+    };
+  }
+
   // Case 5a: If one is strong and the other is not -> the strong one wins deterministically
   if (isDocumentStrong && !isImgStrong && documentMatch && documentKind) {
     return {
@@ -651,7 +670,7 @@ export function resolveRequestedEvidence(
     };
   }
 
-  if (isImgStrong && !isPdfStrong) {
+  if (isImgStrong && !isDocumentStrong) {
     const primarySource = imgMatch!.sources[0];
     return {
       status: 'resolved',
