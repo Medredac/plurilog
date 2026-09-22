@@ -748,13 +748,32 @@ async function sandboxCommandPath(
   return value || null;
 }
 
+async function workingChromePath(
+  sandbox: InstanceType<typeof Sandbox>
+): Promise<string | null> {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: [
+      '-lc',
+      [
+        'for c in google-chrome-stable google-chrome chromium chromium-browser; do',
+        '  p=$(command -v "$c" 2>/dev/null || true);',
+        '  [ -n "$p" ] || continue;',
+        '  if "$p" --version >/dev/null 2>&1; then echo "$p"; exit 0; fi;',
+        'done;',
+        'exit 1',
+      ].join(' '),
+    ],
+  });
+  if (result.exitCode !== 0) return null;
+  const value = (await result.stdout()).trim().split(/\r?\n/)[0]?.trim();
+  return value || null;
+}
+
 async function installChromiumPdfDependencies(
   sandbox: InstanceType<typeof Sandbox>
 ): Promise<{ chromePath: string }> {
-  let chromePath = await sandboxCommandPath(
-    sandbox,
-    'google-chrome-stable google-chrome chromium chromium-browser'
-  );
+  let chromePath = await workingChromePath(sandbox);
   const pdfInfoPath = await sandboxCommandPath(sandbox, 'pdfinfo');
 
   if (chromePath && pdfInfoPath) {
@@ -788,10 +807,7 @@ async function installChromiumPdfDependencies(
       ],
     });
 
-    chromePath = await sandboxCommandPath(
-      sandbox,
-      'google-chrome-stable google-chrome chromium chromium-browser'
-    );
+    chromePath = await workingChromePath(sandbox);
 
     if (!chromePath) {
       const archResult = await sandbox.runCommand({ cmd: 'uname', args: ['-m'] });
@@ -811,22 +827,32 @@ async function installChromiumPdfDependencies(
       await assertSandboxCommand(chromeInstall, 'Google Chrome installation');
     }
   } else if (packageManager === 'apt-get') {
+    const archResult = await sandbox.runCommand({ cmd: 'uname', args: ['-m'] });
+    await assertSandboxCommand(archResult, 'PDF renderer architecture detection');
+    const arch = (await archResult.stdout()).trim();
+    if (arch !== 'x86_64' && arch !== 'amd64') {
+      throw new Error(`Google Chrome PDF renderer currently requires x86_64 Sandbox; received ${arch}.`);
+    }
+
     const install = await sandbox.runCommand({
       cmd: 'sh',
       args: [
         '-lc',
-        'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends chromium poppler-utils fonts-noto-cjk fonts-liberation',
+        [
+          'set -eu',
+          'sudo apt-get update -qq',
+          'sudo apt-get install -y --no-install-recommends ca-certificates curl poppler-utils fonts-noto-cjk fonts-liberation',
+          'curl -fL --retry 3 --connect-timeout 20 https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/google-chrome.deb',
+          'sudo apt-get install -y /tmp/google-chrome.deb',
+        ].join(' && '),
       ],
     });
-    await assertSandboxCommand(install, 'Chromium PDF renderer dependency installation');
+    await assertSandboxCommand(install, 'Google Chrome PDF renderer dependency installation');
   } else {
     throw new Error('PDF renderer sandbox has neither dnf nor apt-get available.');
   }
 
-  chromePath = await sandboxCommandPath(
-    sandbox,
-    'google-chrome-stable google-chrome chromium chromium-browser'
-  );
+  chromePath = await workingChromePath(sandbox);
   const finalPdfInfoPath = await sandboxCommandPath(sandbox, 'pdfinfo');
 
   if (!chromePath || !finalPdfInfoPath) {
