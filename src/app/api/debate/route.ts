@@ -1631,6 +1631,7 @@ export async function POST(req: NextRequest) {
           let visualContextState: DiscussionVisualContextState | null = null;
           let visualDeliveryMismatch: { requestedCount: number; deliveredCount: number } | null = null;
           let hadGeneratedImageInTurn = false;
+          let documentCreatedThisTurn = false;
           // Track independent image outputs created by multiple seats for this one user turn.
           // These must remain a shared visual working set after the round completes.
           let sameRoundGeneratedSourceIds: string[] = [];
@@ -2611,7 +2612,8 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageGeneration === true &&
               isChatGPTImageGenerationEnabled();
             const isImageGenerationEnabledForSeat =
-              isGeminiImageEnabled || isChatGPTImageEnabled;
+              !documentCreatedThisTurn &&
+              (isGeminiImageEnabled || isChatGPTImageEnabled);
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
               getSeatCapabilities('gemini').imageEditing === true &&
@@ -2621,8 +2623,9 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageEditing === true &&
               isChatGPTImageEditingEnabled();
             const isImageEditingEnabledForSeat =
-              isGeminiImageEditingEnabledForSeat ||
-              isChatGPTImageEditingEnabledForSeat;
+              !documentCreatedThisTurn &&
+              (isGeminiImageEditingEnabledForSeat ||
+                isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
             const isDocumentCreationEnabledForSeat =
               seat.seatId === 'claude' && isClaudeDocumentCreationEnabled();
@@ -2969,6 +2972,7 @@ export async function POST(req: NextRequest) {
                     url: documentResult.signedUrl,
                     filename: documentResult.filename,
                   });
+                  documentCreatedThisTurn = true;
 
                   const documentCostCents =
                     (incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd) * 100;
