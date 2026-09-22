@@ -774,7 +774,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
                                 <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
-                                  {documentBadge}
+                                  DOCX
                                 </span>
                               </button>
                             ) : isText ? (
