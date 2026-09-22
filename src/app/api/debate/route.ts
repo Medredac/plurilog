@@ -94,7 +94,7 @@ export const GEMINI_IMAGE_TOOLS = [
     function: {
       name: 'generate_image',
       description:
-        'Generate an image when the user explicitly asks you to produce an image as your output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests such as "Gemini, generate the image first; Claude, then use that exact image in a document." Do not use this tool when an image is mentioned only as an element to be embedded inside a document and the user did not separately ask you to generate it. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
+        'Generate an image when the user explicitly asks you to produce an image as your output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests such as "Gemini, generate the image first; Claude, then use that exact image in a document." Do not use this tool when an image is mentioned only as an element to be embedded inside a document and the user did not separately ask you to generate it. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
       parameters: {
         type: 'object',
         properties: {
@@ -118,7 +118,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
     function: {
       name: 'edit_image',
       description:
-        'Edit or transform one existing image when the user explicitly asks you to produce an edited image as the output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests where another model will later reuse the edited image in a document. If the requested edit exists only as an embedded document operation and the user did not separately ask you to produce the edited image first, leave that document-internal edit to Claude\'s document workflow. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
+        'Edit or transform one existing image when the user explicitly asks you to produce an edited image as the output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests where another model will later reuse the edited image in a document. If the requested edit exists only as an embedded document operation and the user did not separately ask you to produce the edited image first, leave that document-internal edit to Claude\'s document workflow. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
       parameters: {
         type: 'object',
         properties: {
@@ -675,6 +675,107 @@ async function materializeDocxRenderedPageAttachments(options: {
   }
 
   return attachments;
+}
+
+async function generateImageActionFollowUp(options: {
+  openai: OpenAI;
+  primaryModel: string;
+  models: string[];
+  baseMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  toolCall: {
+    id?: string;
+    name: string;
+    arguments?: Record<string, unknown>;
+    rawArguments?: string;
+  };
+  priorToolText?: string;
+  signal: AbortSignal;
+  sessionId?: string | null;
+  onText?: (text: string) => void;
+}): Promise<{ content: string; costUsd: number; respondingModel: string }> {
+  const {
+    openai,
+    primaryModel,
+    models,
+    baseMessages,
+    toolCall,
+    priorToolText = '',
+    signal,
+    sessionId,
+    onText,
+  } = options;
+
+  const toolCallId =
+    toolCall.id?.trim() ||
+    `call_${toolCall.name}_followup`;
+  const rawArguments =
+    toolCall.rawArguments?.trim() ||
+    JSON.stringify(toolCall.arguments || {});
+
+  const followUpMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...baseMessages,
+    {
+      role: 'assistant',
+      content: priorToolText.trim() || null,
+      tool_calls: [
+        {
+          id: toolCallId,
+          type: 'function',
+          function: {
+            name: toolCall.name,
+            arguments: rawArguments,
+          },
+        },
+      ],
+    } as any,
+    {
+      role: 'tool',
+      tool_call_id: toolCallId,
+      name: toolCall.name,
+      content: JSON.stringify({
+        status: 'success',
+        artifact: 'image',
+        message:
+          'The requested image action completed successfully. The image will be attached to your response and is available to later models in this panel round.',
+        response_guidance:
+          'Continue naturally from the user request and the discussion context. Briefly say something useful or relevant about the image or how it fits the ongoing task. Do not use a generic stock confirmation and do not mention internal tool mechanics.',
+      }),
+    } as any,
+  ];
+
+  let content = '';
+  let costUsd = 0;
+  let respondingModel = primaryModel;
+
+  const followUpStream = await (openai.chat.completions.create as any)({
+    model: primaryModel,
+    models,
+    messages: followUpMessages,
+    stream: true,
+    temperature: 0.7,
+    signal,
+    tool_choice: 'none',
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+
+  for await (const chunk of followUpStream) {
+    if (signal.aborted) break;
+    if (chunk.model) respondingModel = chunk.model;
+    if ((chunk as any).usage && typeof (chunk as any).usage.cost === 'number') {
+      costUsd = (chunk as any).usage.cost;
+    }
+    const text = chunk.choices?.[0]?.delta?.content || '';
+    if (text) {
+      content += text;
+      onText?.(text);
+    }
+  }
+
+  return {
+    content: content.trim(),
+    costUsd,
+    respondingModel,
+  };
 }
 
 
@@ -2605,6 +2706,7 @@ export async function POST(req: NextRequest) {
             let seatUsage: any = null;
             let accumulatedToolCalls: AccumulatedToolCall[] = [];
             let incurredImageCostUsd: number | null = null;
+            let incurredImageFollowUpCostUsd = 0;
             let incurredEvidenceFirstPassCostUsd = 0;
             let incurredEvidenceSecondPassCostUsd = 0;
             let spendRecorded = false;
@@ -3968,9 +4070,42 @@ export async function POST(req: NextRequest) {
                         }
                       );
 
-                      const finalContent =
-                        seatResponse.trim() ||
-                        'Edited the image based on your request.';
+                      const firstPassImageText = seatResponse.trim();
+                      let finalContent = firstPassImageText;
+
+                      if (!finalContent) {
+                        try {
+                          const followUp = await generateImageActionFollowUp({
+                            openai,
+                            primaryModel,
+                            models,
+                            baseMessages: seatMessages,
+                            toolCall: imageCall,
+                            priorToolText: firstPassImageText,
+                            signal: seatAbortController.signal,
+                            sessionId: discussionId
+                              ? `${discussionId}:${seat.seatId}`
+                              : null,
+                            onText: (text) =>
+                              sendEvent('seat_chunk', {
+                                seatId: seat.seatId,
+                                text,
+                              }),
+                          });
+                          finalContent = followUp.content;
+                          incurredImageFollowUpCostUsd += followUp.costUsd;
+                          respondingModel = followUp.respondingModel;
+                        } catch (followUpErr) {
+                          console.warn(
+                            '[Image Editing] Non-critical contextual follow-up error:',
+                            followUpErr
+                          );
+                        }
+                      }
+
+                      if (!finalContent) {
+                        finalContent = 'Image edit completed.';
+                      }
 
                       let persistedMsg: {
                         id: string;
@@ -4160,9 +4295,9 @@ export async function POST(req: NextRequest) {
                       });
 
                       const textCostUsd =
-                        typeof seatUsage?.cost === 'number'
+                        (typeof seatUsage?.cost === 'number'
                           ? seatUsage.cost
-                          : 0;
+                          : 0) + incurredImageFollowUpCostUsd;
                       const imageCostUsd =
                         typeof imageResult.costUsd === 'number'
                           ? imageResult.costUsd
@@ -4292,8 +4427,45 @@ export async function POST(req: NextRequest) {
                     model: imageResult.model,
                   });
 
-                  // 4. Model Message Content
-                  const finalContent = seatResponse.trim() || 'Generated an image based on your request.';
+                  // 4. Model-authored message content.
+                  // Tool-only image calls get one lightweight follow-up so the
+                  // visible text can reflect the actual conversation context.
+                  const firstPassImageText = seatResponse.trim();
+                  let finalContent = firstPassImageText;
+
+                  if (!finalContent) {
+                    try {
+                      const followUp = await generateImageActionFollowUp({
+                        openai,
+                        primaryModel,
+                        models,
+                        baseMessages: seatMessages,
+                        toolCall: imageCall,
+                        priorToolText: firstPassImageText,
+                        signal: seatAbortController.signal,
+                        sessionId: discussionId
+                          ? `${discussionId}:${seat.seatId}`
+                          : null,
+                        onText: (text) =>
+                          sendEvent('seat_chunk', {
+                            seatId: seat.seatId,
+                            text,
+                          }),
+                      });
+                      finalContent = followUp.content;
+                      incurredImageFollowUpCostUsd += followUp.costUsd;
+                      respondingModel = followUp.respondingModel;
+                    } catch (followUpErr) {
+                      console.warn(
+                        '[Image Generation] Non-critical contextual follow-up error:',
+                        followUpErr
+                      );
+                    }
+                  }
+
+                  if (!finalContent) {
+                    finalContent = 'Image generated.';
+                  }
 
                   // 5. Message INSERT (reuse existing retry/idempotency logic)
                   let persistedMsg: { id: string; created_at: string } | null = null;
@@ -4485,7 +4657,9 @@ export async function POST(req: NextRequest) {
                   });
 
                   // 9. Billing — Exactly Once
-                  const textCostUsd = typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                  const textCostUsd =
+                    (typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0) +
+                    incurredImageFollowUpCostUsd;
                   const imageCostUsd = typeof imageResult.costUsd === 'number' ? imageResult.costUsd : 0;
                   const totalCostUsd = textCostUsd + imageCostUsd;
                   const costCents = totalCostUsd * 100;
