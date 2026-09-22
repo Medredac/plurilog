@@ -2821,15 +2821,31 @@ export async function POST(req: NextRequest) {
             const seatsRemaining = configuredSeats.length - seatIndex;
             const fairShareMs =
               Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
-            const seatTimeoutCapMs =
+            const likelyClaudeDocumentRequest =
+              seat.seatId === 'claude' &&
+              /\b(pdf|docx|word\s+document|downloadable\s+document)\b/i.test(
+                prompt || ''
+              ) &&
+              /\b(create|make|generate|produce|build|write|return|redesign|revise)\b/i.test(
+                prompt || ''
+              );
+            const ordinarySeatTimeoutCapMs =
               configuredSeats.length === 1
                 ? 240_000
                 : configuredSeats.length === 2
                   ? 120_000
                   : 100_000;
+            const documentSeatBudgetMs = Math.max(
+              30_000,
+              softTurnBudgetRemainingMs -
+                Math.max(0, seatsRemaining - 1) * 30_000 -
+                10_000
+            );
             const seatTimeoutMs = Math.max(
               30_000,
-              Math.min(seatTimeoutCapMs, fairShareMs)
+              likelyClaudeDocumentRequest
+                ? Math.min(180_000, documentSeatBudgetMs)
+                : Math.min(ordinarySeatTimeoutCapMs, fairShareMs)
             );
 
             const seatAbortController = new AbortController();
