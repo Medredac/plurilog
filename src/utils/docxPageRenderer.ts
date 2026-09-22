@@ -31,6 +31,19 @@ export interface CreateDocxRendererSnapshotResult {
   elapsedMs: number;
 }
 
+export interface ConvertDocxToPdfResult {
+  buffer: Buffer;
+  totalPageCount: number | null;
+  usedSnapshot: boolean;
+  elapsedMs: number;
+}
+
+export interface ConvertDocxToPdfOptions {
+  snapshotId?: string | null;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}
+
 async function assertCommandSucceeded(
   result: Awaited<ReturnType<InstanceType<typeof Sandbox>['runCommand']>>,
   label: string
@@ -197,6 +210,118 @@ export async function createDocxRendererSnapshot(): Promise<CreateDocxRendererSn
     if (!snapshotted) {
       await sandbox.stop().catch(() => undefined);
     }
+  }
+}
+
+/**
+ * Converts a generated DOCX buffer to PDF using the same bounded LibreOffice
+ * Sandbox infrastructure used for page rendering.
+ */
+export async function convertDocxToPdf(
+  fileBytes: Buffer,
+  options: ConvertDocxToPdfOptions = {}
+): Promise<ConvertDocxToPdfResult> {
+  if (!Buffer.isBuffer(fileBytes) || fileBytes.length === 0) {
+    throw new Error('DOCX to PDF conversion requires non-empty file bytes.');
+  }
+  if (fileBytes.length > MAX_DOCX_RENDER_BYTES) {
+    throw new Error(
+      `DOCX is too large for PDF conversion (${fileBytes.length} bytes; max ${MAX_DOCX_RENDER_BYTES}).`
+    );
+  }
+
+  const startedAt = Date.now();
+  const snapshotId =
+    options.snapshotId?.trim() ||
+    process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
+  const usedSnapshot = Boolean(snapshotId);
+  const timeoutMs = Math.max(
+    10_000,
+    Math.min(options.timeoutMs ?? 25_000, 60_000)
+  );
+
+  if (options.signal?.aborted) {
+    throw new DOMException('DOCX to PDF conversion aborted.', 'AbortError');
+  }
+
+  const sandbox = snapshotId
+    ? await Sandbox.create({
+        source: { type: 'snapshot', snapshotId },
+        persistent: false,
+        timeout: timeoutMs,
+        networkPolicy: 'allow-all',
+      })
+    : await Sandbox.create({
+        persistent: false,
+        timeout: timeoutMs,
+        networkPolicy: 'allow-all',
+      });
+
+  const abortHandler = () => {
+    void sandbox.stop().catch(() => undefined);
+  };
+  options.signal?.addEventListener('abort', abortHandler, { once: true });
+
+  try {
+    const { libreOfficePath } = snapshotId
+      ? {
+          libreOfficePath:
+            (await commandPath(sandbox, 'libreoffice soffice')) ||
+            '/opt/libreoffice26.2/program/soffice',
+        }
+      : await installDocxRendererDependencies(sandbox);
+
+    await sandbox.writeFiles([
+      {
+        path: '/vercel/sandbox/input.docx',
+        content: fileBytes,
+      },
+    ]);
+
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX to PDF conversion aborted.', 'AbortError');
+    }
+
+    const convert = await sandbox.runCommand({
+      cmd: libreOfficePath,
+      args: [
+        '--headless',
+        '--convert-to',
+        'pdf',
+        '--outdir',
+        '/vercel/sandbox',
+        '/vercel/sandbox/input.docx',
+      ],
+    });
+    await assertCommandSucceeded(convert, 'DOCX to PDF conversion');
+
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX to PDF conversion aborted.', 'AbortError');
+    }
+
+    const pdfInfo = await sandbox.runCommand({
+      cmd: 'pdfinfo',
+      args: ['/vercel/sandbox/input.pdf'],
+    });
+    await assertCommandSucceeded(pdfInfo, 'Generated PDF inspection');
+    const totalPageCount = parsePdfPageCount(await pdfInfo.stdout());
+
+    const buffer = await sandbox.readFileToBuffer({
+      path: '/vercel/sandbox/input.pdf',
+    });
+    if (!buffer || buffer.length === 0) {
+      throw new Error('DOCX to PDF conversion produced an empty file.');
+    }
+
+    return {
+      buffer,
+      totalPageCount,
+      usedSnapshot,
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    options.signal?.removeEventListener('abort', abortHandler);
+    await sandbox.stop().catch(() => undefined);
   }
 }
 
