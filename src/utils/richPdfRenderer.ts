@@ -24,6 +24,10 @@ export interface PdfDesign {
   bodySizePt?: number;
   lineHeight?: number;
   locale?: string;
+  headerText?: string;
+  footerText?: string;
+  showPageNumbers?: boolean;
+  targetPageCount?: number;
 }
 
 export interface PdfBlockStyle {
@@ -157,6 +161,10 @@ const DEFAULT_DESIGN: Required<Omit<PdfDesign, 'locale'>> & { locale: string } =
   bodySizePt: 10.5,
   lineHeight: 1.45,
   locale: 'en',
+  headerText: '',
+  footerText: '',
+  showPageNumbers: false,
+  targetPageCount: 0,
 };
 
 function cleanText(value: unknown, maxLength = 30000): string {
@@ -216,6 +224,13 @@ function normalizeDesign(input?: PdfDesign): Required<Omit<PdfDesign, 'locale'>>
     bodySizePt: clampNumber(input?.bodySizePt, DEFAULT_DESIGN.bodySizePt, 8, 15),
     lineHeight: clampNumber(input?.lineHeight, DEFAULT_DESIGN.lineHeight, 1.05, 1.9),
     locale: cleanText(input?.locale, 20) || DEFAULT_DESIGN.locale,
+    headerText: cleanText(input?.headerText, 180),
+    footerText: cleanText(input?.footerText, 180),
+    showPageNumbers: Boolean(input?.showPageNumbers),
+    targetPageCount:
+      typeof input?.targetPageCount === 'number' && Number.isFinite(input.targetPageCount)
+        ? Math.max(0, Math.min(30, Math.floor(input.targetPageCount)))
+        : 0,
   };
 }
 
