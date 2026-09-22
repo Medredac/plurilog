@@ -1026,9 +1026,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
                       {documentAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
-                        const documentBadge = filename.toLowerCase().endsWith('.pdf')
-                          ? 'PDF'
-                          : 'DOCX';
+                        const isPdfDocument = filename.toLowerCase().endsWith('.pdf');
+                        const documentBadge = isPdfDocument ? 'PDF' : 'DOCX';
                         return (
                           <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             <button
@@ -1037,7 +1036,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
                               title={`Download ${filename}`}
                             >
-                              <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+                              <FileText
+                                className={`w-6 h-6 sm:w-8 sm:h-8 ${isPdfDocument ? 'text-red-500' : 'text-blue-600'}`}
+                              />
                               <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-zinc-200/60">
                                 {documentBadge}
                               </span>
