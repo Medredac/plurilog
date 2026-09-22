@@ -71,7 +71,10 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeClaudeDocumentCreation } from '@/utils/claudeDocumentCreation';
-import type { ClaudeCreateFileArgs } from '@/utils/claudeDocumentCreation';
+import type {
+  ClaudeCreateFileArgs,
+  DocumentImageSource,
+} from '@/utils/claudeDocumentCreation';
 import {
   mergeStreamingToolCalls,
   finalizeAllToolCalls,
@@ -149,7 +152,7 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a real downloadable file when the user explicitly asks for a Word document, DOCX file, downloadable document, or asks you to turn the discussion/content into a finished Word file. Do not use this tool for ordinary drafting, rewriting, or advice that the user only wants in chat. DOCX is the only supported output format in this rollout.',
+        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For images, either reuse an existing image from the discussion, request a newly generated image, or request an edit of an existing image. Plurilog resolves/generates the actual image asset in the backend and embeds it into the DOCX. Use this tool only when the user explicitly wants a finished downloadable Word document.',
       parameters: {
         type: 'object',
         properties: {
@@ -171,7 +174,15 @@ export const CLAUDE_FILE_TOOLS = [
               properties: {
                 type: {
                   type: 'string',
-                  enum: ['heading', 'paragraph', 'bullets', 'numbered', 'table'],
+                  enum: [
+                    'heading',
+                    'paragraph',
+                    'bullets',
+                    'numbered',
+                    'table',
+                    'image',
+                    'page_break',
+                  ],
                 },
                 text: { type: 'string' },
                 level: { type: 'integer', minimum: 1, maximum: 3 },
@@ -180,6 +191,41 @@ export const CLAUDE_FILE_TOOLS = [
                 rows: {
                   type: 'array',
                   items: { type: 'array', items: { type: 'string' } },
+                },
+                mode: {
+                  type: 'string',
+                  enum: ['existing', 'generate', 'edit'],
+                  description:
+                    'For image blocks: existing reuses an image from the discussion; generate creates a new image; edit transforms an existing discussion image.',
+                },
+                prompt: {
+                  type: 'string',
+                  description:
+                    'For generated images, the visual generation prompt. For edited images, the edit instruction.',
+                },
+                need: {
+                  type: 'string',
+                  description:
+                    'For existing/edited images, a concise description of which discussion image is needed.',
+                },
+                filename: {
+                  type: 'string',
+                  description:
+                    'Optional exact filename of the existing image to use or edit.',
+                },
+                caption: {
+                  type: 'string',
+                  description: 'Optional caption printed below an image.',
+                },
+                size: {
+                  type: 'string',
+                  enum: ['small', 'medium', 'large', 'full'],
+                  description: 'Image display size in the Word document.',
+                },
+                alignment: {
+                  type: 'string',
+                  enum: ['left', 'center', 'right'],
+                  description: 'Image alignment in the Word document.',
                 },
               },
               required: ['type'],
@@ -2538,6 +2584,8 @@ export async function POST(req: NextRequest) {
             let evidenceToolBranchActive = false;
             let documentToolBranchActive = false;
             let incurredDocumentCallCostUsd = 0;
+            let incurredDocumentAssetCostUsd = 0;
+            const documentImageModels = new Set<string>();
             const bufferedSeatChunks: string[] = [];
 
             sendEvent('seat_start', {
@@ -2846,14 +2894,69 @@ export async function POST(req: NextRequest) {
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
                   const fileCall = finalizedCalls[0];
+                  const fileArgs = (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs;
+                  const serviceClientForDocument = createServiceClient();
+                  const knownDocumentImages = discussionId
+                    ? await fetchKnownImageSources(serviceClientForDocument, discussionId)
+                    : [];
+                  const currentMessageEvidence =
+                    discussionId && sourceUserMessageId
+                      ? await fetchMessageVisualEvidence(
+                          serviceClientForDocument,
+                          discussionId,
+                          sourceUserMessageId
+                        )
+                      : [];
+
+                  const availableDocumentImages: DocumentImageSource[] = [];
+                  const seenDocumentImageKeys = new Set<string>();
+
+                  for (const source of knownDocumentImages || []) {
+                    if (!source?.storagePath) continue;
+                    const key = source.storagePath;
+                    if (seenDocumentImageKeys.has(key)) continue;
+                    seenDocumentImageKeys.add(key);
+                    availableDocumentImages.push({
+                      filename: source.filename || 'image.png',
+                      storagePath: source.storagePath,
+                    });
+                  }
+
+                  for (const attachment of currentRoundAttachments || []) {
+                    if (!isImageUrl(attachment?.url || '')) continue;
+                    const key =
+                      extractStoragePathFromSignedUrl(attachment.url) ||
+                      attachment.url;
+                    if (seenDocumentImageKeys.has(key)) continue;
+                    seenDocumentImageKeys.add(key);
+                    availableDocumentImages.push({
+                      filename: attachment.filename || 'image.png',
+                      url: attachment.url,
+                    });
+                  }
+
                   const documentResult = await executeClaudeDocumentCreation({
                     supabase,
                     openai,
                     discussionId: discussionId || '',
                     messageId,
                     seatId: seat.seatId,
-                    args: (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs,
+                    args: fileArgs,
                     signal: seatAbortController.signal,
+                    availableImages: availableDocumentImages,
+                    resourceContext: {
+                      knownDocuments: discussionMemory?.knownDocuments || [],
+                      retrievedDocuments,
+                      recentRounds: discussionMemory?.recentRounds || [],
+                      knownImageSources: knownDocumentImages || [],
+                      lastRoundEvidence: currentMessageEvidence,
+                      visualContext: visualContextState,
+                      currentUserPrompt: prompt,
+                    },
+                    onImageCost: (event) => {
+                      incurredDocumentAssetCostUsd += event.costUsd;
+                      documentImageModels.add(event.model);
+                    },
                   });
 
                   // Make the newly created document available as primary evidence
@@ -2867,7 +2970,8 @@ export async function POST(req: NextRequest) {
                     filename: documentResult.filename,
                   });
 
-                  const documentCostCents = incurredDocumentCallCostUsd * 100;
+                  const documentCostCents =
+                    (incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd) * 100;
                   if (documentCostCents > 0) {
                     const { error: spendError } = await supabase.rpc('spend_credits', {
                       p_cents: documentCostCents,
@@ -2877,6 +2981,9 @@ export async function POST(req: NextRequest) {
                         seatId: seat.seatId,
                         documentCreation: true,
                         format: 'docx',
+                        imageAssetCount: documentResult.imageAssetCount,
+                        imageCostUsd: incurredDocumentAssetCostUsd,
+                        imageModels: Array.from(documentImageModels),
                       },
                     });
 
@@ -4556,17 +4663,21 @@ export async function POST(req: NextRequest) {
               if (
                 documentToolBranchActive &&
                 !spendRecorded &&
-                incurredDocumentCallCostUsd > 0
+                incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd > 0
               ) {
                 try {
                   await supabase.rpc('spend_credits', {
-                    p_cents: incurredDocumentCallCostUsd * 100,
+                    p_cents:
+                      (incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd) *
+                      100,
                     p_model: respondingModel,
                     p_discussion_id: discussionId || null,
                     p_meta: {
                       seatId: seat.seatId,
                       documentCreation: true,
                       failedAfterToolCall: true,
+                      imageCostUsd: incurredDocumentAssetCostUsd,
+                      imageModels: Array.from(documentImageModels),
                       error: err?.message || 'Document creation failed',
                     },
                   });
