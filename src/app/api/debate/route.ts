@@ -152,18 +152,18 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation in the document workflow and embeds the result into the DOCX. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Use this tool only when the user explicitly wants a finished downloadable Word document.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
-          format: { type: 'string', enum: ['docx'] },
+          format: { type: 'string', enum: ['docx', 'pdf'] },
           filename: {
             type: 'string',
-            description: 'A concise user-facing filename ending in .docx.',
+            description: 'A concise user-facing filename ending in the requested .docx or .pdf extension.',
           },
           title: {
             type: 'string',
-            description: 'Optional title shown inside the Word document.',
+            description: 'Optional title shown inside the document.',
           },
           blocks: {
             type: 'array',
@@ -220,12 +220,12 @@ export const CLAUDE_FILE_TOOLS = [
                 size: {
                   type: 'string',
                   enum: ['small', 'medium', 'large', 'full'],
-                  description: 'Image display size in the Word document.',
+                  description: 'Image display size in the document.',
                 },
                 alignment: {
                   type: 'string',
                   enum: ['left', 'center', 'right'],
-                  description: 'Image alignment in the Word document.',
+                  description: 'Image alignment in the document.',
                 },
               },
               required: ['type'],
@@ -390,14 +390,14 @@ IMAGES
 - You are ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
 
 FILES AND VIDEO
-- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled. As part of that document workflow, Claude may reuse existing images or request generation/editing of an image asset for embedding in the DOCX, even though Claude cannot return a standalone generated or edited image.
+- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents and PDFs when document creation is enabled. As part of that document workflow, Claude may reuse existing images or request generation/editing of an image asset for embedding in the requested document, even though Claude cannot return a standalone generated or edited image.
 - ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
-- Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel.
+- Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel. PDFs can be analyzed semantically and visually through the existing PDF workflow.
 - If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally even if the user also says Claude should later reuse that exact image inside a document. Only avoid a separate image output when the image is mentioned solely as an embedded element of the requested document and no separate image-generation/editing step was requested.
-- AI-created PDF, XLSX, and PPTX files are not yet available in this rollout.
-- You are ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
+- AI-created XLSX and PPTX files are not yet available in this rollout.
+- You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
-- Plurilog can separately export an existing discussion as a PDF; that is different from an AI generating a custom downloadable document.
+- Plurilog can separately export an existing discussion as a PDF; that export feature is different from Claude creating a custom PDF in response to a file-creation request.
 - Video upload/analysis is not currently available. It is in development.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
@@ -415,7 +415,7 @@ USAGE AND PLANS
 
 COMPARING PLURILOG WITH STANDALONE AI PRODUCTS
 - Be candid. Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, file/image analysis, and supported image generation/editing in one place.
-- Do not claim Plurilog already has every feature offered by standalone AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled Claude DOCX capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled Claude DOCX/PDF capability, and video analysis are not currently available.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -793,6 +793,7 @@ async function generateDocumentActionFollowUp(options: {
   };
   priorToolText?: string;
   filename: string;
+  format: 'docx' | 'pdf';
   imageAssetCount: number;
   signal: AbortSignal;
   sessionId?: string | null;
@@ -805,6 +806,7 @@ async function generateDocumentActionFollowUp(options: {
     toolCall,
     priorToolText = '',
     filename,
+    format,
     imageAssetCount,
     signal,
     sessionId,
@@ -840,11 +842,11 @@ async function generateDocumentActionFollowUp(options: {
       content: JSON.stringify({
         status: 'success',
         artifact: 'document',
-        format: 'docx',
+        format,
         filename,
         image_asset_count: imageAssetCount,
         message:
-          'The requested Word document was created successfully and will be attached to your response.',
+          'The requested document was created successfully in the requested format and will be attached to your response.',
         response_guidance:
           'Respond naturally and briefly in the context of the user request and the panel discussion. You may mention relevant aspects of what you completed when useful. Do not use a generic stock confirmation, do not repeat the full document contents, and do not mention internal tool mechanics.',
       }),
@@ -2818,6 +2820,7 @@ export async function POST(req: NextRequest) {
             let evidenceToolBranchActive = false;
             let documentToolBranchActive = false;
             let incurredDocumentCallCostUsd = 0;
+            let documentOutputFormat: 'docx' | 'pdf' = 'docx';
             let incurredDocumentFollowUpCostUsd = 0;
             let incurredDocumentAssetCostUsd = 0;
             const documentImageModels = new Set<string>();
@@ -3134,6 +3137,7 @@ export async function POST(req: NextRequest) {
 
                   const fileCall = finalizedCalls[0];
                   const fileArgs = (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs;
+                  documentOutputFormat = fileArgs.format === 'pdf' ? 'pdf' : 'docx';
                   const serviceClientForDocument = createServiceClient();
                   const knownDocumentImages = discussionId
                     ? await fetchKnownImageSources(serviceClientForDocument, discussionId)
@@ -3221,6 +3225,7 @@ export async function POST(req: NextRequest) {
                       toolCall: fileCall,
                       priorToolText: seatResponse,
                       filename: documentResult.filename,
+                      format: documentResult.format,
                       imageAssetCount: documentResult.imageAssetCount,
                       signal: seatAbortController.signal,
                       sessionId: discussionId
@@ -3268,7 +3273,7 @@ export async function POST(req: NextRequest) {
                       p_meta: {
                         seatId: seat.seatId,
                         documentCreation: true,
-                        format: 'docx',
+                        format: documentResult.format,
                         followUpCostUsd: incurredDocumentFollowUpCostUsd,
                         imageAssetCount: documentResult.imageAssetCount,
                         imageCostUsd: incurredDocumentAssetCostUsd,
@@ -3307,39 +3312,47 @@ export async function POST(req: NextRequest) {
                     configuredSeats.length - seatIndex - 1
                   );
                   if (laterSeatCount > 0 && !req.signal.aborted) {
-                    try {
-                      const generatedDocPages =
-                        await materializeDocxRenderedPageAttachments({
-                          supabase,
-                          serviceClient: serviceClientForDocument,
-                          discussionId: discussionId || '',
-                          sourceUserMessageId: documentResult.messageId,
-                          storagePath: documentResult.storagePath,
+                    if (documentResult.format === 'docx') {
+                      try {
+                        const generatedDocPages =
+                          await materializeDocxRenderedPageAttachments({
+                            supabase,
+                            serviceClient: serviceClientForDocument,
+                            discussionId: discussionId || '',
+                            sourceUserMessageId: documentResult.messageId,
+                            storagePath: documentResult.storagePath,
+                            filename: documentResult.filename,
+                            signal: seatAbortController.signal,
+                            registerImmediately: false,
+                            renderTimeoutMs: 20_000,
+                          });
+
+                        const sameRoundDocumentPages = generatedDocPages.map((page) => ({
+                          ...page,
+                          provenance: 'same_round_document_render' as const,
+                          creatorSeatId: seat.seatId,
+                        }));
+
+                        currentRoundAttachments.push(...sameRoundDocumentPages);
+
+                        console.log('[Generated DOCX Visual Handoff]', {
+                          discussionId: discussionId || null,
                           filename: documentResult.filename,
-                          signal: seatAbortController.signal,
-                          registerImmediately: false,
-                          renderTimeoutMs: 20_000,
+                          renderedPageCount: sameRoundDocumentPages.length,
+                          laterSeatCount,
                         });
-
-                      const sameRoundDocumentPages = generatedDocPages.map((page) => ({
-                        ...page,
-                        provenance: 'same_round_document_render' as const,
-                        creatorSeatId: seat.seatId,
-                      }));
-
-                      currentRoundAttachments.push(...sameRoundDocumentPages);
-
-                      console.log('[Generated DOCX Visual Handoff]', {
+                      } catch (generatedDocRenderErr) {
+                        console.warn(
+                          '[Generated DOCX Visual Handoff] Non-critical render error:',
+                          generatedDocRenderErr
+                        );
+                      }
+                    } else {
+                      console.log('[Generated PDF Handoff]', {
                         discussionId: discussionId || null,
                         filename: documentResult.filename,
-                        renderedPageCount: sameRoundDocumentPages.length,
                         laterSeatCount,
                       });
-                    } catch (generatedDocRenderErr) {
-                      console.warn(
-                        '[Generated DOCX Visual Handoff] Non-critical render error:',
-                        generatedDocRenderErr
-                      );
                     }
                   }
 
@@ -5086,6 +5099,7 @@ export async function POST(req: NextRequest) {
                       seatId: seat.seatId,
                       documentCreation: true,
                       failedAfterToolCall: true,
+                      format: documentOutputFormat,
                       followUpCostUsd: incurredDocumentFollowUpCostUsd,
                       imageCostUsd: incurredDocumentAssetCostUsd,
                       imageModels: Array.from(documentImageModels),
