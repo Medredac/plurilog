@@ -287,6 +287,298 @@ async function resolveDocumentBlocks(
 
   return { blocks: resolved, imageAssetCount };
 }
+
+interface PdfVisualReviewOutcome {
+  args: ClaudeCreateFileArgs;
+  costUsd: number;
+  applied: boolean;
+  respondingModel: string | null;
+  rationale: string;
+}
+
+function preserveImageSourceDirectives(
+  originalBlocks: RichDocumentBlock[],
+  revisedBlocks: RichDocumentBlock[]
+): RichDocumentBlock[] | null {
+  const originalImages = originalBlocks.filter((block) => block?.type === 'image') as any[];
+  const revisedImages = revisedBlocks.filter((block) => block?.type === 'image') as any[];
+
+  if (originalImages.length !== revisedImages.length) {
+    return null;
+  }
+
+  let imageIndex = 0;
+  return revisedBlocks.map((block) => {
+    if (block?.type !== 'image') return block;
+    const original = originalImages[imageIndex++];
+    return {
+      ...block,
+      mode: original.mode,
+      prompt: original.prompt,
+      need: original.need,
+      filename: original.filename,
+    } as RichDocumentBlock;
+  });
+}
+
+function reuseResolvedImagePayloads(
+  revisedBlocks: RichDocumentBlock[],
+  resolvedBlocks: RichDocumentBlock[]
+): RichDocumentBlock[] {
+  const resolvedImages = resolvedBlocks.filter(
+    (block: any) =>
+      block?.type === 'image' &&
+      Buffer.isBuffer(block.imageData) &&
+      block.imageData.length > 0
+  ) as any[];
+
+  let imageIndex = 0;
+  return revisedBlocks.map((block: any) => {
+    if (block?.type !== 'image') return block;
+    const source = resolvedImages[imageIndex++];
+    if (!source) return block;
+    return {
+      ...block,
+      imageData: source.imageData,
+      imageContentType: source.imageContentType,
+      imageAltText: source.imageAltText,
+    } as RichDocumentBlock;
+  });
+}
+
+async function reviewRenderedPdfWithClaude(options: {
+  openai: any;
+  model: string;
+  models: string[];
+  args: ClaudeCreateFileArgs;
+  pages: RenderedPdfReviewPage[];
+  originalUserPrompt?: string;
+  signal?: AbortSignal;
+  sessionId?: string | null;
+}): Promise<PdfVisualReviewOutcome> {
+  const {
+    openai,
+    model,
+    models,
+    args,
+    pages,
+    originalUserPrompt = '',
+    signal,
+    sessionId,
+  } = options;
+
+  if (!model || pages.length === 0) {
+    return {
+      args,
+      costUsd: 0,
+      applied: false,
+      respondingModel: null,
+      rationale: 'No visual review model or rendered pages were available.',
+    };
+  }
+
+  const pageBlocks: any[] = [
+    {
+      type: 'text',
+      text: [
+        'You are performing the single final visual quality-control pass on a PDF you just designed.',
+        'Inspect the ACTUAL rendered page images below, not merely the source specification.',
+        'Return the complete revised PDF specification through the revise_pdf_layout tool.',
+        'Improve only where the rendered result materially benefits: page balance, whitespace, hierarchy, density, grouping, alignment, table legibility, visual rhythm, overflow, awkward page breaks, and overall polish.',
+        'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
+        'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
+        'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
+        'If an exact page count was requested, treat it as a hard constraint and balance the content across those pages rather than leaving one page crowded and another mostly empty.',
+        originalUserPrompt
+          ? `Original user request:\n${originalUserPrompt}`
+          : '',
+        `Current PDF specification:\n${JSON.stringify({
+          title: args.title,
+          design: args.design,
+          blocks: args.blocks,
+        })}`,
+      ].filter(Boolean).join('\n\n'),
+    },
+  ];
+
+  for (const page of pages.slice(0, 6)) {
+    pageBlocks.push({
+      type: 'text',
+      text: `Rendered PDF page ${page.pageNumber}`,
+    });
+    pageBlocks.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:${page.contentType};base64,${page.data.toString('base64')}`,
+      },
+    });
+  }
+
+  const reviewTool = {
+    type: 'function',
+    function: {
+      name: 'revise_pdf_layout',
+      description:
+        'Return the complete final PDF layout specification after visually inspecting the rendered pages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: {
+            type: 'string',
+            description:
+              'Optional top-level title. Omit or leave empty when a banner already provides the title treatment.',
+          },
+          design: {
+            type: 'object',
+            description: 'Final PDF design controls.',
+            additionalProperties: true,
+          },
+          blocks: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 200,
+            items: {
+              type: 'object',
+              additionalProperties: true,
+            },
+          },
+          rationale: {
+            type: 'string',
+            description:
+              'One short internal note describing the main visual corrections made.',
+          },
+        },
+        required: ['blocks'],
+        additionalProperties: false,
+      },
+    },
+  };
+
+  const response = await (openai.chat.completions.create as any)({
+    model,
+    models,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are Claude acting as a meticulous document art director. This is a bounded visual QA pass, not a new document-writing task. Inspect the rendered pages and make one final correction pass.',
+      },
+      {
+        role: 'user',
+        content: pageBlocks,
+      },
+    ],
+    tools: [reviewTool],
+    tool_choice: {
+      type: 'function',
+      function: { name: 'revise_pdf_layout' },
+    },
+    parallel_tool_calls: false,
+    temperature: 0.2,
+    max_tokens: 12000,
+    signal,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+
+  const respondingModel =
+    typeof response?.model === 'string' ? response.model : model;
+  const costUsd =
+    typeof response?.usage?.cost === 'number' ? response.usage.cost : 0;
+  const toolCall = response?.choices?.[0]?.message?.tool_calls?.find(
+    (call: any) => call?.function?.name === 'revise_pdf_layout'
+  );
+  const rawArguments = toolCall?.function?.arguments;
+  if (!rawArguments || typeof rawArguments !== 'string') {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'Claude returned no usable visual-review layout revision.',
+    };
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'Claude returned invalid JSON for the visual-review revision.',
+    };
+  }
+
+  if (!Array.isArray(parsed?.blocks) || parsed.blocks.length === 0) {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'Claude returned an empty visual-review block list.',
+    };
+  }
+
+  const imageSafeBlocks = preserveImageSourceDirectives(
+    args.blocks || [],
+    parsed.blocks as RichDocumentBlock[]
+  );
+  if (!imageSafeBlocks) {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale:
+        'Visual review attempted to change the number of image assets, so the original specification was retained.',
+    };
+  }
+
+  const reviewedDesign: PdfDesign = {
+    ...(args.design || {}),
+    ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
+  };
+  if (args.design?.targetPageCount) {
+    reviewedDesign.targetPageCount = args.design.targetPageCount;
+  }
+
+  const reviewedArgs: ClaudeCreateFileArgs = {
+    ...args,
+    format: 'pdf',
+    filename: args.filename,
+    title:
+      typeof parsed.title === 'string'
+        ? parsed.title
+        : args.title,
+    design: reviewedDesign,
+    blocks: imageSafeBlocks,
+  };
+
+  const before = JSON.stringify({
+    title: args.title || '',
+    design: args.design || {},
+    blocks: args.blocks || [],
+  });
+  const after = JSON.stringify({
+    title: reviewedArgs.title || '',
+    design: reviewedArgs.design || {},
+    blocks: reviewedArgs.blocks || [],
+  });
+
+  return {
+    args: reviewedArgs,
+    costUsd,
+    applied: before !== after,
+    respondingModel,
+    rationale:
+      typeof parsed.rationale === 'string'
+        ? parsed.rationale.slice(0, 1000)
+        : 'Claude completed the visual PDF review.',
+  };
+}
+
 export async function executeClaudeDocumentCreation(
   options: ExecuteClaudeDocumentCreationOptions
 ): Promise<ExecuteClaudeDocumentCreationResult> {
