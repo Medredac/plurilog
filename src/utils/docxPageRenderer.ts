@@ -21,6 +21,8 @@ export interface RenderDocxPagesResult {
 
 export interface RenderDocxPagesOptions {
   snapshotId?: string | null;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export interface CreateDocxRendererSnapshotResult {
@@ -224,21 +226,38 @@ export async function renderDocxPages(
     options.snapshotId?.trim() ||
     process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
+  const timeoutMs = Math.max(
+    10_000,
+    Math.min(options.timeoutMs ?? 25_000, 60_000)
+  );
+
+  if (options.signal?.aborted) {
+    throw new DOMException('DOCX rendering aborted.', 'AbortError');
+  }
 
   const sandbox = snapshotId
     ? await Sandbox.create({
         source: { type: 'snapshot', snapshotId },
         persistent: false,
-        timeout: 5 * 60 * 1000,
+        timeout: timeoutMs,
         networkPolicy: 'allow-all',
       })
     : await Sandbox.create({
         persistent: false,
-        timeout: 5 * 60 * 1000,
+        timeout: timeoutMs,
         networkPolicy: 'allow-all',
       });
 
+  const abortHandler = () => {
+    void sandbox.stop().catch(() => undefined);
+  };
+  options.signal?.addEventListener('abort', abortHandler, { once: true });
+
   try {
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX rendering aborted.', 'AbortError');
+    }
+
     const { libreOfficePath } = snapshotId
       ? {
           libreOfficePath:
@@ -254,6 +273,10 @@ export async function renderDocxPages(
       },
     ]);
 
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX rendering aborted.', 'AbortError');
+    }
+
     const convert = await sandbox.runCommand({
       cmd: libreOfficePath,
       args: [
@@ -267,12 +290,20 @@ export async function renderDocxPages(
     });
     await assertCommandSucceeded(convert, 'DOCX to PDF conversion');
 
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX rendering aborted.', 'AbortError');
+    }
+
     const pdfInfo = await sandbox.runCommand({
       cmd: 'pdfinfo',
       args: ['/vercel/sandbox/input.pdf'],
     });
     await assertCommandSucceeded(pdfInfo, 'PDF page inspection');
     const totalPageCount = parsePdfPageCount(await pdfInfo.stdout());
+
+    if (options.signal?.aborted) {
+      throw new DOMException('DOCX rendering aborted.', 'AbortError');
+    }
 
     const render = await sandbox.runCommand({
       cmd: 'pdftoppm',
@@ -335,6 +366,7 @@ export async function renderDocxPages(
       elapsedMs: Date.now() - startedAt,
     };
   } finally {
+    options.signal?.removeEventListener('abort', abortHandler);
     await sandbox.stop().catch(() => undefined);
   }
 }
