@@ -3,6 +3,7 @@ import { createServiceClient } from '@/utils/supabase/service';
 import { ingestParsedDocument } from '@/utils/discussionMemory';
 import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
+import { convertDocxToPdf } from '@/utils/docxPageRenderer';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
   generateGeminiImage,
@@ -16,7 +17,7 @@ import {
 } from '@/utils/resourceBroker';
 
 export interface ClaudeCreateFileArgs extends StructuredDocxInput {
-  format: 'docx';
+  format: 'docx' | 'pdf';
 }
 
 export interface DocumentImageSource {
@@ -45,6 +46,7 @@ export interface ExecuteClaudeDocumentCreationOptions {
 
 export interface ExecuteClaudeDocumentCreationResult {
   finalContent: string;
+  format: 'docx' | 'pdf';
   messageId: string;
   createdAt: string;
   filename: string;
@@ -283,8 +285,8 @@ export async function executeClaudeDocumentCreation(
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');
   }
-  if (!args || args.format !== 'docx') {
-    throw new Error('DOCX is the only supported generated file format in this rollout.');
+  if (!args || (args.format !== 'docx' && args.format !== 'pdf')) {
+    throw new Error('Only DOCX and PDF generation are supported in this rollout.');
   }
 
   const serviceClient = createServiceClient();
@@ -303,11 +305,37 @@ export async function executeClaudeDocumentCreation(
   );
 
   const renderedDocument = renderDocx({
-    filename: args.filename,
+    filename:
+      args.format === 'pdf'
+        ? args.filename.replace(/\.pdf$/i, '.docx')
+        : args.filename,
     title: args.title,
     blocks: resolvedDocument.blocks,
   });
-  const finalContent = `Created **${renderedDocument.filename}**.`;
+
+  let finalBuffer = renderedDocument.buffer;
+  let finalFilename = renderedDocument.filename;
+  let generatedPdfPageCount: number | null = null;
+
+  if (args.format === 'pdf') {
+    const converted = await convertDocxToPdf(renderedDocument.buffer, {
+      signal,
+      timeoutMs: 25_000,
+    });
+    finalBuffer = converted.buffer;
+    finalFilename = renderedDocument.filename.replace(/\.docx$/i, '.pdf');
+    generatedPdfPageCount = converted.totalPageCount;
+
+    console.log('[Generated PDF] Converted structured document to PDF:', {
+      filename: finalFilename,
+      byteSize: finalBuffer.length,
+      pageCount: generatedPdfPageCount,
+      usedSnapshot: converted.usedSnapshot,
+      elapsedMs: converted.elapsedMs,
+    });
+  }
+
+  const finalContent = `Created **${finalFilename}**.`;
 
   let persistedMsg: { id: string; created_at: string } | null = null;
   let insertedFresh = false;
@@ -366,8 +394,9 @@ export async function executeClaudeDocumentCreation(
       discussionId,
       messageId: persistedMsg.id,
       seatId,
-      fileBuffer: renderedDocument.buffer,
-      filename: renderedDocument.filename,
+      fileBuffer: finalBuffer,
+      filename: finalFilename,
+      format: args.format,
     });
   } catch (err) {
     if (insertedFresh) {
@@ -398,7 +427,7 @@ export async function executeClaudeDocumentCreation(
       discussionId,
       filename: persistedDocument.filename,
       fullText: renderedDocument.fullText,
-      fileBytes: renderedDocument.buffer,
+      fileBytes: finalBuffer,
       storagePath: persistedDocument.storagePath,
       signal,
     });
@@ -419,6 +448,7 @@ export async function executeClaudeDocumentCreation(
 
   return {
     finalContent,
+    format: args.format,
     messageId: persistedMsg.id,
     createdAt: persistedMsg.created_at,
     filename: persistedDocument.filename,
