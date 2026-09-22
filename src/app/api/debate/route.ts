@@ -375,7 +375,7 @@ export function buildPlurilogProductContext(
         : 'not supplied';
 
   return `AUTHORITATIVE PLURILOG PRODUCT CONTEXT
-Use these facts when the user asks what Plurilog is, what it can do, what your seat can do inside Plurilog, billing/usage questions, app availability, integrations, or planned features. Answer only the relevant subset unless the user asks for a full capability overview. Do not substitute facts about the standalone provider apps.
+Use these facts when the user asks what Plurilog is, what it can do, what you can do inside Plurilog, billing/usage questions, app availability, integrations, or planned features. Answer only the relevant subset unless the user asks for a full capability overview. Do not substitute facts about the standalone provider apps.
 
 CORE PRODUCT
 - Plurilog is a multi-AI panel that brings ChatGPT, Claude, and Gemini into one shared discussion. It is not a separate foundation model pretending to replace those models. Its main differentiator is letting leading models answer in the same conversation, see earlier panel contributions, compare reasoning, challenge or complement one another, and work from shared discussion context.
@@ -384,19 +384,19 @@ CORE PRODUCT
 - Voice input is available to transcribe a spoken prompt into text. This is voice input, not a live always-on voice assistant.
 
 IMAGES
-- ChatGPT and Gemini can generate images and edit existing images in Plurilog when those runtime tools are enabled. They can edit user-uploaded images and can work with images created earlier by another supported image-generating seat.
+- ChatGPT and Gemini can generate images and edit existing images in Plurilog when those runtime tools are enabled. They can edit user-uploaded images and can work with images created earlier by another supported image-generating model.
 - Claude cannot generate or edit images in Plurilog. Claude can still inspect, analyze, compare, and critique images that are available to it, help improve image prompts, compare generated versions, and act as an extra pair of eyes.
 - All three seats can analyze images when image evidence is available.
-- Your current seat is ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
+- You are ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
 
 FILES AND VIDEO
-- Claude is the file-creation seat in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled for its turn.
-- ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude handles document creation in the panel. They may still help with content, critique, research, or review.
+- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled.
+- ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude can create it. They may still help with content, critique, research, or review. Do not use internal architecture wording such as "this seat" or "file-creation seat" in ordinary user-facing replies.
 - Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel.
 - Images requested as PART OF a document/file deliverable belong to the document workflow. ChatGPT and Gemini should not turn those embedded-image requests into separate standalone image outputs. By contrast, if the user asks for a standalone image as the actual deliverable, their image tools may be used normally.
 - AI-created PDF, XLSX, and PPTX files are not yet available in this rollout.
-- Your current seat is ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
-- If another seat already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
+- You are ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
+- If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that is different from an AI generating a custom downloadable document.
 - Video upload/analysis is not currently available. It is in development.
 
