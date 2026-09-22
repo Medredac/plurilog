@@ -356,6 +356,7 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
 
 function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
   const body: string[] = [];
+  let imageIndex = 0;
 
   if (title) {
     body.push(
@@ -390,11 +391,23 @@ function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
         body.push(tableXml(block.headers || [], block.rows || []));
         body.push(paragraphXml('', { spacingAfter: 80 }));
         break;
+      case 'image':
+        body.push(imageParagraphXml(block, imageIndex));
+        imageIndex++;
+        break;
+      case 'page_break':
+        body.push(pageBreakXml());
+        break;
     }
   }
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document
+  xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+  xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
   <w:body>
     ${body.join('\n')}
     <w:sectPr>
@@ -419,6 +432,9 @@ function documentFullText(title: string, blocks: DocxBlock[]): string {
     } else if (block.type === 'table') {
       if (block.headers && block.headers.length > 0) parts.push(block.headers.join(' | '));
       for (const row of block.rows || []) parts.push(row.join(' | '));
+    } else if (block.type === 'image') {
+      const imageLabel = block.caption || block.imageAltText || block.prompt || block.need || block.filename;
+      if (imageLabel) parts.push(`[Image: ${imageLabel}]`);
     }
   }
 
@@ -532,15 +548,38 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
 
   const documentXml = buildDocumentXml(title, blocks);
   const fullText = documentFullText(title, blocks);
+  const imageBlocks = blocks
+    .filter(
+      (block): block is DocxBlock & { imageData: Buffer; imageContentType: string } =>
+        block.type === 'image' &&
+        Buffer.isBuffer(block.imageData) &&
+        block.imageData.length > 0
+    )
+    .slice(0, MAX_IMAGES);
 
-  if (!fullText) {
+  if (!fullText && imageBlocks.length === 0) {
     throw new Error('Word document content cannot be empty.');
   }
+
+  const imageContentTypeDefaults = Array.from(
+    new Map(
+      imageBlocks.map((block) => [
+        imageExtensionForContentType(block.imageContentType),
+        block.imageContentType,
+      ])
+    ).entries()
+  )
+    .map(
+      ([extension, contentType]) =>
+        `  <Default Extension="${extension}" ContentType="${escapeXml(contentType)}"/>`
+    )
+    .join('\n');
 
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  ${imageContentTypeDefaults}
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -574,10 +613,27 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   <Application>Plurilog</Application>
 </Properties>`;
 
+  const documentRelationships = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${imageBlocks
+  .map((block, index) => {
+    const extension = imageExtensionForContentType(block.imageContentType);
+    return `  <Relationship Id="rIdImage${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${index + 1}.${extension}"/>`;
+  })
+  .join('\n')}
+</Relationships>`;
+
+  const mediaFiles = imageBlocks.map((block, index) => ({
+    name: `word/media/image${index + 1}.${imageExtensionForContentType(block.imageContentType)}`,
+    data: block.imageData,
+  }));
+
   const buffer = createZip([
     { name: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') },
     { name: '_rels/.rels', data: Buffer.from(rootRels, 'utf8') },
     { name: 'word/document.xml', data: Buffer.from(documentXml, 'utf8') },
+    { name: 'word/_rels/document.xml.rels', data: Buffer.from(documentRelationships, 'utf8') },
+    ...mediaFiles,
     { name: 'docProps/core.xml', data: Buffer.from(coreXml, 'utf8') },
     { name: 'docProps/app.xml', data: Buffer.from(appXml, 'utf8') },
   ]);
