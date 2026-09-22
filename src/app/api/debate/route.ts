@@ -152,7 +152,7 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, image, tables, spacing, and page breaks so the finished document fits that count rather than merely describing it as that length. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, image, tables, spacing, and page breaks so the finished document fits that count. Avoid duplicating the title across the top-level title field and a banner/heading. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -163,7 +163,35 @@ export const CLAUDE_FILE_TOOLS = [
           },
           title: {
             type: 'string',
-            description: 'Optional title shown inside the document.',
+            description: 'Optional title shown inside the document. For rich PDFs, omit this when a banner block already provides the title treatment.',
+          },
+          design: {
+            type: 'object',
+            description:
+              'PDF-only, style-neutral document design controls. Use the user\'s requested aesthetic; these are capabilities, not a template.',
+            properties: {
+              pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
+              orientation: { type: 'string', enum: ['portrait', 'landscape'] },
+              marginMm: { type: 'number', minimum: 6, maximum: 35 },
+              backgroundColor: { type: 'string', description: 'Hex colour such as #ffffff.' },
+              textColor: { type: 'string', description: 'Hex colour.' },
+              mutedColor: { type: 'string', description: 'Hex colour for secondary text.' },
+              accentColor: { type: 'string', description: 'Primary accent hex colour.' },
+              accentColor2: { type: 'string', description: 'Optional second accent hex colour.' },
+              accentColor3: { type: 'string', description: 'Optional third accent hex colour.' },
+              fontFamily: {
+                type: 'string',
+                enum: ['sans', 'serif', 'mono', 'jp-sans', 'jp-serif'],
+              },
+              headingFontFamily: {
+                type: 'string',
+                enum: ['sans', 'serif', 'mono', 'jp-sans', 'jp-serif'],
+              },
+              bodySizePt: { type: 'number', minimum: 8, maximum: 15 },
+              lineHeight: { type: 'number', minimum: 1.05, maximum: 1.9 },
+              locale: { type: 'string' },
+            },
+            additionalProperties: false,
           },
           blocks: {
             type: 'array',
@@ -182,6 +210,13 @@ export const CLAUDE_FILE_TOOLS = [
                     'table',
                     'image',
                     'page_break',
+                    'banner',
+                    'callout',
+                    'cards',
+                    'columns',
+                    'flow',
+                    'divider',
+                    'spacer',
                   ],
                 },
                 text: { type: 'string' },
@@ -226,6 +261,95 @@ export const CLAUDE_FILE_TOOLS = [
                   type: 'string',
                   enum: ['left', 'center', 'right'],
                   description: 'Image alignment in the document.',
+                },
+                eyebrow: {
+                  type: 'string',
+                  description: 'Optional small label above a banner, callout, card, column, or flow step.',
+                },
+                title: {
+                  type: 'string',
+                  description: 'Title for a rich PDF block such as banner or callout.',
+                },
+                subtitle: {
+                  type: 'string',
+                  description: 'Optional subtitle for a banner block.',
+                },
+                style: {
+                  type: 'object',
+                  description: 'Optional PDF-only visual styling for rich layout blocks.',
+                  properties: {
+                    backgroundColor: { type: 'string' },
+                    textColor: { type: 'string' },
+                    accentColor: { type: 'string' },
+                    borderColor: { type: 'string' },
+                    borderWidthPt: { type: 'number', minimum: 0, maximum: 5 },
+                    radiusPt: { type: 'number', minimum: 0, maximum: 30 },
+                    paddingPt: { type: 'number', minimum: 0, maximum: 48 },
+                    marginTopPt: { type: 'number', minimum: 0, maximum: 72 },
+                    marginBottomPt: { type: 'number', minimum: 0, maximum: 72 },
+                    align: { type: 'string', enum: ['left', 'center', 'right'] },
+                    fontSizePt: { type: 'number', minimum: 7, maximum: 42 },
+                    fontWeight: { type: 'number', minimum: 300, maximum: 800 },
+                  },
+                  additionalProperties: false,
+                },
+                cardColumns: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: 4,
+                  description: 'For cards blocks, number of cards per row.',
+                },
+                cards: {
+                  type: 'array',
+                  maxItems: 16,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      eyebrow: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      accentColor: { type: 'string' },
+                      backgroundColor: { type: 'string' },
+                    },
+                    required: ['title'],
+                    additionalProperties: false,
+                  },
+                },
+                columns: {
+                  type: 'array',
+                  maxItems: 4,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      eyebrow: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      items: { type: 'array', items: { type: 'string' } },
+                      accentColor: { type: 'string' },
+                    },
+                    additionalProperties: false,
+                  },
+                },
+                steps: {
+                  type: 'array',
+                  maxItems: 7,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      label: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      accentColor: { type: 'string' },
+                    },
+                    required: ['title'],
+                    additionalProperties: false,
+                  },
+                },
+                sizePt: {
+                  type: 'number',
+                  minimum: 2,
+                  maximum: 72,
+                  description: 'For spacer blocks, vertical space in points.',
                 },
               },
               required: ['type'],
