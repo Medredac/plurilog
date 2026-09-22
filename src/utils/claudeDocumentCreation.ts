@@ -10,9 +10,9 @@ import {
   type RenderedPdfReviewPage,
 } from '@/utils/richPdfRenderer';
 import {
-  createClaudeHtmlPdf,
-  type PdfHtmlImageRequest,
-} from '@/utils/claudeHtmlPdfCreation';
+  createClaudeCodePdf,
+  type CodePdfImageRequest,
+} from '@/utils/claudeCodePdfCreation';
 import {
   generateGeminiImage,
   generateChatGPTImage,
@@ -28,11 +28,9 @@ export interface ClaudeCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'
   format: 'docx' | 'pdf';
   design?: PdfDesign;
   blocks: RichDocumentBlock[];
-  html?: string;
-  css?: string;
-  locale?: string;
+  python?: string;
   target_page_count?: number;
-  images?: PdfHtmlImageRequest[];
+  images?: CodePdfImageRequest[];
 }
 
 export interface DocumentImageSource {
@@ -643,20 +641,18 @@ export async function executeClaudeDocumentCreation(
   let visualReviewApplied = false;
 
   if (args.format === 'pdf') {
-    if (!args.html?.trim() || !args.css?.trim()) {
+    if (!args.python?.trim()) {
       throw new Error(
-        'PDF creation requires Claude-authored HTML and CSS in this rollout.'
+        'PDF creation requires Claude-authored Python in this rollout.'
       );
     }
 
-    const htmlPdf = await createClaudeHtmlPdf({
+    const codePdf = await createClaudeCodePdf({
       openai,
       serviceClient,
       args: {
         filename: args.filename,
-        html: args.html,
-        css: args.css,
-        locale: args.locale,
+        python: args.python,
         target_page_count: args.target_page_count,
         images: args.images || [],
       },
@@ -670,24 +666,25 @@ export async function executeClaudeDocumentCreation(
       onImageCost: costAwareCallback,
     });
 
-    finalBuffer = htmlPdf.buffer;
-    finalFilename = htmlPdf.filename;
-    renderedFullText = htmlPdf.fullText;
-    generatedPdfPageCount = htmlPdf.pageCount;
-    finalImageAssetCount = htmlPdf.imageAssetCount;
-    visualReviewCostUsd = htmlPdf.visualReviewCostUsd;
-    visualReviewApplied = htmlPdf.visualReviewApplied;
-    imageCostUsd = htmlPdf.imageCostUsd;
+    finalBuffer = codePdf.buffer;
+    finalFilename = codePdf.filename;
+    renderedFullText = codePdf.fullText;
+    generatedPdfPageCount = codePdf.pageCount;
+    finalImageAssetCount = codePdf.imageAssetCount;
+    visualReviewCostUsd = codePdf.visualReviewCostUsd;
+    visualReviewApplied = codePdf.visualReviewApplied;
+    imageCostUsd = codePdf.imageCostUsd;
 
-    console.log('[Generated PDF] Rendered Claude-authored HTML/CSS PDF:', {
+    console.log('[Generated PDF] Rendered programmatic Claude PDF:', {
       filename: finalFilename,
       byteSize: finalBuffer.length,
-      initialPageCount: htmlPdf.initialPageCount,
+      initialPageCount: codePdf.initialPageCount,
       finalPageCount: generatedPdfPageCount,
       imageAssetCount: finalImageAssetCount,
+      imageModels: codePdf.imageModels,
       visualReviewApplied,
       visualReviewCostUsd,
-      reviewRationale: htmlPdf.reviewRationale,
+      reviewRationale: codePdf.reviewRationale,
     });
   } else {
     const renderedDocument = renderDocx({
