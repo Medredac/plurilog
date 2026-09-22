@@ -190,6 +190,25 @@ export const CLAUDE_FILE_TOOLS = [
               bodySizePt: { type: 'number', minimum: 8, maximum: 15 },
               lineHeight: { type: 'number', minimum: 1.05, maximum: 1.9 },
               locale: { type: 'string' },
+              headerText: {
+                type: 'string',
+                description: 'Optional short running header text for PDFs.',
+              },
+              footerText: {
+                type: 'string',
+                description: 'Optional short running footer text for PDFs.',
+              },
+              showPageNumbers: {
+                type: 'boolean',
+                description: 'For PDFs, show current/total page numbering in the page margin when useful.',
+              },
+              targetPageCount: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 30,
+                description:
+                  'For PDFs only. Set this when the user explicitly requests an exact page count; the renderer will make a bounded fit attempt.',
+              },
             },
             additionalProperties: false,
           },
