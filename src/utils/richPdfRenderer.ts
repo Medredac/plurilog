@@ -137,11 +137,18 @@ export interface RenderRichPdfOptions {
   timeoutMs?: number;
 }
 
+export interface RenderedPdfReviewPage {
+  pageNumber: number;
+  data: Buffer;
+  contentType: 'image/png';
+}
+
 export interface RenderRichPdfResult {
   buffer: Buffer;
   filename: string;
   fullText: string;
   totalPageCount: number | null;
+  reviewPages: RenderedPdfReviewPage[];
   usedSnapshot: boolean;
   elapsedMs: number;
 }
@@ -983,6 +990,51 @@ export async function renderRichPdf(
       throw new Error('Chromium PDF renderer produced an empty file.');
     }
 
+    const reviewRender = await sandbox.runCommand({
+      cmd: 'pdftoppm',
+      args: [
+        '-png',
+        '-r',
+        '96',
+        '-f',
+        '1',
+        '-l',
+        String(Math.min(totalPageCount || 6, 6)),
+        selectedPath,
+        '/vercel/sandbox/review-page',
+      ],
+    });
+    await assertSandboxCommand(reviewRender, 'PDF visual review rendering');
+
+    const reviewList = await sandbox.runCommand({
+      cmd: 'sh',
+      args: [
+        '-lc',
+        "find /vercel/sandbox -maxdepth 1 -type f -name 'review-page-*.png' -printf '%f\\n' | sort -V",
+      ],
+    });
+    await assertSandboxCommand(reviewList, 'PDF visual review page enumeration');
+
+    const reviewFilenames = (await reviewList.stdout())
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+
+    const reviewPages: RenderedPdfReviewPage[] = [];
+    for (let index = 0; index < reviewFilenames.length; index += 1) {
+      const pageData = await sandbox.readFileToBuffer({
+        path: `/vercel/sandbox/${reviewFilenames[index]}`,
+      });
+      if (pageData?.length) {
+        reviewPages.push({
+          pageNumber: index + 1,
+          data: pageData,
+          contentType: 'image/png',
+        });
+      }
+    }
+
     console.log('[Rich PDF Renderer]', {
       filename,
       targetPageCount: targetPageCount || null,
@@ -999,6 +1051,7 @@ export async function renderRichPdf(
       filename,
       fullText,
       totalPageCount,
+      reviewPages,
       usedSnapshot,
       elapsedMs: Date.now() - startedAt,
     };
