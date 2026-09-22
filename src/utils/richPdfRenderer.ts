@@ -270,7 +270,7 @@ function renderBulletItems(items: string[], ordered: boolean): string {
     .join('')}</${tag}>`;
 }
 
-function renderTable(block: Extract<DocxBlock, { type: 'table' }>, design: ReturnType<typeof normalizeDesign>): string {
+function renderTable(block: DocxBlock, design: ReturnType<typeof normalizeDesign>): string {
   const headers = (block.headers || []).map((v) => cleanText(v, 5000));
   const rows = (block.rows || []).slice(0, 100).map((row) =>
     (row || []).map((v) => cleanText(v, 5000))
@@ -289,7 +289,7 @@ function renderTable(block: Extract<DocxBlock, { type: 'table' }>, design: Retur
   return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 10pt 0;page-break-inside:avoid;">${head}${body}</table>`;
 }
 
-function renderImage(block: Extract<DocxBlock, { type: 'image' }>, design: ReturnType<typeof normalizeDesign>): string {
+function renderImage(block: DocxBlock, design: ReturnType<typeof normalizeDesign>): string {
   if (!block.imageData || !Buffer.isBuffer(block.imageData) || block.imageData.length === 0) return '';
   const contentType = cleanText(block.imageContentType, 100) || 'image/png';
   const b64 = block.imageData.toString('base64');
