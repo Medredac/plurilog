@@ -1,3 +1,7 @@
 {
-  "crons": []
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [],
+  "env": {
+    "DOCX_RENDERER_SNAPSHOT_ID": "snap_YRObHfbtZA1gevxzKe4GPNtTyRwf"
+  }
 }

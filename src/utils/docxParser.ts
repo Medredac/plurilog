@@ -3,12 +3,21 @@ import TurndownService from 'turndown';
 // @ts-ignore
 import { gfm } from 'turndown-plugin-gfm';
 
+export interface EmbeddedDocxImage {
+  index: number;
+  contentType: string;
+  extension: string;
+  data: Buffer;
+  altText?: string;
+}
+
 export interface ParseDocxResult {
   fullText: string;
   markdown: string;
   headingsCount: number;
   tablesCount: number;
   paragraphsCount: number;
+  embeddedImages: EmbeddedDocxImage[];
   warnings?: string[];
 }
 
@@ -57,6 +66,7 @@ export async function parseDocx(
       headingsCount: 0,
       tablesCount: 0,
       paragraphsCount: 0,
+      embeddedImages: [],
     };
   }
 
@@ -69,20 +79,61 @@ export async function parseDocx(
       headingsCount: 0,
       tablesCount: 0,
       paragraphsCount: 0,
+      embeddedImages: [],
     };
   }
 
-  // Convert docx buffer to structured HTML using mammoth
-  // Convert images to empty string (ignore embedded images for V1)
+  // Convert DOCX to structured HTML while extracting embedded raster images.
+  // The images are returned separately for Plurilog's visual-artifact pipeline;
+  // the semantic Markdown remains text-only so binary/image content is never
+  // stuffed into document memory.
+  const embeddedImages: EmbeddedDocxImage[] = [];
+  const extensionForContentType = (contentType: string): string => {
+    const normalized = (contentType || '').toLowerCase();
+    if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+    if (normalized === 'image/png') return 'png';
+    if (normalized === 'image/webp') return 'webp';
+    if (normalized === 'image/gif') return 'gif';
+    if (normalized === 'image/svg+xml') return 'svg';
+    if (normalized === 'image/bmp') return 'bmp';
+    if (normalized === 'image/tiff') return 'tiff';
+    return 'bin';
+  };
+
   const mammothResult = await mammoth.convertToHtml(
     { buffer: nodeBuffer },
     {
-      convertImage: mammoth.images.imgElement(() => Promise.resolve({ src: '' })),
+      convertImage: mammoth.images.imgElement(async (image: any) => {
+        try {
+          const base64 = await image.read('base64');
+          const contentType =
+            typeof image.contentType === 'string' && image.contentType.trim()
+              ? image.contentType.trim().toLowerCase()
+              : 'application/octet-stream';
+          const extension = extensionForContentType(contentType);
+          embeddedImages.push({
+            index: embeddedImages.length,
+            contentType,
+            extension,
+            data: Buffer.from(base64, 'base64'),
+            ...(typeof image.altText === 'string' && image.altText.trim()
+              ? { altText: image.altText.trim() }
+              : {}),
+          });
+        } catch (imageErr) {
+          console.warn('[DOCX Parser] Failed to extract embedded image:', imageErr);
+        }
+
+        // Mammoth still needs an imgElement result, but Plurilog delivers images
+        // through its canonical visual-evidence system instead of data URIs in text.
+        return { src: '' };
+      }),
     }
   );
 
   let rawHtml = mammothResult.value || '';
-  // Remove empty image tags
+  // Remove placeholder image tags from semantic text; the extracted image bytes
+  // are preserved independently in embeddedImages.
   rawHtml = rawHtml.replace(/<img[^>]*>/gi, '');
 
   const headingsCount = (rawHtml.match(/<h[1-6][^>]*>/gi) || []).length;
@@ -109,6 +160,7 @@ export async function parseDocx(
     headingsCount,
     tablesCount,
     paragraphsCount,
+    embeddedImages,
     warnings: mammothResult.messages?.map((m: any) => m.message),
   };
 }

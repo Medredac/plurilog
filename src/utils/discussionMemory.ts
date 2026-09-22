@@ -2923,7 +2923,7 @@ export async function ingestParsedDocument(
 export interface IngestArtifactsOptions {
   serviceSupabase: SupabaseClient;
   discussionId: string;
-  attachments?: { url: string; filename: string }[] | null;
+  attachments?: { url: string; filename?: string }[] | null;
   sourceUserMessageId?: string | null;
   signal?: AbortSignal;
 }
@@ -3042,13 +3042,18 @@ export async function ingestDiscussionArtifacts(
       }
 
       let filename = attachment.filename || 'attachment';
-      const rawFilename = storagePath.split('/').pop() || '';
-      const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
-      if (cleaned) {
-        try {
-          filename = decodeURIComponent(cleaned);
-        } catch {
-          filename = cleaned || filename;
+      // Preserve an explicit logical filename (important for derived DOCX images,
+      // whose storage object name is intentionally hash-based). Fall back to the
+      // physical storage name only for generic/absent attachment labels.
+      if (!attachment.filename || attachment.filename === 'attachment') {
+        const rawFilename = storagePath.split('/').pop() || '';
+        const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
+        if (cleaned) {
+          try {
+            filename = decodeURIComponent(cleaned);
+          } catch {
+            filename = cleaned || filename;
+          }
         }
       }
 
@@ -4183,6 +4188,127 @@ export function resolveVisualDocument(
   }
 
   // 5. Ambiguity -> never guess
+  return null;
+}
+
+
+/**
+ * Resolves a DOCX document for visual page rendering without changing the
+ * existing PDF-only resolver semantics.
+ */
+export function resolveVisualDocxDocument(
+  prompt: string,
+  knownDocuments?: KnownDiscussionDocument[],
+  retrievedDocuments?: RetrievedDocumentExcerpt[],
+  recentRounds?: Round[]
+): ResolvedVisualDocument | null {
+  if (!Array.isArray(knownDocuments) || knownDocuments.length === 0) {
+    return null;
+  }
+
+  const isDocxDoc = (d: KnownDiscussionDocument) =>
+    Boolean(
+      (d.filename && d.filename.toLowerCase().endsWith('.docx')) ||
+        (d.storagePath && d.storagePath.toLowerCase().endsWith('.docx'))
+    );
+
+  const promptLower = prompt.toLowerCase();
+  const filenameMatches = knownDocuments.filter((d) => {
+    if (!isDocxDoc(d)) return false;
+    const hasPath = Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0));
+    if (!hasPath || !d.filename) return false;
+    const normName = d.filename.toLowerCase();
+    const baseName = normName.replace(/\.docx$/i, '');
+    return (
+      promptLower.includes(normName) ||
+      (baseName.length >= 4 && promptLower.includes(baseName)) ||
+      (d.id && promptLower.includes(d.id.toLowerCase()))
+    );
+  });
+
+  if (filenameMatches.length === 1) {
+    const match = filenameMatches[0];
+    const storagePath =
+      match.storagePath || (match.sourcePaths && match.sourcePaths[0]);
+    if (storagePath) {
+      return {
+        documentId: match.id,
+        filename: match.filename,
+        storagePath,
+      };
+    }
+  }
+
+  if (Array.isArray(retrievedDocuments) && retrievedDocuments.length > 0) {
+    const docIds = Array.from(
+      new Set(retrievedDocuments.map((d) => d.documentId).filter(Boolean))
+    );
+    if (docIds.length === 1) {
+      const match = knownDocuments.find(
+        (d) =>
+          d.id === docIds[0] &&
+          isDocxDoc(d) &&
+          Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+      );
+      if (match) {
+        const storagePath =
+          match.storagePath || (match.sourcePaths && match.sourcePaths[0]);
+        if (storagePath) {
+          return {
+            documentId: match.id,
+            filename: match.filename,
+            storagePath,
+          };
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(recentRounds) && recentRounds.length > 0) {
+    const recentDocxMap = new Map<string, ResolvedVisualDocument>();
+    for (const round of recentRounds) {
+      if (!round.attachments) continue;
+      for (const attachment of round.attachments) {
+        if (
+          attachment.storagePath &&
+          attachment.filename.toLowerCase().endsWith('.docx')
+        ) {
+          const key = attachment.documentId || attachment.storagePath;
+          if (!recentDocxMap.has(key)) {
+            recentDocxMap.set(key, {
+              documentId: attachment.documentId || null,
+              filename: attachment.filename,
+              storagePath: attachment.storagePath,
+            });
+          }
+        }
+      }
+    }
+
+    const distinctRecentDocx = Array.from(recentDocxMap.values());
+    if (distinctRecentDocx.length === 1) return distinctRecentDocx[0];
+    if (distinctRecentDocx.length > 1) return null;
+  }
+
+  const validDocs = knownDocuments.filter(
+    (d) =>
+      isDocxDoc(d) &&
+      Boolean(d.storagePath || (d.sourcePaths && d.sourcePaths.length > 0))
+  );
+
+  if (validDocs.length === 1) {
+    const match = validDocs[0];
+    const storagePath =
+      match.storagePath || (match.sourcePaths && match.sourcePaths[0]);
+    if (storagePath) {
+      return {
+        documentId: match.id,
+        filename: match.filename,
+        storagePath,
+      };
+    }
+  }
+
   return null;
 }
 
