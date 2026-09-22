@@ -94,7 +94,7 @@ export const GEMINI_IMAGE_TOOLS = [
     function: {
       name: 'generate_image',
       description:
-        'Generate a new image when the user explicitly asks you to create, draw, render, visualize, design, or otherwise produce visual image output. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
+        'Generate a standalone image when the user explicitly wants an image as the requested output. Do not use this tool merely because a document/file request says that an image should be included inside that document; embedded document visuals are handled by Claude\'s document workflow. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
       parameters: {
         type: 'object',
         properties: {
@@ -118,7 +118,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
     function: {
       name: 'edit_image',
       description:
-        'Edit or transform one existing image when the user explicitly asks to change, modify, restyle, remove, add, recolor, replace, or otherwise alter visual content in an image. This works for a user-uploaded image or an image generated earlier in the discussion. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
+        'Edit or transform one existing image when the user explicitly wants an edited image as the requested visual output. This works for a user-uploaded image or an image generated earlier in the discussion. If an image edit is requested only as part of assembling a downloadable document/file, do not emit a separate edited-image result; Claude\'s document workflow handles document-internal image edits. Use edit_image instead of generate_image for standalone modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
       parameters: {
         type: 'object',
         properties: {
@@ -306,23 +306,6 @@ export function isClaudeDocumentCreationEnabled(): boolean {
   return process.env.CLAUDE_DOCUMENT_CREATION_ENABLED !== 'false';
 }
 
-function isWordDocumentCreationIntent(prompt: string): boolean {
-  const normalized = (prompt || '').toLowerCase();
-  if (!normalized.trim()) return false;
-
-  const hasDocumentTarget =
-    /\bdocx\b/.test(normalized) ||
-    /\bword\s+(?:document|file)\b/.test(normalized) ||
-    /\bdownloadable\s+(?:word\s+)?document\b/.test(normalized);
-
-  const hasCreationIntent =
-    /\b(create|make|generate|produce|prepare|build|assemble|draft|export|save|deliver|turn)\b/.test(
-      normalized
-    );
-
-  return hasDocumentTarget && hasCreationIntent;
-}
-
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   // Preview rollout: evidence inspection is available to all three panel seats when
   // the feature flag is enabled. Gemini image generation remains a separate,
@@ -352,7 +335,7 @@ Search policy:
   2. Derived source representations (e.g. OCR, parsed text, retrieved document chunks).
   3. Your own reasoning and calibrated knowledge.
   4. Peer claims and conversational contributions (provisional claims to evaluate, never source evidence).
-When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or the rendered pages of a PDF or Word document and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. When a request_evidence tool is available, this is a mandatory recovery path for any answer that depends on an unseen earlier visual: call request_evidence before giving substantive visual advice. This applies to inspection or recall of an EXISTING visual resource, not to a request to CREATE a new document that will contain visuals; do not treat a creation request as missing visual evidence. Do not merely say that you lack visual access, do not fall back to generic styling/layout advice, and do not adopt another panelist's visual description instead of requesting the evidence. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
+When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or the rendered pages of a PDF or Word document and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. When a request_evidence tool is available, this is a mandatory recovery path for any answer that depends on an unseen earlier visual: call request_evidence before giving substantive visual advice. Do not merely say that you lack visual access, do not fall back to generic styling/layout advice, and do not adopt another panelist's visual description instead of requesting the evidence. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 Contribute only as much as is genuinely useful. Do not repeat or paraphrase earlier panelists merely to fill space. However, this brevity rule never excuses independent assessment: do not assume an earlier factual analysis is correct simply because redoing it aloud would be repetitive. Genuine agreement is completely acceptable, but a standalone acknowledgement such as "Agreed", "Yes", "Settled", or "That matches my assessment" is not normally a useful panel contribution. When you agree with earlier panelists, respond naturally while advancing the discussion where possible: contribute your own distinct reasoning, a relevant implication, a necessary qualification, a practical consequence or example, an overlooked assumption, an alternative framing, or another meaningful insight. Do not manufacture disagreement or adopt contrarian stances merely to create activity, and do not become verbose simply to fill a turn. If a topic is genuinely simple, narrow, or completely exhausted and there is truly no useful addition to make, extreme brevity remains acceptable, but advancing the substance is the default goal. Never paraphrase or summarize another panelist's response simply to generate content, and do not act as a narrator, moderator, or play-by-play commentator for what others have said. Do not speak merely to echo what was already said, but do not force brevity when a substantive correction, disagreement, or novel insight requires explanation.
 
@@ -367,7 +350,6 @@ export interface PlurilogRuntimeProductContext {
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
   documentCreatedThisTurn?: boolean;
-  documentCreationPendingForClaude?: boolean;
   accountPlan?: 'free' | 'paid';
 }
 
@@ -385,8 +367,6 @@ export function buildPlurilogProductContext(
   const canEditImages =
     runtime?.imageEditingEnabled ?? seatCapabilities?.imageEditing ?? false;
   const canCreateDocuments = runtime?.documentCreationEnabled ?? false;
-  const documentCreationPendingForClaude =
-    runtime?.documentCreationPendingForClaude === true;
   const accountPlan =
     runtime?.accountPlan === 'paid'
       ? 'Plus (paid)'
@@ -410,14 +390,13 @@ IMAGES
 - Your current seat is ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
 
 FILES AND VIDEO
-- Claude can create real downloadable Word (.docx) documents in Plurilog when document creation is enabled for the current turn. The file is stored with the discussion and its semantic contents are available to the panel's document-retrieval system.
-- Word documents can be analyzed semantically and, when a question depends on layout or appearance, rendered into page images for visual inspection by the panel.
-- ChatGPT and Gemini do not currently create downloadable documents in Plurilog. They can help analyze, draft, critique, and review document content, including a Word document Claude creates earlier in the same discussion.
+- Claude is the file-creation seat in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled for its turn.
+- ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude handles document creation in the panel. They may still help with content, critique, research, or review.
+- Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel.
+- Images requested as PART OF a document/file deliverable belong to the document workflow. ChatGPT and Gemini should not turn those embedded-image requests into separate standalone image outputs. By contrast, if the user asks for a standalone image as the actual deliverable, their image tools may be used normally.
 - AI-created PDF, XLSX, and PPTX files are not yet available in this rollout.
 - Your current seat is ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
-- Do NOT volunteer capability limitations, seat restrictions, or phrases such as "this seat cannot..." unless the user explicitly asks about capabilities or asks you to perform an unsupported action that has not already been fulfilled by another seat.
-- If another seat already created the requested document in the current round and the document or its rendered pages are available to you, treat the user's creation request as fulfilled. Focus on independently reviewing, checking, improving, or complementing the finished artifact. Do not apologize for lacking file-creation tools, do not say the document is unavailable, and do not offer to recreate the same artifact merely because your own seat lacks document creation.
-${documentCreationPendingForClaude ? '- The user is asking for a finished Word document, but this seat is not the document-creation seat and Claude is scheduled later in this same panel turn. Respond briefly and naturally: explain that Claude can create the DOCX when its turn comes, and that you can help review, critique, refine, or supplement the finished document afterward. Do not pretend an existing document should already be available, do not say visual evidence or rendered pages are missing, do not call evidence-retrieval tools, and do not generate a standalone image for an image that belongs inside the requested document. Do not produce a long capability disclaimer.' : ''}
+- If another seat already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that is different from an AI generating a custom downloadable document.
 - Video upload/analysis is not currently available. It is in development.
 
@@ -1210,11 +1189,6 @@ export async function POST(req: NextRequest) {
           ];
         }
 
-        const wordDocumentCreationIntent =
-          isWordDocumentCreationIntent(prompt) &&
-          configuredSeats.some((seat) => seat.seatId === 'claude') &&
-          isClaudeDocumentCreationEnabled();
-
         console.log('[Turn Start]', {
           turnId,
           discussionId: discussionId || null,
@@ -1727,10 +1701,8 @@ export async function POST(req: NextRequest) {
           const currentImageIdentityComplete =
             hasCurrentImages && expectedCurrentImageSources.length === currentImageAttachments.length;
 
-          const isVisualQuery =
-            !wordDocumentCreationIntent && isVisualEvidenceQuery(prompt);
-          const isVerificationFollowUp =
-            !wordDocumentCreationIntent && isVerificationFollowUpQuery(prompt);
+          const isVisualQuery = isVisualEvidenceQuery(prompt);
+          const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
 
           const lastRound =
             discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0
@@ -1978,8 +1950,7 @@ export async function POST(req: NextRequest) {
                       }
                     }
                   } else {
-                    console.log('[Visual Reinspection] Ambiguous or unresolved document for visual query — proceeding with fail-safe text retrieval');
-                    isVisualUnavailable = true;
+                    console.log('[Visual Reinspection] No document resolved pre-seat; leaving evidence choice to the model');
                   }
                 }
               } catch (visualErr: any) {
@@ -2569,10 +2540,6 @@ export async function POST(req: NextRequest) {
 
           let currentRoundAttachments: RouteAttachment[] = [...(effectiveAttachments || [])];
 
-          if (!isVisualUnavailable && isVisualQuery && (!effectiveAttachments || effectiveAttachments.length === 0)) {
-            isVisualUnavailable = true;
-          }
-
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
@@ -2673,7 +2640,6 @@ export async function POST(req: NextRequest) {
               isChatGPTImageGenerationEnabled();
             const isImageGenerationEnabledForSeat =
               !documentCreatedThisTurn &&
-              !wordDocumentCreationIntent &&
               (isGeminiImageEnabled || isChatGPTImageEnabled);
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
@@ -2685,16 +2651,10 @@ export async function POST(req: NextRequest) {
               isChatGPTImageEditingEnabled();
             const isImageEditingEnabledForSeat =
               !documentCreatedThisTurn &&
-              !wordDocumentCreationIntent &&
               (isGeminiImageEditingEnabledForSeat ||
                 isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat =
-              isSeatEligibleForEvidenceRequest(seat.seatId) &&
-              !(
-                wordDocumentCreationIntent &&
-                !documentCreatedThisTurn &&
-                seat.seatId !== 'claude'
-              );
+              isSeatEligibleForEvidenceRequest(seat.seatId);
             const isDocumentCreationEnabledForSeat =
               seat.seatId === 'claude' && isClaudeDocumentCreationEnabled();
             const runtimeProductContext: PlurilogRuntimeProductContext = {
@@ -2704,10 +2664,6 @@ export async function POST(req: NextRequest) {
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
               documentCreatedThisTurn,
-              documentCreationPendingForClaude:
-                wordDocumentCreationIntent &&
-                !documentCreatedThisTurn &&
-                seat.seatId !== 'claude',
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
 
