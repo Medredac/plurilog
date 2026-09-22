@@ -509,48 +509,48 @@ function buildHtml(input: RichPdfInput): { html: string; fullText: string } {
       : design.orientation === 'landscape' ? '297mm 210mm' : '210mm 297mm';
 
   const headerCss = design.headerText
-    ? \`@top-left {
-        content: \${JSON.stringify(design.headerText)};
-        color: \${design.mutedColor};
-        font-family: \${fontStack(design.fontFamily)};
+    ? `@top-left {
+        content: ${JSON.stringify(design.headerText)};
+        color: ${design.mutedColor};
+        font-family: ${fontStack(design.fontFamily)};
         font-size: 7.5pt;
-      }\`
+      }`
     : '';
 
   const footerCss = design.footerText
-    ? \`@bottom-left {
-        content: \${JSON.stringify(design.footerText)};
-        color: \${design.mutedColor};
-        font-family: \${fontStack(design.fontFamily)};
+    ? `@bottom-left {
+        content: ${JSON.stringify(design.footerText)};
+        color: ${design.mutedColor};
+        font-family: ${fontStack(design.fontFamily)};
         font-size: 7.5pt;
-      }\`
+      }`
     : '';
 
   const pageNumberCss = design.showPageNumbers
-    ? \`@bottom-right {
+    ? `@bottom-right {
         content: "Page " counter(page) " / " counter(pages);
-        color: \${design.mutedColor};
-        font-family: \${fontStack(design.fontFamily)};
+        color: ${design.mutedColor};
+        font-family: ${fontStack(design.fontFamily)};
         font-size: 7.5pt;
-      }\`
+      }`
     : '';
 
   const titleHtml = title
-    ? \`<div class="pdf-document-title" style="font-family:\${fontStack(design.headingFontFamily)};color:\${design.textColor};">\${escapeHtml(title)}</div>\`
+    ? `<div class="pdf-document-title" style="font-family:${fontStack(design.headingFontFamily)};color:${design.textColor};">${escapeHtml(title)}</div>`
     : '';
 
-  const html = \`<!doctype html>
-<html lang="\${escapeHtml(design.locale)}">
+  const html = `<!doctype html>
+<html lang="${escapeHtml(design.locale)}">
 <head>
 <meta charset="utf-8"/>
 <style>
 @page {
-  size: \${pageSize};
-  margin: \${design.marginMm}mm;
-  background: \${design.backgroundColor};
-  \${headerCss}
-  \${footerCss}
-  \${pageNumberCss}
+  size: ${pageSize};
+  margin: ${design.marginMm}mm;
+  background: ${design.backgroundColor};
+  ${headerCss}
+  ${footerCss}
+  ${pageNumberCss}
 }
 * {
   box-sizing: border-box;
@@ -562,19 +562,19 @@ html, body {
   padding: 0;
 }
 html {
-  background: \${design.backgroundColor};
+  background: ${design.backgroundColor};
 }
 body {
-  color: \${design.textColor};
-  background: \${design.backgroundColor};
-  font-family: \${fontStack(design.fontFamily)};
-  font-size: \${design.bodySizePt}pt;
-  line-height: \${design.lineHeight};
+  color: ${design.textColor};
+  background: ${design.backgroundColor};
+  font-family: ${fontStack(design.fontFamily)};
+  font-size: ${design.bodySizePt}pt;
+  line-height: ${design.lineHeight};
   text-rendering: geometricPrecision;
   font-kerning: normal;
 }
 .pdf-document-title {
-  font-size: \${design.bodySizePt + 12}pt;
+  font-size: ${design.bodySizePt + 12}pt;
   font-weight: 750;
   line-height: 1.08;
   margin: 0 0 11pt 0;
@@ -614,16 +614,16 @@ body {
   background: var(--card-accent);
 }
 .pdf-card-title {
-  color: \${design.textColor};
-  font-size: \${design.bodySizePt + 1.2}pt;
+  color: ${design.textColor};
+  font-size: ${design.bodySizePt + 1.2}pt;
   line-height: 1.2;
   font-weight: 750;
   margin-bottom: 4pt;
 }
 .pdf-card-text {
-  color: \${design.textColor};
-  font-size: \${Math.max(8, design.bodySizePt - 0.35)}pt;
-  line-height: \${Math.max(1.28, design.lineHeight - 0.08)};
+  color: ${design.textColor};
+  font-size: ${Math.max(8, design.bodySizePt - 0.35)}pt;
+  line-height: ${Math.max(1.28, design.lineHeight - 0.08)};
 }
 .pdf-columns {
   display: grid;
@@ -636,15 +636,15 @@ body {
   break-inside: avoid;
 }
 .pdf-column-title {
-  color: \${design.textColor};
-  font-size: \${design.bodySizePt + 1.15}pt;
+  color: ${design.textColor};
+  font-size: ${design.bodySizePt + 1.15}pt;
   line-height: 1.2;
   font-weight: 750;
   margin-bottom: 4pt;
 }
 .pdf-column-text {
-  font-size: \${Math.max(8, design.bodySizePt - 0.2)}pt;
-  line-height: \${design.lineHeight};
+  font-size: ${Math.max(8, design.bodySizePt - 0.2)}pt;
+  line-height: ${design.lineHeight};
 }
 .pdf-flow {
   display: flex;
@@ -678,12 +678,12 @@ body {
   margin-bottom: 3pt;
 }
 .pdf-flow-title {
-  font-size: \${Math.max(8, design.bodySizePt - 0.25)}pt;
+  font-size: ${Math.max(8, design.bodySizePt - 0.25)}pt;
   line-height: 1.15;
   font-weight: 750;
 }
 .pdf-flow-text {
-  font-size: \${Math.max(7, design.bodySizePt - 2)}pt;
+  font-size: ${Math.max(7, design.bodySizePt - 2)}pt;
   line-height: 1.25;
   margin-top: 3pt;
   opacity: .92;
@@ -696,8 +696,8 @@ body {
   font-weight: 700;
 }
 table {
-  font-family: \${fontStack(design.fontFamily)};
-  color: \${design.textColor};
+  font-family: ${fontStack(design.fontFamily)};
+  color: ${design.textColor};
 }
 thead {
   display: table-header-group;
@@ -715,10 +715,10 @@ h1, h2, h3 {
 </style>
 </head>
 <body>
-\${titleHtml}
-\${blocks.map((block) => renderBlock(block, design)).join('\n')}
+${titleHtml}
+${blocks.map((block) => renderBlock(block, design)).join('\n')}
 </body>
-</html>\`;
+</html>`;
 
   return { html, fullText };
 }
@@ -731,7 +731,7 @@ async function assertSandboxCommand(
   const stderr = (await result.stderr()).trim();
   const stdout = (await result.stdout()).trim();
   throw new Error(
-    \`\${label} failed (exit \${result.exitCode}): \${(stderr || stdout || 'unknown error').slice(-4000)}\`
+    `${label} failed (exit ${result.exitCode}): ${(stderr || stdout || 'unknown error').slice(-4000)}`
   );
 }
 
@@ -741,7 +741,7 @@ async function sandboxCommandPath(
 ): Promise<string | null> {
   const result = await sandbox.runCommand({
     cmd: 'sh',
-    args: ['-lc', \`for c in \${candidates}; do command -v "$c" 2>/dev/null && exit 0; done; exit 1\`],
+    args: ['-lc', `for c in ${candidates}; do command -v "$c" 2>/dev/null && exit 0; done; exit 1`],
   });
   if (result.exitCode !== 0) return null;
   const value = (await result.stdout()).trim().split(/\r?\n/)[0]?.trim();
@@ -798,7 +798,7 @@ async function installChromiumPdfDependencies(
       await assertSandboxCommand(archResult, 'PDF renderer architecture detection');
       const arch = (await archResult.stdout()).trim();
       if (arch !== 'x86_64' && arch !== 'amd64') {
-        throw new Error(\`Chrome PDF renderer currently requires x86_64 Sandbox; received \${arch}.\`);
+        throw new Error(`Chrome PDF renderer currently requires x86_64 Sandbox; received ${arch}.`);
       }
 
       const chromeInstall = await sandbox.runCommand({
@@ -836,7 +836,7 @@ async function installChromiumPdfDependencies(
   return { chromePath };
 }
 
-const CHROME_PDF_DRIVER = String.raw\`
+const CHROME_PDF_DRIVER = String.raw`
 import fs from 'node:fs/promises';
 
 const [inputUrl, outputPath, scaleRaw] = process.argv.slice(2);
@@ -926,7 +926,7 @@ const pdf = await send('Page.printToPDF', {
 if (!pdf.data) throw new Error('Chrome returned no PDF data.');
 await fs.writeFile(outputPath, Buffer.from(pdf.data, 'base64'));
 ws.close();
-\`;
+`;
 
 async function inspectPdfPageCount(
   sandbox: InstanceType<typeof Sandbox>,
@@ -996,7 +996,7 @@ export async function renderRichPdf(
       args: [
         '-lc',
         [
-          \`"\${chromePath}"\`,
+          `"${chromePath}"`,
           '--headless=new',
           '--no-sandbox',
           '--disable-gpu',
@@ -1031,7 +1031,7 @@ export async function renderRichPdf(
         throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
       }
 
-      const outputPath = \`/vercel/sandbox/output-\${String(scale).replace('.', '_')}.pdf\`;
+      const outputPath = `/vercel/sandbox/output-${String(scale).replace('.', '_')}.pdf`;
       const render = await sandbox.runCommand({
         cmd: 'node',
         args: [
