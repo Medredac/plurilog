@@ -3,8 +3,12 @@ import { createServiceClient } from '@/utils/supabase/service';
 import { ingestParsedDocument } from '@/utils/discussionMemory';
 import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
-import { convertDocxToPdf } from '@/utils/docxPageRenderer';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
+import {
+  renderRichPdf,
+  type PdfDesign,
+  type RichDocumentBlock,
+} from '@/utils/richPdfRenderer';
 import {
   generateGeminiImage,
   generateChatGPTImage,
@@ -16,8 +20,10 @@ import {
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
 
-export interface ClaudeCreateFileArgs extends StructuredDocxInput {
+export interface ClaudeCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   format: 'docx' | 'pdf';
+  design?: PdfDesign;
+  blocks: RichDocumentBlock[];
 }
 
 export interface DocumentImageSource {
@@ -197,14 +203,14 @@ async function editDocumentImage(
 }
 
 async function resolveDocumentBlocks(
-  blocks: DocxBlock[],
+  blocks: RichDocumentBlock[],
   serviceClient: any,
   availableImages: DocumentImageSource[],
   resourceContext: ResourceBrokerContext | undefined,
   signal: AbortSignal | undefined,
   onImageCost?: (event: DocumentImageCostEvent) => void
-): Promise<{ blocks: DocxBlock[]; imageAssetCount: number }> {
-  const resolved: DocxBlock[] = [];
+): Promise<{ blocks: RichDocumentBlock[]; imageAssetCount: number }> {
+  const resolved: RichDocumentBlock[] = [];
   let imageAssetCount = 0;
 
   for (const block of blocks || []) {
@@ -304,35 +310,46 @@ export async function executeClaudeDocumentCreation(
     costAwareCallback
   );
 
-  const renderedDocument = renderDocx({
-    filename:
-      args.format === 'pdf'
-        ? args.filename.replace(/\.pdf$/i, '.docx')
-        : args.filename,
-    title: args.title,
-    blocks: resolvedDocument.blocks,
-  });
-
-  let finalBuffer = renderedDocument.buffer;
-  let finalFilename = renderedDocument.filename;
+  let finalBuffer: Buffer;
+  let finalFilename: string;
+  let renderedFullText: string;
   let generatedPdfPageCount: number | null = null;
 
   if (args.format === 'pdf') {
-    const converted = await convertDocxToPdf(renderedDocument.buffer, {
-      signal,
-      timeoutMs: 25_000,
-    });
-    finalBuffer = converted.buffer;
-    finalFilename = renderedDocument.filename.replace(/\.docx$/i, '.pdf');
-    generatedPdfPageCount = converted.totalPageCount;
+    const renderedPdf = await renderRichPdf(
+      {
+        filename: args.filename,
+        title: args.title,
+        design: args.design,
+        blocks: resolvedDocument.blocks,
+      },
+      {
+        signal,
+        timeoutMs: 35_000,
+      }
+    );
 
-    console.log('[Generated PDF] Converted structured document to PDF:', {
+    finalBuffer = renderedPdf.buffer;
+    finalFilename = renderedPdf.filename;
+    renderedFullText = renderedPdf.fullText;
+    generatedPdfPageCount = renderedPdf.totalPageCount;
+
+    console.log('[Generated PDF] Rendered rich PDF:', {
       filename: finalFilename,
       byteSize: finalBuffer.length,
       pageCount: generatedPdfPageCount,
-      usedSnapshot: converted.usedSnapshot,
-      elapsedMs: converted.elapsedMs,
+      usedSnapshot: renderedPdf.usedSnapshot,
+      elapsedMs: renderedPdf.elapsedMs,
     });
+  } else {
+    const renderedDocument = renderDocx({
+      filename: args.filename,
+      title: args.title,
+      blocks: resolvedDocument.blocks as DocxBlock[],
+    });
+    finalBuffer = renderedDocument.buffer;
+    finalFilename = renderedDocument.filename;
+    renderedFullText = renderedDocument.fullText;
   }
 
   const finalContent = `Created **${finalFilename}**.`;
@@ -426,7 +443,7 @@ export async function executeClaudeDocumentCreation(
       openai,
       discussionId,
       filename: persistedDocument.filename,
-      fullText: renderedDocument.fullText,
+      fullText: renderedFullText,
       fileBytes: finalBuffer,
       storagePath: persistedDocument.storagePath,
       signal,
@@ -455,7 +472,7 @@ export async function executeClaudeDocumentCreation(
     storagePath: persistedDocument.storagePath,
     signedUrl: persistedDocument.signedUrl,
     durableUrl: persistedDocument.durableUrl,
-    fullText: renderedDocument.fullText,
+    fullText: renderedFullText,
     imageAssetCount: resolvedDocument.imageAssetCount,
     imageCostUsd,
   };
