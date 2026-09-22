@@ -836,98 +836,6 @@ async function installChromiumPdfDependencies(
   return { chromePath };
 }
 
-const CHROME_PDF_DRIVER = String.raw`
-import fs from 'node:fs/promises';
-
-const [inputUrl, outputPath, scaleRaw] = process.argv.slice(2);
-const scale = Number(scaleRaw || '1');
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function getPageDebuggerUrl() {
-  let lastError;
-  for (let attempt = 0; attempt < 80; attempt++) {
-    try {
-      const response = await fetch('http://127.0.0.1:9222/json/list');
-      if (response.ok) {
-        const targets = await response.json();
-        const page = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl);
-        if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-    await sleep(100);
-  }
-  throw lastError || new Error('Chrome DevTools endpoint did not become ready.');
-}
-
-const debuggerUrl = await getPageDebuggerUrl();
-const ws = new WebSocket(debuggerUrl);
-
-await new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error('Timed out connecting to Chrome DevTools.')), 8000);
-  ws.addEventListener('open', () => {
-    clearTimeout(timer);
-    resolve();
-  }, { once: true });
-  ws.addEventListener('error', (event) => {
-    clearTimeout(timer);
-    reject(event.error || new Error('Chrome DevTools websocket error.'));
-  }, { once: true });
-});
-
-let nextId = 1;
-const pending = new Map();
-
-ws.addEventListener('message', (event) => {
-  const message = JSON.parse(String(event.data));
-  if (!message.id) return;
-  const waiter = pending.get(message.id);
-  if (!waiter) return;
-  pending.delete(message.id);
-  if (message.error) waiter.reject(new Error(message.error.message || 'CDP command failed.'));
-  else waiter.resolve(message.result || {});
-});
-
-function send(method, params = {}) {
-  const id = nextId++;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    ws.send(JSON.stringify({ id, method, params }));
-  });
-}
-
-await send('Page.enable');
-await send('Runtime.enable');
-await send('Page.navigate', { url: inputUrl });
-
-for (let attempt = 0; attempt < 80; attempt++) {
-  const result = await send('Runtime.evaluate', {
-    expression: '(async()=>{if(document.readyState!=="complete")return false; if(document.fonts&&document.fonts.ready) await document.fonts.ready; return true;})()',
-    awaitPromise: true,
-    returnByValue: true,
-  });
-  if (result?.result?.value === true) break;
-  await sleep(100);
-}
-
-const pdf = await send('Page.printToPDF', {
-  printBackground: true,
-  preferCSSPageSize: true,
-  displayHeaderFooter: false,
-  scale,
-  generateTaggedPDF: true,
-  generateDocumentOutline: true,
-});
-
-if (!pdf.data) throw new Error('Chrome returned no PDF data.');
-await fs.writeFile(outputPath, Buffer.from(pdf.data, 'base64'));
-ws.close();
-`;
-
 async function inspectPdfPageCount(
   sandbox: InstanceType<typeof Sandbox>,
   path: string
@@ -980,42 +888,6 @@ export async function renderRichPdf(
   try {
     const { chromePath } = await installChromiumPdfDependencies(sandbox);
 
-    await sandbox.writeFiles([
-      {
-        path: '/vercel/sandbox/input.html',
-        content: Buffer.from(html, 'utf8'),
-      },
-      {
-        path: '/vercel/sandbox/render-pdf.mjs',
-        content: Buffer.from(CHROME_PDF_DRIVER, 'utf8'),
-      },
-    ]);
-
-    const chromeLaunch = await sandbox.runCommand({
-      cmd: 'sh',
-      args: [
-        '-lc',
-        [
-          `"${chromePath}"`,
-          '--headless=new',
-          '--no-sandbox',
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-          '--disable-background-networking',
-          '--disable-default-apps',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--remote-debugging-address=127.0.0.1',
-          '--remote-debugging-port=9222',
-          '--user-data-dir=/tmp/plurilog-chrome',
-          'about:blank',
-          '>/tmp/plurilog-chrome.log 2>&1 &',
-          'echo $!',
-        ].join(' '),
-      ],
-    });
-    await assertSandboxCommand(chromeLaunch, 'Chrome PDF renderer launch');
-
     const targetPageCount = design.targetPageCount || 0;
     const scales =
       targetPageCount > 0
@@ -1031,14 +903,37 @@ export async function renderRichPdf(
         throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
       }
 
+      const scaledHtml =
+        scale === 1
+          ? html
+          : html.replace(
+              '</style>',
+              `body { zoom: ${scale}; }\n</style>`
+            );
+      const htmlPath = `/vercel/sandbox/input-${String(scale).replace('.', '_')}.html`;
       const outputPath = `/vercel/sandbox/output-${String(scale).replace('.', '_')}.pdf`;
+
+      await sandbox.writeFiles([
+        {
+          path: htmlPath,
+          content: Buffer.from(scaledHtml, 'utf8'),
+        },
+      ]);
+
       const render = await sandbox.runCommand({
-        cmd: 'node',
+        cmd: chromePath,
         args: [
-          '/vercel/sandbox/render-pdf.mjs',
-          'file:///vercel/sandbox/input.html',
-          outputPath,
-          String(scale),
+          '--headless',
+          '--no-sandbox',
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--print-to-pdf-no-header',
+          `--print-to-pdf=${outputPath}`,
+          `file://${htmlPath}`,
         ],
       });
       await assertSandboxCommand(render, 'Chromium PDF generation');
