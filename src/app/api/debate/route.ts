@@ -306,6 +306,23 @@ export function isClaudeDocumentCreationEnabled(): boolean {
   return process.env.CLAUDE_DOCUMENT_CREATION_ENABLED !== 'false';
 }
 
+function isWordDocumentCreationIntent(prompt: string): boolean {
+  const normalized = (prompt || '').toLowerCase();
+  if (!normalized.trim()) return false;
+
+  const hasDocumentTarget =
+    /\bdocx\b/.test(normalized) ||
+    /\bword\s+(?:document|file)\b/.test(normalized) ||
+    /\bdownloadable\s+(?:word\s+)?document\b/.test(normalized);
+
+  const hasCreationIntent =
+    /\b(create|make|generate|produce|prepare|build|assemble|return|deliver|turn)\b/.test(
+      normalized
+    );
+
+  return hasDocumentTarget && hasCreationIntent;
+}
+
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   // Preview rollout: evidence inspection is available to all three panel seats when
   // the feature flag is enabled. Gemini image generation remains a separate,
@@ -602,6 +619,7 @@ async function materializeDocxRenderedPageAttachments(options: {
   filename: string;
   signal?: AbortSignal;
   registerImmediately?: boolean;
+  renderTimeoutMs?: number;
 }): Promise<RouteAttachment[]> {
   const {
     supabase,
@@ -612,6 +630,7 @@ async function materializeDocxRenderedPageAttachments(options: {
     filename,
     signal,
     registerImmediately = false,
+    renderTimeoutMs = 25_000,
   } = options;
 
   const { data: fileBlob, error: downloadError } = await serviceClient.storage
@@ -627,7 +646,10 @@ async function materializeDocxRenderedPageAttachments(options: {
   }
 
   const fileBytes = Buffer.from(await fileBlob.arrayBuffer());
-  const rendered = await renderDocxPages(fileBytes);
+  const rendered = await renderDocxPages(fileBytes, {
+    signal,
+    timeoutMs: renderTimeoutMs,
+  });
   const persistedPages = await persistDocxRenderedPages({
     supabase,
     parentFilename: filename,
@@ -1183,6 +1205,11 @@ export async function POST(req: NextRequest) {
             SEAT_DEFINITIONS.chatgpt,
           ];
         }
+
+        const wordDocumentCreationIntent =
+          isWordDocumentCreationIntent(prompt) &&
+          configuredSeats.some((seat) => seat.seatId === 'claude') &&
+          isClaudeDocumentCreationEnabled();
 
         console.log('[Turn Start]', {
           turnId,
@@ -2640,6 +2667,7 @@ export async function POST(req: NextRequest) {
               isChatGPTImageGenerationEnabled();
             const isImageGenerationEnabledForSeat =
               !documentCreatedThisTurn &&
+              !wordDocumentCreationIntent &&
               (isGeminiImageEnabled || isChatGPTImageEnabled);
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
@@ -2651,6 +2679,7 @@ export async function POST(req: NextRequest) {
               isChatGPTImageEditingEnabled();
             const isImageEditingEnabledForSeat =
               !documentCreatedThisTurn &&
+              !wordDocumentCreationIntent &&
               (isGeminiImageEditingEnabledForSeat ||
                 isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat = isSeatEligibleForEvidenceRequest(seat.seatId);
@@ -2665,6 +2694,18 @@ export async function POST(req: NextRequest) {
               documentCreatedThisTurn,
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
+
+            if (
+              wordDocumentCreationIntent &&
+              !documentCreatedThisTurn &&
+              seat.seatId !== 'claude'
+            ) {
+              priorResponses.push({
+                name: 'Plurilog',
+                response:
+                  'The user is asking for a finished Word document and Claude is scheduled later in this same panel turn. Contribute useful content, structure, critique, or planning that Claude can use. Do not generate a standalone image for an image requested inside the document, and do not dwell on your own file-creation limitations.',
+              });
+            }
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
@@ -3001,47 +3042,6 @@ export async function POST(req: NextRequest) {
                     filename: documentResult.filename,
                   });
 
-                  // Give later seats the actual rendered pages of Claude's newly created
-                  // DOCX in the same round, not only its extracted text. This lets them
-                  // independently inspect image placement, pagination, spacing, tables,
-                  // and other visual layout details before responding.
-                  try {
-                    const generatedDocPages =
-                      await materializeDocxRenderedPageAttachments({
-                        supabase,
-                        serviceClient: serviceClientForDocument,
-                        discussionId: discussionId || '',
-                        sourceUserMessageId: documentResult.messageId,
-                        storagePath: documentResult.storagePath,
-                        filename: documentResult.filename,
-                        signal: seatAbortController.signal,
-                        registerImmediately: false,
-                      });
-
-                    const sameRoundDocumentPages = generatedDocPages.map((page) => ({
-                      ...page,
-                      provenance: 'same_round_document_render' as const,
-                      creatorSeatId: seat.seatId,
-                    }));
-
-                    currentRoundAttachments.push(...sameRoundDocumentPages);
-
-                    console.log('[Generated DOCX Visual Handoff]', {
-                      discussionId: discussionId || null,
-                      filename: documentResult.filename,
-                      renderedPageCount: sameRoundDocumentPages.length,
-                      laterSeatCount: Math.max(
-                        0,
-                        configuredSeats.length - seatIndex - 1
-                      ),
-                    });
-                  } catch (generatedDocRenderErr) {
-                    console.warn(
-                      '[Generated DOCX Visual Handoff] Non-critical render error:',
-                      generatedDocRenderErr
-                    );
-                  }
-
                   documentCreatedThisTurn = true;
 
                   const documentCostCents =
@@ -3084,6 +3084,49 @@ export async function POST(req: NextRequest) {
                     name: seat.name,
                     response: documentResult.finalContent,
                   });
+
+                  // Claude's visible completion must never wait on page rendering.
+                  // Render only for later-seat visual review, with a hard bound.
+                  const laterSeatCount = Math.max(
+                    0,
+                    configuredSeats.length - seatIndex - 1
+                  );
+                  if (laterSeatCount > 0 && !req.signal.aborted) {
+                    try {
+                      const generatedDocPages =
+                        await materializeDocxRenderedPageAttachments({
+                          supabase,
+                          serviceClient: serviceClientForDocument,
+                          discussionId: discussionId || '',
+                          sourceUserMessageId: documentResult.messageId,
+                          storagePath: documentResult.storagePath,
+                          filename: documentResult.filename,
+                          signal: seatAbortController.signal,
+                          registerImmediately: false,
+                          renderTimeoutMs: 20_000,
+                        });
+
+                      const sameRoundDocumentPages = generatedDocPages.map((page) => ({
+                        ...page,
+                        provenance: 'same_round_document_render' as const,
+                        creatorSeatId: seat.seatId,
+                      }));
+
+                      currentRoundAttachments.push(...sameRoundDocumentPages);
+
+                      console.log('[Generated DOCX Visual Handoff]', {
+                        discussionId: discussionId || null,
+                        filename: documentResult.filename,
+                        renderedPageCount: sameRoundDocumentPages.length,
+                        laterSeatCount,
+                      });
+                    } catch (generatedDocRenderErr) {
+                      console.warn(
+                        '[Generated DOCX Visual Handoff] Non-critical render error:',
+                        generatedDocRenderErr
+                      );
+                    }
+                  }
 
                   continue seatLoop;
                 }
