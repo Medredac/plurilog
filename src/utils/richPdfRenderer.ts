@@ -881,20 +881,20 @@ async function inspectPdfPageCount(
   return parsePdfPageCount(await pdfInfo.stdout());
 }
 
-export async function renderRichPdf(
-  input: RichPdfInput,
+export interface RichPdfRenderSession {
+  render: (input: RichPdfInput) => Promise<RenderRichPdfResult>;
+  close: () => Promise<void>;
+}
+
+export async function createRichPdfRenderSession(
   options: RenderRichPdfOptions = {}
-): Promise<RenderRichPdfResult> {
-  const startedAt = Date.now();
-  const { html, fullText } = buildHtml(input);
-  const design = normalizeDesign(input.design);
-  const filename = sanitizePdfFilename(input.filename);
+): Promise<RichPdfRenderSession> {
   const snapshotId =
     options.snapshotId?.trim() ||
     process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() ||
     process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
-  const timeoutMs = Math.max(25_000, Math.min(options.timeoutMs ?? 70_000, 90_000));
+  const timeoutMs = Math.max(25_000, Math.min(options.timeoutMs ?? 90_000, 120_000));
 
   if (options.signal?.aborted) {
     throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
@@ -920,143 +920,174 @@ export async function renderRichPdf(
 
   try {
     const { chromePath } = await installChromiumPdfDependencies(sandbox);
-
-    const targetPageCount = design.targetPageCount || 0;
-    const scales =
-      targetPageCount > 0
-        ? [1, 0.96, 0.92, 0.88, 0.84]
-        : [1];
-
-    let selectedPath = '';
-    let totalPageCount: number | null = null;
-    let selectedScale = 1;
-
-    for (const scale of scales) {
-      if (options.signal?.aborted) {
-        throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
-      }
-
-      const scaledHtml =
-        scale === 1
-          ? html
-          : html.replace(
-              '</style>',
-              `body { zoom: ${scale}; }\n</style>`
-            );
-      const htmlPath = `/vercel/sandbox/input-${String(scale).replace('.', '_')}.html`;
-      const outputPath = `/vercel/sandbox/output-${String(scale).replace('.', '_')}.pdf`;
-
-      await sandbox.writeFiles([
-        {
-          path: htmlPath,
-          content: Buffer.from(scaledHtml, 'utf8'),
-        },
-      ]);
-
-      const render = await sandbox.runCommand({
-        cmd: chromePath,
-        args: [
-          '--headless',
-          '--no-sandbox',
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-          '--disable-background-networking',
-          '--disable-default-apps',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--print-to-pdf-no-header',
-          `--print-to-pdf=${outputPath}`,
-          `file://${htmlPath}`,
-        ],
-      });
-      await assertSandboxCommand(render, 'Chromium PDF generation');
-
-      const pages = await inspectPdfPageCount(sandbox, outputPath);
-      selectedPath = outputPath;
-      totalPageCount = pages;
-      selectedScale = scale;
-
-      if (!targetPageCount || pages === null || pages <= targetPageCount) {
-        break;
-      }
-    }
-
-    if (!selectedPath) {
-      throw new Error('Chromium PDF renderer did not produce an output file.');
-    }
-
-    const buffer = await sandbox.readFileToBuffer({ path: selectedPath });
-    if (!buffer || buffer.length === 0) {
-      throw new Error('Chromium PDF renderer produced an empty file.');
-    }
-
-    const reviewRender = await sandbox.runCommand({
-      cmd: 'pdftoppm',
-      args: [
-        '-png',
-        '-r',
-        '96',
-        '-f',
-        '1',
-        '-l',
-        String(Math.min(totalPageCount || 6, 6)),
-        selectedPath,
-        '/vercel/sandbox/review-page',
-      ],
-    });
-    await assertSandboxCommand(reviewRender, 'PDF visual review rendering');
-
-    const reviewList = await sandbox.runCommand({
-      cmd: 'sh',
-      args: [
-        '-lc',
-        "find /vercel/sandbox -maxdepth 1 -type f -name 'review-page-*.png' -printf '%f\\n' | sort -V",
-      ],
-    });
-    await assertSandboxCommand(reviewList, 'PDF visual review page enumeration');
-
-    const reviewFilenames = (await reviewList.stdout())
-      .split(/\r?\n/)
-      .map((name) => name.trim())
-      .filter(Boolean)
-      .slice(0, 6);
-
-    const reviewPages: RenderedPdfReviewPage[] = [];
-    for (let index = 0; index < reviewFilenames.length; index += 1) {
-      const pageData = await sandbox.readFileToBuffer({
-        path: `/vercel/sandbox/${reviewFilenames[index]}`,
-      });
-      if (pageData?.length) {
-        reviewPages.push({
-          pageNumber: index + 1,
-          data: pageData,
-          contentType: 'image/png',
-        });
-      }
-    }
-
-    console.log('[Rich PDF Renderer]', {
-      filename,
-      targetPageCount: targetPageCount || null,
-      pageCount: totalPageCount,
-      scale: selectedScale,
-      chromePath,
-      usedSnapshot,
-      byteSize: buffer.length,
-      elapsedMs: Date.now() - startedAt,
-    });
+    let renderIndex = 0;
 
     return {
-      buffer,
-      filename,
-      fullText,
-      totalPageCount,
-      reviewPages,
-      usedSnapshot,
-      elapsedMs: Date.now() - startedAt,
+      render: async (input: RichPdfInput): Promise<RenderRichPdfResult> => {
+        const startedAt = Date.now();
+        const { html, fullText } = buildHtml(input);
+        const design = normalizeDesign(input.design);
+        const filename = sanitizePdfFilename(input.filename);
+        const renderId = ++renderIndex;
+
+        const targetPageCount = design.targetPageCount || 0;
+        const scales =
+          targetPageCount > 0
+            ? [1, 0.96, 0.92, 0.88, 0.84]
+            : [1];
+
+        let selectedPath = '';
+        let totalPageCount: number | null = null;
+        let selectedScale = 1;
+
+        for (const scale of scales) {
+          if (options.signal?.aborted) {
+            throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
+          }
+
+          const scaledHtml =
+            scale === 1
+              ? html
+              : html.replace(
+                  '</style>',
+                  `body { zoom: ${scale}; }\n</style>`
+                );
+          const scaleId = String(scale).replace('.', '_');
+          const htmlPath = `/vercel/sandbox/input-${renderId}-${scaleId}.html`;
+          const outputPath = `/vercel/sandbox/output-${renderId}-${scaleId}.pdf`;
+
+          await sandbox.writeFiles([
+            {
+              path: htmlPath,
+              content: Buffer.from(scaledHtml, 'utf8'),
+            },
+          ]);
+
+          const render = await sandbox.runCommand({
+            cmd: chromePath,
+            args: [
+              '--headless',
+              '--no-sandbox',
+              '--disable-gpu',
+              '--disable-dev-shm-usage',
+              '--disable-background-networking',
+              '--disable-default-apps',
+              '--no-first-run',
+              '--no-default-browser-check',
+              '--print-to-pdf-no-header',
+              `--print-to-pdf=${outputPath}`,
+              `file://${htmlPath}`,
+            ],
+          });
+          await assertSandboxCommand(render, 'Chromium PDF generation');
+
+          const pages = await inspectPdfPageCount(sandbox, outputPath);
+          selectedPath = outputPath;
+          totalPageCount = pages;
+          selectedScale = scale;
+
+          if (!targetPageCount || pages === null || pages <= targetPageCount) {
+            break;
+          }
+        }
+
+        if (!selectedPath) {
+          throw new Error('Chromium PDF renderer did not produce an output file.');
+        }
+
+        const buffer = await sandbox.readFileToBuffer({ path: selectedPath });
+        if (!buffer || buffer.length === 0) {
+          throw new Error('Chromium PDF renderer produced an empty file.');
+        }
+
+        const reviewPrefix = `/vercel/sandbox/review-${renderId}-page`;
+        const reviewRender = await sandbox.runCommand({
+          cmd: 'pdftoppm',
+          args: [
+            '-png',
+            '-r',
+            '96',
+            '-f',
+            '1',
+            '-l',
+            String(Math.min(totalPageCount || 6, 6)),
+            selectedPath,
+            reviewPrefix,
+          ],
+        });
+        await assertSandboxCommand(reviewRender, 'PDF visual review rendering');
+
+        const reviewList = await sandbox.runCommand({
+          cmd: 'sh',
+          args: [
+            '-lc',
+            `find /vercel/sandbox -maxdepth 1 -type f -name 'review-${renderId}-page-*.png' -printf '%f\\n' | sort -V`,
+          ],
+        });
+        await assertSandboxCommand(reviewList, 'PDF visual review page enumeration');
+
+        const reviewFilenames = (await reviewList.stdout())
+          .split(/\r?\n/)
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .slice(0, 6);
+
+        const reviewPages: RenderedPdfReviewPage[] = [];
+        for (let index = 0; index < reviewFilenames.length; index += 1) {
+          const pageData = await sandbox.readFileToBuffer({
+            path: `/vercel/sandbox/${reviewFilenames[index]}`,
+          });
+          if (pageData?.length) {
+            reviewPages.push({
+              pageNumber: index + 1,
+              data: pageData,
+              contentType: 'image/png',
+            });
+          }
+        }
+
+        console.log('[Rich PDF Renderer]', {
+          filename,
+          renderId,
+          targetPageCount: targetPageCount || null,
+          pageCount: totalPageCount,
+          scale: selectedScale,
+          chromePath,
+          usedSnapshot,
+          byteSize: buffer.length,
+          elapsedMs: Date.now() - startedAt,
+        });
+
+        return {
+          buffer,
+          filename,
+          fullText,
+          totalPageCount,
+          reviewPages,
+          usedSnapshot,
+          elapsedMs: Date.now() - startedAt,
+        };
+      },
+      close: async () => {
+        options.signal?.removeEventListener('abort', abortHandler);
+        await sandbox.stop().catch(() => undefined);
+      },
     };
-  } finally {
+  } catch (error) {
     options.signal?.removeEventListener('abort', abortHandler);
     await sandbox.stop().catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function renderRichPdf(
+  input: RichPdfInput,
+  options: RenderRichPdfOptions = {}
+): Promise<RenderRichPdfResult> {
+  const session = await createRichPdfRenderSession(options);
+  try {
+    return await session.render(input);
+  } finally {
+    await session.close();
   }
 }
