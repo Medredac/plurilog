@@ -321,59 +321,54 @@ function renderCards(block: PdfCardsBlock, design: ReturnType<typeof normalizeDe
   const items = (block.cards || []).slice(0, 16);
   if (items.length === 0) return '';
   const cols = Math.max(1, Math.min(4, Math.floor(block.cardColumns || 2)));
-  const rows: string[] = [];
-  for (let start = 0; start < items.length; start += cols) {
-    const chunk = items.slice(start, start + cols);
-    const cells = Array.from({ length: cols }, (_, offset) => {
-      const item = chunk[offset];
-      if (!item) return '<td style="width:25%;padding:4pt;border:none;"></td>';
-      const accent = safeColor(item.accentColor, [design.accentColor, design.accentColor2, design.accentColor3][(start + offset) % 3]);
-      const bg = safeColor(item.backgroundColor, '#f6f8fb');
-      return `<td style="width:${100 / cols}%;padding:4pt;vertical-align:top;border:none;">
-        <div style="background:${bg};border:0.6pt solid #dce3ea;border-left:3pt solid ${accent};padding:9pt 10pt;page-break-inside:avoid;">
-          ${item.eyebrow ? `<div style="font-size:7.5pt;font-weight:700;color:${accent};letter-spacing:0.7pt;text-transform:uppercase;margin-bottom:4pt;">${escapeHtml(cleanText(item.eyebrow, 200))}</div>` : ''}
-          <div style="font-family:${fontStack(design.headingFontFamily)};font-size:${design.bodySizePt + 1.3}pt;font-weight:700;margin-bottom:4pt;color:${design.textColor};">${escapeHtml(cleanText(item.title, 500))}</div>
-          ${item.text ? `<div style="font-size:${Math.max(8, design.bodySizePt - 0.4)}pt;color:${design.textColor};line-height:${design.lineHeight};">${escapeHtml(cleanText(item.text, 4000))}</div>` : ''}
-        </div>
-      </td>`;
-    }).join('');
-    rows.push(`<tr>${cells}</tr>`);
-  }
-  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:2pt -4pt 10pt -4pt;page-break-inside:avoid;">${rows.join('')}</table>`;
+  return `<div class="pdf-card-grid" style="grid-template-columns:repeat(${cols},minmax(0,1fr));">${items.map((item, index) => {
+    const accent = safeColor(
+      item.accentColor,
+      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+    );
+    const bg = safeColor(item.backgroundColor, '#f6f8fb');
+    return `<div class="pdf-card" style="--card-accent:${accent};background:${bg};">
+      ${item.eyebrow ? `<div class="pdf-eyebrow" style="color:${accent};">${escapeHtml(cleanText(item.eyebrow, 200))}</div>` : ''}
+      <div class="pdf-card-title" style="font-family:${fontStack(design.headingFontFamily)};">${escapeHtml(cleanText(item.title, 500))}</div>
+      ${item.text ? `<div class="pdf-card-text">${escapeHtml(cleanText(item.text, 4000))}</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function renderColumns(block: PdfColumnsBlock, design: ReturnType<typeof normalizeDesign>): string {
   const cols = (block.columns || []).slice(0, 4);
   if (cols.length === 0) return '';
-  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:4pt 0 10pt 0;page-break-inside:avoid;"><tr>${cols.map((col, index) => {
-    const accent = safeColor(col.accentColor, [design.accentColor, design.accentColor2, design.accentColor3][index % 3]);
-    return `<td style="width:${100 / cols.length}%;vertical-align:top;padding:${index === 0 ? '0 7pt 0 0' : index === cols.length - 1 ? '0 0 0 7pt' : '0 7pt'};border:none;">
-      ${col.eyebrow ? `<div style="font-size:7.5pt;font-weight:700;color:${accent};text-transform:uppercase;letter-spacing:.6pt;margin-bottom:4pt;">${escapeHtml(cleanText(col.eyebrow, 200))}</div>` : ''}
-      ${col.title ? `<div style="font-family:${fontStack(design.headingFontFamily)};font-size:${design.bodySizePt + 1.2}pt;font-weight:700;margin-bottom:4pt;color:${design.textColor};">${escapeHtml(cleanText(col.title, 500))}</div>` : ''}
-      ${col.text ? `<div style="font-size:${Math.max(8, design.bodySizePt - 0.2)}pt;line-height:${design.lineHeight};">${escapeHtml(cleanText(col.text, 4000))}</div>` : ''}
+  return `<div class="pdf-columns" style="grid-template-columns:repeat(${cols.length},minmax(0,1fr));">${cols.map((col, index) => {
+    const accent = safeColor(
+      col.accentColor,
+      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+    );
+    return `<div class="pdf-column">
+      ${col.eyebrow ? `<div class="pdf-eyebrow" style="color:${accent};">${escapeHtml(cleanText(col.eyebrow, 200))}</div>` : ''}
+      ${col.title ? `<div class="pdf-column-title" style="font-family:${fontStack(design.headingFontFamily)};">${escapeHtml(cleanText(col.title, 500))}</div>` : ''}
+      ${col.text ? `<div class="pdf-column-text">${escapeHtml(cleanText(col.text, 4000))}</div>` : ''}
       ${col.items?.length ? renderBulletItems(col.items, false) : ''}
-    </td>`;
-  }).join('')}</tr></table>`;
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function renderFlow(block: PdfFlowBlock, design: ReturnType<typeof normalizeDesign>): string {
   const steps = (block.steps || []).slice(0, 7);
   if (steps.length === 0) return '';
-  const cells: string[] = [];
-  steps.forEach((step, index) => {
-    const accent = safeColor(step.accentColor, [design.accentColor, design.accentColor2, design.accentColor3][index % 3]);
-    cells.push(`<td style="vertical-align:middle;padding:0 4pt;border:none;">
-      <div style="background:${accent};color:#ffffff;padding:8pt 7pt;text-align:center;page-break-inside:avoid;">
-        ${step.label ? `<div style="font-size:7pt;opacity:.85;text-transform:uppercase;letter-spacing:.5pt;margin-bottom:3pt;">${escapeHtml(cleanText(step.label, 120))}</div>` : ''}
-        <div style="font-size:${Math.max(8, design.bodySizePt - 0.2)}pt;font-weight:700;">${escapeHtml(cleanText(step.title, 300))}</div>
-        ${step.text ? `<div style="font-size:${Math.max(7, design.bodySizePt - 2)}pt;margin-top:3pt;">${escapeHtml(cleanText(step.text, 1000))}</div>` : ''}
+  return `<div class="pdf-flow">${steps.map((step, index) => {
+    const accent = safeColor(
+      step.accentColor,
+      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+    );
+    return `<div class="pdf-flow-unit">
+      <div class="pdf-flow-step" style="background:${accent};">
+        ${step.label ? `<div class="pdf-flow-label">${escapeHtml(cleanText(step.label, 120))}</div>` : ''}
+        <div class="pdf-flow-title">${escapeHtml(cleanText(step.title, 300))}</div>
+        ${step.text ? `<div class="pdf-flow-text">${escapeHtml(cleanText(step.text, 1000))}</div>` : ''}
       </div>
-    </td>`);
-    if (index < steps.length - 1) {
-      cells.push(`<td style="width:16pt;text-align:center;vertical-align:middle;border:none;color:${design.mutedColor};font-size:13pt;">&#8594;</td>`);
-    }
-  });
-  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 11pt 0;page-break-inside:avoid;"><tr>${cells.join('')}</tr></table>`;
+      ${index < steps.length - 1 ? `<div class="pdf-flow-arrow" style="color:${design.mutedColor};">&#8594;</div>` : ''}
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normalizeDesign>): string {
