@@ -543,18 +543,25 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   let blocks = normalizeBlocks(input.blocks);
 
   // Claude may express the document title both through the dedicated title field
-  // and as the first heading block. Treat those as the same semantic element so
-  // generated Word files do not start with a duplicated title.
+  // and as an early heading/paragraph block. Allow leading hero images before the
+  // repeated text title, but do not scan deep into the document and accidentally
+  // remove a legitimate later heading.
   if (title && blocks.length > 0) {
-    const first = blocks[0];
-    if (first.type === 'heading' || first.type === 'paragraph') {
-      const normalizeForComparison = (value: string) =>
-        value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    const normalizeForComparison = (value: string) =>
+      value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+    const titleKey = normalizeForComparison(title);
+    const earlyTextIndex = blocks.findIndex((block, index) => {
+      if (index > 2) return false;
+      if (block.type === 'image') return false;
+      return block.type === 'heading' || block.type === 'paragraph';
+    });
+    if (earlyTextIndex >= 0) {
+      const candidate = blocks[earlyTextIndex];
       if (
-        first.text &&
-        normalizeForComparison(first.text) === normalizeForComparison(title)
+        candidate.text &&
+        normalizeForComparison(candidate.text) === titleKey
       ) {
-        blocks = blocks.slice(1);
+        blocks = blocks.filter((_, index) => index !== earlyTextIndex);
       }
     }
   }
