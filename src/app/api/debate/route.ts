@@ -3343,7 +3343,19 @@ export async function POST(req: NextRequest) {
                       incurredDocumentAssetCostUsd += event.costUsd;
                       documentImageModels.add(event.model);
                     },
+                    reviewModel:
+                      fileArgs.format === 'pdf' ? primaryModel : undefined,
+                    reviewModels:
+                      fileArgs.format === 'pdf' ? models : undefined,
+                    originalUserPrompt: prompt,
+                    reviewSessionId:
+                      discussionId && fileArgs.format === 'pdf'
+                        ? `${discussionId}:${seat.seatId}:pdf-review`
+                        : null,
                   });
+
+                  incurredDocumentFollowUpCostUsd +=
+                    documentResult.visualReviewCostUsd || 0;
 
                   // Make the newly created document available as primary evidence
                   // to later seats in this same sequential round.
@@ -3421,6 +3433,8 @@ export async function POST(req: NextRequest) {
                         imageAssetCount: documentResult.imageAssetCount,
                         imageCostUsd: incurredDocumentAssetCostUsd,
                         imageModels: Array.from(documentImageModels),
+                        visualReviewApplied: documentResult.visualReviewApplied,
+                        visualReviewCostUsd: documentResult.visualReviewCostUsd,
                       },
                     });
 
