@@ -6,7 +6,6 @@ import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
   createRichPdfRenderSession,
-  renderRichPdf,
   type PdfDesign,
   type RichDocumentBlock,
   type RenderedPdfReviewPage,
@@ -593,6 +592,10 @@ export async function executeClaudeDocumentCreation(
     availableImages = [],
     resourceContext,
     onImageCost,
+    reviewModel,
+    reviewModels = reviewModel ? [reviewModel] : [],
+    originalUserPrompt = '',
+    reviewSessionId,
   } = options;
 
   if (seatId !== 'claude') {
@@ -624,33 +627,104 @@ export async function executeClaudeDocumentCreation(
   let finalFilename: string;
   let renderedFullText: string;
   let generatedPdfPageCount: number | null = null;
+  let finalImageAssetCount = resolvedDocument.imageAssetCount;
+  let visualReviewCostUsd = 0;
+  let visualReviewApplied = false;
 
   if (args.format === 'pdf') {
-    const renderedPdf = await renderRichPdf(
-      {
+    const renderSession = await createRichPdfRenderSession({
+      signal,
+      timeoutMs: 90_000,
+    });
+
+    try {
+      const initialPdf = await renderSession.render({
         filename: args.filename,
         title: args.title,
         design: args.design,
         blocks: resolvedDocument.blocks,
-      },
-      {
-        signal,
-        timeoutMs: 70_000,
+      });
+
+      let selectedPdf = initialPdf;
+
+      if (reviewModel && initialPdf.reviewPages.length > 0) {
+        try {
+          const review = await reviewRenderedPdfWithClaude({
+            openai,
+            model: reviewModel,
+            models: reviewModels.length > 0 ? reviewModels : [reviewModel],
+            args,
+            pages: initialPdf.reviewPages,
+            originalUserPrompt,
+            signal,
+            sessionId: reviewSessionId,
+          });
+          visualReviewCostUsd += review.costUsd;
+
+          console.log('[Generated PDF Visual Review]', {
+            applied: review.applied,
+            respondingModel: review.respondingModel,
+            initialPageCount: initialPdf.totalPageCount,
+            rationale: review.rationale,
+          });
+
+          if (review.applied) {
+            const blocksWithReusedImages = reuseResolvedImagePayloads(
+              review.args.blocks,
+              resolvedDocument.blocks
+            );
+            const reviewedResolvedDocument = await resolveDocumentBlocks(
+              blocksWithReusedImages,
+              serviceClient,
+              availableImages,
+              resourceContext,
+              signal,
+              costAwareCallback
+            );
+
+            const reviewedPdf = await renderSession.render({
+              filename: review.args.filename,
+              title: review.args.title,
+              design: review.args.design,
+              blocks: reviewedResolvedDocument.blocks,
+            });
+
+            selectedPdf = reviewedPdf;
+            finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+            visualReviewApplied = true;
+
+            console.log('[Generated PDF Visual Review] Final render:', {
+              initialPageCount: initialPdf.totalPageCount,
+              finalPageCount: reviewedPdf.totalPageCount,
+              initialBytes: initialPdf.buffer.length,
+              finalBytes: reviewedPdf.buffer.length,
+            });
+          }
+        } catch (reviewErr) {
+          console.warn(
+            '[Generated PDF Visual Review] Non-critical review failure; using first render:',
+            reviewErr
+          );
+        }
       }
-    );
 
-    finalBuffer = renderedPdf.buffer;
-    finalFilename = renderedPdf.filename;
-    renderedFullText = renderedPdf.fullText;
-    generatedPdfPageCount = renderedPdf.totalPageCount;
+      finalBuffer = selectedPdf.buffer;
+      finalFilename = selectedPdf.filename;
+      renderedFullText = selectedPdf.fullText;
+      generatedPdfPageCount = selectedPdf.totalPageCount;
 
-    console.log('[Generated PDF] Rendered rich PDF:', {
-      filename: finalFilename,
-      byteSize: finalBuffer.length,
-      pageCount: generatedPdfPageCount,
-      usedSnapshot: renderedPdf.usedSnapshot,
-      elapsedMs: renderedPdf.elapsedMs,
-    });
+      console.log('[Generated PDF] Rendered rich PDF:', {
+        filename: finalFilename,
+        byteSize: finalBuffer.length,
+        pageCount: generatedPdfPageCount,
+        visualReviewApplied,
+        visualReviewCostUsd,
+        usedSnapshot: selectedPdf.usedSnapshot,
+        elapsedMs: selectedPdf.elapsedMs,
+      });
+    } finally {
+      await renderSession.close();
+    }
   } else {
     const renderedDocument = renderDocx({
       filename: args.filename,
@@ -783,7 +857,9 @@ export async function executeClaudeDocumentCreation(
     signedUrl: persistedDocument.signedUrl,
     durableUrl: persistedDocument.durableUrl,
     fullText: renderedFullText,
-    imageAssetCount: resolvedDocument.imageAssetCount,
+    imageAssetCount: finalImageAssetCount,
     imageCostUsd,
+    visualReviewCostUsd,
+    visualReviewApplied,
   };
 }
