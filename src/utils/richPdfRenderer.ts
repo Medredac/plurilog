@@ -508,34 +508,436 @@ function buildHtml(input: RichPdfInput): { html: string; fullText: string } {
       ? design.orientation === 'landscape' ? '11in 8.5in' : '8.5in 11in'
       : design.orientation === 'landscape' ? '297mm 210mm' : '210mm 297mm';
 
-  const titleHtml = title
-    ? `<div style="font-family:${fontStack(design.headingFontFamily)};font-size:${design.bodySizePt + 12}pt;font-weight:700;line-height:1.08;margin:0 0 11pt 0;color:${design.textColor};">${escapeHtml(title)}</div>`
+  const headerCss = design.headerText
+    ? \`@top-left {
+        content: \${JSON.stringify(design.headerText)};
+        color: \${design.mutedColor};
+        font-family: \${fontStack(design.fontFamily)};
+        font-size: 7.5pt;
+      }\`
     : '';
 
-  const html = `<!doctype html>
-<html lang="${escapeHtml(design.locale)}">
+  const footerCss = design.footerText
+    ? \`@bottom-left {
+        content: \${JSON.stringify(design.footerText)};
+        color: \${design.mutedColor};
+        font-family: \${fontStack(design.fontFamily)};
+        font-size: 7.5pt;
+      }\`
+    : '';
+
+  const pageNumberCss = design.showPageNumbers
+    ? \`@bottom-right {
+        content: "Page " counter(page) " / " counter(pages);
+        color: \${design.mutedColor};
+        font-family: \${fontStack(design.fontFamily)};
+        font-size: 7.5pt;
+      }\`
+    : '';
+
+  const titleHtml = title
+    ? \`<div class="pdf-document-title" style="font-family:\${fontStack(design.headingFontFamily)};color:\${design.textColor};">\${escapeHtml(title)}</div>\`
+    : '';
+
+  const html = \`<!doctype html>
+<html lang="\${escapeHtml(design.locale)}">
 <head>
 <meta charset="utf-8"/>
 <style>
-@page { size: ${pageSize}; margin: ${design.marginMm}mm; }
-html, body { margin:0; padding:0; background:${design.backgroundColor}; }
-body {
-  color:${design.textColor};
-  font-family:${fontStack(design.fontFamily)};
-  font-size:${design.bodySizePt}pt;
-  line-height:${design.lineHeight};
+@page {
+  size: \${pageSize};
+  margin: \${design.marginMm}mm;
+  background: \${design.backgroundColor};
+  \${headerCss}
+  \${footerCss}
+  \${pageNumberCss}
 }
-table { font-family:${fontStack(design.fontFamily)}; color:${design.textColor}; }
-p { orphans:3; widows:3; }
+* {
+  box-sizing: border-box;
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+}
+html {
+  background: \${design.backgroundColor};
+}
+body {
+  color: \${design.textColor};
+  background: \${design.backgroundColor};
+  font-family: \${fontStack(design.fontFamily)};
+  font-size: \${design.bodySizePt}pt;
+  line-height: \${design.lineHeight};
+  text-rendering: geometricPrecision;
+  font-kerning: normal;
+}
+.pdf-document-title {
+  font-size: \${design.bodySizePt + 12}pt;
+  font-weight: 750;
+  line-height: 1.08;
+  margin: 0 0 11pt 0;
+  letter-spacing: -0.25pt;
+  break-after: avoid;
+}
+.pdf-eyebrow {
+  font-size: 7.1pt;
+  font-weight: 750;
+  letter-spacing: 0.8pt;
+  text-transform: uppercase;
+  margin-bottom: 4pt;
+}
+.pdf-card-grid {
+  display: grid;
+  gap: 9pt;
+  margin: 4pt 0 11pt 0;
+  break-inside: avoid;
+}
+.pdf-card {
+  position: relative;
+  min-width: 0;
+  padding: 10pt 11pt 10pt 12pt;
+  border: 0.6pt solid #dce3ea;
+  border-radius: 7pt;
+  break-inside: avoid;
+  box-shadow: 0 1.5pt 4pt rgba(23,32,51,.06);
+}
+.pdf-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3pt;
+  border-radius: 7pt 0 0 7pt;
+  background: var(--card-accent);
+}
+.pdf-card-title {
+  color: \${design.textColor};
+  font-size: \${design.bodySizePt + 1.2}pt;
+  line-height: 1.2;
+  font-weight: 750;
+  margin-bottom: 4pt;
+}
+.pdf-card-text {
+  color: \${design.textColor};
+  font-size: \${Math.max(8, design.bodySizePt - 0.35)}pt;
+  line-height: \${Math.max(1.28, design.lineHeight - 0.08)};
+}
+.pdf-columns {
+  display: grid;
+  gap: 13pt;
+  margin: 5pt 0 11pt 0;
+  align-items: start;
+}
+.pdf-column {
+  min-width: 0;
+  break-inside: avoid;
+}
+.pdf-column-title {
+  color: \${design.textColor};
+  font-size: \${design.bodySizePt + 1.15}pt;
+  line-height: 1.2;
+  font-weight: 750;
+  margin-bottom: 4pt;
+}
+.pdf-column-text {
+  font-size: \${Math.max(8, design.bodySizePt - 0.2)}pt;
+  line-height: \${design.lineHeight};
+}
+.pdf-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 5pt 0 12pt 0;
+  break-inside: avoid;
+  width: 100%;
+}
+.pdf-flow-unit {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.pdf-flow-step {
+  min-width: 0;
+  width: 100%;
+  color: #fff;
+  padding: 8pt 7pt;
+  border-radius: 5pt;
+  text-align: center;
+  break-inside: avoid;
+}
+.pdf-flow-label {
+  font-size: 6.7pt;
+  line-height: 1.15;
+  opacity: .84;
+  text-transform: uppercase;
+  letter-spacing: .55pt;
+  margin-bottom: 3pt;
+}
+.pdf-flow-title {
+  font-size: \${Math.max(8, design.bodySizePt - 0.25)}pt;
+  line-height: 1.15;
+  font-weight: 750;
+}
+.pdf-flow-text {
+  font-size: \${Math.max(7, design.bodySizePt - 2)}pt;
+  line-height: 1.25;
+  margin-top: 3pt;
+  opacity: .92;
+}
+.pdf-flow-arrow {
+  flex: 0 0 22pt;
+  width: 22pt;
+  text-align: center;
+  font-size: 15pt;
+  font-weight: 700;
+}
+table {
+  font-family: \${fontStack(design.fontFamily)};
+  color: \${design.textColor};
+}
+thead {
+  display: table-header-group;
+}
+tr, img, blockquote {
+  break-inside: avoid;
+}
+p {
+  orphans: 3;
+  widows: 3;
+}
+h1, h2, h3 {
+  break-after: avoid;
+}
 </style>
 </head>
 <body>
-${titleHtml}
-${blocks.map((block) => renderBlock(block, design)).join('\n')}
+\${titleHtml}
+\${blocks.map((block) => renderBlock(block, design)).join('\n')}
 </body>
-</html>`;
+</html>\`;
 
   return { html, fullText };
+}
+
+async function assertSandboxCommand(
+  result: Awaited<ReturnType<InstanceType<typeof Sandbox>['runCommand']>>,
+  label: string
+): Promise<void> {
+  if (result.exitCode === 0) return;
+  const stderr = (await result.stderr()).trim();
+  const stdout = (await result.stdout()).trim();
+  throw new Error(
+    \`\${label} failed (exit \${result.exitCode}): \${(stderr || stdout || 'unknown error').slice(-4000)}\`
+  );
+}
+
+async function sandboxCommandPath(
+  sandbox: InstanceType<typeof Sandbox>,
+  candidates: string
+): Promise<string | null> {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: ['-lc', \`for c in \${candidates}; do command -v "$c" 2>/dev/null && exit 0; done; exit 1\`],
+  });
+  if (result.exitCode !== 0) return null;
+  const value = (await result.stdout()).trim().split(/\r?\n/)[0]?.trim();
+  return value || null;
+}
+
+async function installChromiumPdfDependencies(
+  sandbox: InstanceType<typeof Sandbox>
+): Promise<{ chromePath: string }> {
+  let chromePath = await sandboxCommandPath(
+    sandbox,
+    'google-chrome-stable google-chrome chromium chromium-browser'
+  );
+  const pdfInfoPath = await sandboxCommandPath(sandbox, 'pdfinfo');
+
+  if (chromePath && pdfInfoPath) {
+    return { chromePath };
+  }
+
+  const probe = await sandbox.runCommand({
+    cmd: 'sh',
+    args: [
+      '-lc',
+      'if command -v dnf >/dev/null 2>&1; then echo dnf; elif command -v apt-get >/dev/null 2>&1; then echo apt-get; else echo none; fi',
+    ],
+  });
+  await assertSandboxCommand(probe, 'PDF renderer package manager detection');
+  const packageManager = (await probe.stdout()).trim();
+
+  if (packageManager === 'dnf') {
+    const baseInstall = await sandbox.runCommand({
+      cmd: 'sh',
+      args: ['-lc', 'sudo dnf install -y poppler-utils curl liberation-sans-fonts liberation-serif-fonts'],
+    });
+    await assertSandboxCommand(baseInstall, 'PDF renderer base dependency installation');
+
+    // Best-effort multilingual fonts. These packages are present on current AL2023,
+    // but a custom/older snapshot should not fail the whole renderer if one is absent.
+    await sandbox.runCommand({
+      cmd: 'sh',
+      args: [
+        '-lc',
+        'sudo dnf install -y google-noto-sans-cjk-jp-fonts google-noto-serif-cjk-jp-fonts google-noto-emoji-color-fonts >/dev/null 2>&1 || true',
+      ],
+    });
+
+    chromePath = await sandboxCommandPath(
+      sandbox,
+      'google-chrome-stable google-chrome chromium chromium-browser'
+    );
+
+    if (!chromePath) {
+      const archResult = await sandbox.runCommand({ cmd: 'uname', args: ['-m'] });
+      await assertSandboxCommand(archResult, 'PDF renderer architecture detection');
+      const arch = (await archResult.stdout()).trim();
+      if (arch !== 'x86_64' && arch !== 'amd64') {
+        throw new Error(\`Chrome PDF renderer currently requires x86_64 Sandbox; received \${arch}.\`);
+      }
+
+      const chromeInstall = await sandbox.runCommand({
+        cmd: 'sh',
+        args: [
+          '-lc',
+          'sudo dnf install -y https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm',
+        ],
+      });
+      await assertSandboxCommand(chromeInstall, 'Google Chrome installation');
+    }
+  } else if (packageManager === 'apt-get') {
+    const install = await sandbox.runCommand({
+      cmd: 'sh',
+      args: [
+        '-lc',
+        'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends chromium poppler-utils fonts-noto-cjk fonts-liberation',
+      ],
+    });
+    await assertSandboxCommand(install, 'Chromium PDF renderer dependency installation');
+  } else {
+    throw new Error('PDF renderer sandbox has neither dnf nor apt-get available.');
+  }
+
+  chromePath = await sandboxCommandPath(
+    sandbox,
+    'google-chrome-stable google-chrome chromium chromium-browser'
+  );
+  const finalPdfInfoPath = await sandboxCommandPath(sandbox, 'pdfinfo');
+
+  if (!chromePath || !finalPdfInfoPath) {
+    throw new Error('PDF renderer dependencies installed but Chrome/pdfinfo are unavailable.');
+  }
+
+  return { chromePath };
+}
+
+const CHROME_PDF_DRIVER = String.raw\`
+import fs from 'node:fs/promises';
+
+const [inputUrl, outputPath, scaleRaw] = process.argv.slice(2);
+const scale = Number(scaleRaw || '1');
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getPageDebuggerUrl() {
+  let lastError;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    try {
+      const response = await fetch('http://127.0.0.1:9222/json/list');
+      if (response.ok) {
+        const targets = await response.json();
+        const page = targets.find((target) => target.type === 'page' && target.webSocketDebuggerUrl);
+        if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(100);
+  }
+  throw lastError || new Error('Chrome DevTools endpoint did not become ready.');
+}
+
+const debuggerUrl = await getPageDebuggerUrl();
+const ws = new WebSocket(debuggerUrl);
+
+await new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error('Timed out connecting to Chrome DevTools.')), 8000);
+  ws.addEventListener('open', () => {
+    clearTimeout(timer);
+    resolve();
+  }, { once: true });
+  ws.addEventListener('error', (event) => {
+    clearTimeout(timer);
+    reject(event.error || new Error('Chrome DevTools websocket error.'));
+  }, { once: true });
+});
+
+let nextId = 1;
+const pending = new Map();
+
+ws.addEventListener('message', (event) => {
+  const message = JSON.parse(String(event.data));
+  if (!message.id) return;
+  const waiter = pending.get(message.id);
+  if (!waiter) return;
+  pending.delete(message.id);
+  if (message.error) waiter.reject(new Error(message.error.message || 'CDP command failed.'));
+  else waiter.resolve(message.result || {});
+});
+
+function send(method, params = {}) {
+  const id = nextId++;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+await send('Page.enable');
+await send('Runtime.enable');
+await send('Page.navigate', { url: inputUrl });
+
+for (let attempt = 0; attempt < 80; attempt++) {
+  const result = await send('Runtime.evaluate', {
+    expression: '(async()=>{if(document.readyState!=="complete")return false; if(document.fonts&&document.fonts.ready) await document.fonts.ready; return true;})()',
+    awaitPromise: true,
+    returnByValue: true,
+  });
+  if (result?.result?.value === true) break;
+  await sleep(100);
+}
+
+const pdf = await send('Page.printToPDF', {
+  printBackground: true,
+  preferCSSPageSize: true,
+  displayHeaderFooter: false,
+  scale,
+  generateTaggedPDF: true,
+  generateDocumentOutline: true,
+});
+
+if (!pdf.data) throw new Error('Chrome returned no PDF data.');
+await fs.writeFile(outputPath, Buffer.from(pdf.data, 'base64'));
+ws.close();
+\`;
+
+async function inspectPdfPageCount(
+  sandbox: InstanceType<typeof Sandbox>,
+  path: string
+): Promise<number | null> {
+  const pdfInfo = await sandbox.runCommand({
+    cmd: 'pdfinfo',
+    args: [path],
+  });
+  await assertSandboxCommand(pdfInfo, 'Generated PDF inspection');
+  return parsePdfPageCount(await pdfInfo.stdout());
 }
 
 export async function renderRichPdf(
@@ -544,12 +946,14 @@ export async function renderRichPdf(
 ): Promise<RenderRichPdfResult> {
   const startedAt = Date.now();
   const { html, fullText } = buildHtml(input);
+  const design = normalizeDesign(input.design);
   const filename = sanitizePdfFilename(input.filename);
   const snapshotId =
     options.snapshotId?.trim() ||
+    process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() ||
     process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
-  const timeoutMs = Math.max(15_000, Math.min(options.timeoutMs ?? 35_000, 60_000));
+  const timeoutMs = Math.max(25_000, Math.min(options.timeoutMs ?? 70_000, 90_000));
 
   if (options.signal?.aborted) {
     throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
@@ -574,51 +978,100 @@ export async function renderRichPdf(
   options.signal?.addEventListener('abort', abortHandler, { once: true });
 
   try {
-    const { libreOfficePath } = await installDocxRendererDependencies(sandbox);
+    const { chromePath } = await installChromiumPdfDependencies(sandbox);
 
     await sandbox.writeFiles([
       {
         path: '/vercel/sandbox/input.html',
         content: Buffer.from(html, 'utf8'),
       },
+      {
+        path: '/vercel/sandbox/render-pdf.mjs',
+        content: Buffer.from(CHROME_PDF_DRIVER, 'utf8'),
+      },
     ]);
 
-    const convert = await sandbox.runCommand({
-      cmd: libreOfficePath,
+    const chromeLaunch = await sandbox.runCommand({
+      cmd: 'sh',
       args: [
-        '--headless',
-        '--convert-to',
-        'pdf:writer_pdf_Export',
-        '--outdir',
-        '/vercel/sandbox',
-        '/vercel/sandbox/input.html',
+        '-lc',
+        [
+          \`"\${chromePath}"\`,
+          '--headless=new',
+          '--no-sandbox',
+          '--disable-gpu',
+          '--disable-dev-shm-usage',
+          '--disable-background-networking',
+          '--disable-default-apps',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--remote-debugging-address=127.0.0.1',
+          '--remote-debugging-port=9222',
+          '--user-data-dir=/tmp/plurilog-chrome',
+          'about:blank',
+          '>/tmp/plurilog-chrome.log 2>&1 &',
+          'echo $!',
+        ].join(' '),
       ],
     });
+    await assertSandboxCommand(chromeLaunch, 'Chrome PDF renderer launch');
 
-    if (convert.exitCode !== 0) {
-      const stderr = (await convert.stderr()).trim();
-      const stdout = (await convert.stdout()).trim();
-      throw new Error(
-        `Rich HTML to PDF conversion failed (exit ${convert.exitCode}): ${(stderr || stdout || 'unknown error').slice(-4000)}`
-      );
+    const targetPageCount = design.targetPageCount || 0;
+    const scales =
+      targetPageCount > 0
+        ? [1, 0.96, 0.92, 0.88, 0.84]
+        : [1];
+
+    let selectedPath = '';
+    let totalPageCount: number | null = null;
+    let selectedScale = 1;
+
+    for (const scale of scales) {
+      if (options.signal?.aborted) {
+        throw new DOMException('Rich PDF rendering aborted.', 'AbortError');
+      }
+
+      const outputPath = \`/vercel/sandbox/output-\${String(scale).replace('.', '_')}.pdf\`;
+      const render = await sandbox.runCommand({
+        cmd: 'node',
+        args: [
+          '/vercel/sandbox/render-pdf.mjs',
+          'file:///vercel/sandbox/input.html',
+          outputPath,
+          String(scale),
+        ],
+      });
+      await assertSandboxCommand(render, 'Chromium PDF generation');
+
+      const pages = await inspectPdfPageCount(sandbox, outputPath);
+      selectedPath = outputPath;
+      totalPageCount = pages;
+      selectedScale = scale;
+
+      if (!targetPageCount || pages === null || pages <= targetPageCount) {
+        break;
+      }
     }
 
-    const pdfInfo = await sandbox.runCommand({
-      cmd: 'pdfinfo',
-      args: ['/vercel/sandbox/input.pdf'],
-    });
-    if (pdfInfo.exitCode !== 0) {
-      const stderr = (await pdfInfo.stderr()).trim();
-      throw new Error(`Generated rich PDF inspection failed: ${stderr || 'unknown error'}`);
+    if (!selectedPath) {
+      throw new Error('Chromium PDF renderer did not produce an output file.');
     }
 
-    const totalPageCount = parsePdfPageCount(await pdfInfo.stdout());
-    const buffer = await sandbox.readFileToBuffer({
-      path: '/vercel/sandbox/input.pdf',
-    });
+    const buffer = await sandbox.readFileToBuffer({ path: selectedPath });
     if (!buffer || buffer.length === 0) {
-      throw new Error('Rich PDF renderer produced an empty file.');
+      throw new Error('Chromium PDF renderer produced an empty file.');
     }
+
+    console.log('[Rich PDF Renderer]', {
+      filename,
+      targetPageCount: targetPageCount || null,
+      pageCount: totalPageCount,
+      scale: selectedScale,
+      chromePath,
+      usedSnapshot,
+      byteSize: buffer.length,
+      elapsedMs: Date.now() - startedAt,
+    });
 
     return {
       buffer,
