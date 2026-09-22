@@ -948,7 +948,7 @@ export async function createClaudeCodePdf(
   const sandbox = await Sandbox.create({
     persistent: false,
     timeout: 120_000,
-    resources: { vcpus: 2, memory: 4096 },
+    resources: { vcpus: 2 },
     networkPolicy: 'allow-all',
   });
 
@@ -962,7 +962,7 @@ export async function createClaudeCodePdf(
 
     // Dependencies are installed before model-authored code runs. Lock egress down
     // completely so the document program cannot make network requests.
-    await (sandbox as any).update({ networkPolicy: 'deny-all' });
+    await sandbox.updateNetworkPolicy('deny-all');
 
     const initial = await runPdfProgram({
       sandbox,
