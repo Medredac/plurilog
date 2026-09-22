@@ -540,7 +540,24 @@ function createZip(files: { name: string; data: Buffer }[]): Buffer {
 export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   const filename = sanitizeFilename(input.filename);
   const title = cleanText(input.title, 1000);
-  const blocks = normalizeBlocks(input.blocks);
+  let blocks = normalizeBlocks(input.blocks);
+
+  // Claude may express the document title both through the dedicated title field
+  // and as the first heading block. Treat those as the same semantic element so
+  // generated Word files do not start with a duplicated title.
+  if (title && blocks.length > 0) {
+    const first = blocks[0];
+    if (first.type === 'heading' || first.type === 'paragraph') {
+      const normalizeForComparison = (value: string) =>
+        value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
+      if (
+        first.text &&
+        normalizeForComparison(first.text) === normalizeForComparison(title)
+      ) {
+        blocks = blocks.slice(1);
+      }
+    }
+  }
 
   if (!title && blocks.length === 0) {
     throw new Error('Word document content cannot be empty.');
