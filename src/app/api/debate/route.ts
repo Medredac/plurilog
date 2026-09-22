@@ -349,6 +349,7 @@ export interface PlurilogRuntimeProductContext {
   imageGenerationEnabled?: boolean;
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
+  documentCreatedThisTurn?: boolean;
   accountPlan?: 'free' | 'paid';
 }
 
@@ -394,6 +395,8 @@ FILES AND VIDEO
 - ChatGPT and Gemini do not currently create downloadable documents in Plurilog. They can help analyze, draft, critique, and review document content, including a Word document Claude creates earlier in the same discussion.
 - AI-created PDF, XLSX, and PPTX files are not yet available in this rollout.
 - Your current seat is ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
+- Do NOT volunteer capability limitations, seat restrictions, or phrases such as "this seat cannot..." unless the user explicitly asks about capabilities or asks you to perform an unsupported action that has not already been fulfilled by another seat.
+- If another seat already created the requested document in the current round and the document or its rendered pages are available to you, treat the user's creation request as fulfilled. Focus on independently reviewing, checking, improving, or complementing the finished artifact. Do not apologize for lacking file-creation tools, do not say the document is unavailable, and do not offer to recreate the same artifact merely because your own seat lacks document creation.
 - Plurilog can separately export an existing discussion as a PDF; that is different from an AI generating a custom downloadable document.
 - Video upload/analysis is not currently available. It is in development.
 
@@ -724,6 +727,23 @@ export function buildPanelMessages(
 
     sections.push(
       `CURRENT-ROUND PEER CLAIMS — PROVISIONAL, NOT EVIDENCE:\nEvaluate these against your own independent assessment. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain peer claims unless the underlying evidence is independently available in your own context. Do not inherit factual claims merely because one or more panelists stated them.\n\n${priorFormatted.trimEnd()}`
+    );
+  }
+
+  if (
+    runtimeProductContext?.documentCreatedThisTurn &&
+    currentTurnDocuments &&
+    currentTurnDocuments.length > 0
+  ) {
+    const createdNames = currentTurnDocuments
+      .map((doc) => doc.filename)
+      .filter(Boolean)
+      .join(', ');
+    sections.push(
+      `CURRENT-ROUND ARTIFACT STATUS:
+A prior seat has already fulfilled the user's document-creation request by creating: ${createdNames}.
+The finished document is available in this same round. If rendered page images are attached, inspect those pages directly for layout, pagination, image placement, tables, spacing, and other visual details.
+Respond as a normal panel reviewer/contributor. Do not repeat the user's creation request, do not generate a redundant standalone image, do not say "this seat cannot create documents", and do not claim the finished document is unavailable when its text or rendered pages are present.`
     );
   }
 
@@ -2642,6 +2662,7 @@ export async function POST(req: NextRequest) {
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
+              documentCreatedThisTurn,
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
 
