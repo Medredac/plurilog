@@ -94,7 +94,7 @@ export const GEMINI_IMAGE_TOOLS = [
     function: {
       name: 'generate_image',
       description:
-        'Generate a standalone image when the user explicitly wants an image as the requested output. Do not use this tool merely because a document/file request says that an image should be included inside that document; embedded document visuals are handled by Claude\'s document workflow. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
+        'Generate an image when the user explicitly asks you to produce an image as your output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests such as "Gemini, generate the image first; Claude, then use that exact image in a document." Do not use this tool when an image is mentioned only as an element to be embedded inside a document and the user did not separately ask you to generate it. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
       parameters: {
         type: 'object',
         properties: {
@@ -118,7 +118,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
     function: {
       name: 'edit_image',
       description:
-        'Edit or transform one existing image when the user explicitly wants an edited image as the requested visual output. This works for a user-uploaded image or an image generated earlier in the discussion. If an image edit is requested only as part of assembling a downloadable document/file, do not emit a separate edited-image result; Claude\'s document workflow handles document-internal image edits. Use edit_image instead of generate_image for standalone modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
+        'Edit or transform one existing image when the user explicitly asks you to produce an edited image as the output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests where another model will later reuse the edited image in a document. If the requested edit exists only as an embedded document operation and the user did not separately ask you to produce the edited image first, leave that document-internal edit to Claude\'s document workflow. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
       parameters: {
         type: 'object',
         properties: {
@@ -152,7 +152,7 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For images, either reuse an existing image from the discussion, request a newly generated image, or request an edit of an existing image. Plurilog resolves/generates the actual image asset in the backend and embeds it into the DOCX. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. Use this tool only when the user explicitly wants a finished downloadable Word document.',
+        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For images, either reuse an existing image from the discussion, request a newly generated image, or request an edit of an existing image. Plurilog resolves/generates the actual image asset in the backend and embeds it into the DOCX. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Use this tool only when the user explicitly wants a finished downloadable Word document.',
       parameters: {
         type: 'object',
         properties: {
@@ -393,7 +393,7 @@ FILES AND VIDEO
 - Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled.
 - ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
 - Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel.
-- Images requested as PART OF a document/file deliverable belong to the document workflow. ChatGPT and Gemini should not turn those embedded-image requests into separate standalone image outputs. By contrast, if the user asks for a standalone image as the actual deliverable, their image tools may be used normally.
+- If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally even if the user also says Claude should later reuse that exact image inside a document. Only avoid a separate image output when the image is mentioned solely as an embedded element of the requested document and no separate image-generation/editing step was requested.
 - AI-created PDF, XLSX, and PPTX files are not yet available in this rollout.
 - You are ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
