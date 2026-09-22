@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
-import { installDocxRendererDependencies } from '@/utils/docxPageRenderer';
 import type { DocxBlock } from '@/utils/docxWriter';
 
 export type PdfFontFamily =
