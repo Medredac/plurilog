@@ -152,7 +152,7 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For images, either reuse an existing image from the discussion, request a newly generated image, or request an edit of an existing image. Plurilog resolves/generates the actual image asset in the backend and embeds it into the DOCX. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Use this tool only when the user explicitly wants a finished downloadable Word document.',
+        'Create a complete downloadable Word document. You may compose text, lists, tables, page breaks, and images. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation in the document workflow and embeds the result into the DOCX. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Use this tool only when the user explicitly wants a finished downloadable Word document.',
       parameters: {
         type: 'object',
         properties: {
@@ -385,12 +385,12 @@ CORE PRODUCT
 
 IMAGES
 - ChatGPT and Gemini can generate images and edit existing images in Plurilog when those runtime tools are enabled. They can edit user-uploaded images and can work with images created earlier by another supported image-generating model.
-- Claude cannot generate or edit images in Plurilog. Claude can still inspect, analyze, compare, and critique images that are available to it, help improve image prompts, compare generated versions, and act as an extra pair of eyes.
+- Claude cannot return standalone generated or edited images as image deliverables in Plurilog. Claude can still inspect, analyze, compare, and critique available images. Separately, when Claude is creating a Word document, its document workflow can request image generation or image editing internally and embed the resulting asset in the DOCX; this does not give Claude a standalone image-generation or image-editing capability.
 - All three models can analyze images when image evidence is available.
 - You are ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
 
 FILES AND VIDEO
-- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled.
+- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents when document creation is enabled. As part of that document workflow, Claude may reuse existing images or request generation/editing of an image asset for embedding in the DOCX, even though Claude cannot return a standalone generated or edited image.
 - ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
 - Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel.
 - If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally even if the user also says Claude should later reuse that exact image inside a document. Only avoid a separate image output when the image is mentioned solely as an embedded element of the requested document and no separate image-generation/editing step was requested.
@@ -778,6 +778,110 @@ async function generateImageActionFollowUp(options: {
   };
 }
 
+
+
+async function generateDocumentActionFollowUp(options: {
+  openai: OpenAI;
+  primaryModel: string;
+  models: string[];
+  baseMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  toolCall: {
+    id?: string;
+    name: string;
+    arguments?: Record<string, unknown>;
+    rawArguments?: string;
+  };
+  priorToolText?: string;
+  filename: string;
+  imageAssetCount: number;
+  signal: AbortSignal;
+  sessionId?: string | null;
+}): Promise<{ content: string; costUsd: number; respondingModel: string }> {
+  const {
+    openai,
+    primaryModel,
+    models,
+    baseMessages,
+    toolCall,
+    priorToolText = '',
+    filename,
+    imageAssetCount,
+    signal,
+    sessionId,
+  } = options;
+
+  const toolCallId =
+    toolCall.id?.trim() ||
+    `call_${toolCall.name}_document_followup`;
+  const rawArguments =
+    toolCall.rawArguments?.trim() ||
+    JSON.stringify(toolCall.arguments || {});
+
+  const followUpMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...baseMessages,
+    {
+      role: 'assistant',
+      content: priorToolText.trim() || null,
+      tool_calls: [
+        {
+          id: toolCallId,
+          type: 'function',
+          function: {
+            name: toolCall.name,
+            arguments: rawArguments,
+          },
+        },
+      ],
+    } as any,
+    {
+      role: 'tool',
+      tool_call_id: toolCallId,
+      name: toolCall.name,
+      content: JSON.stringify({
+        status: 'success',
+        artifact: 'document',
+        format: 'docx',
+        filename,
+        image_asset_count: imageAssetCount,
+        message:
+          'The requested Word document was created successfully and will be attached to your response.',
+        response_guidance:
+          'Respond naturally and briefly in the context of the user request and the panel discussion. You may mention relevant aspects of what you completed when useful. Do not use a generic stock confirmation, do not repeat the full document contents, and do not mention internal tool mechanics.',
+      }),
+    } as any,
+  ];
+
+  let content = '';
+  let costUsd = 0;
+  let respondingModel = primaryModel;
+
+  const followUpStream = await (openai.chat.completions.create as any)({
+    model: primaryModel,
+    models,
+    messages: followUpMessages,
+    stream: true,
+    temperature: 0.7,
+    signal,
+    tool_choice: 'none',
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+
+  for await (const chunk of followUpStream) {
+    if (signal.aborted) break;
+    if (chunk.model) respondingModel = chunk.model;
+    if ((chunk as any).usage && typeof (chunk as any).usage.cost === 'number') {
+      costUsd = (chunk as any).usage.cost;
+    }
+    const text = chunk.choices?.[0]?.delta?.content || '';
+    if (text) content += text;
+  }
+
+  return {
+    content: content.trim(),
+    costUsd,
+    respondingModel,
+  };
+}
 
 export function buildPanelMessages(
   currentModelName: string,
@@ -2714,6 +2818,7 @@ export async function POST(req: NextRequest) {
             let evidenceToolBranchActive = false;
             let documentToolBranchActive = false;
             let incurredDocumentCallCostUsd = 0;
+            let incurredDocumentFollowUpCostUsd = 0;
             let incurredDocumentAssetCostUsd = 0;
             const documentImageModels = new Set<string>();
             const bufferedSeatChunks: string[] = [];
@@ -3106,8 +3211,55 @@ export async function POST(req: NextRequest) {
 
                   documentCreatedThisTurn = true;
 
+                  let documentFinalContent = documentResult.finalContent;
+                  try {
+                    const followUp = await generateDocumentActionFollowUp({
+                      openai,
+                      primaryModel,
+                      models,
+                      baseMessages: seatMessages,
+                      toolCall: fileCall,
+                      priorToolText: seatResponse,
+                      filename: documentResult.filename,
+                      imageAssetCount: documentResult.imageAssetCount,
+                      signal: seatAbortController.signal,
+                      sessionId: discussionId
+                        ? `${discussionId}:${seat.seatId}`
+                        : null,
+                    });
+
+                    if (followUp.content) {
+                      const { error: completionUpdateError } = await supabase
+                        .from('messages')
+                        .update({ content: followUp.content })
+                        .eq('id', documentResult.messageId)
+                        .eq('discussion_id', discussionId || '')
+                        .eq('sender', seat.seatId);
+
+                      if (completionUpdateError) {
+                        console.warn(
+                          '[Document Completion] Could not persist contextual Claude follow-up:',
+                          completionUpdateError
+                        );
+                      } else {
+                        documentFinalContent = followUp.content;
+                        incurredDocumentFollowUpCostUsd += followUp.costUsd;
+                        respondingModel = followUp.respondingModel;
+                      }
+                    }
+                  } catch (documentFollowUpErr) {
+                    console.warn(
+                      '[Document Completion] Non-critical contextual follow-up error:',
+                      documentFollowUpErr
+                    );
+                  }
+
                   const documentCostCents =
-                    (incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd) * 100;
+                    (
+                      incurredDocumentCallCostUsd +
+                      incurredDocumentFollowUpCostUsd +
+                      incurredDocumentAssetCostUsd
+                    ) * 100;
                   if (documentCostCents > 0) {
                     const { error: spendError } = await supabase.rpc('spend_credits', {
                       p_cents: documentCostCents,
@@ -3117,6 +3269,7 @@ export async function POST(req: NextRequest) {
                         seatId: seat.seatId,
                         documentCreation: true,
                         format: 'docx',
+                        followUpCostUsd: incurredDocumentFollowUpCostUsd,
                         imageAssetCount: documentResult.imageAssetCount,
                         imageCostUsd: incurredDocumentAssetCostUsd,
                         imageModels: Array.from(documentImageModels),
@@ -3136,7 +3289,7 @@ export async function POST(req: NextRequest) {
                   sendEvent('seat_done', {
                     seatId: seat.seatId,
                     modelId: respondingModel,
-                    content: documentResult.finalContent,
+                    content: documentFinalContent,
                     messageId: documentResult.messageId,
                     createdAt: documentResult.createdAt,
                     attachment_urls: [documentResult.durableUrl],
@@ -3144,7 +3297,7 @@ export async function POST(req: NextRequest) {
 
                   priorResponses.push({
                     name: seat.name,
-                    response: documentResult.finalContent,
+                    response: documentFinalContent,
                   });
 
                   // Claude's visible completion must never wait on page rendering.
@@ -4914,19 +5067,26 @@ export async function POST(req: NextRequest) {
               if (
                 documentToolBranchActive &&
                 !spendRecorded &&
-                incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd > 0
+                incurredDocumentCallCostUsd +
+                  incurredDocumentFollowUpCostUsd +
+                  incurredDocumentAssetCostUsd >
+                  0
               ) {
                 try {
                   await supabase.rpc('spend_credits', {
                     p_cents:
-                      (incurredDocumentCallCostUsd + incurredDocumentAssetCostUsd) *
-                      100,
+                      (
+                        incurredDocumentCallCostUsd +
+                        incurredDocumentFollowUpCostUsd +
+                        incurredDocumentAssetCostUsd
+                      ) * 100,
                     p_model: respondingModel,
                     p_discussion_id: discussionId || null,
                     p_meta: {
                       seatId: seat.seatId,
                       documentCreation: true,
                       failedAfterToolCall: true,
+                      followUpCostUsd: incurredDocumentFollowUpCostUsd,
                       imageCostUsd: incurredDocumentAssetCostUsd,
                       imageModels: Array.from(documentImageModels),
                       error: err?.message || 'Document creation failed',
