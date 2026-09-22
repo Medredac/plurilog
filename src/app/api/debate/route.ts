@@ -542,7 +542,8 @@ export type AttachmentProvenance =
   | 'current_document_render'
   | 'historical_user_upload'
   | 'historical_assistant_generated'
-  | 'same_round_assistant_generated';
+  | 'same_round_assistant_generated'
+  | 'same_round_document_render';
 
 export interface RouteAttachment {
   url: string;
@@ -579,6 +580,12 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   }
   if (attachment.provenance === 'current_document_render') {
     return `Rendered page from a Word document attached by the user in the current turn: ${cleanName}`;
+  }
+  if (attachment.provenance === 'same_round_document_render') {
+    const seatName = attachment.creatorSeatId
+      ? (SEAT_DISPLAY_NAMES[attachment.creatorSeatId.toLowerCase()] || attachment.creatorSeatId)
+      : 'an assistant';
+    return `Rendered page from a Word document created by ${seatName} earlier in the current round: ${cleanName}`;
   }
   return `File: ${cleanName}`;
 }
@@ -2972,6 +2979,48 @@ export async function POST(req: NextRequest) {
                     url: documentResult.signedUrl,
                     filename: documentResult.filename,
                   });
+
+                  // Give later seats the actual rendered pages of Claude's newly created
+                  // DOCX in the same round, not only its extracted text. This lets them
+                  // independently inspect image placement, pagination, spacing, tables,
+                  // and other visual layout details before responding.
+                  try {
+                    const generatedDocPages =
+                      await materializeDocxRenderedPageAttachments({
+                        supabase,
+                        serviceClient: serviceClientForDocument,
+                        discussionId: discussionId || '',
+                        sourceUserMessageId: documentResult.messageId,
+                        storagePath: documentResult.storagePath,
+                        filename: documentResult.filename,
+                        signal: seatAbortController.signal,
+                        registerImmediately: false,
+                      });
+
+                    const sameRoundDocumentPages = generatedDocPages.map((page) => ({
+                      ...page,
+                      provenance: 'same_round_document_render' as const,
+                      creatorSeatId: seat.seatId,
+                    }));
+
+                    currentRoundAttachments.push(...sameRoundDocumentPages);
+
+                    console.log('[Generated DOCX Visual Handoff]', {
+                      discussionId: discussionId || null,
+                      filename: documentResult.filename,
+                      renderedPageCount: sameRoundDocumentPages.length,
+                      laterSeatCount: Math.max(
+                        0,
+                        configuredSeats.length - seatIndex - 1
+                      ),
+                    });
+                  } catch (generatedDocRenderErr) {
+                    console.warn(
+                      '[Generated DOCX Visual Handoff] Non-critical render error:',
+                      generatedDocRenderErr
+                    );
+                  }
+
                   documentCreatedThisTurn = true;
 
                   const documentCostCents =
