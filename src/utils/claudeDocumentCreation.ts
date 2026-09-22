@@ -325,7 +325,7 @@ export async function executeClaudeDocumentCreation(
       },
       {
         signal,
-        timeoutMs: 35_000,
+        timeoutMs: 70_000,
       }
     );
 
