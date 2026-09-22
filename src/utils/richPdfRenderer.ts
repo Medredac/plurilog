@@ -69,8 +69,8 @@ export interface PdfCardItem {
 
 export interface PdfCardsBlock {
   type: 'cards';
-  columns?: number;
-  items: PdfCardItem[];
+  cardColumns?: number;
+  cards: PdfCardItem[];
   style?: PdfBlockStyle;
 }
 
@@ -304,9 +304,9 @@ function renderImage(block: DocxBlock, design: ReturnType<typeof normalizeDesign
 }
 
 function renderCards(block: PdfCardsBlock, design: ReturnType<typeof normalizeDesign>): string {
-  const items = (block.items || []).slice(0, 16);
+  const items = (block.cards || []).slice(0, 16);
   if (items.length === 0) return '';
-  const cols = Math.max(1, Math.min(4, Math.floor(block.columns || 2)));
+  const cols = Math.max(1, Math.min(4, Math.floor(block.cardColumns || 2)));
   const rows: string[] = [];
   for (let start = 0; start < items.length; start += cols) {
     const chunk = items.slice(start, start + cols);
@@ -451,7 +451,7 @@ function fullTextForBlock(block: RichDocumentBlock): string[] {
         ...(block.items || []),
       ].filter(Boolean) as string[];
     case 'cards':
-      return (block.items || []).flatMap((item) => [item.eyebrow, item.title, item.text].filter(Boolean) as string[]);
+      return (block.cards || []).flatMap((item) => [item.eyebrow, item.title, item.text].filter(Boolean) as string[]);
     case 'columns':
       return (block.columns || []).flatMap((col) => [col.eyebrow, col.title, col.text, ...(col.items || [])].filter(Boolean) as string[]);
     case 'flow':
