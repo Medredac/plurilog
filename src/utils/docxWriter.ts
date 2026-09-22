@@ -1,6 +1,17 @@
 import { Buffer } from 'node:buffer';
 
-export type DocxBlockType = 'heading' | 'paragraph' | 'bullets' | 'numbered' | 'table';
+export type DocxBlockType =
+  | 'heading'
+  | 'paragraph'
+  | 'bullets'
+  | 'numbered'
+  | 'table'
+  | 'image'
+  | 'page_break';
+
+export type DocxImageMode = 'existing' | 'generate' | 'edit';
+export type DocxImageSize = 'small' | 'medium' | 'large' | 'full';
+export type DocxImageAlignment = 'left' | 'center' | 'right';
 
 export interface DocxBlock {
   type: DocxBlockType;
@@ -9,6 +20,18 @@ export interface DocxBlock {
   items?: string[];
   headers?: string[];
   rows?: string[][];
+  mode?: DocxImageMode;
+  prompt?: string;
+  need?: string;
+  filename?: string;
+  caption?: string;
+  size?: DocxImageSize;
+  alignment?: DocxImageAlignment;
+
+  // Server-resolved image payload. These fields never come from the model tool call.
+  imageData?: Buffer;
+  imageContentType?: string;
+  imageAltText?: string;
 }
 
 export interface StructuredDocxInput {
@@ -28,6 +51,15 @@ const MAX_TEXT_LENGTH = 30000;
 const MAX_LIST_ITEMS = 200;
 const MAX_TABLE_ROWS = 200;
 const MAX_TABLE_COLUMNS = 20;
+const MAX_IMAGES = 12;
+const EMU_PER_INCH = 914400;
+
+const IMAGE_WIDTH_INCHES: Record<DocxImageSize, number> = {
+  small: 2.25,
+  medium: 3.75,
+  large: 5.2,
+  full: 6.15,
+};
 
 function cleanText(value: unknown, maxLength = MAX_TEXT_LENGTH): string {
   if (typeof value !== 'string') return '';
@@ -156,6 +188,103 @@ function tableXml(headers: string[], rows: string[][]): string {
   </w:tbl>`;
 }
 
+function imageExtensionForContentType(contentType: string): string {
+  const normalized = (contentType || '').trim().toLowerCase();
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return 'jpg';
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/gif') return 'gif';
+  if (normalized === 'image/webp') return 'webp';
+  if (normalized === 'image/bmp') return 'bmp';
+  return 'png';
+}
+
+function imageDimensions(data: Buffer, contentType: string): { width: number; height: number } {
+  try {
+    const normalized = (contentType || '').toLowerCase();
+    if (normalized === 'image/png' && data.length >= 24 && data.readUInt32BE(0) === 0x89504e47) {
+      return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+    }
+
+    if ((normalized === 'image/jpeg' || normalized === 'image/jpg') && data.length > 4 && data[0] === 0xff && data[1] === 0xd8) {
+      let offset = 2;
+      while (offset + 9 < data.length) {
+        if (data[offset] !== 0xff) { offset++; continue; }
+        const marker = data[offset + 1];
+        offset += 2;
+        if (marker === 0xd8 || marker === 0xd9) continue;
+        if (offset + 2 > data.length) break;
+        const length = data.readUInt16BE(offset);
+        if (length < 2 || offset + length > data.length) break;
+        if ([0xc0,0xc1,0xc2,0xc3,0xc5,0xc6,0xc7,0xc9,0xca,0xcb,0xcd,0xce,0xcf].includes(marker)) {
+          return { width: data.readUInt16BE(offset + 5), height: data.readUInt16BE(offset + 3) };
+        }
+        offset += length;
+      }
+    }
+
+    if (normalized === 'image/gif' && data.length >= 10) {
+      return { width: data.readUInt16LE(6), height: data.readUInt16LE(8) };
+    }
+
+    if (normalized === 'image/webp' && data.length >= 30 && data.toString('ascii', 0, 4) === 'RIFF' && data.toString('ascii', 8, 12) === 'WEBP') {
+      const kind = data.toString('ascii', 12, 16);
+      if (kind === 'VP8X') {
+        return { width: 1 + data.readUIntLE(24, 3), height: 1 + data.readUIntLE(27, 3) };
+      }
+      if (kind === 'VP8L' && data.length >= 25) {
+        const b1 = data[21], b2 = data[22], b3 = data[23], b4 = data[24];
+        return {
+          width: 1 + (((b2 & 0x3f) << 8) | b1),
+          height: 1 + (((b4 & 0x0f) << 10) | (b3 << 2) | ((b2 & 0xc0) >> 6)),
+        };
+      }
+    }
+  } catch {
+    // Fall through to a safe landscape default.
+  }
+  return { width: 1600, height: 900 };
+}
+
+function imageParagraphXml(block: DocxBlock, imageIndex: number): string {
+  if (!block.imageData || !Buffer.isBuffer(block.imageData)) return '';
+  const contentType = block.imageContentType || 'image/png';
+  const dims = imageDimensions(block.imageData, contentType);
+  const size = block.size || 'large';
+  const alignment = block.alignment || 'center';
+  const widthInches = IMAGE_WIDTH_INCHES[size] || IMAGE_WIDTH_INCHES.large;
+  const ratio = dims.width > 0 && dims.height > 0 ? dims.height / dims.width : 0.5625;
+  const heightInches = Math.min(widthInches * ratio, 7.2);
+  const cx = Math.max(1, Math.round(widthInches * EMU_PER_INCH));
+  const cy = Math.max(1, Math.round(heightInches * EMU_PER_INCH));
+  const relId = `rIdImage${imageIndex + 1}`;
+  const docPrId = imageIndex + 1;
+  const alt = escapeXml(cleanText(block.imageAltText || block.caption || block.prompt || block.need || 'Document image', 500));
+  const jc = alignment === 'left' ? 'left' : alignment === 'right' ? 'right' : 'center';
+
+  const image = `<w:p>
+    <w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="80" w:after="80"/></w:pPr>
+    <w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
+      <wp:extent cx="${cx}" cy="${cy}"/>
+      <wp:effectExtent l="0" t="0" r="0" b="0"/>
+      <wp:docPr id="${docPrId}" name="Image ${docPrId}" descr="${alt}"/>
+      <wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic>
+          <pic:nvPicPr><pic:cNvPr id="0" name="Image ${docPrId}" descr="${alt}"/><pic:cNvPicPr/></pic:nvPicPr>
+          <pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+          <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
+        </pic:pic>
+      </a:graphicData></a:graphic>
+    </wp:inline></w:drawing></w:r>
+  </w:p>`;
+
+  if (!block.caption) return image;
+  return `${image}<w:p><w:pPr><w:jc w:val="${jc}"/><w:spacing w:after="120"/></w:pPr>${textRuns(cleanText(block.caption, 2000), { sizeHalfPoints: 18 })}</w:p>`;
+}
+
+function pageBreakXml(): string {
+  return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+}
 function normalizeBlocks(blocks: unknown): DocxBlock[] {
   if (!Array.isArray(blocks)) return [];
 
@@ -191,21 +320,34 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
       normalized.push({ type, items });
     } else if (type === 'table') {
       const headers = Array.isArray(block.headers)
-        ? block.headers
-            .slice(0, MAX_TABLE_COLUMNS)
-            .map((item) => cleanText(item, 5000))
+        ? block.headers.slice(0, MAX_TABLE_COLUMNS).map((item) => cleanText(item, 5000))
         : [];
       const rows = Array.isArray(block.rows)
         ? block.rows.slice(0, MAX_TABLE_ROWS).map((row) =>
-            Array.isArray(row)
-              ? row
-                  .slice(0, MAX_TABLE_COLUMNS)
-                  .map((item) => cleanText(item, 5000))
-              : []
+            Array.isArray(row) ? row.slice(0, MAX_TABLE_COLUMNS).map((item) => cleanText(item, 5000)) : []
           )
         : [];
       if (headers.length === 0 && rows.length === 0) continue;
       normalized.push({ type, headers, rows });
+    } else if (type === 'image') {
+      if (!Buffer.isBuffer(block.imageData) || block.imageData.length === 0) continue;
+      const size: DocxImageSize = block.size === 'small' || block.size === 'medium' || block.size === 'full' ? block.size : 'large';
+      const alignment: DocxImageAlignment = block.alignment === 'left' || block.alignment === 'right' ? block.alignment : 'center';
+      normalized.push({
+        type,
+        mode: block.mode === 'existing' || block.mode === 'edit' ? block.mode : 'generate',
+        prompt: cleanText(block.prompt, 4000),
+        need: cleanText(block.need, 2000),
+        filename: cleanText(block.filename, 300),
+        caption: cleanText(block.caption, 2000),
+        size,
+        alignment,
+        imageData: block.imageData,
+        imageContentType: cleanText(block.imageContentType, 100) || 'image/png',
+        imageAltText: cleanText(block.imageAltText, 500),
+      });
+    } else if (type === 'page_break') {
+      normalized.push({ type });
     }
   }
 
