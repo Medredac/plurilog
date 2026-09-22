@@ -3061,6 +3061,12 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 temperature: 0.7,
                 signal: seatAbortController.signal,
+                ...(likelyClaudeDocumentRequest
+                  ? {
+                      reasoning: { effort: 'high' },
+                      max_tokens: 32000,
+                    }
+                  : {}),
                 tools: [
                   {
                     type: 'openrouter:web_search',
