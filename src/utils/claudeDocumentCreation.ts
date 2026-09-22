@@ -5,9 +5,11 @@ import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
+  createRichPdfRenderSession,
   renderRichPdf,
   type PdfDesign,
   type RichDocumentBlock,
+  type RenderedPdfReviewPage,
 } from '@/utils/richPdfRenderer';
 import {
   generateGeminiImage,
@@ -48,6 +50,10 @@ export interface ExecuteClaudeDocumentCreationOptions {
   availableImages?: DocumentImageSource[];
   resourceContext?: ResourceBrokerContext;
   onImageCost?: (event: DocumentImageCostEvent) => void;
+  reviewModel?: string;
+  reviewModels?: string[];
+  originalUserPrompt?: string;
+  reviewSessionId?: string | null;
 }
 
 export interface ExecuteClaudeDocumentCreationResult {
@@ -62,6 +68,8 @@ export interface ExecuteClaudeDocumentCreationResult {
   fullText: string;
   imageAssetCount: number;
   imageCostUsd: number;
+  visualReviewCostUsd: number;
+  visualReviewApplied: boolean;
 }
 
 const MAX_DOCUMENT_IMAGES = 12;
@@ -219,6 +227,16 @@ async function resolveDocumentBlocks(
       continue;
     }
     if (imageAssetCount >= MAX_DOCUMENT_IMAGES) continue;
+
+    if (
+      Buffer.isBuffer(block.imageData) &&
+      block.imageData.length > 0 &&
+      typeof block.imageContentType === 'string'
+    ) {
+      resolved.push(block);
+      imageAssetCount++;
+      continue;
+    }
 
     const mode = block.mode === 'existing' || block.mode === 'edit' ? block.mode : 'generate';
     const need = (block.need || block.prompt || block.caption || 'the requested image').trim();
