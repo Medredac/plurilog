@@ -316,7 +316,7 @@ function isWordDocumentCreationIntent(prompt: string): boolean {
     /\bdownloadable\s+(?:word\s+)?document\b/.test(normalized);
 
   const hasCreationIntent =
-    /\b(create|make|generate|produce|prepare|build|assemble|return|deliver|turn)\b/.test(
+    /\b(create|make|generate|produce|prepare|build|assemble|draft|export|save|deliver|turn)\b/.test(
       normalized
     );
 
@@ -367,6 +367,7 @@ export interface PlurilogRuntimeProductContext {
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
   documentCreatedThisTurn?: boolean;
+  documentCreationPendingForClaude?: boolean;
   accountPlan?: 'free' | 'paid';
 }
 
@@ -384,6 +385,8 @@ export function buildPlurilogProductContext(
   const canEditImages =
     runtime?.imageEditingEnabled ?? seatCapabilities?.imageEditing ?? false;
   const canCreateDocuments = runtime?.documentCreationEnabled ?? false;
+  const documentCreationPendingForClaude =
+    runtime?.documentCreationPendingForClaude === true;
   const accountPlan =
     runtime?.accountPlan === 'paid'
       ? 'Plus (paid)'
@@ -414,6 +417,7 @@ FILES AND VIDEO
 - Your current seat is ${currentModelName}. On this turn: Word document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - Do NOT volunteer capability limitations, seat restrictions, or phrases such as "this seat cannot..." unless the user explicitly asks about capabilities or asks you to perform an unsupported action that has not already been fulfilled by another seat.
 - If another seat already created the requested document in the current round and the document or its rendered pages are available to you, treat the user's creation request as fulfilled. Focus on independently reviewing, checking, improving, or complementing the finished artifact. Do not apologize for lacking file-creation tools, do not say the document is unavailable, and do not offer to recreate the same artifact merely because your own seat lacks document creation.
+${documentCreationPendingForClaude ? '- The user is requesting a finished Word document and Claude is scheduled later in this same panel turn. Contribute useful content, structure, critique, or planning that Claude can use. Do not generate a standalone image for an image requested inside the document, and do not dwell on your own file-creation limitations.' : ''}
 - Plurilog can separately export an existing discussion as a PDF; that is different from an AI generating a custom downloadable document.
 - Video upload/analysis is not currently available. It is in development.
 
@@ -2692,20 +2696,12 @@ export async function POST(req: NextRequest) {
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
               documentCreatedThisTurn,
+              documentCreationPendingForClaude:
+                wordDocumentCreationIntent &&
+                !documentCreatedThisTurn &&
+                seat.seatId !== 'claude',
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
-
-            if (
-              wordDocumentCreationIntent &&
-              !documentCreatedThisTurn &&
-              seat.seatId !== 'claude'
-            ) {
-              priorResponses.push({
-                name: 'Plurilog',
-                response:
-                  'The user is asking for a finished Word document and Claude is scheduled later in this same panel turn. Contribute useful content, structure, critique, or planning that Claude can use. Do not generate a standalone image for an image requested inside the document, and do not dwell on your own file-creation limitations.',
-              });
-            }
 
             const pdfAttachments = currentRoundAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
