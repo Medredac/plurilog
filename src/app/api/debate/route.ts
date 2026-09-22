@@ -152,7 +152,7 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. For PDF, author the actual document layout as an HTML body fragment plus complete print CSS. You have broad style-neutral freedom: typography, whitespace, CSS grid/flex, columns, tables, inline SVG diagrams, gradients, borders, backgrounds, page breaks, @page rules, running headers/footers, and page counters. Infer the aesthetic from the user request and document purpose; do not force a colourful SaaS/dashboard look. Prefer coherent hierarchy, proportion, typography, and restraint over gratuitous cards or decoration when no flashy style is requested. User visual instructions always take priority. Do not include JavaScript, external URLs, web fonts, iframes, forms, @import, or remote resources. For PDF images, declare each asset in images and reference it in HTML/CSS as asset:<id>, for example <img src="asset:hero">. Existing assets reuse discussion images; generated assets create a new image; edit transforms an existing discussion image. Inline SVG is encouraged for diagrams/icons when a generated raster illustration is unnecessary. If an exact page count is requested, set target_page_count and design the page composition to fit it exactly. After rendering, Claude receives one bounded visual QA pass on the real pages before the PDF is saved. For DOCX, use the core blocks array; PDF HTML/CSS does not use blocks, so provide blocks as an empty array for PDF. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. For PDF, act as both document designer and document engineer: write the actual Python program that will generate the final PDF inside an isolated private computing environment, similar to a local workstation. Available Python packages include ReportLab, WeasyPrint 70, Pillow, Matplotlib, and svgwrite, plus the Python standard library. Choose the production approach that best suits the requested document rather than forcing one renderer: ReportLab is excellent for precise editorial/vector page composition; WeasyPrint is useful for sophisticated paged HTML/CSS typesetting; Pillow/Matplotlib/svgwrite can support custom illustrations and diagrams. The program must write the final file to the predefined OUTPUT_PDF path. ASSET_DIR and ASSET_MANIFEST are also predefined. Do not use subprocesses, shell commands, network libraries, package installation, or external URLs. For PDF image assets, declare them in images; the runtime stores them locally and the asset manifest maps each id to its path. Infer the art direction from the user request and document purpose. Avoid generic AI-slop aesthetics: repetitive equal cards, rainbow accents, predictable dashboards, oversized callout boxes, excessive rounded rectangles, arbitrary gradients, generic visual clutter, or typography that looks like an app UI when the task calls for an editorial document. Prefer deliberate hierarchy, proportion, whitespace, strong typography, coherent limited palettes, context-specific visual language, and human editorial judgment. Do not impose minimalism or sobriety when the user asks for a playful, colourful, ornate, cultural, or otherwise different style. If an exact page count is requested, set target_page_count and design the program to meet it exactly. After the first render, Claude receives the real page images and gets one bounded code-revision pass before the final PDF is saved. For DOCX, use the core blocks array and leave python empty. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -164,36 +164,25 @@ export const CLAUDE_FILE_TOOLS = [
           },
           title: {
             type: 'string',
-            description:
-              'DOCX-only optional document title. PDF titles should be authored directly in HTML.',
+            description: 'DOCX-only optional document title.',
           },
-          html: {
+          python: {
             type: 'string',
             description:
-              'PDF-only complete HTML BODY FRAGMENT. Do not include html/head/body/style/script tags. Use semantic sections and classes; all styling belongs in css.',
-          },
-          css: {
-            type: 'string',
-            description:
-              'PDF-only complete print stylesheet. Include @page size/margins and all document styling. No @import, remote URLs, JavaScript, or web fonts.',
-          },
-          locale: {
-            type: 'string',
-            description:
-              'PDF language/locale hint such as en, fr, ja, or ar. Use the document language.',
+              'PDF-only complete Python source. OUTPUT_PDF, ASSET_DIR, and ASSET_MANIFEST are predefined. The code must create OUTPUT_PDF. Use only local files and installed packages.',
           },
           target_page_count: {
             type: 'integer',
             minimum: 1,
             maximum: 30,
             description:
-              'PDF-only. Set only when the user explicitly requests an exact page count.',
+              'PDF-only. Set when the user explicitly requests an exact page count.',
           },
           images: {
             type: 'array',
             maxItems: 12,
             description:
-              'PDF-only image assets. Reference each asset from HTML/CSS with asset:<id>. Only referenced assets are generated/resolved.',
+              'PDF-only local image assets available to the Python program via ASSET_MANIFEST.',
             items: {
               type: 'object',
               properties: {
@@ -231,7 +220,7 @@ export const CLAUDE_FILE_TOOLS = [
             minItems: 0,
             maxItems: 200,
             description:
-              'DOCX content blocks. For PDF, pass an empty array because PDF layout is authored in html/css.',
+              'DOCX content blocks. For PDF, pass an empty array because the PDF is authored by the Python program.',
             items: {
               type: 'object',
               properties: {
@@ -258,8 +247,6 @@ export const CLAUDE_FILE_TOOLS = [
                 mode: {
                   type: 'string',
                   enum: ['existing', 'generate', 'edit'],
-                  description:
-                    'DOCX image block mode.',
                 },
                 prompt: { type: 'string' },
                 need: { type: 'string' },
