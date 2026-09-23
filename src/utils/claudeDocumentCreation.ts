@@ -24,6 +24,7 @@ import {
 export interface ClaudeCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   format: 'docx' | 'pdf';
   design?: PdfDesign;
+  design_reference_ids?: string[];
   blocks: RichDocumentBlock[];
 }
 
@@ -391,9 +392,13 @@ async function reviewRenderedPdfWithClaude(options: {
         originalUserPrompt
           ? `Original user request:\n${originalUserPrompt}`
           : '',
+        args.design_reference_ids?.length
+          ? `Selected design references: ${args.design_reference_ids.join(', ')}. Preserve their intended visual grammar unless the rendered result shows a clear reason to deviate.`
+          : '',
         `Current PDF specification:\n${JSON.stringify({
           title: args.title,
           design: args.design,
+          design_reference_ids: args.design_reference_ids,
           blocks: args.blocks,
         })}`,
       ].filter(Boolean).join('\n\n'),
