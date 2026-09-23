@@ -3618,7 +3618,8 @@ export async function POST(req: NextRequest) {
                       messageId,
                       seatId: seat.seatId,
                       args: fileArgs,
-                      signal: seatAbortController.signal,
+                      signal: req.signal,
+                      durableSignal: req.signal,
                       availableImages: availableDocumentImages,
                       resourceContext: {
                         knownDocuments:
@@ -4223,6 +4224,18 @@ export async function POST(req: NextRequest) {
                     ...newEvidenceAttachments,
                   ];
 
+                  if (
+                    modelSafeBrokerResult.status === 'resolved' &&
+                    newEvidenceAttachments.length > 0
+                  ) {
+                    currentRoundAttachments.push(...newEvidenceAttachments);
+                    console.log('[Evidence Broker] Shared resolved evidence with later seats', {
+                      seatId: seat.seatId,
+                      sharedCount: newEvidenceAttachments.length,
+                      filenames: newEvidenceAttachments.map((attachment) => attachment.filename),
+                    });
+                  }
+
                   const evidenceWasMaterialized = newEvidenceAttachments.length > 0;
                   const evidenceSeatAttachments =
                     seat.seatId === 'gemini'
@@ -4536,7 +4549,8 @@ export async function POST(req: NextRequest) {
                         messageId,
                         seatId: seat.seatId,
                         args: fileArgs,
-                        signal: seatAbortController.signal,
+                        signal: req.signal,
+                        durableSignal: req.signal,
                         availableImages: availableDocumentImages,
                         resourceContext: {
                           knownDocuments: brokerKnownDocuments,
