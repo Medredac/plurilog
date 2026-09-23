@@ -768,13 +768,14 @@ export async function executeGptDocumentCreation(
         .eq('id', messageId)
         .maybeSingle();
 
+      // A single GPT turn may legitimately create more than one document.
+      // Reuse the same assistant message and append each generated attachment.
       if (
         !fetchErr &&
         existing &&
         existing.id === messageId &&
         existing.discussion_id === discussionId &&
-        existing.sender === seatId &&
-        existing.content === finalContent
+        existing.sender === seatId
       ) {
         persistedMsg = { id: existing.id, created_at: existing.created_at };
       }
