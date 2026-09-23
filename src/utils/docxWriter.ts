@@ -12,6 +12,22 @@ export type DocxBlockType =
 export type DocxImageMode = 'existing' | 'generate' | 'edit';
 export type DocxImageSize = 'small' | 'medium' | 'large' | 'full';
 export type DocxImageAlignment = 'left' | 'center' | 'right';
+export type DocxFontFamily = 'sans' | 'serif' | 'mono' | 'jp-sans' | 'jp-serif';
+
+export interface DocxDesign {
+  pageSize?: 'A4' | 'LETTER';
+  orientation?: 'portrait' | 'landscape';
+  marginMm?: number;
+  textColor?: string;
+  mutedColor?: string;
+  accentColor?: string;
+  fontFamily?: DocxFontFamily;
+  headingFontFamily?: DocxFontFamily;
+  bodySizePt?: number;
+  lineHeight?: number;
+  locale?: string;
+  targetPageCount?: number;
+}
 
 export interface DocxBlock {
   type: DocxBlockType;
@@ -37,6 +53,7 @@ export interface DocxBlock {
 export interface StructuredDocxInput {
   filename: string;
   title?: string;
+  design?: DocxDesign;
   blocks: DocxBlock[];
 }
 
@@ -55,11 +72,83 @@ const MAX_IMAGES = 12;
 const EMU_PER_INCH = 914400;
 
 const IMAGE_WIDTH_INCHES: Record<DocxImageSize, number> = {
-  small: 2.25,
-  medium: 3.75,
-  large: 5.2,
-  full: 6.15,
+  small: 2.15,
+  medium: 3.55,
+  large: 4.95,
+  full: 6.05,
 };
+
+const DEFAULT_DOCX_DESIGN: Required<Omit<DocxDesign, 'locale'>> & { locale: string } = {
+  pageSize: 'A4',
+  orientation: 'portrait',
+  marginMm: 16,
+  textColor: '#172033',
+  mutedColor: '#667085',
+  accentColor: '#1f5f74',
+  fontFamily: 'sans',
+  headingFontFamily: 'sans',
+  bodySizePt: 10.5,
+  lineHeight: 1.32,
+  locale: 'en',
+  targetPageCount: 0,
+};
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value))
+    : fallback;
+}
+
+function normalizeHex(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback.replace('#', '').toUpperCase();
+  const trimmed = value.trim();
+  const match = trimmed.match(/^#?([0-9a-fA-F]{6})$/);
+  return (match?.[1] || fallback.replace('#', '')).toUpperCase();
+}
+
+function docxFontName(value?: DocxFontFamily): string {
+  switch (value) {
+    case 'serif':
+      return 'Georgia';
+    case 'mono':
+      return 'Courier New';
+    case 'jp-sans':
+      return 'Yu Gothic';
+    case 'jp-serif':
+      return 'Yu Mincho';
+    default:
+      return 'Aptos';
+  }
+}
+
+function normalizeDocxDesign(input?: DocxDesign) {
+  return {
+    pageSize: input?.pageSize === 'LETTER' ? 'LETTER' as const : 'A4' as const,
+    orientation: input?.orientation === 'landscape' ? 'landscape' as const : 'portrait' as const,
+    marginMm: clampNumber(input?.marginMm, DEFAULT_DOCX_DESIGN.marginMm, 8, 30),
+    textColor: normalizeHex(input?.textColor, DEFAULT_DOCX_DESIGN.textColor),
+    mutedColor: normalizeHex(input?.mutedColor, DEFAULT_DOCX_DESIGN.mutedColor),
+    accentColor: normalizeHex(input?.accentColor, DEFAULT_DOCX_DESIGN.accentColor),
+    fontFamily: input?.fontFamily || DEFAULT_DOCX_DESIGN.fontFamily,
+    headingFontFamily:
+      input?.headingFontFamily || input?.fontFamily || DEFAULT_DOCX_DESIGN.headingFontFamily,
+    bodySizePt: clampNumber(input?.bodySizePt, DEFAULT_DOCX_DESIGN.bodySizePt, 8.5, 14),
+    lineHeight: clampNumber(input?.lineHeight, DEFAULT_DOCX_DESIGN.lineHeight, 1.05, 1.7),
+    locale: cleanText(input?.locale, 20) || DEFAULT_DOCX_DESIGN.locale,
+    targetPageCount:
+      typeof input?.targetPageCount === 'number' && Number.isFinite(input.targetPageCount)
+        ? Math.max(0, Math.min(30, Math.floor(input.targetPageCount)))
+        : 0,
+  };
+}
+
+function mmToTwips(mm: number): number {
+  return Math.round(mm * 56.6929133858);
+}
+
+function ptToHalfPoints(pt: number): number {
+  return Math.max(1, Math.round(pt * 2));
+}
 
 function cleanText(value: unknown, maxLength = MAX_TEXT_LENGTH): string {
   if (typeof value !== 'string') return '';
@@ -91,13 +180,32 @@ function sanitizeFilename(value: string): string {
     : `${safeBase}.docx`;
 }
 
-function textRuns(text: string, options?: { bold?: boolean; sizeHalfPoints?: number }): string {
+function textRuns(
+  text: string,
+  options?: {
+    bold?: boolean;
+    italic?: boolean;
+    sizeHalfPoints?: number;
+    color?: string;
+    fontFamily?: DocxFontFamily;
+  }
+): string {
   const segments = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const rPrParts: string[] = [];
   if (options?.bold) rPrParts.push('<w:b/>');
+  if (options?.italic) rPrParts.push('<w:i/>');
   if (options?.sizeHalfPoints) {
     rPrParts.push(`<w:sz w:val="${options.sizeHalfPoints}"/>`);
     rPrParts.push(`<w:szCs w:val="${options.sizeHalfPoints}"/>`);
+  }
+  if (options?.color) {
+    rPrParts.push(`<w:color w:val="${escapeXml(options.color)}"/>`);
+  }
+  if (options?.fontFamily) {
+    const font = escapeXml(docxFontName(options.fontFamily));
+    rPrParts.push(
+      `<w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:eastAsia="${font}" w:cs="${font}"/>`
+    );
   }
   const rPr = rPrParts.length > 0 ? `<w:rPr>${rPrParts.join('')}</w:rPr>` : '';
 
@@ -113,43 +221,95 @@ function paragraphXml(
   text: string,
   options?: {
     bold?: boolean;
+    italic?: boolean;
     sizeHalfPoints?: number;
     spacingAfter?: number;
     spacingBefore?: number;
     keepNext?: boolean;
+    keepLines?: boolean;
+    lineHeight?: number;
+    color?: string;
+    fontFamily?: DocxFontFamily;
+    alignment?: 'left' | 'center' | 'right';
+    bottomBorderColor?: string;
   }
 ): string {
-  const pPrParts: string[] = [];
-  if (options?.spacingBefore || options?.spacingAfter) {
+  const pPrParts: string[] = ['<w:widowControl/>'];
+  const spacingAttrs = [
+    `w:before="${options?.spacingBefore || 0}"`,
+    `w:after="${options?.spacingAfter || 0}"`,
+  ];
+  if (options?.lineHeight) {
+    spacingAttrs.push(`w:line="${Math.round(240 * options.lineHeight)}"`);
+    spacingAttrs.push('w:lineRule="auto"');
+  }
+  pPrParts.push(`<w:spacing ${spacingAttrs.join(' ')}/>`);
+  if (options?.keepNext) pPrParts.push('<w:keepNext/>');
+  if (options?.keepLines) pPrParts.push('<w:keepLines/>');
+  if (options?.alignment) pPrParts.push(`<w:jc w:val="${options.alignment}"/>`);
+  if (options?.bottomBorderColor) {
     pPrParts.push(
-      `<w:spacing w:before="${options?.spacingBefore || 0}" w:after="${options?.spacingAfter || 0}"/>`
+      `<w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="${escapeXml(
+        options.bottomBorderColor
+      )}"/></w:pBdr>`
     );
   }
-  if (options?.keepNext) pPrParts.push('<w:keepNext/>');
-  const pPr = pPrParts.length > 0 ? `<w:pPr>${pPrParts.join('')}</w:pPr>` : '';
+  const pPr = `<w:pPr>${pPrParts.join('')}</w:pPr>`;
   return `<w:p>${pPr}${textRuns(text, options)}</w:p>`;
 }
 
-function headingXml(text: string, level = 1): string {
+function headingXml(
+  text: string,
+  level: number,
+  design: ReturnType<typeof normalizeDocxDesign>
+): string {
   const safeLevel = Math.max(1, Math.min(3, Math.floor(level || 1)));
-  const sizes: Record<number, number> = { 1: 32, 2: 28, 3: 24 };
+  const body = design.bodySizePt;
+  const sizesPt: Record<number, number> = {
+    1: Math.max(15.5, body * 1.5),
+    2: Math.max(13, body * 1.28),
+    3: Math.max(11.5, body * 1.13),
+  };
   return paragraphXml(text, {
     bold: true,
-    sizeHalfPoints: sizes[safeLevel],
-    spacingBefore: safeLevel === 1 ? 240 : 180,
-    spacingAfter: 100,
+    sizeHalfPoints: ptToHalfPoints(sizesPt[safeLevel]),
+    spacingBefore: safeLevel === 1 ? 220 : 150,
+    spacingAfter: safeLevel === 1 ? 100 : 70,
     keepNext: true,
+    keepLines: true,
+    lineHeight: 1.05,
+    color: safeLevel <= 2 ? design.accentColor : design.textColor,
+    fontFamily: design.headingFontFamily,
   });
 }
 
-function cellXml(text: string, bold = false): string {
-  return `<w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/></w:tcPr>${paragraphXml(
+function cellXml(
+  text: string,
+  design: ReturnType<typeof normalizeDocxDesign>,
+  header = false
+): string {
+  const fill = header ? `<w:shd w:fill="${design.accentColor}"/>` : '';
+  const color = header ? 'FFFFFF' : design.textColor;
+  const weight = header;
+  return `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/>${fill}<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${paragraphXml(
     text,
-    { bold, sizeHalfPoints: 20, spacingAfter: 0 }
+    {
+      bold: weight,
+      sizeHalfPoints: ptToHalfPoints(Math.max(9, design.bodySizePt - 0.5)),
+      spacingAfter: 0,
+      keepLines: true,
+      lineHeight: 1.12,
+      color,
+      fontFamily: design.fontFamily,
+    }
   )}</w:tc>`;
 }
 
-function tableXml(headers: string[], rows: string[][]): string {
+function tableXml(
+  headers: string[],
+  rows: string[][],
+  design: ReturnType<typeof normalizeDocxDesign>
+): string {
   const normalizedHeaders = headers.slice(0, MAX_TABLE_COLUMNS).map((v) => cleanText(v, 5000));
   const normalizedRows = rows.slice(0, MAX_TABLE_ROWS).map((row) =>
     (Array.isArray(row) ? row : [])
@@ -163,9 +323,11 @@ function tableXml(headers: string[], rows: string[][]): string {
     1
   );
 
-  const rowXml = (cells: string[], bold: boolean) => {
+  const rowXml = (cells: string[], header: boolean) => {
     const padded = Array.from({ length: columnCount }, (_, i) => cells[i] || '');
-    return `<w:tr>${padded.map((cell) => cellXml(cell, bold)).join('')}</w:tr>`;
+    return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${padded
+      .map((cell) => cellXml(cell, design, header))
+      .join('')}</w:tr>`;
   };
 
   const body: string[] = [];
@@ -175,13 +337,15 @@ function tableXml(headers: string[], rows: string[][]): string {
   return `<w:tbl>
     <w:tblPr>
       <w:tblW w:w="0" w:type="auto"/>
+      <w:tblLayout w:type="autofit"/>
+      <w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tblCellMar>
       <w:tblBorders>
-        <w:top w:val="single" w:sz="4" w:space="0" w:color="B7B7B7"/>
-        <w:left w:val="single" w:sz="4" w:space="0" w:color="B7B7B7"/>
-        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="B7B7B7"/>
-        <w:right w:val="single" w:sz="4" w:space="0" w:color="B7B7B7"/>
-        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="D9D9D9"/>
-        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="D9D9D9"/>
+        <w:top w:val="single" w:sz="4" w:space="0" w:color="D9E0E8"/>
+        <w:left w:val="single" w:sz="4" w:space="0" w:color="D9E0E8"/>
+        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="D9E0E8"/>
+        <w:right w:val="single" w:sz="4" w:space="0" w:color="D9E0E8"/>
+        <w:insideH w:val="single" w:sz="3" w:space="0" w:color="E8ECF1"/>
+        <w:insideV w:val="single" w:sz="3" w:space="0" w:color="E8ECF1"/>
       </w:tblBorders>
     </w:tblPr>
     ${body.join('')}
@@ -245,7 +409,11 @@ function imageDimensions(data: Buffer, contentType: string): { width: number; he
   return { width: 1600, height: 900 };
 }
 
-function imageParagraphXml(block: DocxBlock, imageIndex: number): string {
+function imageParagraphXml(
+  block: DocxBlock,
+  imageIndex: number,
+  design: ReturnType<typeof normalizeDocxDesign>
+): string {
   if (!block.imageData || !Buffer.isBuffer(block.imageData)) return '';
   const contentType = block.imageContentType || 'image/png';
   const dims = imageDimensions(block.imageData, contentType);
@@ -262,7 +430,7 @@ function imageParagraphXml(block: DocxBlock, imageIndex: number): string {
   const jc = alignment === 'left' ? 'left' : alignment === 'right' ? 'right' : 'center';
 
   const image = `<w:p>
-    <w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="80" w:after="80"/></w:pPr>
+    <w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="80" w:after="100"/><w:keepLines/></w:pPr>
     <w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
       <wp:extent cx="${cx}" cy="${cy}"/>
       <wp:effectExtent l="0" t="0" r="0" b="0"/>
@@ -279,7 +447,15 @@ function imageParagraphXml(block: DocxBlock, imageIndex: number): string {
   </w:p>`;
 
   if (!block.caption) return image;
-  return `${image}<w:p><w:pPr><w:jc w:val="${jc}"/><w:spacing w:after="120"/></w:pPr>${textRuns(cleanText(block.caption, 2000), { sizeHalfPoints: 18 })}</w:p>`;
+  return `${image}<w:p><w:pPr><w:jc w:val="${jc}"/><w:spacing w:after="120"/><w:keepLines/></w:pPr>${textRuns(
+    cleanText(block.caption, 2000),
+    {
+      sizeHalfPoints: ptToHalfPoints(Math.max(8.5, design.bodySizePt - 1.5)),
+      color: design.mutedColor,
+      fontFamily: design.fontFamily,
+      italic: true,
+    }
+  )}</w:p>`;
 }
 
 function pageBreakXml(): string {
@@ -354,17 +530,27 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
   return normalized;
 }
 
-function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
+function buildDocumentXml(
+  title: string,
+  blocks: DocxBlock[],
+  design: ReturnType<typeof normalizeDocxDesign>
+): string {
   const body: string[] = [];
   let imageIndex = 0;
+  const bodyHalfPoints = ptToHalfPoints(design.bodySizePt);
 
   if (title) {
     body.push(
       paragraphXml(title, {
         bold: true,
-        sizeHalfPoints: 36,
-        spacingAfter: 240,
+        sizeHalfPoints: ptToHalfPoints(Math.max(22, design.bodySizePt * 2.2)),
+        spacingAfter: 220,
         keepNext: true,
+        keepLines: true,
+        lineHeight: 1.0,
+        color: design.textColor,
+        fontFamily: design.headingFontFamily,
+        bottomBorderColor: design.accentColor,
       })
     );
   }
@@ -372,27 +558,53 @@ function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
   for (const block of blocks) {
     switch (block.type) {
       case 'heading':
-        body.push(headingXml(block.text || '', block.level || 1));
+        body.push(headingXml(block.text || '', block.level || 1, design));
         break;
       case 'paragraph':
-        body.push(paragraphXml(block.text || '', { sizeHalfPoints: 22, spacingAfter: 120 }));
+        body.push(
+          paragraphXml(block.text || '', {
+            sizeHalfPoints: bodyHalfPoints,
+            spacingAfter: 110,
+            lineHeight: design.lineHeight,
+            color: design.textColor,
+            fontFamily: design.fontFamily,
+          })
+        );
         break;
       case 'bullets':
         (block.items || []).forEach((item) => {
-          body.push(paragraphXml(`• ${item}`, { sizeHalfPoints: 22, spacingAfter: 60 }));
+          body.push(
+            paragraphXml(`• ${item}`, {
+              sizeHalfPoints: bodyHalfPoints,
+              spacingAfter: 55,
+              keepLines: true,
+              lineHeight: design.lineHeight,
+              color: design.textColor,
+              fontFamily: design.fontFamily,
+            })
+          );
         });
         break;
       case 'numbered':
         (block.items || []).forEach((item, index) => {
-          body.push(paragraphXml(`${index + 1}. ${item}`, { sizeHalfPoints: 22, spacingAfter: 60 }));
+          body.push(
+            paragraphXml(`${index + 1}. ${item}`, {
+              sizeHalfPoints: bodyHalfPoints,
+              spacingAfter: 55,
+              keepLines: true,
+              lineHeight: design.lineHeight,
+              color: design.textColor,
+              fontFamily: design.fontFamily,
+            })
+          );
         });
         break;
       case 'table':
-        body.push(tableXml(block.headers || [], block.rows || []));
+        body.push(tableXml(block.headers || [], block.rows || [], design));
         body.push(paragraphXml('', { spacingAfter: 80 }));
         break;
       case 'image':
-        body.push(imageParagraphXml(block, imageIndex));
+        body.push(imageParagraphXml(block, imageIndex, design));
         imageIndex++;
         break;
       case 'page_break':
@@ -400,6 +612,17 @@ function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
         break;
     }
   }
+
+  const isLandscape = design.orientation === 'landscape';
+  const portraitSize =
+    design.pageSize === 'LETTER'
+      ? { width: 12240, height: 15840 }
+      : { width: 11906, height: 16838 };
+  const pageWidth = isLandscape ? portraitSize.height : portraitSize.width;
+  const pageHeight = isLandscape ? portraitSize.width : portraitSize.height;
+  const margin = mmToTwips(design.marginMm);
+  const defaultFont = escapeXml(docxFontName(design.fontFamily));
+  const defaultEastAsia = escapeXml(docxFontName(design.fontFamily));
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document
@@ -411,8 +634,9 @@ function buildDocumentXml(title: string, blocks: DocxBlock[]): string {
   <w:body>
     ${body.join('\n')}
     <w:sectPr>
-      <w:pgSz w:w="11906" w:h="16838"/>
-      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>
+      <w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${isLandscape ? ' w:orient="landscape"' : ''}/>
+      <w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="567" w:footer="567" w:gutter="0"/>
+      <w:docGrid w:linePitch="360"/>
     </w:sectPr>
   </w:body>
 </w:document>`;
@@ -540,9 +764,10 @@ function createZip(files: { name: string; data: Buffer }[]): Buffer {
 export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   const filename = sanitizeFilename(input.filename);
   const title = cleanText(input.title, 1000);
+  const design = normalizeDocxDesign(input.design);
   let blocks = normalizeBlocks(input.blocks);
 
-  // Claude may express the document title both through the dedicated title field
+  // The model may express the document title both through the dedicated title field
   // and as an early heading/paragraph block. Allow leading hero images before the
   // repeated text title, but do not scan deep into the document and accidentally
   // remove a legitimate later heading.
@@ -570,7 +795,7 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
     throw new Error('Word document content cannot be empty.');
   }
 
-  const documentXml = buildDocumentXml(title, blocks);
+  const documentXml = buildDocumentXml(title, blocks, design);
   const fullText = documentFullText(title, blocks);
   const imageBlocks = blocks
     .filter(
