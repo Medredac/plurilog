@@ -213,6 +213,27 @@ function renderedTableValuePresent(
   return latinTokens.length > 0 || japaneseRuns.length > 0;
 }
 
+function isBlankFormScaffoldValue(value: string): boolean {
+  const compact = (value || '')
+    .normalize('NFKC')
+    .replace(/[\s\u00a0]+/g, '')
+    .trim();
+
+  if (!compact) return true;
+
+  // Standard blank form shells are layout scaffolding, not populated source
+  // facts. Their visual presence is checked from rendered pages; they should
+  // not hard-fail text extraction when LibreOffice/pdftotext omits or reorders
+  // the blank unit/choice tokens.
+  return (
+    /^時間(?:[・･／/]?)分$/.test(compact) ||
+    /^(?:有[・･／/]無|無[・･／/]有)$/.test(compact) ||
+    /^(?:男[・･／/]女|女[・･／/]男)$/.test(compact) ||
+    /^年(?:[・･／/]?)月(?:[・･／/]?)日(?:生)?(?:\(?満?歳\)?)?$/.test(compact) ||
+    /^(?:満)?歳$/.test(compact)
+  );
+}
+
 function missingRenderedTableValues(
   blocks: RichDocumentBlock[],
   renderedText: string
@@ -231,7 +252,11 @@ function missingRenderedTableValues(
       : [];
     const values = [...headers, ...rows.flat()]
       .map((value) => String(value || '').trim())
-      .filter((value) => value.length >= 2);
+      .filter(
+        (value) =>
+          value.length >= 2 &&
+          !isBlankFormScaffoldValue(value)
+      );
 
     for (const value of values) {
       if (!renderedTableValuePresent(value, renderedText)) {
