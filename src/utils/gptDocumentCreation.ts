@@ -10,6 +10,10 @@ import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
+  renderDocxPages,
+  type RenderedDocxPage,
+} from '@/utils/docxPageRenderer';
+import {
   createRichPdfRenderSession,
   type PdfDesign,
   type RichDocumentBlock,
@@ -79,6 +83,71 @@ export interface ExecuteGptDocumentCreationResult {
 
 const MAX_DOCUMENT_IMAGES = 12;
 const MAX_DOCUMENT_IMAGE_BYTES = 15 * 1024 * 1024;
+
+const PAGE_COUNT_WORDS: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | null {
+  if (
+    typeof args.design?.targetPageCount === 'number' &&
+    Number.isFinite(args.design.targetPageCount) &&
+    args.design.targetPageCount > 0
+  ) {
+    return Math.max(1, Math.min(30, Math.floor(args.design.targetPageCount)));
+  }
+
+  const value = (prompt || '').toLowerCase();
+  const numeric = value.match(/\b(\d{1,2})\s*[- ]?\s*pages?\b/i);
+  if (numeric) {
+    const parsed = Number(numeric[1]);
+    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 30) return parsed;
+  }
+
+  const word = value.match(
+    /\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?\s*pages?\b/i
+  );
+  return word ? PAGE_COUNT_WORDS[word[1].toLowerCase()] || null : null;
+}
+
+function pageCountDistance(actual: number | null, target: number | null): number {
+  if (!target || !actual) return Number.POSITIVE_INFINITY;
+  return Math.abs(actual - target);
+}
+
+function compactDocxArgs(args: GptCreateFileArgs): GptCreateFileArgs {
+  const design = args.design || {};
+  const blocks = (args.blocks || []).map((block: any) => {
+    if (block?.type !== 'image') return block;
+    const size =
+      block.size === 'full'
+        ? 'large'
+        : block.size === 'large'
+          ? 'medium'
+          : block.size || 'medium';
+    return { ...block, size };
+  });
+
+  return {
+    ...args,
+    design: {
+      ...design,
+      marginMm: Math.max(9, (design.marginMm || 16) - 2),
+      bodySizePt: Math.max(9, (design.bodySizePt || 10.5) - 0.5),
+      lineHeight: Math.max(1.08, (design.lineHeight || 1.32) - 0.08),
+    },
+    blocks,
+  };
+}
 
 function isImageFilename(value?: string | null): boolean {
   if (!value) return false;
@@ -588,6 +657,244 @@ async function reviewRenderedPdfWithGpt(options: {
   };
 }
 
+async function reviewRenderedDocxWithGpt(options: {
+  openai: any;
+  model: string;
+  models: string[];
+  args: GptCreateFileArgs;
+  pages: RenderedDocxPage[];
+  totalPageCount: number | null;
+  originalUserPrompt?: string;
+  signal?: AbortSignal;
+  sessionId?: string | null;
+}): Promise<PdfVisualReviewOutcome> {
+  const {
+    openai,
+    model,
+    models,
+    args,
+    pages,
+    totalPageCount,
+    originalUserPrompt = '',
+    signal,
+    sessionId,
+  } = options;
+
+  if (!model || pages.length === 0) {
+    return {
+      args,
+      costUsd: 0,
+      applied: false,
+      respondingModel: null,
+      rationale: 'No visual review model or rendered Word pages were available.',
+    };
+  }
+
+  const target = requestedPageCount(args, originalUserPrompt);
+  const pageBlocks: any[] = [
+    {
+      type: 'text',
+      text: [
+        'You are performing the final visual quality-control pass on a Microsoft Word document you just designed.',
+        'Inspect the ACTUAL LibreOffice-rendered page images below. Do not judge only from the source specification.',
+        'Return the complete revised DOCX specification through the revise_docx_layout tool.',
+        'Fix page balance, excessive whitespace, crowded areas, orphaned headings, split list items, awkward page breaks, image sizing, table legibility, hierarchy, spacing, and typography.',
+        'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
+        'Preserve the factual substance. You may shorten or reflow wording modestly when needed for layout, but do not add unsupported claims.',
+        'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
+        target
+          ? `HARD CONSTRAINT: the user requested exactly ${target} page${target === 1 ? '' : 's'}. The current Word render has ${totalPageCount || pages.length} page${(totalPageCount || pages.length) === 1 ? '' : 's'}. Revise the document so the finished Word render is exactly ${target} page${target === 1 ? '' : 's'} while keeping the pages visually balanced.`
+          : `The current Word render has ${totalPageCount || pages.length} pages. Improve its visual balance without arbitrarily changing length.`,
+        originalUserPrompt ? `Original user request:\n${originalUserPrompt}` : '',
+        args.design_reference_ids?.length
+          ? `Selected design references: ${args.design_reference_ids.join(', ')}. Preserve their intended visual grammar where Word supports it.`
+          : '',
+        `Current DOCX specification:\n${JSON.stringify({
+          title: args.title,
+          design: args.design,
+          design_reference_ids: args.design_reference_ids,
+          blocks: args.blocks,
+        })}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    },
+  ];
+
+  for (const page of pages.slice(0, 8)) {
+    pageBlocks.push({
+      type: 'text',
+      text: `Rendered Word page ${page.pageNumber}`,
+    });
+    pageBlocks.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:${page.contentType};base64,${page.data.toString('base64')}`,
+      },
+    });
+  }
+
+  const reviewTool = {
+    type: 'function',
+    function: {
+      name: 'revise_docx_layout',
+      description:
+        'Return the complete final Word-document layout specification after inspecting the rendered pages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          design: {
+            type: 'object',
+            description:
+              'Final Word design controls. Adjust margins, body size, line height, colours, and font families when useful.',
+            additionalProperties: true,
+          },
+          blocks: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 200,
+            items: {
+              type: 'object',
+              additionalProperties: true,
+            },
+          },
+          rationale: {
+            type: 'string',
+            description: 'One short internal note describing the corrections made.',
+          },
+        },
+        required: ['blocks'],
+        additionalProperties: false,
+      },
+    },
+  };
+
+  const response = await (openai.chat.completions.create as any)({
+    model,
+    models,
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are ChatGPT acting as a meticulous Word-document art director. This is a bounded visual QA pass. Correct the real rendered pages and respect exact page-count requests.',
+      },
+      {
+        role: 'user',
+        content: pageBlocks,
+      },
+    ],
+    tools: [reviewTool],
+    tool_choice: {
+      type: 'function',
+      function: { name: 'revise_docx_layout' },
+    },
+    parallel_tool_calls: false,
+    temperature: 0.2,
+    max_tokens: 12000,
+    signal,
+    ...(sessionId ? { session_id: sessionId } : {}),
+  });
+
+  const respondingModel =
+    typeof response?.model === 'string' ? response.model : model;
+  const costUsd =
+    typeof response?.usage?.cost === 'number' ? response.usage.cost : 0;
+  const toolCall = response?.choices?.[0]?.message?.tool_calls?.find(
+    (call: any) => call?.function?.name === 'revise_docx_layout'
+  );
+  const rawArguments = toolCall?.function?.arguments;
+  if (!rawArguments || typeof rawArguments !== 'string') {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'ChatGPT returned no usable Word visual-review revision.',
+    };
+  }
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'ChatGPT returned invalid JSON for the Word visual-review revision.',
+    };
+  }
+
+  if (!Array.isArray(parsed?.blocks) || parsed.blocks.length === 0) {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale: 'ChatGPT returned an empty Word visual-review block list.',
+    };
+  }
+
+  const wordBlocks = (parsed.blocks as RichDocumentBlock[]).filter((block: any) =>
+    ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+      block?.type
+    )
+  );
+  const imageSafeBlocks = preserveImageSourceDirectives(
+    args.blocks || [],
+    wordBlocks
+  );
+  if (!imageSafeBlocks) {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale:
+        'Word visual review attempted to change the number of image assets, so the original specification was retained.',
+    };
+  }
+
+  const reviewedDesign: PdfDesign = {
+    ...(args.design || {}),
+    ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
+  };
+  if (target) reviewedDesign.targetPageCount = target;
+
+  const reviewedArgs: GptCreateFileArgs = {
+    ...args,
+    format: 'docx',
+    filename: args.filename,
+    title: typeof parsed.title === 'string' ? parsed.title : args.title,
+    design: reviewedDesign,
+    blocks: imageSafeBlocks,
+  };
+
+  const before = JSON.stringify({
+    title: args.title || '',
+    design: args.design || {},
+    blocks: args.blocks || [],
+  });
+  const after = JSON.stringify({
+    title: reviewedArgs.title || '',
+    design: reviewedArgs.design || {},
+    blocks: reviewedArgs.blocks || [],
+  });
+
+  return {
+    args: reviewedArgs,
+    costUsd,
+    applied: before !== after,
+    respondingModel,
+    rationale:
+      typeof parsed.rationale === 'string'
+        ? parsed.rationale.slice(0, 1000)
+        : 'ChatGPT completed the visual Word-document review.',
+  };
+}
+
 export async function executeGptDocumentCreation(
   options: ExecuteGptDocumentCreationOptions
 ): Promise<ExecuteGptDocumentCreationResult> {
@@ -733,14 +1040,177 @@ export async function executeGptDocumentCreation(
       await renderSession.close();
     }
   } else {
-    const renderedDocument = renderDocx({
-      filename: args.filename,
-      title: args.title,
+    const target = requestedPageCount(args, originalUserPrompt);
+    const initialArgs: GptCreateFileArgs = target
+      ? {
+          ...args,
+          design: {
+            ...(args.design || {}),
+            targetPageCount: target,
+          },
+        }
+      : args;
+
+    const initialDocument = renderDocx({
+      filename: initialArgs.filename,
+      title: initialArgs.title,
+      design: initialArgs.design,
       blocks: resolvedDocument.blocks as DocxBlock[],
     });
-    finalBuffer = renderedDocument.buffer;
-    finalFilename = renderedDocument.filename;
-    renderedFullText = renderedDocument.fullText;
+
+    let selectedDocument = initialDocument;
+    let selectedResolvedBlocks = resolvedDocument.blocks;
+    let selectedPageCount: number | null = null;
+
+    if (reviewModel) {
+      try {
+        const initialPages = await renderDocxPages(initialDocument.buffer, {
+          signal,
+          timeoutMs: 45_000,
+        });
+        selectedPageCount = initialPages.totalPageCount;
+
+        const review = await reviewRenderedDocxWithGpt({
+          openai,
+          model: reviewModel,
+          models: reviewModels.length > 0 ? reviewModels : [reviewModel],
+          args: initialArgs,
+          pages: initialPages.pages,
+          totalPageCount: initialPages.totalPageCount,
+          originalUserPrompt,
+          signal,
+          sessionId: reviewSessionId,
+        });
+        visualReviewCostUsd += review.costUsd;
+
+        console.log('[Generated DOCX Visual Review]', {
+          applied: review.applied,
+          respondingModel: review.respondingModel,
+          initialPageCount: initialPages.totalPageCount,
+          targetPageCount: target,
+          rationale: review.rationale,
+        });
+
+        if (review.applied) {
+          const blocksWithReusedImages = reuseResolvedImagePayloads(
+            review.args.blocks,
+            resolvedDocument.blocks
+          );
+          const reviewedResolvedDocument = await resolveDocumentBlocks(
+            blocksWithReusedImages,
+            serviceClient,
+            availableImages,
+            resourceContext,
+            signal,
+            costAwareCallback
+          );
+          const reviewedDocument = renderDocx({
+            filename: review.args.filename,
+            title: review.args.title,
+            design: review.args.design,
+            blocks: reviewedResolvedDocument.blocks as DocxBlock[],
+          });
+          const reviewedPages = await renderDocxPages(reviewedDocument.buffer, {
+            signal,
+            timeoutMs: 45_000,
+          });
+
+          const initialDistance = pageCountDistance(
+            initialPages.totalPageCount,
+            target
+          );
+          const reviewedDistance = pageCountDistance(
+            reviewedPages.totalPageCount,
+            target
+          );
+          const chooseReviewed =
+            !target ||
+            reviewedDistance < initialDistance ||
+            reviewedDistance === 0 ||
+            reviewedDistance === initialDistance;
+
+          if (chooseReviewed) {
+            selectedDocument = reviewedDocument;
+            selectedResolvedBlocks = reviewedResolvedDocument.blocks;
+            selectedPageCount = reviewedPages.totalPageCount;
+            finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+            visualReviewApplied = true;
+          }
+
+          console.log('[Generated DOCX Visual Review] Reviewed render:', {
+            initialPageCount: initialPages.totalPageCount,
+            reviewedPageCount: reviewedPages.totalPageCount,
+            selectedPageCount,
+            targetPageCount: target,
+          });
+        }
+
+        // If the model improved the layout but the file is still one page over an
+        // explicit target, make one deterministic compacting attempt and keep it
+        // only when it is objectively closer to the requested page count.
+        if (
+          target &&
+          selectedPageCount &&
+          selectedPageCount > target
+        ) {
+          const sourceArgs = visualReviewApplied
+            ? {
+                ...initialArgs,
+                blocks: selectedResolvedBlocks,
+              }
+            : initialArgs;
+          const compactArgs = compactDocxArgs(sourceArgs);
+          const compactBlocks = reuseResolvedImagePayloads(
+            compactArgs.blocks,
+            selectedResolvedBlocks
+          );
+          const compactDocument = renderDocx({
+            filename: compactArgs.filename,
+            title: compactArgs.title,
+            design: compactArgs.design,
+            blocks: compactBlocks as DocxBlock[],
+          });
+          const compactPages = await renderDocxPages(compactDocument.buffer, {
+            signal,
+            timeoutMs: 45_000,
+          });
+
+          if (
+            pageCountDistance(compactPages.totalPageCount, target) <
+            pageCountDistance(selectedPageCount, target)
+          ) {
+            selectedDocument = compactDocument;
+            selectedResolvedBlocks = compactBlocks;
+            selectedPageCount = compactPages.totalPageCount;
+            visualReviewApplied = true;
+          }
+
+          console.log('[Generated DOCX Page Fit]', {
+            targetPageCount: target,
+            compactPageCount: compactPages.totalPageCount,
+            selectedPageCount,
+          });
+        }
+      } catch (reviewErr) {
+        console.warn(
+          '[Generated DOCX Visual Review] Non-critical review failure; using best available render:',
+          reviewErr
+        );
+      }
+    }
+
+    finalBuffer = selectedDocument.buffer;
+    finalFilename = selectedDocument.filename;
+    renderedFullText = selectedDocument.fullText;
+
+    console.log('[Generated DOCX] Final render:', {
+      filename: finalFilename,
+      byteSize: finalBuffer.length,
+      pageCount: selectedPageCount,
+      targetPageCount: target,
+      visualReviewApplied,
+      visualReviewCostUsd,
+    });
   }
 
   const finalContent = `Created **${finalFilename}**.`;
