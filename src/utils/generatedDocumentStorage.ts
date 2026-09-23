@@ -67,9 +67,6 @@ export async function persistGeneratedDocument(
   if (!supabase) throw new Error('Authenticated Supabase client is required');
   if (!discussionId?.trim()) throw new Error('Valid discussionId is required');
   if (!messageId?.trim()) throw new Error('Valid messageId is required');
-  if (seatId !== 'claude') {
-    throw new Error('Only the Claude seat can persist generated documents.');
-  }
   if (!Buffer.isBuffer(fileBuffer) || fileBuffer.length === 0) {
     throw new Error('Generated document buffer is empty.');
   }
