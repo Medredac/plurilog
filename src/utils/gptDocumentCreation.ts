@@ -149,6 +149,82 @@ function compactDocxArgs(args: GptCreateFileArgs): GptCreateFileArgs {
   };
 }
 
+function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock[] {
+  const output: RichDocumentBlock[] = [];
+
+  for (const block of blocks || []) {
+    if (!block || typeof block !== 'object') continue;
+    const b: any = block;
+
+    if (
+      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+        b.type
+      )
+    ) {
+      output.push(block);
+      continue;
+    }
+
+    if (b.type === 'banner') {
+      if (b.eyebrow) output.push({ type: 'paragraph', text: String(b.eyebrow) } as any);
+      if (b.title) output.push({ type: 'heading', level: 1, text: String(b.title) } as any);
+      if (b.subtitle) output.push({ type: 'paragraph', text: String(b.subtitle) } as any);
+      continue;
+    }
+
+    if (b.type === 'callout') {
+      if (b.title) output.push({ type: 'heading', level: 2, text: String(b.title) } as any);
+      else if (b.eyebrow) output.push({ type: 'heading', level: 3, text: String(b.eyebrow) } as any);
+      if (b.text) output.push({ type: 'paragraph', text: String(b.text) } as any);
+      if (Array.isArray(b.items) && b.items.length > 0) {
+        output.push({ type: 'bullets', items: b.items.map(String) } as any);
+      }
+      continue;
+    }
+
+    if (b.type === 'cards' && Array.isArray(b.cards)) {
+      for (const card of b.cards) {
+        if (card?.title) {
+          output.push({ type: 'heading', level: 2, text: String(card.title) } as any);
+        }
+        if (card?.text) {
+          output.push({ type: 'paragraph', text: String(card.text) } as any);
+        }
+      }
+      continue;
+    }
+
+    if (b.type === 'columns' && Array.isArray(b.columns)) {
+      for (const column of b.columns) {
+        if (column?.title) {
+          output.push({ type: 'heading', level: 2, text: String(column.title) } as any);
+        }
+        if (column?.text) {
+          output.push({ type: 'paragraph', text: String(column.text) } as any);
+        }
+        if (Array.isArray(column?.items) && column.items.length > 0) {
+          output.push({ type: 'bullets', items: column.items.map(String) } as any);
+        }
+      }
+      continue;
+    }
+
+    if (b.type === 'flow' && Array.isArray(b.steps)) {
+      const items = b.steps
+        .map((step: any) => {
+          const title = String(step?.title || step?.label || '').trim();
+          const text = String(step?.text || '').trim();
+          return [title, text].filter(Boolean).join(' — ');
+        })
+        .filter(Boolean);
+      if (items.length > 0) output.push({ type: 'numbered', items } as any);
+    }
+  }
+
+  return output;
+}
+
+
 function isImageFilename(value?: string | null): boolean {
   if (!value) return false;
   const clean = value.split('?')[0].split('#')[0].toLowerCase();
@@ -923,6 +999,17 @@ export async function executeGptDocumentCreation(
   }
 
   const serviceClient = createServiceClient();
+  const inferredTarget = requestedPageCount(args, originalUserPrompt);
+  if (args.format === 'docx') {
+    args.blocks = coerceRichBlocksForDocx(args.blocks || []);
+    if (inferredTarget) {
+      args.design = {
+        ...(args.design || {}),
+        targetPageCount: inferredTarget,
+      };
+    }
+  }
+
   let imageCostUsd = 0;
   const costAwareCallback = (event: DocumentImageCostEvent) => {
     imageCostUsd += event.costUsd;
