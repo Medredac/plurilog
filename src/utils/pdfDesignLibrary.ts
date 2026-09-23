@@ -854,8 +854,8 @@ export function buildPdfDesignReferenceContext(prompt: string): {
   return {
     referenceIds: selected.map((reference) => reference.id),
     text: [
-      'PDF DESIGN REFERENCE LIBRARY — MOODBOARD, NOT TEMPLATES',
-      'The following references were retrieved from Plurilog’s broader design library because they may be relevant to this request.',
+      'DOCUMENT DESIGN REFERENCE LIBRARY — MOODBOARD, NOT TEMPLATES',
+      'The following references were retrieved from Plurilog’s broader design library because they may be relevant to this document request. They can guide both PDF and Word output; each format should use only the visual techniques it supports well.',
       'Use them as visual grammar and art-direction references, not fixed layouts. Choose ONE primary reference and optionally ONE secondary reference to borrow from, or choose Custom / No Reference. You may ignore a retrieved reference if it is a poor fit.',
       'Do not mechanically combine all references, do not try to demonstrate every layout primitive, and do not mention the library or selected references to the user.',
       'The user’s explicit visual instructions always override these references. Cultural/document conventions matter: for example, a Japanese employment document should remain Japanese in visual language rather than being forced into a Western report style.',
