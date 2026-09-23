@@ -4,6 +4,10 @@ const MAX_DOCX_RENDER_BYTES = 25 * 1024 * 1024;
 export const MAX_DOCX_RENDERED_PAGES = 12;
 const DEFAULT_RENDER_DPI = 120;
 const LIBREOFFICE_VERSION = '26.2.6';
+// Snapshot rebuilt with LibreOffice, Poppler, fontconfig, and Japanese Noto CJK fonts.
+// Keep this code-level default ahead of older environment snapshots so preview/production
+// do not silently regress to tofu rendering after deployment.
+const DEFAULT_DOCX_RENDERER_SNAPSHOT_ID = 'snap_vwQhLmdtlIxq4OliWzLOjVlHEzuD';
 
 export interface RenderedDocxPage {
   pageNumber: number;
@@ -289,6 +293,7 @@ export async function convertDocxToPdf(
   const startedAt = Date.now();
   const snapshotId =
     options.snapshotId?.trim() ||
+    DEFAULT_DOCX_RENDERER_SNAPSHOT_ID ||
     process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
   const timeoutMs = Math.max(
@@ -407,6 +412,7 @@ export async function renderDocxPages(
   const startedAt = Date.now();
   const snapshotId =
     options.snapshotId?.trim() ||
+    DEFAULT_DOCX_RENDERER_SNAPSHOT_ID ||
     process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
   const usedSnapshot = Boolean(snapshotId);
   const timeoutMs = Math.max(
