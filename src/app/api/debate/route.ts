@@ -4589,10 +4589,7 @@ export async function POST(req: NextRequest) {
                     }
 
                     const shouldAnchorRevisionToCanonicalParent =
-                      Boolean(latestCanonicalRevisionState) &&
-                      !toolFilename &&
-                      (toolResourceType === 'document' ||
-                        toolResourceType === 'auto');
+                      Boolean(latestCanonicalRevisionState);
 
                     const brokerResult =
                       shouldAnchorRevisionToCanonicalParent &&
