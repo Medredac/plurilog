@@ -166,6 +166,13 @@ export const CLAUDE_FILE_TOOLS = [
             type: 'string',
             description: 'Optional title shown inside the document. For rich PDFs, omit this when a banner block already provides the title treatment.',
           },
+          design_reference_ids: {
+            type: 'array',
+            maxItems: 2,
+            description:
+              'PDF-only. Choose one primary design reference from the retrieved PDF design library and optionally one secondary reference to blend. Use ["custom"] when none fit. These are moodboard references, not fixed templates.',
+            items: { type: 'string' },
+          },
           design: {
             type: 'object',
             description:
@@ -3460,6 +3467,10 @@ export async function POST(req: NextRequest) {
                         imageModels: Array.from(documentImageModels),
                         visualReviewApplied: documentResult.visualReviewApplied,
                         visualReviewCostUsd: documentResult.visualReviewCostUsd,
+                        designReferenceIds:
+                          fileArgs.format === 'pdf'
+                            ? fileArgs.design_reference_ids || []
+                            : [],
                       },
                     });
 
