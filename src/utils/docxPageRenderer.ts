@@ -18,6 +18,7 @@ export interface RenderedDocxPage {
 export interface RenderDocxPagesResult {
   pages: RenderedDocxPage[];
   totalPageCount: number | null;
+  renderedText: string;
   truncated: boolean;
   usedSnapshot: boolean;
   elapsedMs: number;
@@ -492,6 +493,13 @@ export async function renderDocxPages(
     await assertCommandSucceeded(pdfInfo, 'PDF page inspection');
     const totalPageCount = parsePdfPageCount(await pdfInfo.stdout());
 
+    const extractedTextResult = await sandbox.runCommand({
+      cmd: 'pdftotext',
+      args: ['/vercel/sandbox/input.pdf', '-'],
+    });
+    await assertCommandSucceeded(extractedTextResult, 'Rendered DOCX text extraction');
+    const renderedText = await extractedTextResult.stdout();
+
     if (options.signal?.aborted) {
       throw new DOMException('DOCX rendering aborted.', 'AbortError');
     }
@@ -549,6 +557,7 @@ export async function renderDocxPages(
     return {
       pages,
       totalPageCount,
+      renderedText,
       truncated:
         typeof totalPageCount === 'number'
           ? totalPageCount > pages.length
