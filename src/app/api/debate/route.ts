@@ -4114,9 +4114,11 @@ export async function POST(req: NextRequest) {
                       content: documentResult.fullText,
                     });
                     currentRoundAttachments.push({
-                      url: documentResult.signedUrl,
-                      filename: documentResult.filename,
-                    });
+                        url: documentResult.signedUrl,
+                        filename: documentResult.filename,
+                        provenance: 'same_round_assistant_generated',
+                        creatorSeatId: seat.seatId,
+                      });
                   }
 
                   documentCreatedThisTurn = true;
@@ -4367,6 +4369,14 @@ export async function POST(req: NextRequest) {
                     currentRoundDocumentAttachments.length === 1
                       ? currentRoundDocumentAttachments.at(0) || null
                       : null;
+                  const latestSameRoundGeneratedDocument =
+                    [...currentRoundDocumentAttachments]
+                      .reverse()
+                      .find(
+                        (attachment) =>
+                          attachment.provenance ===
+                          'same_round_assistant_generated'
+                      ) || null;
 
                   let latestKnownSources: KnownImageSource[] = [];
                   let lastRoundEvidenceForBroker: MessageVisualEvidenceItem[] = [];
@@ -4566,6 +4576,28 @@ export async function POST(req: NextRequest) {
                       );
 
                     if (
+                      !toolFilename &&
+                      !explicitlyHistoricalEvidenceRequest &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto') &&
+                      latestSameRoundGeneratedDocument
+                    ) {
+                      toolFilename =
+                        latestSameRoundGeneratedDocument.filename ||
+                        undefined;
+                      if (!toolNeed) {
+                        toolNeed =
+                          'the newest document generated earlier in the current panel round';
+                      }
+                      console.log(
+                        '[Evidence Broker] Anchored generic request to newest same-round generated document',
+                        {
+                          seatId: seat.seatId,
+                          filename: toolFilename || null,
+                          resourceType: toolResourceType,
+                        }
+                      );
+                    } else if (
                       !toolFilename &&
                       !explicitlyHistoricalEvidenceRequest &&
                       (toolResourceType === 'document' ||
@@ -5635,6 +5667,8 @@ export async function POST(req: NextRequest) {
                       currentRoundAttachments.push({
                         url: documentResult.signedUrl,
                         filename: documentResult.filename,
+                        provenance: 'same_round_assistant_generated',
+                        creatorSeatId: seat.seatId,
                       });
                     }
 
