@@ -296,6 +296,106 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
 }
 
 
+function applyDocxDocumentConventions(
+  blocks: RichDocumentBlock[],
+  prompt: string
+): RichDocumentBlock[] {
+  const isRirekisho =
+    /(?:履歴書|りれきしょ|rirekisho)/i.test(prompt || '') ||
+    blocks.some((block: any) =>
+      block?.type === 'heading' && /履\s*歴\s*書/.test(String(block.text || ''))
+    );
+
+  if (!isRirekisho) return blocks;
+
+  const portraitRegex =
+    /(?:証明写真|顔写真|写真|portrait|headshot|id\s*photo|profile\s*photo)/i;
+  const hasPortrait = blocks.some((block: any) => {
+    if (block?.type !== 'image') return false;
+    const description = [
+      block.need,
+      block.prompt,
+      block.caption,
+      block.filename,
+      block.imageAltText,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return portraitRegex.test(description);
+  });
+
+  return blocks.map((block: any) => {
+    if (block?.type === 'image') {
+      const description = [
+        block.need,
+        block.prompt,
+        block.caption,
+        block.filename,
+        block.imageAltText,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
+      if (portraitRegex.test(description)) {
+        return {
+          ...block,
+          placement: 'top-right',
+          alignment: 'right',
+          size: 'small',
+          widthMm: 30,
+          heightMm: 40,
+          caption: undefined,
+        } as RichDocumentBlock;
+      }
+      return block;
+    }
+
+    if (block?.type === 'table') {
+      const headers = Array.isArray(block.headers) ? block.headers : [];
+      let rows = Array.isArray(block.rows) ? block.rows : [];
+      const tableText = [...headers, ...rows.flat()].join(' ');
+
+      const looksLikeProfileTable =
+        rows.length > 0 &&
+        rows.every((row: any) => Array.isArray(row) && row.length <= 2) &&
+        /(?:氏名|ふりがな|現住所|電話|メール|生年月日|国籍)/.test(tableText);
+
+      if (looksLikeProfileTable) {
+        if (hasPortrait) {
+          rows = rows.filter((row: any) => {
+            const label = String(Array.isArray(row) ? row[0] || '' : '');
+            return !/^\s*(?:写真|証明写真)\s*$/.test(label);
+          });
+        }
+        return {
+          ...block,
+          rows,
+          tableWidthPct: 66,
+          columnWidthsPct: [26, 74],
+        } as RichDocumentBlock;
+      }
+
+      const columnCount = Math.max(
+        headers.length,
+        ...rows.map((row: any) => (Array.isArray(row) ? row.length : 0)),
+        0
+      );
+      if (
+        columnCount === 3 &&
+        /(?:年|月)/.test(String(headers[0] || '') + String(headers[1] || ''))
+      ) {
+        return {
+          ...block,
+          tableWidthPct: 100,
+          columnWidthsPct: [10, 8, 82],
+        } as RichDocumentBlock;
+      }
+    }
+
+    return block;
+  });
+}
+
 function isImageFilename(value?: string | null): boolean {
   if (!value) return false;
   const clean = value.split('?')[0].split('#')[0].toLowerCase();
@@ -1085,7 +1185,22 @@ export async function executeGptDocumentCreation(
   const serviceClient = createServiceClient();
   const inferredTarget = requestedPageCount(args, originalUserPrompt);
   if (args.format === 'docx') {
-    args.blocks = coerceRichBlocksForDocx(args.blocks || []);
+    args.blocks = applyDocxDocumentConventions(
+      coerceRichBlocksForDocx(args.blocks || []),
+      originalUserPrompt
+    );
+    if (
+      /[\u3040-\u30ff\u3400-\u9fff]/.test(
+        originalUserPrompt + JSON.stringify(args.blocks || [])
+      )
+    ) {
+      args.design = {
+        ...(args.design || {}),
+        fontFamily: args.design?.fontFamily || 'jp-sans',
+        headingFontFamily: args.design?.headingFontFamily || 'jp-sans',
+        locale: args.design?.locale || 'ja-JP',
+      };
+    }
     if (inferredTarget) {
       args.design = {
         ...(args.design || {}),
