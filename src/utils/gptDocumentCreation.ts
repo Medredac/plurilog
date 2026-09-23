@@ -320,9 +320,21 @@ function scoreImageSource(source: DocumentImageSource, need: string, filename?: 
   const wantedFilename = (filename || '').trim().toLowerCase();
   if (wantedFilename && sourceName === wantedFilename) return 1000;
   if (wantedFilename && sourceName.includes(wantedFilename)) return 800;
-  const tokens = `${need} ${filename || ''}`.toLowerCase().match(/[a-z0-9]{3,}/g) || [];
+
+  const combinedNeed = `${need} ${filename || ''}`.toLowerCase();
+  const tokens = combinedNeed.match(/[a-z0-9]{3,}/g) || [];
   let score = 0;
   for (const token of tokens) if (sourceName.includes(token)) score += 20;
+
+  const wantsPortrait =
+    /\b(photo|portrait|headshot|id\s*photo|profile\s*photo)\b/i.test(combinedNeed) ||
+    /(?:証明写真|顔写真|写真|ポートレート)/.test(need || '');
+
+  if (wantsPortrait && /portrait photo candidate/.test(sourceName)) {
+    score += 300;
+    if (/candidate 1\b/.test(sourceName)) score += 40;
+  }
+
   return score;
 }
 
