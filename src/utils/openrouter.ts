@@ -14,8 +14,6 @@ export const PROVIDER_MODELS: Record<ProviderPrefix, string[]> = {
   ],
   'anthropic/': [
     'anthropic/claude-opus-5.5',
-    '~anthropic/claude-sonnet-latest',
-    '~anthropic/claude-opus-latest',
   ],
   'openai/': [
     'openai/gpt-5.6-luna',
