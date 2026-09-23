@@ -57,6 +57,7 @@ export interface ExecuteGptDocumentCreationOptions {
   seatId: ModelId;
   args: GptCreateFileArgs;
   signal?: AbortSignal;
+  durableSignal?: AbortSignal;
   availableImages?: DocumentImageSource[];
   resourceContext?: ResourceBrokerContext;
   onImageCost?: (event: DocumentImageCostEvent) => void;
@@ -1064,6 +1065,7 @@ export async function executeGptDocumentCreation(
     seatId,
     args,
     signal,
+    durableSignal = signal,
     availableImages = [],
     resourceContext,
     onImageCost,
@@ -1563,7 +1565,7 @@ export async function executeGptDocumentCreation(
               filename: image.filename,
             })),
             sourceUserMessageId: persistedMsg.id,
-            signal,
+            signal: durableSignal,
           });
 
           console.log('[Generated DOCX Embedded Images]', {
@@ -1595,7 +1597,7 @@ export async function executeGptDocumentCreation(
       fullText: renderedFullText,
       fileBytes: finalBuffer,
       storagePath: persistedDocument.storagePath,
-      signal,
+      signal: durableSignal,
     });
 
     console.log('[Generated Document Ingest]', {
