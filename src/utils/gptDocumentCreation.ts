@@ -147,7 +147,7 @@ function normalizeRenderedComparisonText(value: string): string {
     .toLowerCase();
 }
 
-function japaneseBigramCoverage(
+function japanesePairCoverage(
   needle: string,
   haystack: string
 ): number {
@@ -155,18 +155,23 @@ function japaneseBigramCoverage(
   if (chars.length === 0) return 1;
   if (chars.length <= 3) return haystack.includes(needle) ? 1 : 0;
 
-  const grams: string[] = [];
-  for (let i = 0; i < chars.length - 1; i += 1) {
-    grams.push(chars[i] + chars[i + 1]);
-  }
-  const unique = Array.from(new Set(grams));
-  if (unique.length === 0) return haystack.includes(needle) ? 1 : 0;
+  const coverageForOffset = (offset: number): number => {
+    const pairs: string[] = [];
+    for (let i = offset; i + 1 < chars.length; i += 2) {
+      pairs.push(chars[i] + chars[i + 1]);
+    }
+    if (pairs.length === 0) return 0;
+    let matched = 0;
+    for (const pair of pairs) {
+      if (haystack.includes(pair)) matched += 1;
+    }
+    return matched / pairs.length;
+  };
 
-  let matched = 0;
-  for (const gram of unique) {
-    if (haystack.includes(gram)) matched += 1;
-  }
-  return matched / unique.length;
+  // A visual line/column boundary can break one adjacent pair. Evaluating both
+  // pair alignments lets one alignment survive that boundary, while a genuinely
+  // omitted phrase removes pairs from both alignments.
+  return Math.max(coverageForOffset(0), coverageForOffset(1));
 }
 
 function renderedTableValuePresent(
@@ -201,7 +206,7 @@ function renderedTableValuePresent(
 
     // A line/column extraction boundary normally destroys only one or two
     // adjacencies. A genuinely dropped phrase loses many of them.
-    if (japaneseBigramCoverage(run, haystack) < 0.8) return false;
+    if (japanesePairCoverage(run, haystack) < 0.9) return false;
   }
 
   // Symbol-only cells are not useful visibility sentinels.
