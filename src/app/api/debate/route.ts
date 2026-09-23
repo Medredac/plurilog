@@ -1216,7 +1216,7 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
   }
 
   const isLikelyPdfCreationRequest =
-    currentModelName === 'Claude' &&
+    currentModelName === 'ChatGPT' &&
     /\bpdf\b/i.test(effectivePrompt) &&
     /\b(create|make|generate|produce|build|write|return|design|redesign|revise|prepare)\b/i.test(
       effectivePrompt
@@ -3041,7 +3041,7 @@ export async function POST(req: NextRequest) {
             const isEvidenceEnabledForSeat =
               isSeatEligibleForEvidenceRequest(seat.seatId);
             const isDocumentCreationEnabledForSeat =
-              seat.seatId === 'claude' && isClaudeDocumentCreationEnabled();
+              seat.seatId === 'chatgpt' && isClaudeDocumentCreationEnabled();
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
