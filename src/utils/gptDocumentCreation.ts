@@ -6,6 +6,10 @@ import {
 } from '@/utils/discussionMemory';
 import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
+import {
+  extractPdfEmbeddedImages,
+  persistPdfEmbeddedImages,
+} from '@/utils/pdfEmbeddedImages';
 import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
@@ -1789,6 +1793,53 @@ export async function executeGptDocumentCreation(
       console.warn(
         '[Generated DOCX Visual Handoff Cache] Non-critical page persistence error:',
         pagePersistErr
+      );
+    }
+  }
+
+  // Make raster images embedded inside GPT-generated PDFs durable reusable assets too.
+  // This mirrors the DOCX path so later turns can reuse/edit an illustration that
+  // existed only inside a generated PDF.
+  if (args.format === 'pdf' && finalImageAssetCount > 0) {
+    try {
+      const extractedPdfImages = await extractPdfEmbeddedImages(finalBuffer, {
+        signal: durableSignal,
+        timeoutMs: 30_000,
+      });
+      if (extractedPdfImages.length > 0) {
+        const persistedPdfImages = await persistPdfEmbeddedImages({
+          supabase,
+          parentFilename: persistedDocument.filename,
+          parentFileBytes: finalBuffer,
+          images: extractedPdfImages,
+        });
+
+        if (persistedPdfImages.length > 0) {
+          const artifactResult = await ingestDiscussionArtifacts({
+            serviceSupabase: serviceClient,
+            discussionId,
+            attachments: persistedPdfImages.map((image) => ({
+              url: image.signedUrl,
+              filename: image.filename,
+            })),
+            sourceUserMessageId: persistedMsg.id,
+            signal: durableSignal,
+          });
+
+          console.log('[Generated PDF Embedded Images]', {
+            discussionId,
+            filename: persistedDocument.filename,
+            extractedCount: extractedPdfImages.length,
+            persistedCount: persistedPdfImages.length,
+            indexedCount: artifactResult.ingestedCount,
+            errorCount: artifactResult.errors.length,
+          });
+        }
+      }
+    } catch (pdfImageErr) {
+      console.warn(
+        '[Generated PDF Embedded Images] Non-critical extraction/indexing error:',
+        pdfImageErr
       );
     }
   }
