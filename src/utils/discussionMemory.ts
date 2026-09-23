@@ -1425,10 +1425,12 @@ export async function getScopedDiscussionMemory(
         console.warn('[Memory] Non-critical warning fetching known documents:', docFetchErr);
       }
 
-      // 3b. Merge authoritative PDF attachments from rawMessages to include any unparsed/failed-ingestion PDFs
+      // 3b. Merge document attachments from all messages, including assistant-generated
+      // files. This is the durable fallback when full document indexing is delayed,
+      // aborted, or unavailable: generated DOCX/PDF files must remain discoverable
+      // on later turns exactly like user uploads.
       if (Array.isArray(rawMessages)) {
         for (const msg of rawMessages) {
-          if (msg.sender !== 'user') continue;
           const urls: string[] = [];
           if (Array.isArray(msg.attachment_urls)) {
             for (const u of msg.attachment_urls) {
