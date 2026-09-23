@@ -3712,39 +3712,47 @@ export async function POST(req: NextRequest) {
                     for (const { result: documentResult } of createdDocuments) {
                       if (documentResult.format === 'docx') {
                         try {
-                          const generatedDocPages =
-                            await materializeDocxRenderedPageAttachments({
-                              supabase,
-                              serviceClient: serviceClientForDocument,
-                              discussionId: discussionId || '',
-                              sourceUserMessageId:
-                                documentResult.messageId,
-                              storagePath: documentResult.storagePath,
-                              filename: documentResult.filename,
-                              signal: seatAbortController.signal,
-                              registerImmediately: false,
-                              renderTimeoutMs: 20_000,
-                            });
+                          let generatedDocPages: RouteAttachment[] = (
+                            documentResult.renderedPageAttachments || []
+                          ).map((page) => ({
+                            url: page.url,
+                            filename: page.filename,
+                            provenance: 'same_round_document_render' as const,
+                            creatorSeatId: seat.seatId,
+                          }));
 
-                          const sameRoundDocumentPages =
-                            generatedDocPages.map((page) => ({
+                          if (generatedDocPages.length === 0) {
+                            generatedDocPages =
+                              await materializeDocxRenderedPageAttachments({
+                                supabase,
+                                serviceClient: serviceClientForDocument,
+                                discussionId: discussionId || '',
+                                sourceUserMessageId:
+                                  documentResult.messageId,
+                                storagePath: documentResult.storagePath,
+                                filename: documentResult.filename,
+                                signal: seatAbortController.signal,
+                                registerImmediately: false,
+                                renderTimeoutMs: 20_000,
+                              });
+                            generatedDocPages = generatedDocPages.map((page) => ({
                               ...page,
                               provenance:
                                 'same_round_document_render' as const,
                               creatorSeatId: seat.seatId,
                             }));
+                          }
 
-                          currentRoundAttachments.push(
-                            ...sameRoundDocumentPages
-                          );
+                          currentRoundAttachments.push(...generatedDocPages);
 
                           console.log(
                             '[Generated DOCX Visual Handoff]',
                             {
                               discussionId: discussionId || null,
                               filename: documentResult.filename,
-                              renderedPageCount:
-                                sameRoundDocumentPages.length,
+                              renderedPageCount: generatedDocPages.length,
+                              reusedQaRender:
+                                (documentResult.renderedPageAttachments || []).length > 0,
                               laterSeatCount,
                             }
                           );
@@ -4605,27 +4613,39 @@ export async function POST(req: NextRequest) {
                       } of createdDocuments) {
                         if (documentResult.format === 'docx') {
                           try {
-                            const generatedDocPages =
-                              await materializeDocxRenderedPageAttachments({
-                                supabase,
-                                serviceClient: serviceClientForDocument,
-                                discussionId: discussionId || '',
-                                sourceUserMessageId:
-                                  documentResult.messageId,
-                                storagePath: documentResult.storagePath,
-                                filename: documentResult.filename,
-                                signal: seatAbortController.signal,
-                                registerImmediately: false,
-                                renderTimeoutMs: 20_000,
-                              });
-                            currentRoundAttachments.push(
-                              ...generatedDocPages.map((page) => ({
+                            let generatedDocPages: RouteAttachment[] = (
+                              documentResult.renderedPageAttachments || []
+                            ).map((page) => ({
+                              url: page.url,
+                              filename: page.filename,
+                              provenance:
+                                'same_round_document_render' as const,
+                              creatorSeatId: seat.seatId,
+                            }));
+
+                            if (generatedDocPages.length === 0) {
+                              generatedDocPages =
+                                await materializeDocxRenderedPageAttachments({
+                                  supabase,
+                                  serviceClient: serviceClientForDocument,
+                                  discussionId: discussionId || '',
+                                  sourceUserMessageId:
+                                    documentResult.messageId,
+                                  storagePath: documentResult.storagePath,
+                                  filename: documentResult.filename,
+                                  signal: seatAbortController.signal,
+                                  registerImmediately: false,
+                                  renderTimeoutMs: 20_000,
+                                });
+                              generatedDocPages = generatedDocPages.map((page) => ({
                                 ...page,
                                 provenance:
                                   'same_round_document_render' as const,
                                 creatorSeatId: seat.seatId,
-                              }))
-                            );
+                              }));
+                            }
+
+                            currentRoundAttachments.push(...generatedDocPages);
                           } catch (generatedDocRenderErr) {
                             console.warn(
                               '[Generated DOCX Visual Handoff] Non-critical render error after evidence chain:',
