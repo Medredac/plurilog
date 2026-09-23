@@ -263,7 +263,7 @@ async function resolveDocumentBlocks(
       }
       source = source || fallbackResolveImageSource(availableImages, need, block.filename);
       if (!source) {
-        throw new Error(`Could not uniquely resolve the image requested for the Word document: ${need}`);
+        throw new Error(`Could not uniquely resolve the image requested for the document: ${need}`);
       }
 
       if (mode === 'existing') {
