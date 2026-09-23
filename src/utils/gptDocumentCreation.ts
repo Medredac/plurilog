@@ -127,6 +127,43 @@ function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | 
   return word ? PAGE_COUNT_WORDS[word[1].toLowerCase()] || null : null;
 }
 
+function normalizeRenderedComparisonText(value: string): string {
+  return (value || '')
+    .normalize('NFKC')
+    .replace(/[\s\u00a0]+/g, '')
+    .replace(/[‐‑‒–—―]/g, '-')
+    .replace(/[〜～]/g, '~')
+    .toLowerCase();
+}
+
+function missingRenderedTableValues(
+  blocks: RichDocumentBlock[],
+  renderedText: string
+): string[] {
+  const haystack = normalizeRenderedComparisonText(renderedText);
+  if (!haystack) return ['[rendered document text was empty]'];
+
+  const missing: string[] = [];
+  for (const block of blocks || []) {
+    if ((block as any)?.type !== 'table') continue;
+    const headers = Array.isArray((block as any).headers) ? (block as any).headers : [];
+    const rows = Array.isArray((block as any).rows) ? (block as any).rows : [];
+    const values = [...headers, ...rows.flat()]
+      .map((value) => String(value || '').trim())
+      .filter((value) => value.length >= 2);
+
+    for (const value of values) {
+      const needle = normalizeRenderedComparisonText(value);
+      if (needle.length < 2) continue;
+      if (!haystack.includes(needle)) {
+        missing.push(value.slice(0, 240));
+        if (missing.length >= 20) return missing;
+      }
+    }
+  }
+  return missing;
+}
+
 function pageCountDistance(actual: number | null, target: number | null): number {
   if (!target || !actual) return Number.POSITIVE_INFINITY;
   return Math.abs(actual - target);
@@ -963,8 +1000,10 @@ async function reviewRenderedDocxWithGpt(options: {
         'Inspect the ACTUAL LibreOffice-rendered page images below. Do not judge only from the source specification.',
         'Return the complete revised DOCX specification through the revise_docx_layout tool.',
         'Fix page balance, excessive whitespace, crowded areas, orphaned headings, split list items, awkward page breaks, image sizing, table legibility, hierarchy, spacing, and typography.',
+        'Compare the rendered pages against the source specification. Every non-empty table cell, factual name/date/status, and requested image must remain visibly present. Never solve overflow by hiding or dropping a table column.',
+        'If Japanese characters are visible in the page images, do not claim they are missing/tofu. Only diagnose glyph corruption when the actual rendered glyphs are visibly boxes or replacement characters.',
         'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
-        'Preserve the factual substance. You may shorten or reflow wording modestly when needed for layout, but do not add unsupported claims.',
+        'Preserve factual table content exactly. You may shorten or reflow ordinary prose modestly when needed for layout, but do not change names, dates, institutions, degree/completion status, employment status, or other source-grounded facts, and do not add unsupported claims.',
         'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
         target
           ? `HARD CONSTRAINT: the user requested exactly ${target} page${target === 1 ? '' : 's'}. The current Word render has ${totalPageCount || pages.length} page${(totalPageCount || pages.length) === 1 ? '' : 's'}. Revise the document so the finished Word render is exactly ${target} page${target === 1 ? '' : 's'} while keeping the pages visually balanced.`
@@ -1398,6 +1437,7 @@ export async function executeGptDocumentCreation(
     let selectedDocument = initialDocument;
     let selectedResolvedBlocks = resolvedDocument.blocks;
     let selectedPageCount: number | null = null;
+    let selectedRenderedText = '';
 
     if (reviewModel) {
       try {
@@ -1406,7 +1446,18 @@ export async function executeGptDocumentCreation(
           timeoutMs: 45_000,
         });
         selectedPageCount = initialPages.totalPageCount;
+        selectedRenderedText = initialPages.renderedText;
         finalDocxReviewPages = initialPages.pages;
+        const initialMissingTableValues = missingRenderedTableValues(
+          resolvedDocument.blocks,
+          initialPages.renderedText
+        );
+
+        console.log('[Generated DOCX Render Validation] Initial render', {
+          missingTableValueCount: initialMissingTableValues.length,
+          missingTableValues: initialMissingTableValues.slice(0, 8),
+          pageCount: initialPages.totalPageCount,
+        });
 
         const review = await reviewRenderedDocxWithGpt({
           openai,
@@ -1461,16 +1512,32 @@ export async function executeGptDocumentCreation(
             reviewedPages.totalPageCount,
             target
           );
+          const reviewedMissingTableValues = missingRenderedTableValues(
+            reviewedResolvedDocument.blocks,
+            reviewedPages.renderedText
+          );
+          const tableVisibilityImproved =
+            reviewedMissingTableValues.length <
+            initialMissingTableValues.length;
+          const tableVisibilitySafe =
+            reviewedMissingTableValues.length === 0 ||
+            reviewedMissingTableValues.length <=
+              initialMissingTableValues.length;
           const chooseReviewed =
-            !target ||
-            reviewedDistance < initialDistance ||
-            reviewedDistance === 0 ||
-            reviewedDistance === initialDistance;
+            tableVisibilitySafe &&
+            (
+              tableVisibilityImproved ||
+              !target ||
+              reviewedDistance < initialDistance ||
+              reviewedDistance === 0 ||
+              reviewedDistance === initialDistance
+            );
 
           if (chooseReviewed) {
             selectedDocument = reviewedDocument;
             selectedResolvedBlocks = reviewedResolvedDocument.blocks;
             selectedPageCount = reviewedPages.totalPageCount;
+            selectedRenderedText = reviewedPages.renderedText;
             finalDocxReviewPages = reviewedPages.pages;
             finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
             visualReviewApplied = true;
@@ -1481,6 +1548,8 @@ export async function executeGptDocumentCreation(
             reviewedPageCount: reviewedPages.totalPageCount,
             selectedPageCount,
             targetPageCount: target,
+            missingTableValueCount: reviewedMissingTableValues.length,
+            missingTableValues: reviewedMissingTableValues.slice(0, 8),
           });
         }
 
@@ -1521,6 +1590,7 @@ export async function executeGptDocumentCreation(
             selectedDocument = compactDocument;
             selectedResolvedBlocks = compactBlocks;
             selectedPageCount = compactPages.totalPageCount;
+            selectedRenderedText = compactPages.renderedText;
             finalDocxReviewPages = compactPages.pages;
             visualReviewApplied = true;
           }
@@ -1566,6 +1636,7 @@ export async function executeGptDocumentCreation(
             selectedDocument = spreadDocument;
             selectedResolvedBlocks = spreadBlocks;
             selectedPageCount = spreadPages.totalPageCount;
+            selectedRenderedText = spreadPages.renderedText;
             finalDocxReviewPages = spreadPages.pages;
             visualReviewApplied = true;
           }
@@ -1582,6 +1653,21 @@ export async function executeGptDocumentCreation(
           reviewErr
         );
       }
+    }
+
+    const finalMissingTableValues = selectedRenderedText
+      ? missingRenderedTableValues(selectedResolvedBlocks, selectedRenderedText)
+      : [];
+
+    if (finalMissingTableValues.length > 0) {
+      console.error('[Generated DOCX Render Validation] Refusing visually incomplete Word file', {
+        filename: selectedDocument.filename,
+        missingTableValueCount: finalMissingTableValues.length,
+        missingTableValues: finalMissingTableValues.slice(0, 12),
+      });
+      throw new Error(
+        `Word rendering validation failed: ${finalMissingTableValues.length} table value(s) were not visible in the rendered document.`
+      );
     }
 
     finalBuffer = selectedDocument.buffer;
