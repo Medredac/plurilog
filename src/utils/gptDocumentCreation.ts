@@ -48,6 +48,11 @@ export interface DocumentImageSource {
   filename: string;
   storagePath?: string | null;
   url?: string | null;
+  artifactId?: string | null;
+  sourceMessageId?: string | null;
+  attachmentIndex?: number | null;
+  createdAt?: string | null;
+  sender?: string | null;
 }
 
 export interface DocumentImageCostEvent {
@@ -463,11 +468,15 @@ function cleanMediaType(value: string | null | undefined, filename?: string | nu
   return normalized.startsWith('image/') ? normalized : mediaTypeFromFilename(filename);
 }
 
-function scoreImageSource(source: DocumentImageSource, need: string, filename?: string): number {
+function scoreImageSource(
+  source: DocumentImageSource,
+  need: string,
+  filename?: string
+): number {
   const sourceName = (source.filename || '').toLowerCase();
   const wantedFilename = (filename || '').trim().toLowerCase();
-  if (wantedFilename && sourceName === wantedFilename) return 1000;
-  if (wantedFilename && sourceName.includes(wantedFilename)) return 800;
+  if (wantedFilename && sourceName === wantedFilename) return 10000;
+  if (wantedFilename && sourceName.includes(wantedFilename)) return 8000;
 
   const combinedNeed = `${need} ${filename || ''}`.toLowerCase();
   const tokens = combinedNeed.match(/[a-z0-9]{3,}/g) || [];
@@ -477,10 +486,21 @@ function scoreImageSource(source: DocumentImageSource, need: string, filename?: 
   const wantsPortrait =
     /\b(photo|portrait|headshot|id\s*photo|profile\s*photo)\b/i.test(combinedNeed) ||
     /(?:証明写真|顔写真|写真|ポートレート)/.test(need || '');
+  const wantsOriginal =
+    /\b(?:original|source|existing|same|previous)\b/i.test(combinedNeed) ||
+    /(?:元の|原本|同じ|既存)/.test(need || '');
 
-  if (wantsPortrait && /portrait photo candidate/.test(sourceName)) {
+  if (wantsPortrait && /portrait photo candidate|embedded image/.test(sourceName)) {
     score += 300;
-    if (/candidate 1\b/.test(sourceName)) score += 40;
+  }
+
+  // When the model explicitly asks to reuse the original/existing image, provenance
+  // is stronger evidence than a generated-document filename. Prefer the earliest
+  // user-originated canonical image over assistant-generated copies/re-encodes.
+  if (wantsOriginal) {
+    const sender = (source.sender || '').toLowerCase();
+    if (sender === 'user') score += 1200;
+    else if (sender) score += 100;
   }
 
   return score;
@@ -491,16 +511,87 @@ function fallbackResolveImageSource(
   need: string,
   filename?: string
 ): DocumentImageSource | null {
-  const candidates = availableImages.filter((source) =>
+  const rawCandidates = availableImages.filter((source) =>
     isImageFilename(source.filename || source.url || source.storagePath)
   );
-  if (candidates.length === 0) return null;
-  const ranked = candidates
-    .map((source) => ({ source, score: scoreImageSource(source, need, filename) }))
-    .sort((a, b) => b.score - a.score);
-  if (ranked[0]?.score > 0 && (!ranked[1] || ranked[0].score > ranked[1].score)) {
-    return ranked[0].source;
+  if (rawCandidates.length === 0) return null;
+
+  // Collapse aliases/copies that point at the same canonical artifact. Prefer a
+  // user-originated alias when available because it best represents "original".
+  const byArtifact = new Map<string, DocumentImageSource>();
+  for (const source of rawCandidates) {
+    const key =
+      source.artifactId ||
+      source.storagePath ||
+      source.url ||
+      source.filename;
+    const existing = byArtifact.get(key);
+    if (!existing) {
+      byArtifact.set(key, source);
+      continue;
+    }
+    const existingUser = (existing.sender || '').toLowerCase() === 'user';
+    const sourceUser = (source.sender || '').toLowerCase() === 'user';
+    if (sourceUser && !existingUser) byArtifact.set(key, source);
   }
+  const candidates = Array.from(byArtifact.values());
+
+  const combinedNeed = `${need} ${filename || ''}`;
+  const wantsPortrait =
+    /\b(photo|portrait|headshot|id\s*photo|profile\s*photo)\b/i.test(combinedNeed) ||
+    /(?:証明写真|顔写真|写真|ポートレート)/.test(need || '');
+  const wantsOriginal =
+    /\b(?:original|source|existing|same|previous)\b/i.test(combinedNeed) ||
+    /(?:元の|原本|同じ|既存)/.test(need || '');
+
+  const ranked = candidates
+    .map((source) => ({
+      source,
+      score: scoreImageSource(source, need, filename),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+
+      if (wantsOriginal) {
+        const aUser = (a.source.sender || '').toLowerCase() === 'user' ? 1 : 0;
+        const bUser = (b.source.sender || '').toLowerCase() === 'user' ? 1 : 0;
+        if (aUser !== bUser) return bUser - aUser;
+
+        const aTime = a.source.createdAt
+          ? new Date(a.source.createdAt).getTime()
+          : Number.POSITIVE_INFINITY;
+        const bTime = b.source.createdAt
+          ? new Date(b.source.createdAt).getTime()
+          : Number.POSITIVE_INFINITY;
+        if (aTime !== bTime) return aTime - bTime;
+      }
+
+      const aIndex =
+        typeof a.source.attachmentIndex === 'number'
+          ? a.source.attachmentIndex
+          : Number.POSITIVE_INFINITY;
+      const bIndex =
+        typeof b.source.attachmentIndex === 'number'
+          ? b.source.attachmentIndex
+          : Number.POSITIVE_INFINITY;
+      if (aIndex !== bIndex) return aIndex - bIndex;
+
+      return (a.source.filename || '').localeCompare(
+        b.source.filename || ''
+      );
+    });
+
+  if (ranked[0]?.score > 0) {
+    // Strong semantic requests such as "original portrait" are intentionally
+    // deterministic. Generic image requests remain ambiguity-safe below.
+    if (wantsOriginal || wantsPortrait || filename) {
+      return ranked[0].source;
+    }
+    if (!ranked[1] || ranked[0].score > ranked[1].score) {
+      return ranked[0].source;
+    }
+  }
+
   return candidates.length === 1 ? candidates[0] : null;
 }
 
