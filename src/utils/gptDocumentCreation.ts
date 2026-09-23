@@ -2047,6 +2047,23 @@ export async function executeGptDocumentCreation(
 
   if (
     revisionContext?.preserveParentContent &&
+    revisionContext.parentSnapshot?.pageCount &&
+    finalPageCount &&
+    finalPageCount !== revisionContext.parentSnapshot.pageCount
+  ) {
+    console.error('[Document Revision] Refusing page-count regression', {
+      parentSnapshotId: revisionContext.parentSnapshot.id,
+      filename: finalFilename,
+      parentPageCount: revisionContext.parentSnapshot.pageCount,
+      nextPageCount: finalPageCount,
+    });
+    throw new Error(
+      `Narrow document revision changed the page count from ${revisionContext.parentSnapshot.pageCount} to ${finalPageCount}, which the user did not request.`
+    );
+  }
+
+  if (
+    revisionContext?.preserveParentContent &&
     revisionContext.parentSnapshot?.spec
   ) {
     const missingParentContent = missingPreservedDocumentContent(
