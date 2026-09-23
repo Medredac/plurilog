@@ -250,6 +250,23 @@ export function isImageUrl(url?: string | null, storagePath?: string | null): bo
   return SUPPORTED_IMAGE_EXTENSIONS.some((ext) => pathToCheck.endsWith(ext));
 }
 
+function attachmentDisplayFilename(url: string): string | null {
+  try {
+    const parsed = new URL(url, 'https://plurilog.local');
+    const queryName = parsed.searchParams.get('filename');
+    if (queryName?.trim()) return decodeURIComponent(queryName.trim());
+    const hash = parsed.hash.replace(/^#/, '');
+    if (hash) {
+      const params = new URLSearchParams(hash);
+      const hashName = params.get('filename');
+      if (hashName?.trim()) return decodeURIComponent(hashName.trim());
+    }
+  } catch {
+    // Fall through to path-based filename extraction.
+  }
+  return null;
+}
+
 /**
  * Extracts clean attachment metadata (filename and storagePath) from a stored attachment URL or image URL.
  * Deterministically resolves documentId using canonical storagePath and source-alias paths if knownDocuments is provided.
@@ -265,21 +282,23 @@ export function extractAttachmentMetadata(
   const isDocx = isDocxUrl(url, storagePath);
   const isTextDoc = isTextFileUrl(url, storagePath);
   const isDoc = isPdf || isDocx || isTextDoc;
-  let filename = isPdf
-    ? 'attachment.pdf'
-    : isDocx
-      ? 'attachment.docx'
-      : isTextDoc
-        ? 'attachment.txt'
-        : 'attachment';
+  let filename =
+    attachmentDisplayFilename(url) ||
+    (isPdf
+      ? 'attachment.pdf'
+      : isDocx
+        ? 'attachment.docx'
+        : isTextDoc
+          ? 'attachment.txt'
+          : 'attachment');
 
-  if (storagePath) {
+  if (!attachmentDisplayFilename(url) && storagePath) {
     const rawFilename = storagePath.split('/').pop() || '';
     const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
     if (cleaned) {
       filename = decodeURIComponent(cleaned);
     }
-  } else {
+  } else if (!attachmentDisplayFilename(url)) {
     const rawName = url.split('?')[0].split('/').pop() || '';
     if (rawName) {
       filename = decodeURIComponent(rawName);
@@ -1447,16 +1466,18 @@ export async function getScopedDiscussionMemory(
             const isDocx = isDocxUrl(url, storagePath);
             const isTextDoc = isTextFileUrl(url, storagePath);
             if (isPdf || isDocx || isTextDoc) {
-              let filename = isPdf
-                ? 'attachment.pdf'
-                : isDocx
-                  ? 'attachment.docx'
-                  : 'attachment.txt';
-              if (storagePath) {
+              let filename =
+                attachmentDisplayFilename(url) ||
+                (isPdf
+                  ? 'attachment.pdf'
+                  : isDocx
+                    ? 'attachment.docx'
+                    : 'attachment.txt');
+              if (!attachmentDisplayFilename(url) && storagePath) {
                 const rawFilename = storagePath.split('/').pop() || '';
                 const cleaned = rawFilename.replace(/^\d+-\d+-[^-]+-/, '');
                 if (cleaned) filename = decodeURIComponent(cleaned);
-              } else {
+              } else if (!attachmentDisplayFilename(url)) {
                 const rawName = url.split('?')[0].split('/').pop() || '';
                 if (rawName) filename = decodeURIComponent(rawName);
               }
