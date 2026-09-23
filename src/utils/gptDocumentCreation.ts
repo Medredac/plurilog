@@ -36,9 +36,11 @@ import {
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
 import {
+  inferDocumentStateImageBindings,
   missingPreservedDocumentContent,
   persistDocumentStateSnapshot,
   sanitizeDocumentSpecForState,
+  type DocumentStateImageBinding,
   type DocumentStateSnapshot,
 } from '@/utils/documentRevisionState';
 
@@ -796,17 +798,29 @@ async function resolveDocumentBlocks(
   availableImages: DocumentImageSource[],
   resourceContext: ResourceBrokerContext | undefined,
   signal: AbortSignal | undefined,
-  onImageCost?: (event: DocumentImageCostEvent) => void
-): Promise<{ blocks: RichDocumentBlock[]; imageAssetCount: number }> {
+  onImageCost?: (event: DocumentImageCostEvent) => void,
+  preferredImageBindings: DocumentStateImageBinding[] = []
+): Promise<{
+  blocks: RichDocumentBlock[];
+  imageAssetCount: number;
+  imageBindings: DocumentStateImageBinding[];
+}> {
   const resolved: RichDocumentBlock[] = [];
+  const imageBindings: DocumentStateImageBinding[] = [];
   let imageAssetCount = 0;
+  let imageOrdinal = 0;
 
   for (const block of blocks || []) {
     if (block?.type !== 'image') {
       resolved.push(block);
       continue;
     }
+    const currentImageOrdinal = imageOrdinal++;
     if (imageAssetCount >= MAX_DOCUMENT_IMAGES) continue;
+
+    const preferredBinding = preferredImageBindings.find(
+      (binding) => binding.imageOrdinal === currentImageOrdinal
+    );
 
     if (
       Buffer.isBuffer(block.imageData) &&
@@ -814,6 +828,7 @@ async function resolveDocumentBlocks(
       typeof block.imageContentType === 'string'
     ) {
       resolved.push(block);
+      if (preferredBinding) imageBindings.push(preferredBinding);
       imageAssetCount++;
       continue;
     }
@@ -825,8 +840,9 @@ async function resolveDocumentBlocks(
     if (mode === 'generate') {
       payload = await generateDocumentImage(block.prompt || need, signal, onImageCost);
     } else {
-      let source: DocumentImageSource | null = null;
-      if (resourceContext) {
+      let source: DocumentImageSource | null =
+        preferredBinding?.source || null;
+      if (!source && resourceContext) {
         const broker = resolveRequestedEvidence(
           { modality: 'visual', resource_type: 'image', need, filename: block.filename },
           resourceContext
@@ -853,6 +869,22 @@ async function resolveDocumentBlocks(
         const signedUrl = await signImageSource(serviceClient, source);
         payload = await editDocumentImage(block.prompt || need, signedUrl, signal, onImageCost);
       }
+
+      imageBindings.push({
+        imageOrdinal: currentImageOrdinal,
+        source: {
+          filename: source.filename,
+          storagePath: source.storagePath || null,
+          artifactId: source.artifactId || null,
+          sourceMessageId: source.sourceMessageId || null,
+          attachmentIndex:
+            typeof source.attachmentIndex === 'number'
+              ? source.attachmentIndex
+              : null,
+          createdAt: source.createdAt || null,
+          sender: source.sender || null,
+        },
+      });
     }
 
     resolved.push({
@@ -865,7 +897,7 @@ async function resolveDocumentBlocks(
     imageAssetCount++;
   }
 
-  return { blocks: resolved, imageAssetCount };
+  return { blocks: resolved, imageAssetCount, imageBindings };
 }
 
 interface PdfVisualReviewOutcome {
@@ -1564,15 +1596,24 @@ export async function executeGptDocumentCreation(
     args.format === 'pdf' &&
     Boolean(sourceDocx?.storagePath);
 
+  const parentImageBindings = revisionContext?.parentSnapshot
+    ? inferDocumentStateImageBindings(revisionContext.parentSnapshot)
+    : [];
+
   const resolvedDocument = useDirectDocxToPdf
-    ? { blocks: [] as RichDocumentBlock[], imageAssetCount: 0 }
+    ? {
+        blocks: [] as RichDocumentBlock[],
+        imageAssetCount: 0,
+        imageBindings: [] as DocumentStateImageBinding[],
+      }
     : await resolveDocumentBlocks(
         args.blocks || [],
         serviceClient,
         availableImages,
         resourceContext,
         signal,
-        costAwareCallback
+        costAwareCallback,
+        parentImageBindings
       );
 
   let finalBuffer: Buffer;
@@ -1580,6 +1621,7 @@ export async function executeGptDocumentCreation(
   let renderedFullText: string;
   let generatedPdfPageCount: number | null = null;
   let finalImageAssetCount = resolvedDocument.imageAssetCount;
+  let finalImageBindings = resolvedDocument.imageBindings;
   let visualReviewCostUsd = 0;
   let visualReviewApplied = false;
   let finalDocxReviewPages: RenderedDocxPage[] = [];
@@ -1679,7 +1721,8 @@ export async function executeGptDocumentCreation(
               availableImages,
               resourceContext,
               signal,
-              costAwareCallback
+              costAwareCallback,
+              resolvedDocument.imageBindings
             );
 
             const reviewedPdf = await renderSession.render({
@@ -1692,6 +1735,7 @@ export async function executeGptDocumentCreation(
             selectedPdf = reviewedPdf;
             selectedPdfArgs = review.args;
             finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+            finalImageBindings = reviewedResolvedDocument.imageBindings;
             visualReviewApplied = true;
 
             console.log('[Generated PDF Visual Review] Final render:', {
@@ -2083,6 +2127,30 @@ export async function executeGptDocumentCreation(
     }
   }
 
+  let validatedPdfEmbeddedImages:
+    | Awaited<ReturnType<typeof extractPdfEmbeddedImages>>
+    | null = null;
+
+  if (args.format === 'pdf' && finalImageAssetCount > 0) {
+    validatedPdfEmbeddedImages = await extractPdfEmbeddedImages(finalBuffer, {
+      signal: durableSignal,
+      timeoutMs: 30_000,
+    });
+
+    if (validatedPdfEmbeddedImages.length < finalImageAssetCount) {
+      console.error('[Generated PDF] Embedded image validation failed', {
+        filename: finalFilename,
+        expectedImageCount: finalImageAssetCount,
+        extractedImageCount: validatedPdfEmbeddedImages.length,
+        revision:
+          revisionContext?.generationKind === 'revision',
+      });
+      throw new Error(
+        `Generated PDF lost an embedded image during rendering (expected ${finalImageAssetCount}, found ${validatedPdfEmbeddedImages.length}).`
+      );
+    }
+  }
+
   const finalContent = `Created **${finalFilename}**.`;
 
   let persistedMsg: { id: string; created_at: string } | null = null;
@@ -2197,10 +2265,12 @@ export async function executeGptDocumentCreation(
   // existed only inside a generated PDF.
   if (args.format === 'pdf' && finalImageAssetCount > 0) {
     try {
-      const extractedPdfImages = await extractPdfEmbeddedImages(finalBuffer, {
-        signal: durableSignal,
-        timeoutMs: 30_000,
-      });
+      const extractedPdfImages =
+        validatedPdfEmbeddedImages ||
+        (await extractPdfEmbeddedImages(finalBuffer, {
+          signal: durableSignal,
+          timeoutMs: 30_000,
+        }));
       if (extractedPdfImages.length > 0) {
         const persistedPdfImages = await persistPdfEmbeddedImages({
           supabase,
@@ -2345,6 +2415,7 @@ export async function executeGptDocumentCreation(
         revisionContext?.parentSnapshot?.storagePath || null,
       sourceDocumentIds: revisionContext?.sourceDocumentIds || [],
       imageSources: availableImages,
+      imageBindings: finalImageBindings,
       generationKind:
         revisionContext?.generationKind ||
         (sourceDocx ? 'convert' : 'create'),
