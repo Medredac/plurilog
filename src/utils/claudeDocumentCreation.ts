@@ -579,7 +579,7 @@ async function reviewRenderedPdfWithClaude(options: {
     rationale:
       typeof parsed.rationale === 'string'
         ? parsed.rationale.slice(0, 1000)
-        : 'Claude completed the visual PDF review.',
+        : 'The document model completed the visual PDF review.',
   };
 }
 
@@ -603,9 +603,6 @@ export async function executeClaudeDocumentCreation(
     reviewSessionId,
   } = options;
 
-  if (seatId !== 'claude') {
-    throw new Error('Only Claude can create downloadable documents in this rollout.');
-  }
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');
   }
