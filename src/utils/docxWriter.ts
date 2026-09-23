@@ -621,8 +621,6 @@ function buildDocumentXml(
   const pageWidth = isLandscape ? portraitSize.height : portraitSize.width;
   const pageHeight = isLandscape ? portraitSize.width : portraitSize.height;
   const margin = mmToTwips(design.marginMm);
-  const defaultFont = escapeXml(docxFontName(design.fontFamily));
-  const defaultEastAsia = escapeXml(docxFontName(design.fontFamily));
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document
