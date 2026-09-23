@@ -89,6 +89,60 @@ function parsePdfPageCount(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+async function hasJapaneseFonts(
+  sandbox: InstanceType<typeof Sandbox>
+): Promise<boolean> {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: [
+      '-lc',
+      "command -v fc-list >/dev/null 2>&1 && fc-list ':lang=ja' family 2>/dev/null | head -n 1",
+    ],
+  });
+  if (result.exitCode !== 0) return false;
+  return Boolean((await result.stdout()).trim());
+}
+
+async function ensureJapaneseFonts(
+  sandbox: InstanceType<typeof Sandbox>
+): Promise<void> {
+  if (await hasJapaneseFonts(sandbox)) return;
+
+  const packageManagerProbe = await sandbox.runCommand({
+    cmd: 'sh',
+    args: [
+      '-lc',
+      'if command -v dnf >/dev/null 2>&1; then echo dnf; elif command -v apt-get >/dev/null 2>&1; then echo apt-get; else echo none; fi',
+    ],
+  });
+  await assertCommandSucceeded(packageManagerProbe, 'Japanese-font package-manager detection');
+  const packageManager = (await packageManagerProbe.stdout()).trim();
+
+  if (packageManager === 'apt-get') {
+    await runShell(
+      sandbox,
+      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk && fc-cache -f',
+      'Japanese font installation'
+    );
+  } else if (packageManager === 'dnf') {
+    await runShell(
+      sandbox,
+      [
+        'sudo dnf install -y fontconfig',
+        '(sudo dnf install -y google-noto-sans-cjk-jp-fonts google-noto-serif-cjk-jp-fonts || sudo dnf install -y google-noto-cjk-fonts || sudo dnf install -y google-noto-sans-jp-fonts)',
+        'fc-cache -f',
+      ].join(' && '),
+      'Japanese font installation'
+    );
+  } else {
+    throw new Error('No supported package manager is available for Japanese fonts.');
+  }
+
+  if (!(await hasJapaneseFonts(sandbox))) {
+    throw new Error('Japanese fonts were installed but no Japanese-capable font was detected.');
+  }
+}
+
 /**
  * Installs LibreOffice + Poppler inside a fresh Vercel Sandbox.
  *
@@ -105,6 +159,7 @@ export async function installDocxRendererDependencies(
   const pdfToPpmPath = await commandPath(sandbox, 'pdftoppm');
 
   if (libreOfficePath && pdfInfoPath && pdfToPpmPath) {
+    await ensureJapaneseFonts(sandbox);
     return { libreOfficePath };
   }
 
@@ -118,13 +173,13 @@ export async function installDocxRendererDependencies(
   if (packageManager === 'apt-get') {
     await runShell(
       sandbox,
-      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer poppler-utils',
+      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer poppler-utils fontconfig fonts-noto-cjk',
       'DOCX renderer dependency installation'
     );
   } else if (packageManager === 'dnf') {
     await runShell(
       sandbox,
-      'sudo dnf install -y poppler-utils curl tar gzip',
+      'sudo dnf install -y poppler-utils curl tar gzip fontconfig',
       'Poppler installation'
     );
 
@@ -178,6 +233,7 @@ export async function installDocxRendererDependencies(
     throw new Error('DOCX renderer dependencies were installed but required binaries are still missing.');
   }
 
+  await ensureJapaneseFonts(sandbox);
   return { libreOfficePath };
 }
 
@@ -270,6 +326,8 @@ export async function convertDocxToPdf(
             '/opt/libreoffice26.2/program/soffice',
         }
       : await installDocxRendererDependencies(sandbox);
+
+    await ensureJapaneseFonts(sandbox);
 
     await sandbox.writeFiles([
       {
@@ -390,6 +448,8 @@ export async function renderDocxPages(
             '/opt/libreoffice26.2/program/soffice',
         }
       : await installDocxRendererDependencies(sandbox);
+
+    await ensureJapaneseFonts(sandbox);
 
     await sandbox.writeFiles([
       {
