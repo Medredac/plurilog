@@ -13,6 +13,7 @@ import {
   renderDocxPages,
   type RenderedDocxPage,
 } from '@/utils/docxPageRenderer';
+import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
 import {
   createRichPdfRenderSession,
   type PdfDesign,
@@ -79,6 +80,7 @@ export interface ExecuteGptDocumentCreationResult {
   imageCostUsd: number;
   visualReviewCostUsd: number;
   visualReviewApplied: boolean;
+  renderedPageAttachments: Array<{ url: string; filename: string }>;
 }
 
 const MAX_DOCUMENT_IMAGES = 12;
@@ -1099,6 +1101,7 @@ export async function executeGptDocumentCreation(
   let finalImageAssetCount = resolvedDocument.imageAssetCount;
   let visualReviewCostUsd = 0;
   let visualReviewApplied = false;
+  let finalDocxReviewPages: RenderedDocxPage[] = [];
 
   if (args.format === 'pdf') {
     const renderSession = await createRichPdfRenderSession({
@@ -1224,6 +1227,7 @@ export async function executeGptDocumentCreation(
           timeoutMs: 45_000,
         });
         selectedPageCount = initialPages.totalPageCount;
+        finalDocxReviewPages = initialPages.pages;
 
         const review = await reviewRenderedDocxWithGpt({
           openai,
@@ -1288,6 +1292,7 @@ export async function executeGptDocumentCreation(
             selectedDocument = reviewedDocument;
             selectedResolvedBlocks = reviewedResolvedDocument.blocks;
             selectedPageCount = reviewedPages.totalPageCount;
+            finalDocxReviewPages = reviewedPages.pages;
             finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
             visualReviewApplied = true;
           }
@@ -1337,6 +1342,7 @@ export async function executeGptDocumentCreation(
             selectedDocument = compactDocument;
             selectedResolvedBlocks = compactBlocks;
             selectedPageCount = compactPages.totalPageCount;
+            finalDocxReviewPages = compactPages.pages;
             visualReviewApplied = true;
           }
 
@@ -1381,6 +1387,7 @@ export async function executeGptDocumentCreation(
             selectedDocument = spreadDocument;
             selectedResolvedBlocks = spreadBlocks;
             selectedPageCount = spreadPages.totalPageCount;
+            finalDocxReviewPages = spreadPages.pages;
             visualReviewApplied = true;
           }
 
@@ -1496,6 +1503,31 @@ export async function executeGptDocumentCreation(
     throw err;
   }
 
+  let renderedPageAttachments: Array<{ url: string; filename: string }> = [];
+  if (args.format === 'docx' && finalDocxReviewPages.length > 0) {
+    try {
+      const persistedPages = await persistDocxRenderedPages({
+        supabase,
+        parentFilename: persistedDocument.filename,
+        parentFileBytes: finalBuffer,
+        pages: finalDocxReviewPages,
+      });
+      renderedPageAttachments = persistedPages.map((page) => ({
+        url: page.signedUrl,
+        filename: page.filename,
+      }));
+      console.log('[Generated DOCX Visual Handoff Cache]', {
+        filename: persistedDocument.filename,
+        pageCount: renderedPageAttachments.length,
+      });
+    } catch (pagePersistErr) {
+      console.warn(
+        '[Generated DOCX Visual Handoff Cache] Non-critical page persistence error:',
+        pagePersistErr
+      );
+    }
+  }
+
   // Make images embedded inside GPT-generated DOCX files durable, reusable discussion
   // assets. This lets later turns faithfully reuse/edit those exact illustrations
   // instead of trying to infer them from rendered page screenshots.
@@ -1582,5 +1614,6 @@ export async function executeGptDocumentCreation(
     imageCostUsd,
     visualReviewCostUsd,
     visualReviewApplied,
+    renderedPageAttachments,
   };
 }
