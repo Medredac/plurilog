@@ -701,6 +701,86 @@ function preserveImageSourceDirectives(
   });
 }
 
+function preserveDocxSemanticContent(
+  originalBlocks: RichDocumentBlock[],
+  revisedBlocks: RichDocumentBlock[]
+): RichDocumentBlock[] | null {
+  const originalContentBlocks = (originalBlocks || []).filter(
+    (block: any) => block?.type !== 'page_break'
+  );
+  const revisedContentBlocks = (revisedBlocks || []).filter(
+    (block: any) => block?.type !== 'page_break'
+  );
+
+  // Visual QA is a layout pass, not a rewriting pass. If the reviewer changes
+  // the number/order/type of substantive blocks, reject the revision rather than
+  // risk silently dropping or inventing document content.
+  if (originalContentBlocks.length !== revisedContentBlocks.length) {
+    return null;
+  }
+
+  for (let i = 0; i < originalContentBlocks.length; i += 1) {
+    if (
+      (originalContentBlocks[i] as any)?.type !==
+      (revisedContentBlocks[i] as any)?.type
+    ) {
+      return null;
+    }
+  }
+
+  let contentIndex = 0;
+  return revisedBlocks.map((block: any) => {
+    if (block?.type === 'page_break') return block;
+
+    const original = originalContentBlocks[contentIndex++] as any;
+    if (!original) return block;
+
+    switch (block.type) {
+      case 'heading':
+      case 'paragraph':
+        return {
+          ...block,
+          text: original.text,
+        } as RichDocumentBlock;
+
+      case 'bullets':
+      case 'numbered':
+        return {
+          ...block,
+          items: Array.isArray(original.items)
+            ? [...original.items]
+            : original.items,
+        } as RichDocumentBlock;
+
+      case 'table':
+        return {
+          ...block,
+          headers: Array.isArray(original.headers)
+            ? [...original.headers]
+            : original.headers,
+          rows: Array.isArray(original.rows)
+            ? original.rows.map((row: any[]) =>
+                Array.isArray(row) ? [...row] : row
+              )
+            : original.rows,
+        } as RichDocumentBlock;
+
+      case 'image':
+        return {
+          ...block,
+          mode: original.mode,
+          prompt: original.prompt,
+          need: original.need,
+          filename: original.filename,
+          caption: original.caption,
+        } as RichDocumentBlock;
+
+      default:
+        return block;
+    }
+  });
+}
+
 function reuseResolvedImagePayloads(
   revisedBlocks: RichDocumentBlock[],
   resolvedBlocks: RichDocumentBlock[]
@@ -937,7 +1017,7 @@ async function reviewRenderedPdfWithGpt(options: {
         ? parsed.title
         : args.title,
     design: reviewedDesign,
-    blocks: imageSafeBlocks,
+    blocks: contentSafeBlocks,
   };
 
   const before = JSON.stringify({
@@ -1162,6 +1242,21 @@ async function reviewRenderedDocxWithGpt(options: {
       respondingModel,
       rationale:
         'Word visual review attempted to change the number of image assets, so the original specification was retained.',
+    };
+  }
+
+  const contentSafeBlocks = preserveDocxSemanticContent(
+    args.blocks || [],
+    imageSafeBlocks
+  );
+  if (!contentSafeBlocks) {
+    return {
+      args,
+      costUsd,
+      applied: false,
+      respondingModel,
+      rationale:
+        'Word visual review attempted to change substantive block structure, so the original specification was retained.',
     };
   }
 
@@ -1588,9 +1683,22 @@ export async function executeGptDocumentCreation(
             timeoutMs: 45_000,
           });
 
+          const selectedMissingBeforeCompact = selectedRenderedText
+            ? missingRenderedTableValues(
+                selectedResolvedBlocks,
+                selectedRenderedText
+              ).length
+            : Number.POSITIVE_INFINITY;
+          const compactMissingTableValues = missingRenderedTableValues(
+            compactBlocks,
+            compactPages.renderedText
+          );
+
           if (
+            compactMissingTableValues.length <=
+              selectedMissingBeforeCompact &&
             pageCountDistance(compactPages.totalPageCount, target) <
-            pageCountDistance(selectedPageCount, target)
+              pageCountDistance(selectedPageCount, target)
           ) {
             selectedDocument = compactDocument;
             selectedResolvedBlocks = compactBlocks;
@@ -1603,6 +1711,8 @@ export async function executeGptDocumentCreation(
           console.log('[Generated DOCX Page Fit]', {
             targetPageCount: target,
             compactPageCount: compactPages.totalPageCount,
+            compactMissingTableValueCount:
+              compactMissingTableValues.length,
             selectedPageCount,
           });
         }
@@ -1634,9 +1744,21 @@ export async function executeGptDocumentCreation(
             timeoutMs: 45_000,
           });
 
+          const selectedMissingBeforeSpread = selectedRenderedText
+            ? missingRenderedTableValues(
+                selectedResolvedBlocks,
+                selectedRenderedText
+              ).length
+            : Number.POSITIVE_INFINITY;
+          const spreadMissingTableValues = missingRenderedTableValues(
+            spreadBlocks,
+            spreadPages.renderedText
+          );
+
           if (
+            spreadMissingTableValues.length <= selectedMissingBeforeSpread &&
             pageCountDistance(spreadPages.totalPageCount, target) <
-            pageCountDistance(selectedPageCount, target)
+              pageCountDistance(selectedPageCount, target)
           ) {
             selectedDocument = spreadDocument;
             selectedResolvedBlocks = spreadBlocks;
@@ -1649,6 +1771,8 @@ export async function executeGptDocumentCreation(
           console.log('[Generated DOCX Page Spread]', {
             targetPageCount: target,
             spreadPageCount: spreadPages.totalPageCount,
+            spreadMissingTableValueCount:
+              spreadMissingTableValues.length,
             selectedPageCount,
           });
         }
