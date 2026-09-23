@@ -84,6 +84,7 @@ import {
   resolveRequestedEvidence,
   toModelSafeBrokerResult,
 } from '@/utils/resourceBroker';
+import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -1207,7 +1208,31 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
       : sections.join('\n\n');
   }
 
-  const systemContent = `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}\n\n${buildPlurilogProductContext(currentModelName, runtimeProductContext)}`;
+  const isLikelyPdfCreationRequest =
+    currentModelName === 'Claude' &&
+    /\bpdf\b/i.test(effectivePrompt) &&
+    /\b(create|make|generate|produce|build|write|return|design|redesign|revise|prepare)\b/i.test(
+      effectivePrompt
+    );
+
+  const pdfDesignReferences = isLikelyPdfCreationRequest
+    ? buildPdfDesignReferenceContext(effectivePrompt)
+    : null;
+
+  if (pdfDesignReferences) {
+    console.log('[PDF Design Library]', {
+      prompt: effectivePrompt.slice(0, 220),
+      referenceIds: pdfDesignReferences.referenceIds,
+    });
+  }
+
+  const systemContent = [
+    `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
+    buildPlurilogProductContext(currentModelName, runtimeProductContext),
+    pdfDesignReferences?.text || '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 
   // When reusing existing PDF file annotations via OpenRouter's documented assistant-message pattern:
   if (fileAnnotations && fileAnnotations.length > 0 && attachments && attachments.length > 0) {
