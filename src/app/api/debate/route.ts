@@ -157,7 +157,7 @@ export const GPT_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -258,6 +258,20 @@ export const GPT_FILE_TOOLS = [
                   type: 'array',
                   items: { type: 'array', items: { type: 'string' } },
                 },
+                tableWidthPct: {
+                  type: 'number',
+                  minimum: 35,
+                  maximum: 100,
+                  description:
+                    'Word/DOCX table width as a percentage of usable page width. Use a narrower profile table when reserving space for a top-right portrait.',
+                },
+                columnWidthsPct: {
+                  type: 'array',
+                  maxItems: 20,
+                  items: { type: 'number', minimum: 1, maximum: 100 },
+                  description:
+                    'Optional relative column widths for Word/DOCX tables, for example [10, 8, 82] for year/month/content.',
+                },
                 mode: {
                   type: 'string',
                   enum: ['existing', 'generate', 'edit'],
@@ -292,6 +306,26 @@ export const GPT_FILE_TOOLS = [
                   type: 'string',
                   enum: ['left', 'center', 'right'],
                   description: 'Image alignment in the document.',
+                },
+                placement: {
+                  type: 'string',
+                  enum: ['inline', 'top-right'],
+                  description:
+                    'Word/DOCX image placement. Use top-right for a conventional rirekisho portrait.',
+                },
+                widthMm: {
+                  type: 'number',
+                  minimum: 10,
+                  maximum: 180,
+                  description:
+                    'Exact Word/DOCX image width in millimetres when document conventions require it.',
+                },
+                heightMm: {
+                  type: 'number',
+                  minimum: 10,
+                  maximum: 240,
+                  description:
+                    'Exact Word/DOCX image height in millimetres when document conventions require it.',
                 },
                 eyebrow: {
                   type: 'string',
