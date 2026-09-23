@@ -146,7 +146,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
   },
 ];
 
-export const CLAUDE_FILE_TOOLS = [
+// PDF quality reset: preserve the last known-good structured Chromium workflow.\nexport const CLAUDE_FILE_TOOLS = [
   {
     type: 'function',
     function: {
