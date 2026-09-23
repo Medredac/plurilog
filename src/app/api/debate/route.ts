@@ -698,7 +698,8 @@ export type AttachmentProvenance =
   | 'historical_user_upload'
   | 'historical_assistant_generated'
   | 'same_round_assistant_generated'
-  | 'same_round_document_render';
+  | 'same_round_document_render'
+  | 'historical_document_embedded';
 
 export interface RouteAttachment {
   url: string;
@@ -729,6 +730,9 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   }
   if (attachment.provenance === 'historical_user_upload') {
     return `Image (previously uploaded by the user earlier in this discussion): ${cleanName}`;
+  }
+  if (attachment.provenance === 'historical_document_embedded') {
+    return `Image extracted from a Word document from earlier in this discussion: ${cleanName}`;
   }
   if (attachment.provenance === 'current_user_upload') {
     return `Image attached by the user in the current turn: ${cleanName}`;
@@ -825,6 +829,83 @@ async function materializeDocxRenderedPageAttachments(options: {
       );
     }
   }
+
+  return attachments;
+}
+
+async function materializeDocxEmbeddedImageAttachments(options: {
+  supabase: any;
+  serviceClient: any;
+  discussionId: string;
+  sourceMessageId?: string | null;
+  storagePath: string;
+  filename: string;
+  signal?: AbortSignal;
+  registerImmediately?: boolean;
+}): Promise<RouteAttachment[]> {
+  const {
+    supabase,
+    serviceClient,
+    discussionId,
+    sourceMessageId,
+    storagePath,
+    filename,
+    signal,
+    registerImmediately = true,
+  } = options;
+
+  const { data: fileBlob, error: downloadError } = await serviceClient.storage
+    .from('message-images')
+    .download(storagePath);
+
+  if (downloadError || !fileBlob) {
+    throw new Error(
+      `Could not download DOCX for embedded-image extraction: ${
+        downloadError?.message || 'missing storage object'
+      }`
+    );
+  }
+
+  const fileBytes = Buffer.from(await fileBlob.arrayBuffer());
+  const parsed = await parseDocx(fileBytes);
+  if (!parsed.embeddedImages.length) return [];
+
+  const persistedImages = await persistDocxEmbeddedImages({
+    supabase,
+    parentFilename: filename,
+    parentFileBytes: fileBytes,
+    images: parsed.embeddedImages,
+  });
+
+  const attachments: RouteAttachment[] = persistedImages.map((image) => ({
+    url: image.signedUrl,
+    filename: image.filename,
+    provenance: 'historical_document_embedded' as const,
+  }));
+
+  if (registerImmediately && attachments.length > 0) {
+    try {
+      await ingestDiscussionArtifacts({
+        serviceSupabase: serviceClient,
+        discussionId,
+        attachments,
+        sourceUserMessageId: sourceMessageId || null,
+        signal,
+      });
+    } catch (registrationErr) {
+      console.warn(
+        '[DOCX Visual] Non-critical embedded-image registration error:',
+        registrationErr
+      );
+    }
+  }
+
+  console.log('[DOCX Visual] Materialized historical DOCX embedded images:', {
+    filename,
+    storagePath,
+    extractedCount: parsed.embeddedImages.length,
+    persistedCount: persistedImages.length,
+  });
 
   return attachments;
 }
@@ -3874,6 +3955,26 @@ export async function POST(req: NextRequest) {
 
                         if (renderedPages.length > 0) {
                           materializedEvidenceAttachments.push(...renderedPages);
+
+                          try {
+                            const embeddedImages =
+                              await materializeDocxEmbeddedImageAttachments({
+                                supabase,
+                                serviceClient: serviceClientForEvidence,
+                                discussionId,
+                                sourceMessageId: null,
+                                storagePath: ev.storagePath,
+                                filename: ev.filename,
+                                signal: seatAbortController.signal,
+                                registerImmediately: true,
+                              });
+                            materializedEvidenceAttachments.push(...embeddedImages);
+                          } catch (embeddedImageErr) {
+                            console.warn(
+                              '[Evidence Broker] Non-critical DOCX embedded-image materialization error:',
+                              embeddedImageErr
+                            );
+                          }
                         } else {
                           modelSafeBrokerResult = {
                             status: 'not_found',
@@ -4204,11 +4305,11 @@ export async function POST(req: NextRequest) {
                       });
                     }
 
-                    for (const attachment of currentRoundAttachments || []) {
+                    for (const attachment of evidenceAttachments || []) {
                       if (!isImageUrl(attachment?.url || '')) continue;
                       if (
                         attachment.provenance === 'same_round_document_render' ||
-                        attachment.provenance === 'historical_user_upload'
+                        attachment.provenance === 'current_document_render'
                       ) {
                         continue;
                       }
