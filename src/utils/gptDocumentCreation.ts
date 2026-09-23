@@ -140,10 +140,72 @@ function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | 
 function normalizeRenderedComparisonText(value: string): string {
   return (value || '')
     .normalize('NFKC')
+    .replace(/[\p{Cf}\u00ad]/gu, '')
     .replace(/[\s\u00a0]+/g, '')
     .replace(/[‐‑‒–—―]/g, '-')
     .replace(/[〜～]/g, '~')
     .toLowerCase();
+}
+
+function japaneseBigramCoverage(
+  needle: string,
+  haystack: string
+): number {
+  const chars = Array.from(needle);
+  if (chars.length === 0) return 1;
+  if (chars.length <= 3) return haystack.includes(needle) ? 1 : 0;
+
+  const grams: string[] = [];
+  for (let i = 0; i < chars.length - 1; i += 1) {
+    grams.push(chars[i] + chars[i + 1]);
+  }
+  const unique = Array.from(new Set(grams));
+  if (unique.length === 0) return haystack.includes(needle) ? 1 : 0;
+
+  let matched = 0;
+  for (const gram of unique) {
+    if (haystack.includes(gram)) matched += 1;
+  }
+  return matched / unique.length;
+}
+
+function renderedTableValuePresent(
+  value: string,
+  renderedText: string
+): boolean {
+  const needle = normalizeRenderedComparisonText(value);
+  const haystack = normalizeRenderedComparisonText(renderedText);
+  if (needle.length < 2) return true;
+  if (!haystack) return false;
+  if (haystack.includes(needle)) return true;
+
+  // LibreOffice renders wrapped Word table cells correctly, but pdftotext may
+  // emit pieces around neighbouring columns/rows instead of preserving one
+  // contiguous cell string. Validate the substantive pieces rather than the
+  // extraction order.
+  const latinTokens =
+    needle.match(/[a-z0-9][a-z0-9.+/#_-]*/gi)?.filter(
+      (token) => token.length >= 2
+    ) || [];
+  if (latinTokens.some((token) => !haystack.includes(token.toLowerCase()))) {
+    return false;
+  }
+
+  const japaneseRuns =
+    needle.match(/[\u3040-\u30ff\u3400-\u9fff々〆ヶ]+/g) || [];
+  for (const run of japaneseRuns) {
+    if (run.length <= 3) {
+      if (!haystack.includes(run)) return false;
+      continue;
+    }
+
+    // A line/column extraction boundary normally destroys only one or two
+    // adjacencies. A genuinely dropped phrase loses many of them.
+    if (japaneseBigramCoverage(run, haystack) < 0.8) return false;
+  }
+
+  // Symbol-only cells are not useful visibility sentinels.
+  return latinTokens.length > 0 || japaneseRuns.length > 0;
 }
 
 function missingRenderedTableValues(
@@ -156,16 +218,18 @@ function missingRenderedTableValues(
   const missing: string[] = [];
   for (const block of blocks || []) {
     if ((block as any)?.type !== 'table') continue;
-    const headers = Array.isArray((block as any).headers) ? (block as any).headers : [];
-    const rows = Array.isArray((block as any).rows) ? (block as any).rows : [];
+    const headers = Array.isArray((block as any).headers)
+      ? (block as any).headers
+      : [];
+    const rows = Array.isArray((block as any).rows)
+      ? (block as any).rows
+      : [];
     const values = [...headers, ...rows.flat()]
       .map((value) => String(value || '').trim())
       .filter((value) => value.length >= 2);
 
     for (const value of values) {
-      const needle = normalizeRenderedComparisonText(value);
-      if (needle.length < 2) continue;
-      if (!haystack.includes(needle)) {
+      if (!renderedTableValuePresent(value, renderedText)) {
         missing.push(value.slice(0, 240));
         if (missing.length >= 20) return missing;
       }
