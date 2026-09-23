@@ -170,13 +170,13 @@ export const GPT_FILE_TOOLS = [
             type: 'array',
             maxItems: 2,
             description:
-              'PDF-only. Choose one primary design reference from the retrieved PDF design library and optionally one secondary reference to blend. Use ["custom"] when none fit. These are moodboard references, not fixed templates.',
+              'Choose one primary design reference from the retrieved document design library and optionally one secondary reference to blend. Use ["custom"] when none fit. These are moodboard references, not fixed templates; Word uses the typography, spacing, palette, and composition guidance that its format supports.',
             items: { type: 'string' },
           },
           design: {
             type: 'object',
             description:
-              'PDF-only, style-neutral document design controls. Use the user\'s requested aesthetic; these are capabilities, not a template.',
+              'Style-neutral design controls shared by PDF and Word where supported. Use the user\'s requested aesthetic; these are capabilities, not a template.',
             properties: {
               pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
               orientation: { type: 'string', enum: ['portrait', 'landscape'] },
@@ -200,22 +200,22 @@ export const GPT_FILE_TOOLS = [
               locale: { type: 'string' },
               headerText: {
                 type: 'string',
-                description: 'Optional short running header text for PDFs.',
+                description: 'Optional short running header text for formats that support it.',
               },
               footerText: {
                 type: 'string',
-                description: 'Optional short running footer text for PDFs.',
+                description: 'Optional short running footer text for formats that support it.',
               },
               showPageNumbers: {
                 type: 'boolean',
-                description: 'For PDFs, show current/total page numbering in the page margin when useful.',
+                description: 'Show page numbering when the selected format supports it and it is useful.',
               },
               targetPageCount: {
                 type: 'integer',
                 minimum: 1,
                 maximum: 30,
                 description:
-                  'For PDFs only. Set this when the user explicitly requests an exact page count; the renderer will make a bounded fit attempt.',
+                  'Set this when the user explicitly requests an exact page count. PDF and Word both treat it as a hard layout target and perform bounded fit/visual-review attempts.',
               },
             },
             additionalProperties: false,
@@ -295,7 +295,7 @@ export const GPT_FILE_TOOLS = [
                 },
                 title: {
                   type: 'string',
-                  description: 'Title for a rich PDF block such as banner or callout.',
+                  description: 'Title for a rich PDF block such as banner or callout. For Word, use heading/paragraph blocks instead.',
                 },
                 subtitle: {
                   type: 'string',
@@ -303,7 +303,7 @@ export const GPT_FILE_TOOLS = [
                 },
                 style: {
                   type: 'object',
-                  description: 'Optional PDF-only visual styling for rich layout blocks.',
+                  description: 'Optional visual styling for rich PDF-only layout blocks. Word ignores these rich block styles.',
                   properties: {
                     backgroundColor: { type: 'string' },
                     textColor: { type: 'string' },
@@ -1297,19 +1297,19 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
       : sections.join('\n\n');
   }
 
-  const isLikelyPdfCreationRequest =
+  const isLikelyDocumentCreationRequest =
     currentModelName === 'ChatGPT' &&
-    /\bpdf\b/i.test(effectivePrompt) &&
+    /\b(pdf|docx|word|document|doc|file)\b/i.test(effectivePrompt) &&
     /\b(create|make|generate|produce|build|write|return|design|redesign|revise|prepare)\b/i.test(
       effectivePrompt
     );
 
-  const pdfDesignReferences = isLikelyPdfCreationRequest
+  const pdfDesignReferences = isLikelyDocumentCreationRequest
     ? buildPdfDesignReferenceContext(effectivePrompt)
     : null;
 
   if (pdfDesignReferences) {
-    console.log('[PDF Design Library]', {
+    console.log('[Document Design Library]', {
       prompt: effectivePrompt.slice(0, 220),
       referenceIds: pdfDesignReferences.referenceIds,
     });
@@ -3524,15 +3524,12 @@ export async function POST(req: NextRequest) {
                         incurredDocumentAssetCostUsd += event.costUsd;
                         documentImageModels.add(event.model);
                       },
-                      reviewModel:
-                        fileArgs.format === 'pdf' ? primaryModel : undefined,
-                      reviewModels:
-                        fileArgs.format === 'pdf' ? models : undefined,
+                      reviewModel: primaryModel,
+                      reviewModels: models,
                       originalUserPrompt: prompt,
-                      reviewSessionId:
-                        discussionId && fileArgs.format === 'pdf'
-                          ? `${discussionId}:${seat.seatId}:pdf-review:${documentIndex}`
-                          : null,
+                      reviewSessionId: discussionId
+                        ? `${discussionId}:${seat.seatId}:${fileArgs.format}-review:${documentIndex}`
+                        : null,
                     });
 
                     incurredDocumentFollowUpCostUsd +=
@@ -4370,10 +4367,9 @@ export async function POST(req: NextRequest) {
                         reviewModels:
                           fileArgs.format === 'pdf' ? models : undefined,
                         originalUserPrompt: prompt,
-                        reviewSessionId:
-                          discussionId && fileArgs.format === 'pdf'
-                            ? `${discussionId}:${seat.seatId}:pdf-review:evidence:${documentIndex}`
-                            : null,
+                        reviewSessionId: discussionId
+                          ? `${discussionId}:${seat.seatId}:${fileArgs.format}-review:evidence:${documentIndex}`
+                          : null,
                       });
 
                       incurredDocumentFollowUpCostUsd +=
