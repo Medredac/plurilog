@@ -153,7 +153,7 @@ export const GPT_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document's content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -3778,11 +3778,49 @@ export async function POST(req: NextRequest) {
                     need?: string;
                     filename?: string;
                   };
-                  const toolNeed =
+                  let toolNeed =
                     typeof toolArgs.need === 'string' ? toolArgs.need.trim() : '';
                   const toolResourceType = toolArgs.resource_type || 'auto';
-                  const toolFilename =
+                  let toolFilename =
                     typeof toolArgs.filename === 'string' ? toolArgs.filename.trim() : undefined;
+
+                  const currentRoundDocumentAttachments =
+                    currentRoundAttachments.filter((attachment) => {
+                      const filename = (attachment.filename || '').toLowerCase();
+                      const cleanUrl = attachment.url
+                        ?.split('?')[0]
+                        .split('#')[0]
+                        .toLowerCase() || '';
+                      return (
+                        filename.endsWith('.pdf') ||
+                        filename.endsWith('.docx') ||
+                        cleanUrl.endsWith('.pdf') ||
+                        cleanUrl.endsWith('.docx')
+                      );
+                    });
+
+                  const explicitlyHistoricalEvidenceRequest =
+                    /\b(previous|prior|earlier|older|old|from before|last document|last file|historical)\b/i.test(
+                      toolNeed
+                    );
+
+                  if (
+                    !toolFilename &&
+                    !explicitlyHistoricalEvidenceRequest &&
+                    (toolResourceType === 'document' || toolResourceType === 'auto') &&
+                    currentRoundDocumentAttachments.length === 1
+                  ) {
+                    toolFilename =
+                      currentRoundDocumentAttachments[0].filename || undefined;
+                    if (!toolNeed) {
+                      toolNeed = 'the document generated earlier in the current panel round';
+                    }
+                    console.log('[Evidence Broker] Anchored generic request to current-round document', {
+                      seatId: seat.seatId,
+                      filename: toolFilename || null,
+                      resourceType: toolResourceType,
+                    });
+                  }
 
                   let latestKnownSources: KnownImageSource[] = [];
                   let lastRoundEvidenceForBroker: MessageVisualEvidenceItem[] = [];
@@ -4337,6 +4375,36 @@ export async function POST(req: NextRequest) {
                       const fileCall = evidenceDocumentCalls[documentIndex];
                       const fileArgs = (fileCall.arguments ||
                         {}) as unknown as GptCreateFileArgs;
+
+                      const isShorthandFormatVersionRequest =
+                        /\b(?:make|create|turn|convert|give|return)\b[\s\S]{0,50}\b(?:pdf|word|docx)\b[\s\S]{0,24}\b(?:one|version|copy|file)\b/i.test(
+                          prompt || ''
+                        ) ||
+                        /\b(?:pdf|word|docx)\s+(?:one|version|copy)\b/i.test(
+                          prompt || ''
+                        );
+                      const sourceRenderedPageCount =
+                        materializedEvidenceAttachments.filter(
+                          (attachment) =>
+                            attachment.provenance === 'current_document_render'
+                        ).length;
+
+                      if (
+                        isShorthandFormatVersionRequest &&
+                        sourceRenderedPageCount > 0 &&
+                        !fileArgs.design?.targetPageCount
+                      ) {
+                        fileArgs.design = {
+                          ...(fileArgs.design || {}),
+                          targetPageCount: sourceRenderedPageCount,
+                        };
+                        console.log('[Document Conversion] Preserving source page count', {
+                          sourcePageCount: sourceRenderedPageCount,
+                          targetFormat: fileArgs.format,
+                          filename: fileArgs.filename,
+                        });
+                      }
+
                       documentOutputFormat =
                         fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
