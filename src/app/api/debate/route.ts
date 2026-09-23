@@ -4333,9 +4333,20 @@ export async function POST(req: NextRequest) {
                           );
                         }
                       } else {
-                        console.log('[Generated PDF Handoff]', {
+                        const generatedPdfPages: RouteAttachment[] = (
+                          documentResult.renderedPageAttachments || []
+                        ).map((page) => ({
+                          url: page.url,
+                          filename: page.filename,
+                          provenance: 'same_round_document_render' as const,
+                          creatorSeatId: seat.seatId,
+                        }));
+                        currentRoundAttachments.push(...generatedPdfPages);
+
+                        console.log('[Generated PDF Visual Handoff]', {
                           discussionId: discussionId || null,
                           filename: documentResult.filename,
+                          renderedPageCount: generatedPdfPages.length,
                           laterSeatCount,
                         });
                       }
@@ -4570,58 +4581,32 @@ export async function POST(req: NextRequest) {
                         ? toolArgs.filename.trim()
                         : undefined;
 
-                    const explicitlyHistoricalEvidenceRequest =
-                      /\b(previous|prior|earlier|older|old|from before|last document|last file|historical)\b/i.test(
-                        toolNeed
+                    const userExplicitlyRequestsHistoricalDocument =
+                      /\b(?:previous|prior|earlier|older|old|first|original|historical)\s+(?:generated\s+)?(?:pdf|document|file|version|draft|rirekisho|履歴書)\b/i.test(
+                        prompt || ''
+                      ) ||
+                      /\b(?:first|previous|prior|earlier|older|original)\s+(?:pdf|document|file)\s+(?:i\s+)?uploaded\b/i.test(
+                        prompt || ''
                       );
 
-                    if (
-                      !toolFilename &&
-                      !explicitlyHistoricalEvidenceRequest &&
-                      (toolResourceType === 'document' ||
-                        toolResourceType === 'auto') &&
+                    const sameRoundGeneratedStoragePath =
                       latestSameRoundGeneratedDocument
-                    ) {
-                      toolFilename =
-                        latestSameRoundGeneratedDocument.filename ||
-                        undefined;
-                      if (!toolNeed) {
-                        toolNeed =
-                          'the newest document generated earlier in the current panel round';
-                      }
-                      console.log(
-                        '[Evidence Broker] Anchored generic request to newest same-round generated document',
-                        {
-                          seatId: seat.seatId,
-                          filename: toolFilename || null,
-                          resourceType: toolResourceType,
-                        }
-                      );
-                    } else if (
-                      !toolFilename &&
-                      !explicitlyHistoricalEvidenceRequest &&
-                      (toolResourceType === 'document' ||
-                        toolResourceType === 'auto') &&
-                      soleCurrentRoundDocument
-                    ) {
-                      toolFilename =
-                        soleCurrentRoundDocument.filename || undefined;
-                      if (!toolNeed) {
-                        toolNeed =
-                          'the document generated earlier in the current panel round';
-                      }
-                      console.log(
-                        '[Evidence Broker] Anchored generic request to current-round document',
-                        {
-                          seatId: seat.seatId,
-                          filename: toolFilename || null,
-                          resourceType: toolResourceType,
-                        }
-                      );
-                    }
+                        ? extractStoragePathFromSignedUrl(
+                            latestSameRoundGeneratedDocument.url || ''
+                          )
+                        : null;
 
                     const shouldAnchorRevisionToCanonicalParent =
                       Boolean(latestCanonicalRevisionState);
+                    const shouldAnchorToSameRoundGeneratedDocument =
+                      !shouldAnchorRevisionToCanonicalParent &&
+                      !userExplicitlyRequestsHistoricalDocument &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto') &&
+                      Boolean(
+                        latestSameRoundGeneratedDocument &&
+                          sameRoundGeneratedStoragePath
+                      );
 
                     const brokerResult =
                       shouldAnchorRevisionToCanonicalParent &&
@@ -4646,7 +4631,36 @@ export async function POST(req: NextRequest) {
                                 'canonical_revision_parent',
                             },
                           }
-                        : resolveRequestedEvidence(
+                        : shouldAnchorToSameRoundGeneratedDocument &&
+                            latestSameRoundGeneratedDocument &&
+                            sameRoundGeneratedStoragePath
+                          ? {
+                              status: 'resolved' as const,
+                              kind:
+                                (latestSameRoundGeneratedDocument.filename || '')
+                                  .toLowerCase()
+                                  .endsWith('.docx')
+                                  ? ('docx' as const)
+                                  : ('pdf' as const),
+                              message:
+                                `Resolved newest same-round generated document: ${latestSameRoundGeneratedDocument.filename || 'document'}.`,
+                              evidence: {
+                                kind:
+                                  (latestSameRoundGeneratedDocument.filename || '')
+                                    .toLowerCase()
+                                    .endsWith('.docx')
+                                    ? ('docx' as const)
+                                    : ('pdf' as const),
+                                filename:
+                                  latestSameRoundGeneratedDocument.filename ||
+                                  'document.pdf',
+                                storagePath:
+                                  sameRoundGeneratedStoragePath,
+                                reason:
+                                  'same_round_generated_document',
+                              },
+                            }
+                          : resolveRequestedEvidence(
                             {
                               modality: 'visual',
                               resource_type: toolResourceType,
@@ -4688,6 +4702,20 @@ export async function POST(req: NextRequest) {
                             latestCanonicalRevisionState.id,
                           requestedResourceType:
                             toolResourceType,
+                        }
+                      );
+                    } else if (
+                      shouldAnchorToSameRoundGeneratedDocument &&
+                      latestSameRoundGeneratedDocument
+                    ) {
+                      console.log(
+                        '[Evidence Broker] Directly resolved newest same-round generated document',
+                        {
+                          seatId: seat.seatId,
+                          filename:
+                            latestSameRoundGeneratedDocument.filename ||
+                            null,
+                          requestedResourceType: toolResourceType,
                         }
                       );
                     }
@@ -5857,6 +5885,27 @@ export async function POST(req: NextRequest) {
                               generatedDocRenderErr
                             );
                           }
+                        } else {
+                          const generatedPdfPages: RouteAttachment[] = (
+                            documentResult.renderedPageAttachments || []
+                          ).map((page) => ({
+                            url: page.url,
+                            filename: page.filename,
+                            provenance:
+                              'same_round_document_render' as const,
+                            creatorSeatId: seat.seatId,
+                          }));
+                          currentRoundAttachments.push(...generatedPdfPages);
+
+                          console.log(
+                            '[Generated PDF Visual Handoff] Evidence-chain document',
+                            {
+                              discussionId: discussionId || null,
+                              filename: documentResult.filename,
+                              renderedPageCount: generatedPdfPages.length,
+                              laterSeatCount,
+                            }
+                          );
                         }
                       }
                     }
