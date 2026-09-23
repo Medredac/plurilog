@@ -85,6 +85,10 @@ import {
   toModelSafeBrokerResult,
 } from '@/utils/resourceBroker';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
+import {
+  extractPdfEmbeddedImages,
+  persistPdfEmbeddedImages,
+} from '@/utils/pdfEmbeddedImages';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -1883,7 +1887,111 @@ export async function POST(req: NextRequest) {
           let currentTurnDocuments: { filename: string; content: string }[] = [];
           const docxEmbeddedImageAttachments: RouteAttachment[] = [];
           const docxRenderedPageAttachments: RouteAttachment[] = [];
+          const pdfEmbeddedImageAttachments: RouteAttachment[] = [];
           const wantsCurrentDocxVisualInspection = isVisualEvidenceQuery(prompt);
+
+          // Extract real raster images embedded in current PDF uploads before the
+          // panel runs. This lets GPT reuse an exact CV headshot/logo/etc. inside a
+          // newly generated document instead of regenerating or guessing it.
+          if (attachments && attachments.length > 0) {
+            const currentPdfAttachments = attachments.filter((att: any) => {
+              const filename = String(att?.filename || '').toLowerCase();
+              const cleanUrl = String(att?.url || '')
+                .split('?')[0]
+                .split('#')[0]
+                .toLowerCase();
+              return filename.endsWith('.pdf') || cleanUrl.endsWith('.pdf');
+            });
+
+            if (currentPdfAttachments.length > 0) {
+              try {
+                const serviceClient = createServiceClient();
+
+                for (const pdfAtt of currentPdfAttachments) {
+                  if (req.signal.aborted) break;
+
+                  const storagePath = extractStoragePathFromSignedUrl(pdfAtt.url);
+                  let pdfBuffer: Buffer | null = null;
+
+                  if (storagePath) {
+                    try {
+                      const { data: blob, error } = await serviceClient.storage
+                        .from('message-images')
+                        .download(storagePath);
+                      if (!error && blob) {
+                        pdfBuffer = Buffer.from(await blob.arrayBuffer());
+                      }
+                    } catch (downloadErr) {
+                      console.warn(
+                        '[PDF Visual] Non-critical storage download error:',
+                        downloadErr
+                      );
+                    }
+                  }
+
+                  if (!pdfBuffer && pdfAtt.url) {
+                    try {
+                      const response = await fetch(pdfAtt.url, {
+                        signal: req.signal,
+                      });
+                      if (response.ok) {
+                        pdfBuffer = Buffer.from(await response.arrayBuffer());
+                      }
+                    } catch (fetchErr) {
+                      console.warn(
+                        '[PDF Visual] Non-critical signed-URL download error:',
+                        fetchErr
+                      );
+                    }
+                  }
+
+                  if (!pdfBuffer || pdfBuffer.length === 0) continue;
+
+                  try {
+                    const extracted = await extractPdfEmbeddedImages(pdfBuffer, {
+                      signal: req.signal,
+                      timeoutMs: 25_000,
+                    });
+                    if (extracted.length === 0) continue;
+
+                    const persisted = await persistPdfEmbeddedImages({
+                      supabase,
+                      parentFilename: pdfAtt.filename || 'document.pdf',
+                      parentFileBytes: pdfBuffer,
+                      images: extracted,
+                    });
+
+                    pdfEmbeddedImageAttachments.push(
+                      ...persisted.map((image) => ({
+                        url: image.signedUrl,
+                        filename: image.filename,
+                        provenance: 'current_user_upload' as const,
+                      }))
+                    );
+
+                    console.log('[PDF Visual] Materialized embedded images for current turn:', {
+                      filename: pdfAtt.filename || 'document.pdf',
+                      extractedCount: extracted.length,
+                      persistedCount: persisted.length,
+                      portraitCandidateCount: persisted.filter(
+                        (image) => image.portraitCandidate
+                      ).length,
+                    });
+                  } catch (extractErr) {
+                    console.warn(
+                      '[PDF Visual] Non-critical embedded-image extraction error:',
+                      extractErr
+                    );
+                  }
+                }
+              } catch (pdfAssetErr) {
+                console.warn(
+                  '[PDF Visual] Non-critical current-PDF image processing error:',
+                  pdfAssetErr
+                );
+              }
+            }
+          }
 
           if (attachments && attachments.length > 0) {
             const documentAttachments = attachments.filter((att: any) => {
@@ -2138,6 +2246,7 @@ export async function POST(req: NextRequest) {
             ...(Array.isArray(attachments) ? attachments : []),
             ...docxEmbeddedImageAttachments,
             ...docxRenderedPageAttachments,
+            ...pdfEmbeddedImageAttachments,
           ];
 
           const currentImageAttachments = currentArtifactAttachments
@@ -2991,6 +3100,7 @@ export async function POST(req: NextRequest) {
               : []),
             ...docxEmbeddedImageAttachments,
             ...docxRenderedPageAttachments,
+            ...pdfEmbeddedImageAttachments,
           ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
