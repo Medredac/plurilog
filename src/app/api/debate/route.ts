@@ -500,6 +500,18 @@ export function isGptDocumentCreationEnabled(): boolean {
   return process.env.GPT_DOCUMENT_CREATION_ENABLED !== 'false';
 }
 
+function responseClaimsMissingRetrievableEvidence(value: string): boolean {
+  const text = (value || '').trim();
+  if (!text) return false;
+
+  return (
+    /\b(?:i|we)\s+(?:do\s+not|don't|cannot|can't)\s+(?:currently\s+|actually\s+|directly\s+)?(?:see|view|access|inspect|open|retrieve)\b/i.test(text) ||
+    /\b(?:i|we)\s+(?:do\s+not|don't|cannot|can't)\s+have\s+(?:the\s+|that\s+|this\s+)?(?:document|file|pdf|docx|word\s+document|image|rendered\s+pages?)\b/i.test(text) ||
+    /\b(?:i|we)\s+(?:would\s+)?need\s+to\s+(?:first\s+)?(?:retrieve|open|inspect|see|access|load)\s+(?:the\s+|that\s+|this\s+)?(?:document|file|pdf|docx|word\s+document|image|rendered\s+pages?)\b/i.test(text) ||
+    /\b(?:not|isn't|is not)\s+(?:currently\s+)?(?:attached|available|in\s+(?:my|the)\s+current\s+(?:context|turn)|in\s+front\s+of\s+me)\b/i.test(text)
+  );
+}
+
 function isSimplePdfFormatConversionRequest(value: string): boolean {
   const prompt = (value || '')
     .trim()
@@ -3319,6 +3331,7 @@ export async function POST(req: NextRequest) {
             let incurredImageFollowUpCostUsd = 0;
             let incurredEvidenceFirstPassCostUsd = 0;
             let incurredEvidenceSecondPassCostUsd = 0;
+            let incurredEvidenceGuardRetryCostUsd = 0;
             let spendRecorded = false;
             let imageToolBranchActive = false;
             let evidenceToolBranchActive = false;
@@ -3434,16 +3447,40 @@ export async function POST(req: NextRequest) {
                 ? await prepareGeminiVisionAttachments(currentRoundAttachments)
                 : currentRoundAttachments;
 
+            const currentVisualAttachmentCount = (seatAttachments || []).filter((a) => {
+              const cleanUrl =
+                a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
+              return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
+            }).length;
+            const hasKnownInspectableDocument =
+              (discussionMemory?.knownDocuments || []).some((doc) => {
+                const filename = (doc.filename || '').toLowerCase();
+                const path = (doc.storagePath || '').toLowerCase();
+                return (
+                  filename.endsWith('.pdf') ||
+                  filename.endsWith('.docx') ||
+                  path.endsWith('.pdf') ||
+                  path.endsWith('.docx')
+                );
+              });
+            const hasKnownInspectableImage =
+              Boolean(visualContextState?.active_session_source_ids?.length);
+            const hasRetrievableHistoricalEvidence =
+              hasKnownInspectableDocument || hasKnownInspectableImage;
+            const shouldForceEvidenceOnFirstPass =
+              isEvidenceEnabledForSeat &&
+              currentVisualAttachmentCount === 0 &&
+              hasRetrievableHistoricalEvidence &&
+              (isVisualQuery || isVerificationFollowUp);
+
             if (isEvidenceEnabledForSeat) {
-              const currentVisualAttachmentCount = (seatAttachments || []).filter((a) => {
-                const cleanUrl = a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
-                return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
-              }).length;
               console.log('[Evidence Tool Availability]', {
                 seatId: seat.seatId,
                 enabled: isEvidenceEnabledForSeat,
                 currentVisualAttachmentCount,
                 currentRoundAttachmentCount: currentRoundAttachments.length,
+                hasRetrievableHistoricalEvidence,
+                forceOnFirstPass: shouldForceEvidenceOnFirstPass,
               });
             }
 
@@ -3529,6 +3566,14 @@ export async function POST(req: NextRequest) {
                   ...(isDocumentCreationEnabledForSeat ? GPT_FILE_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
+                ...(shouldForceEvidenceOnFirstPass
+                  ? {
+                      tool_choice: {
+                        type: 'function',
+                        function: { name: 'request_evidence' },
+                      },
+                    }
+                  : {}),
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
@@ -3600,9 +3645,89 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
+              // Fail-safe: a seat must not finalize "I can't see/access the document"
+              // when canonical evidence is known to be retrievable. Because evidence/document
+              // responses are buffered, this provisional refusal has not been shown to the user.
+              if (
+                accumulatedToolCalls.length === 0 &&
+                isEvidenceEnabledForSeat &&
+                currentVisualAttachmentCount === 0 &&
+                hasRetrievableHistoricalEvidence &&
+                responseClaimsMissingRetrievableEvidence(seatResponse)
+              ) {
+                const originalFirstPassCostUsd =
+                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                const originalRefusal = seatResponse;
+
+                seatResponse = '';
+                seatUsage = null;
+                accumulatedToolCalls = [];
+
+                console.warn('[Evidence Guard] Forcing request_evidence after model refusal', {
+                  seatId: seat.seatId,
+                  refusalPreview: originalRefusal.slice(0, 220),
+                });
+
+                const guardStream = await (openai.chat.completions.create as any)({
+                  model: primaryModel,
+                  models,
+                  messages: seatMessages,
+                  stream: true,
+                  temperature: 0,
+                  signal: seatAbortController.signal,
+                  tools: REQUEST_EVIDENCE_TOOL,
+                  tool_choice: {
+                    type: 'function',
+                    function: { name: 'request_evidence' },
+                  },
+                  ...(discussionId
+                    ? { session_id: `${discussionId}:${seat.seatId}` }
+                    : {}),
+                });
+
+                let guardUsage: any = null;
+                for await (const chunk of guardStream) {
+                  if (req.signal.aborted) break;
+                  if (chunk.model) respondingModel = chunk.model;
+                  if ((chunk as any).usage) {
+                    guardUsage = (chunk as any).usage;
+                  }
+
+                  const deltaToolCalls =
+                    (chunk.choices?.[0]?.delta as any)?.tool_calls;
+                  if (deltaToolCalls) {
+                    accumulatedToolCalls = mergeStreamingToolCalls(
+                      accumulatedToolCalls,
+                      deltaToolCalls
+                    );
+                  }
+                }
+
+                incurredEvidenceGuardRetryCostUsd =
+                  typeof guardUsage?.cost === 'number' ? guardUsage.cost : 0;
+                seatUsage = {
+                  ...(guardUsage || {}),
+                  cost:
+                    originalFirstPassCostUsd +
+                    incurredEvidenceGuardRetryCostUsd,
+                };
+
+                console.log('[Evidence Guard] Forced inspector decision complete', {
+                  seatId: seat.seatId,
+                  calls:
+                    accumulatedToolCalls.length > 0
+                      ? finalizeAllToolCalls(accumulatedToolCalls).map(
+                          (call) => call.name
+                        )
+                      : [],
+                  originalFirstPassCostUsd,
+                  guardRetryCostUsd: incurredEvidenceGuardRetryCostUsd,
+                });
+              }
+
               // Route custom tool calls without wrapping the seat in a generic retry loop.
-              // Image generation remains a terminal seat path; only request_evidence
-              // gets one dedicated second inference after canonical evidence is materialized.
+              // Image generation remains a terminal seat path; request_evidence gets one
+              // dedicated second inference after canonical evidence is materialized.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
 
@@ -4708,8 +4833,21 @@ export async function POST(req: NextRequest) {
                       documentOutputFormat =
                         fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
-                      const resolvedSourceDocx =
+                      const explicitEvidenceSourceDocx =
                         fileArgs.format === 'pdf' &&
+                        typeof fileArgs.source_docx_filename === 'string' &&
+                        fileArgs.source_docx_filename.trim()
+                          ? latestDocxSourceFromContext({
+                              currentRoundAttachments: evidenceAttachments,
+                              knownDocuments: brokerKnownDocuments,
+                              preferredFilename:
+                                fileArgs.source_docx_filename.trim(),
+                            })
+                          : null;
+
+                      const resolvedSourceDocx =
+                        explicitEvidenceSourceDocx ||
+                        (fileArgs.format === 'pdf' &&
                         isSimplePdfFormatConversionRequest(prompt || '')
                           ? brokerResult.status === 'resolved' &&
                             brokerResult.evidence?.kind === 'docx' &&
@@ -4723,7 +4861,7 @@ export async function POST(req: NextRequest) {
                                 currentRoundAttachments: evidenceAttachments,
                                 knownDocuments: brokerKnownDocuments,
                               })
-                          : null;
+                          : null);
 
                       if (resolvedSourceDocx) {
                         console.log('[Document Conversion] Direct evidence Word-to-PDF source selected', {
