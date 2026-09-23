@@ -153,7 +153,7 @@ export const GPT_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, image, tables, spacing, and page breaks so the finished document fits that count. Avoid duplicating the title across the top-level title field and a banner/heading. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, image, tables, spacing, and page breaks so the finished document fits that count. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -3301,22 +3301,69 @@ export async function POST(req: NextRequest) {
                   finalizedCalls[0]?.name === 'request_evidence' &&
                   isEvidenceEnabledForSeat;
 
-                const isCreateFileCall =
-                  finalizedCalls.length === 1 &&
-                  finalizedCalls[0]?.name === 'create_file' &&
+                const rawCreateFileCalls = finalizedCalls.filter(
+                  (call) => call?.name === 'create_file'
+                );
+                const hasOnlyCreateFileCalls =
+                  rawCreateFileCalls.length > 0 &&
+                  rawCreateFileCalls.length === finalizedCalls.length &&
                   isDocumentCreationEnabledForSeat;
+
+                let documentCalls = rawCreateFileCalls;
+
+                if (hasOnlyCreateFileCalls && rawCreateFileCalls.length > 1) {
+                  const explicitlyRequestsMultipleDocuments =
+                    /\b(?:both|multiple\s+(?:files|documents)|two\s+(?:files|documents)|separate\s+(?:files|documents)|(?:pdf\s*(?:and|&)\s*(?:word|docx))|(?:(?:word|docx)\s*(?:and|&)\s*pdf)|versions?)\b/i.test(
+                      prompt || ''
+                    );
+
+                  if (!explicitlyRequestsMultipleDocuments) {
+                    const wantsPdf = /\bpdf\b/i.test(prompt || '');
+                    const wantsDocx =
+                      /\b(?:docx|word(?:\s+document)?|\.docx)\b/i.test(
+                        prompt || ''
+                      ) ||
+                      (!wantsPdf && /\bdocs?\b/i.test(prompt || ''));
+
+                    const preferredCall =
+                      rawCreateFileCalls.find((call) => {
+                        const format = String(
+                          (call.arguments as any)?.format || ''
+                        ).toLowerCase();
+                        return wantsPdf
+                          ? format === 'pdf'
+                          : wantsDocx
+                            ? format === 'docx'
+                            : false;
+                      }) || rawCreateFileCalls[0];
+
+                    documentCalls = [preferredCall];
+
+                    console.warn('[Document Tool] Collapsed duplicate create_file calls', {
+                      seatId: seat.seatId,
+                      requestedCallCount: rawCreateFileCalls.length,
+                      selectedFormat:
+                        (preferredCall.arguments as any)?.format || null,
+                      reason:
+                        'User did not explicitly request multiple distinct files.',
+                    });
+                  }
+                }
+
+                const isCreateFileCall =
+                  hasOnlyCreateFileCalls && documentCalls.length > 0;
 
                 if (isCreateFileCall) {
                   documentToolBranchActive = true;
                   incurredDocumentCallCostUsd =
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
-                  const fileCall = finalizedCalls[0];
-                  const fileArgs = (fileCall.arguments || {}) as unknown as GptCreateFileArgs;
-                  documentOutputFormat = fileArgs.format === 'pdf' ? 'pdf' : 'docx';
                   const serviceClientForDocument = createServiceClient();
                   const knownDocumentImages = discussionId
-                    ? await fetchKnownImageSources(serviceClientForDocument, discussionId)
+                    ? await fetchKnownImageSources(
+                        serviceClientForDocument,
+                        discussionId
+                      )
                     : [];
                   const currentMessageEvidence =
                     discussionId && sourceUserMessageId
@@ -3354,98 +3401,166 @@ export async function POST(req: NextRequest) {
                     });
                   }
 
-                  const documentResult = await executeGptDocumentCreation({
-                    supabase,
-                    openai,
-                    discussionId: discussionId || '',
-                    messageId,
-                    seatId: seat.seatId,
-                    args: fileArgs,
-                    signal: seatAbortController.signal,
-                    availableImages: availableDocumentImages,
-                    resourceContext: {
-                      knownDocuments: discussionMemory?.knownDocuments || [],
-                      retrievedDocuments,
-                      recentRounds: discussionMemory?.recentRounds || [],
-                      knownImageSources: knownDocumentImages || [],
-                      lastRoundEvidence: currentMessageEvidence,
-                      visualContext: visualContextState,
-                      currentUserPrompt: prompt,
-                    },
-                    onImageCost: (event) => {
-                      incurredDocumentAssetCostUsd += event.costUsd;
-                      documentImageModels.add(event.model);
-                    },
-                    reviewModel:
-                      fileArgs.format === 'pdf' ? primaryModel : undefined,
-                    reviewModels:
-                      fileArgs.format === 'pdf' ? models : undefined,
-                    originalUserPrompt: prompt,
-                    reviewSessionId:
-                      discussionId && fileArgs.format === 'pdf'
-                        ? `${discussionId}:${seat.seatId}:pdf-review`
-                        : null,
-                  });
+                  const createdDocuments: Array<{
+                    fileCall: (typeof documentCalls)[number];
+                    fileArgs: GptCreateFileArgs;
+                    result: Awaited<
+                      ReturnType<typeof executeGptDocumentCreation>
+                    >;
+                  }> = [];
 
-                  incurredDocumentFollowUpCostUsd +=
-                    documentResult.visualReviewCostUsd || 0;
+                  for (
+                    let documentIndex = 0;
+                    documentIndex < documentCalls.length;
+                    documentIndex += 1
+                  ) {
+                    const fileCall = documentCalls[documentIndex];
+                    const fileArgs = (fileCall.arguments ||
+                      {}) as unknown as GptCreateFileArgs;
+                    documentOutputFormat =
+                      fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
-                  // Make the newly created document available as primary evidence
-                  // to later seats in this same sequential round.
-                  currentTurnDocuments.push({
-                    filename: documentResult.filename,
-                    content: documentResult.fullText,
-                  });
-                  currentRoundAttachments.push({
-                    url: documentResult.signedUrl,
-                    filename: documentResult.filename,
-                  });
+                    const documentResult = await executeGptDocumentCreation({
+                      supabase,
+                      openai,
+                      discussionId: discussionId || '',
+                      messageId,
+                      seatId: seat.seatId,
+                      args: fileArgs,
+                      signal: seatAbortController.signal,
+                      availableImages: availableDocumentImages,
+                      resourceContext: {
+                        knownDocuments:
+                          discussionMemory?.knownDocuments || [],
+                        retrievedDocuments,
+                        recentRounds: discussionMemory?.recentRounds || [],
+                        knownImageSources: knownDocumentImages || [],
+                        lastRoundEvidence: currentMessageEvidence,
+                        visualContext: visualContextState,
+                        currentUserPrompt: prompt,
+                      },
+                      onImageCost: (event) => {
+                        incurredDocumentAssetCostUsd += event.costUsd;
+                        documentImageModels.add(event.model);
+                      },
+                      reviewModel:
+                        fileArgs.format === 'pdf' ? primaryModel : undefined,
+                      reviewModels:
+                        fileArgs.format === 'pdf' ? models : undefined,
+                      originalUserPrompt: prompt,
+                      reviewSessionId:
+                        discussionId && fileArgs.format === 'pdf'
+                          ? `${discussionId}:${seat.seatId}:pdf-review:${documentIndex}`
+                          : null,
+                    });
+
+                    incurredDocumentFollowUpCostUsd +=
+                      documentResult.visualReviewCostUsd || 0;
+
+                    createdDocuments.push({
+                      fileCall,
+                      fileArgs,
+                      result: documentResult,
+                    });
+
+                    currentTurnDocuments.push({
+                      filename: documentResult.filename,
+                      content: documentResult.fullText,
+                    });
+                    currentRoundAttachments.push({
+                      url: documentResult.signedUrl,
+                      filename: documentResult.filename,
+                    });
+                  }
 
                   documentCreatedThisTurn = true;
 
-                  let documentFinalContent = documentResult.finalContent;
-                  try {
-                    const followUp = await generateDocumentActionFollowUp({
-                      openai,
-                      primaryModel,
-                      models,
-                      baseMessages: seatMessages,
-                      toolCall: fileCall,
-                      priorToolText: seatResponse,
-                      filename: documentResult.filename,
-                      format: documentResult.format,
-                      imageAssetCount: documentResult.imageAssetCount,
-                      signal: seatAbortController.signal,
-                      sessionId: discussionId
-                        ? `${discussionId}:${seat.seatId}`
-                        : null,
-                    });
+                  const firstCreated = createdDocuments[0];
+                  if (!firstCreated) {
+                    throw new Error(
+                      'Document creation completed without a generated file.'
+                    );
+                  }
 
-                    if (followUp.content) {
-                      const { error: completionUpdateError } = await supabase
-                        .from('messages')
-                        .update({ content: followUp.content })
-                        .eq('id', documentResult.messageId)
-                        .eq('discussion_id', discussionId || '')
-                        .eq('sender', seat.seatId);
+                  let documentFinalContent =
+                    createdDocuments.length === 1
+                      ? firstCreated.result.finalContent
+                      : `Created ${createdDocuments
+                          .map(({ result }) => `**${result.filename}**`)
+                          .join(' and ')}.`;
 
-                      if (completionUpdateError) {
-                        console.warn(
-                          '[Document Completion] Could not persist contextual GPT follow-up:',
-                          completionUpdateError
-                        );
-                      } else {
+                  if (createdDocuments.length === 1) {
+                    try {
+                      const followUp = await generateDocumentActionFollowUp({
+                        openai,
+                        primaryModel,
+                        models,
+                        baseMessages: seatMessages,
+                        toolCall: firstCreated.fileCall,
+                        priorToolText: seatResponse,
+                        filename: firstCreated.result.filename,
+                        format: firstCreated.result.format,
+                        imageAssetCount:
+                          firstCreated.result.imageAssetCount,
+                        signal: seatAbortController.signal,
+                        sessionId: discussionId
+                          ? `${discussionId}:${seat.seatId}`
+                          : null,
+                      });
+
+                      if (followUp.content) {
                         documentFinalContent = followUp.content;
                         incurredDocumentFollowUpCostUsd += followUp.costUsd;
                         respondingModel = followUp.respondingModel;
                       }
+                    } catch (documentFollowUpErr) {
+                      console.warn(
+                        '[Document Completion] Non-critical contextual follow-up error:',
+                        documentFollowUpErr
+                      );
                     }
-                  } catch (documentFollowUpErr) {
+                  }
+
+                  const { error: completionUpdateError } = await supabase
+                    .from('messages')
+                    .update({ content: documentFinalContent })
+                    .eq('id', firstCreated.result.messageId)
+                    .eq('discussion_id', discussionId || '')
+                    .eq('sender', seat.seatId);
+
+                  if (completionUpdateError) {
                     console.warn(
-                      '[Document Completion] Non-critical contextual follow-up error:',
-                      documentFollowUpErr
+                      '[Document Completion] Could not persist contextual GPT follow-up:',
+                      completionUpdateError
                     );
                   }
+
+                  const totalImageAssetCount = createdDocuments.reduce(
+                    (sum, { result }) => sum + result.imageAssetCount,
+                    0
+                  );
+                  const totalVisualReviewCostUsd = createdDocuments.reduce(
+                    (sum, { result }) =>
+                      sum + (result.visualReviewCostUsd || 0),
+                    0
+                  );
+                  const anyVisualReviewApplied = createdDocuments.some(
+                    ({ result }) => result.visualReviewApplied
+                  );
+                  const documentFormats = Array.from(
+                    new Set(
+                      createdDocuments.map(({ result }) => result.format)
+                    )
+                  );
+                  const designReferenceIds = Array.from(
+                    new Set(
+                      createdDocuments.flatMap(({ fileArgs }) =>
+                        fileArgs.format === 'pdf'
+                          ? fileArgs.design_reference_ids || []
+                          : []
+                      )
+                    )
+                  );
 
                   const documentCostCents =
                     (
@@ -3453,34 +3568,41 @@ export async function POST(req: NextRequest) {
                       incurredDocumentFollowUpCostUsd +
                       incurredDocumentAssetCostUsd
                     ) * 100;
+
                   if (documentCostCents > 0) {
-                    const { error: spendError } = await supabase.rpc('spend_credits', {
-                      p_cents: documentCostCents,
-                      p_model: respondingModel,
-                      p_discussion_id: discussionId || null,
-                      p_meta: {
-                        seatId: seat.seatId,
-                        documentCreation: true,
-                        format: documentResult.format,
-                        followUpCostUsd: incurredDocumentFollowUpCostUsd,
-                        imageAssetCount: documentResult.imageAssetCount,
-                        imageCostUsd: incurredDocumentAssetCostUsd,
-                        imageModels: Array.from(documentImageModels),
-                        visualReviewApplied: documentResult.visualReviewApplied,
-                        visualReviewCostUsd: documentResult.visualReviewCostUsd,
-                        designReferenceIds:
-                          fileArgs.format === 'pdf'
-                            ? fileArgs.design_reference_ids || []
-                            : [],
-                      },
-                    });
+                    const { error: spendError } = await supabase.rpc(
+                      'spend_credits',
+                      {
+                        p_cents: documentCostCents,
+                        p_model: respondingModel,
+                        p_discussion_id: discussionId || null,
+                        p_meta: {
+                          seatId: seat.seatId,
+                          documentCreation: true,
+                          documentCount: createdDocuments.length,
+                          formats: documentFormats,
+                          followUpCostUsd:
+                            incurredDocumentFollowUpCostUsd,
+                          imageAssetCount: totalImageAssetCount,
+                          imageCostUsd: incurredDocumentAssetCostUsd,
+                          imageModels: Array.from(documentImageModels),
+                          visualReviewApplied:
+                            anyVisualReviewApplied,
+                          visualReviewCostUsd:
+                            totalVisualReviewCostUsd,
+                          designReferenceIds,
+                        },
+                      }
+                    );
 
                     if (spendError) {
                       console.error(
                         '[Spend Tracking] Failed to record GPT document creation spend:',
                         spendError
                       );
-                      throw new Error('Failed to record document creation usage.');
+                      throw new Error(
+                        'Failed to record document creation usage.'
+                      );
                     }
                     spendRecorded = true;
                   }
@@ -3489,9 +3611,11 @@ export async function POST(req: NextRequest) {
                     seatId: seat.seatId,
                     modelId: respondingModel,
                     content: documentFinalContent,
-                    messageId: documentResult.messageId,
-                    createdAt: documentResult.createdAt,
-                    attachment_urls: [documentResult.durableUrl],
+                    messageId: firstCreated.result.messageId,
+                    createdAt: firstCreated.result.createdAt,
+                    attachment_urls: createdDocuments.map(
+                      ({ result }) => result.durableUrl
+                    ),
                   });
 
                   priorResponses.push({
@@ -3505,48 +3629,60 @@ export async function POST(req: NextRequest) {
                     0,
                     configuredSeats.length - seatIndex - 1
                   );
+
                   if (laterSeatCount > 0 && !req.signal.aborted) {
-                    if (documentResult.format === 'docx') {
-                      try {
-                        const generatedDocPages =
-                          await materializeDocxRenderedPageAttachments({
-                            supabase,
-                            serviceClient: serviceClientForDocument,
-                            discussionId: discussionId || '',
-                            sourceUserMessageId: documentResult.messageId,
-                            storagePath: documentResult.storagePath,
-                            filename: documentResult.filename,
-                            signal: seatAbortController.signal,
-                            registerImmediately: false,
-                            renderTimeoutMs: 20_000,
-                          });
+                    for (const { result: documentResult } of createdDocuments) {
+                      if (documentResult.format === 'docx') {
+                        try {
+                          const generatedDocPages =
+                            await materializeDocxRenderedPageAttachments({
+                              supabase,
+                              serviceClient: serviceClientForDocument,
+                              discussionId: discussionId || '',
+                              sourceUserMessageId:
+                                documentResult.messageId,
+                              storagePath: documentResult.storagePath,
+                              filename: documentResult.filename,
+                              signal: seatAbortController.signal,
+                              registerImmediately: false,
+                              renderTimeoutMs: 20_000,
+                            });
 
-                        const sameRoundDocumentPages = generatedDocPages.map((page) => ({
-                          ...page,
-                          provenance: 'same_round_document_render' as const,
-                          creatorSeatId: seat.seatId,
-                        }));
+                          const sameRoundDocumentPages =
+                            generatedDocPages.map((page) => ({
+                              ...page,
+                              provenance:
+                                'same_round_document_render' as const,
+                              creatorSeatId: seat.seatId,
+                            }));
 
-                        currentRoundAttachments.push(...sameRoundDocumentPages);
+                          currentRoundAttachments.push(
+                            ...sameRoundDocumentPages
+                          );
 
-                        console.log('[Generated DOCX Visual Handoff]', {
+                          console.log(
+                            '[Generated DOCX Visual Handoff]',
+                            {
+                              discussionId: discussionId || null,
+                              filename: documentResult.filename,
+                              renderedPageCount:
+                                sameRoundDocumentPages.length,
+                              laterSeatCount,
+                            }
+                          );
+                        } catch (generatedDocRenderErr) {
+                          console.warn(
+                            '[Generated DOCX Visual Handoff] Non-critical render error:',
+                            generatedDocRenderErr
+                          );
+                        }
+                      } else {
+                        console.log('[Generated PDF Handoff]', {
                           discussionId: discussionId || null,
                           filename: documentResult.filename,
-                          renderedPageCount: sameRoundDocumentPages.length,
                           laterSeatCount,
                         });
-                      } catch (generatedDocRenderErr) {
-                        console.warn(
-                          '[Generated DOCX Visual Handoff] Non-critical render error:',
-                          generatedDocRenderErr
-                        );
                       }
-                    } else {
-                      console.log('[Generated PDF Handoff]', {
-                        discussionId: discussionId || null,
-                        filename: documentResult.filename,
-                        laterSeatCount,
-                      });
                     }
                   }
 
