@@ -3803,15 +3803,18 @@ export async function POST(req: NextRequest) {
                     /\b(previous|prior|earlier|older|old|from before|last document|last file|historical)\b/i.test(
                       toolNeed
                     );
+                  const soleCurrentRoundDocument =
+                    currentRoundDocumentAttachments.length === 1
+                      ? currentRoundDocumentAttachments.at(0) || null
+                      : null;
 
                   if (
                     !toolFilename &&
                     !explicitlyHistoricalEvidenceRequest &&
                     (toolResourceType === 'document' || toolResourceType === 'auto') &&
-                    currentRoundDocumentAttachments.length === 1
+                    soleCurrentRoundDocument
                   ) {
-                    toolFilename =
-                      currentRoundDocumentAttachments[0].filename || undefined;
+                    toolFilename = soleCurrentRoundDocument.filename || undefined;
                     if (!toolNeed) {
                       toolNeed = 'the document generated earlier in the current panel round';
                     }
