@@ -13,8 +13,8 @@ export const PROVIDER_MODELS: Record<ProviderPrefix, string[]> = {
     'google/gemini-3.1-pro-preview',
   ],
   'anthropic/': [
+    'anthropic/claude-opus-5.5',
     '~anthropic/claude-sonnet-latest',
-    '~anthropic/claude-haiku-latest',
     '~anthropic/claude-opus-latest',
   ],
   'openai/': [
