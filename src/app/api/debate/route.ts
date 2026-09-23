@@ -3323,6 +3323,10 @@ export async function POST(req: NextRequest) {
             const seatsRemaining = configuredSeats.length - seatIndex;
             const fairShareMs =
               Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
+            const postDocumentReviewerShareMs =
+              documentCreatedThisTurn && seatsRemaining > 1
+                ? softTurnBudgetRemainingMs - 60_000 * (seatsRemaining - 1) - 5_000
+                : fairShareMs;
             const seatTimeoutCapMs =
               configuredSeats.length === 1
                 ? 240_000
@@ -3331,7 +3335,10 @@ export async function POST(req: NextRequest) {
                   : 100_000;
             const seatTimeoutMs = Math.max(
               30_000,
-              Math.min(seatTimeoutCapMs, fairShareMs)
+              Math.min(
+                seatTimeoutCapMs,
+                Math.max(fairShareMs, postDocumentReviewerShareMs)
+              )
             );
 
             const seatAbortController = new AbortController();
