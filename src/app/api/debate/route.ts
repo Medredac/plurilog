@@ -4051,6 +4051,12 @@ export async function POST(req: NextRequest) {
                   seatWebCitations.length = 0;
                   seenCitationUrls.clear();
 
+                  const evidenceContinuationCanCreateFile =
+                    seat.seatId === 'chatgpt' &&
+                    isDocumentCreationEnabledForSeat &&
+                    modelSafeBrokerResult.status === 'resolved';
+                  const evidenceContinuationChunks: string[] = [];
+
                   const evidenceStream = await (openai.chat.completions.create as any)({
                     model: primaryModel,
                     models,
@@ -4058,8 +4064,12 @@ export async function POST(req: NextRequest) {
                     stream: true,
                     temperature: 0.7,
                     signal: seatAbortController.signal,
-                    tools: REQUEST_EVIDENCE_TOOL,
-                    tool_choice: 'none',
+                    ...(evidenceContinuationCanCreateFile
+                      ? {
+                          tools: GPT_FILE_TOOLS,
+                          tool_choice: 'auto',
+                        }
+                      : {}),
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
                       : {}),
@@ -4092,13 +4102,25 @@ export async function POST(req: NextRequest) {
                       addWebCitations(deltaAnnotations);
                     }
 
+                    const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
+                    if (deltaToolCalls) {
+                      accumulatedToolCalls = mergeStreamingToolCalls(
+                        accumulatedToolCalls,
+                        deltaToolCalls
+                      );
+                    }
+
                     const text = chunk.choices?.[0]?.delta?.content || '';
                     if (text) {
                       seatResponse += text;
-                      sendEvent('seat_chunk', {
-                        seatId: seat.seatId,
-                        text,
-                      });
+                      if (evidenceContinuationCanCreateFile) {
+                        evidenceContinuationChunks.push(text);
+                      } else {
+                        sendEvent('seat_chunk', {
+                          seatId: seat.seatId,
+                          text,
+                        });
+                      }
                     }
                   }
 
@@ -4116,6 +4138,357 @@ export async function POST(req: NextRequest) {
                   if (req.signal.aborted) {
                     safeClose();
                     return;
+                  }
+
+                  const evidenceContinuationCalls =
+                    accumulatedToolCalls.length > 0
+                      ? finalizeAllToolCalls(accumulatedToolCalls)
+                      : [];
+                  const evidenceCreateFileCalls =
+                    evidenceContinuationCalls.filter(
+                      (call) => call?.name === 'create_file'
+                    );
+                  const hasOnlyEvidenceCreateFileCalls =
+                    evidenceContinuationCanCreateFile &&
+                    evidenceCreateFileCalls.length > 0 &&
+                    evidenceCreateFileCalls.length ===
+                      evidenceContinuationCalls.length;
+
+                  if (hasOnlyEvidenceCreateFileCalls) {
+                    documentToolBranchActive = true;
+                    incurredDocumentCallCostUsd =
+                      incurredEvidenceFirstPassCostUsd +
+                      incurredEvidenceSecondPassCostUsd;
+
+                    let evidenceDocumentCalls = evidenceCreateFileCalls;
+                    if (evidenceDocumentCalls.length > 1) {
+                      const explicitlyRequestsMultipleDocuments =
+                        /\b(?:both|multiple\s+(?:files|documents)|two\s+(?:files|documents)|separate\s+(?:files|documents)|(?:pdf\s*(?:and|&)\s*(?:word|docx))|(?:(?:word|docx)\s*(?:and|&)\s*pdf)|versions?)\b/i.test(
+                          prompt || ''
+                        );
+                      if (!explicitlyRequestsMultipleDocuments) {
+                        const wantsPdf = /\bpdf\b/i.test(prompt || '');
+                        const wantsDocx =
+                          /\b(?:docx|word(?:\s+document)?|\.docx)\b/i.test(
+                            prompt || ''
+                          ) ||
+                          (!wantsPdf && /\bdocs?\b/i.test(prompt || ''));
+
+                        const preferredCall =
+                          evidenceDocumentCalls.find((call) => {
+                            const format = String(
+                              (call.arguments as any)?.format || ''
+                            ).toLowerCase();
+                            return wantsPdf
+                              ? format === 'pdf'
+                              : wantsDocx
+                                ? format === 'docx'
+                                : false;
+                          }) || evidenceDocumentCalls[0];
+
+                        evidenceDocumentCalls = [preferredCall];
+                      }
+                    }
+
+                    const serviceClientForDocument = createServiceClient();
+                    const availableDocumentImages: DocumentImageSource[] = [];
+                    const seenDocumentImageKeys = new Set<string>();
+
+                    for (const source of latestKnownSources || []) {
+                      if (!source?.storagePath) continue;
+                      if (seenDocumentImageKeys.has(source.storagePath)) continue;
+                      seenDocumentImageKeys.add(source.storagePath);
+                      availableDocumentImages.push({
+                        filename: source.filename || 'image.png',
+                        storagePath: source.storagePath,
+                      });
+                    }
+
+                    for (const attachment of currentRoundAttachments || []) {
+                      if (!isImageUrl(attachment?.url || '')) continue;
+                      if (
+                        attachment.provenance === 'same_round_document_render' ||
+                        attachment.provenance === 'historical_user_upload'
+                      ) {
+                        continue;
+                      }
+                      const key =
+                        extractStoragePathFromSignedUrl(attachment.url) ||
+                        attachment.url;
+                      if (seenDocumentImageKeys.has(key)) continue;
+                      seenDocumentImageKeys.add(key);
+                      availableDocumentImages.push({
+                        filename: attachment.filename || 'image.png',
+                        url: attachment.url,
+                      });
+                    }
+
+                    const createdDocuments: Array<{
+                      fileCall: (typeof evidenceDocumentCalls)[number];
+                      fileArgs: GptCreateFileArgs;
+                      result: Awaited<
+                        ReturnType<typeof executeGptDocumentCreation>
+                      >;
+                    }> = [];
+
+                    for (
+                      let documentIndex = 0;
+                      documentIndex < evidenceDocumentCalls.length;
+                      documentIndex += 1
+                    ) {
+                      const fileCall = evidenceDocumentCalls[documentIndex];
+                      const fileArgs = (fileCall.arguments ||
+                        {}) as unknown as GptCreateFileArgs;
+                      documentOutputFormat =
+                        fileArgs.format === 'pdf' ? 'pdf' : 'docx';
+
+                      const documentResult = await executeGptDocumentCreation({
+                        supabase,
+                        openai,
+                        discussionId: discussionId || '',
+                        messageId,
+                        seatId: seat.seatId,
+                        args: fileArgs,
+                        signal: seatAbortController.signal,
+                        availableImages: availableDocumentImages,
+                        resourceContext: {
+                          knownDocuments: brokerKnownDocuments,
+                          retrievedDocuments,
+                          recentRounds: discussionMemory?.recentRounds || [],
+                          knownImageSources: latestKnownSources || [],
+                          lastRoundEvidence: lastRoundEvidenceForBroker,
+                          visualContext: visualContextState,
+                          currentUserPrompt: prompt,
+                        },
+                        onImageCost: (event) => {
+                          incurredDocumentAssetCostUsd += event.costUsd;
+                          documentImageModels.add(event.model);
+                        },
+                        reviewModel:
+                          fileArgs.format === 'pdf' ? primaryModel : undefined,
+                        reviewModels:
+                          fileArgs.format === 'pdf' ? models : undefined,
+                        originalUserPrompt: prompt,
+                        reviewSessionId:
+                          discussionId && fileArgs.format === 'pdf'
+                            ? `${discussionId}:${seat.seatId}:pdf-review:evidence:${documentIndex}`
+                            : null,
+                      });
+
+                      incurredDocumentFollowUpCostUsd +=
+                        documentResult.visualReviewCostUsd || 0;
+
+                      createdDocuments.push({
+                        fileCall,
+                        fileArgs,
+                        result: documentResult,
+                      });
+                      currentTurnDocuments.push({
+                        filename: documentResult.filename,
+                        content: documentResult.fullText,
+                      });
+                      currentRoundAttachments.push({
+                        url: documentResult.signedUrl,
+                        filename: documentResult.filename,
+                      });
+                    }
+
+                    documentCreatedThisTurn = true;
+
+                    const firstCreated = createdDocuments[0];
+                    if (!firstCreated) {
+                      throw new Error(
+                        'Document creation completed without a generated file.'
+                      );
+                    }
+
+                    let documentFinalContent =
+                      createdDocuments.length === 1
+                        ? firstCreated.result.finalContent
+                        : `Created ${createdDocuments
+                            .map(({ result }) => `**${result.filename}**`)
+                            .join(' and ')}.`;
+
+                    if (createdDocuments.length === 1) {
+                      try {
+                        const followUp =
+                          await generateDocumentActionFollowUp({
+                            openai,
+                            primaryModel,
+                            models,
+                            baseMessages: evidenceMessages,
+                            toolCall: firstCreated.fileCall,
+                            priorToolText: seatResponse,
+                            filename: firstCreated.result.filename,
+                            format: firstCreated.result.format,
+                            imageAssetCount:
+                              firstCreated.result.imageAssetCount,
+                            signal: seatAbortController.signal,
+                            sessionId: discussionId
+                              ? `${discussionId}:${seat.seatId}`
+                              : null,
+                          });
+                        if (followUp.content) {
+                          documentFinalContent = followUp.content;
+                          incurredDocumentFollowUpCostUsd +=
+                            followUp.costUsd;
+                          respondingModel = followUp.respondingModel;
+                        }
+                      } catch (documentFollowUpErr) {
+                        console.warn(
+                          '[Document Completion] Non-critical contextual follow-up error after evidence retrieval:',
+                          documentFollowUpErr
+                        );
+                      }
+                    }
+
+                    const { error: completionUpdateError } = await supabase
+                      .from('messages')
+                      .update({ content: documentFinalContent })
+                      .eq('id', firstCreated.result.messageId)
+                      .eq('discussion_id', discussionId || '')
+                      .eq('sender', seat.seatId);
+
+                    if (completionUpdateError) {
+                      console.warn(
+                        '[Document Completion] Could not persist evidence-chain GPT follow-up:',
+                        completionUpdateError
+                      );
+                    }
+
+                    const documentCostCents =
+                      (
+                        incurredDocumentCallCostUsd +
+                        incurredDocumentFollowUpCostUsd +
+                        incurredDocumentAssetCostUsd
+                      ) * 100;
+
+                    if (documentCostCents > 0) {
+                      const { error: spendError } = await supabase.rpc(
+                        'spend_credits',
+                        {
+                          p_cents: documentCostCents,
+                          p_model: respondingModel,
+                          p_discussion_id: discussionId || null,
+                          p_meta: {
+                            seatId: seat.seatId,
+                            documentCreation: true,
+                            evidenceThenDocument: true,
+                            documentCount: createdDocuments.length,
+                            formats: Array.from(
+                              new Set(
+                                createdDocuments.map(
+                                  ({ result }) => result.format
+                                )
+                              )
+                            ),
+                            followUpCostUsd:
+                              incurredDocumentFollowUpCostUsd,
+                            imageAssetCount: createdDocuments.reduce(
+                              (sum, { result }) =>
+                                sum + result.imageAssetCount,
+                              0
+                            ),
+                            imageCostUsd:
+                              incurredDocumentAssetCostUsd,
+                            imageModels: Array.from(documentImageModels),
+                            visualReviewCostUsd: createdDocuments.reduce(
+                              (sum, { result }) =>
+                                sum +
+                                (result.visualReviewCostUsd || 0),
+                              0
+                            ),
+                          },
+                        }
+                      );
+                      if (spendError) {
+                        console.error(
+                          '[Spend Tracking] Failed to record evidence-chain GPT document creation spend:',
+                          spendError
+                        );
+                        throw new Error(
+                          'Failed to record document creation usage.'
+                        );
+                      }
+                      spendRecorded = true;
+                    }
+
+                    sendEvent('seat_done', {
+                      seatId: seat.seatId,
+                      modelId: respondingModel,
+                      content: documentFinalContent,
+                      messageId: firstCreated.result.messageId,
+                      createdAt: firstCreated.result.createdAt,
+                      attachment_urls: createdDocuments.map(
+                        ({ result }) => result.durableUrl
+                      ),
+                    });
+
+                    priorResponses.push({
+                      name: seat.name,
+                      response: documentFinalContent,
+                    });
+
+                    const laterSeatCount = Math.max(
+                      0,
+                      configuredSeats.length - seatIndex - 1
+                    );
+                    if (laterSeatCount > 0 && !req.signal.aborted) {
+                      for (const {
+                        result: documentResult,
+                      } of createdDocuments) {
+                        if (documentResult.format === 'docx') {
+                          try {
+                            const generatedDocPages =
+                              await materializeDocxRenderedPageAttachments({
+                                supabase,
+                                serviceClient: serviceClientForDocument,
+                                discussionId: discussionId || '',
+                                sourceUserMessageId:
+                                  documentResult.messageId,
+                                storagePath: documentResult.storagePath,
+                                filename: documentResult.filename,
+                                signal: seatAbortController.signal,
+                                registerImmediately: false,
+                                renderTimeoutMs: 20_000,
+                              });
+                            currentRoundAttachments.push(
+                              ...generatedDocPages.map((page) => ({
+                                ...page,
+                                provenance:
+                                  'same_round_document_render' as const,
+                                creatorSeatId: seat.seatId,
+                              }))
+                            );
+                          } catch (generatedDocRenderErr) {
+                            console.warn(
+                              '[Generated DOCX Visual Handoff] Non-critical render error after evidence chain:',
+                              generatedDocRenderErr
+                            );
+                          }
+                        }
+                      }
+                    }
+
+                    continue seatLoop;
+                  }
+
+                  if (
+                    evidenceContinuationCalls.length > 0 &&
+                    !hasOnlyEvidenceCreateFileCalls
+                  ) {
+                    throw new Error(
+                      `Unsupported evidence-continuation tool calls (${evidenceContinuationCalls
+                        .map((call) => call.name)
+                        .join(', ')}) for ${seat.name}.`
+                    );
+                  }
+
+                  for (const text of evidenceContinuationChunks) {
+                    sendEvent('seat_chunk', {
+                      seatId: seat.seatId,
+                      text,
+                    });
                   }
 
                   // Some providers may return no text after an ambiguous/not-found tool result.
