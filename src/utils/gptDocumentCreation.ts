@@ -126,7 +126,9 @@ function pageCountDistance(actual: number | null, target: number | null): number
 
 function compactDocxArgs(args: GptCreateFileArgs): GptCreateFileArgs {
   const design = args.design || {};
-  const blocks = (args.blocks || []).map((block: any) => {
+  const blocks = (args.blocks || [])
+    .filter((block: any) => block?.type !== 'page_break')
+    .map((block: any) => {
     if (block?.type !== 'image') return block;
     const size =
       block.size === 'full'
@@ -147,6 +149,72 @@ function compactDocxArgs(args: GptCreateFileArgs): GptCreateFileArgs {
     },
     blocks,
   };
+}
+
+function spreadDocxAcrossTargetPages(
+  args: GptCreateFileArgs,
+  target: number
+): GptCreateFileArgs {
+  if (target <= 1) {
+    return {
+      ...args,
+      blocks: (args.blocks || []).filter((block: any) => block?.type !== 'page_break'),
+    };
+  }
+
+  const blocks = (args.blocks || []).filter((block: any) => block?.type !== 'page_break');
+  if (blocks.length < target) return args;
+
+  const weight = (block: any): number => {
+    if (!block) return 1;
+    if (block.type === 'image') {
+      if (block.size === 'full') return 5;
+      if (block.size === 'large') return 4;
+      if (block.size === 'medium') return 3;
+      return 2;
+    }
+    if (block.type === 'table') {
+      return Math.max(2, Math.min(8, (block.rows?.length || 0) * 0.7 + 1.5));
+    }
+    if (block.type === 'bullets' || block.type === 'numbered') {
+      return Math.max(1.5, (block.items?.length || 0) * 0.7);
+    }
+    if (block.type === 'heading') return block.level === 1 ? 1.8 : 1.2;
+    if (block.type === 'paragraph') {
+      return Math.max(1, Math.min(5, String(block.text || '').length / 420));
+    }
+    return 1;
+  };
+
+  const weights = blocks.map(weight);
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return args;
+
+  const output: RichDocumentBlock[] = [];
+  let cumulative = 0;
+  let nextBoundary = total / target;
+  let breaksAdded = 0;
+
+  for (let i = 0; i < blocks.length; i++) {
+    const remainingBlocks = blocks.length - i;
+    const remainingBreaks = target - 1 - breaksAdded;
+
+    if (
+      i > 0 &&
+      breaksAdded < target - 1 &&
+      cumulative >= nextBoundary &&
+      remainingBlocks > remainingBreaks
+    ) {
+      output.push({ type: 'page_break' } as any);
+      breaksAdded += 1;
+      nextBoundary = (total * (breaksAdded + 1)) / target;
+    }
+
+    output.push(blocks[i]);
+    cumulative += weights[i];
+  }
+
+  return breaksAdded > 0 ? { ...args, blocks: output } : args;
 }
 
 function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock[] {
@@ -1275,6 +1343,50 @@ export async function executeGptDocumentCreation(
           console.log('[Generated DOCX Page Fit]', {
             targetPageCount: target,
             compactPageCount: compactPages.totalPageCount,
+            selectedPageCount,
+          });
+        }
+
+        if (
+          target &&
+          selectedPageCount &&
+          selectedPageCount < target
+        ) {
+          const spreadArgs = spreadDocxAcrossTargetPages(
+            {
+              ...initialArgs,
+              blocks: selectedResolvedBlocks,
+            },
+            target
+          );
+          const spreadBlocks = reuseResolvedImagePayloads(
+            spreadArgs.blocks,
+            selectedResolvedBlocks
+          );
+          const spreadDocument = renderDocx({
+            filename: spreadArgs.filename,
+            title: spreadArgs.title,
+            design: spreadArgs.design,
+            blocks: spreadBlocks as DocxBlock[],
+          });
+          const spreadPages = await renderDocxPages(spreadDocument.buffer, {
+            signal,
+            timeoutMs: 45_000,
+          });
+
+          if (
+            pageCountDistance(spreadPages.totalPageCount, target) <
+            pageCountDistance(selectedPageCount, target)
+          ) {
+            selectedDocument = spreadDocument;
+            selectedResolvedBlocks = spreadBlocks;
+            selectedPageCount = spreadPages.totalPageCount;
+            visualReviewApplied = true;
+          }
+
+          console.log('[Generated DOCX Page Spread]', {
+            targetPageCount: target,
+            spreadPageCount: spreadPages.totalPageCount,
             selectedPageCount,
           });
         }
