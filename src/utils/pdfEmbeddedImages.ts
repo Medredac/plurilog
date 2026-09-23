@@ -106,7 +106,12 @@ async function ensurePdfImagesAvailable(
 
 export async function extractPdfEmbeddedImages(
   pdfBytes: Buffer,
-  options?: { signal?: AbortSignal; timeoutMs?: number }
+  options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    minDimension?: number;
+    minArea?: number;
+  }
 ): Promise<ExtractedPdfImage[]> {
   if (!Buffer.isBuffer(pdfBytes) || pdfBytes.length === 0) return [];
   if (pdfBytes.length > MAX_PDF_BYTES) {
@@ -193,12 +198,14 @@ export async function extractPdfEmbeddedImages(
       const dims = pngDimensions(data);
       if (!dims) continue;
 
-      // Ignore tiny decorative glyphs/icons. A CV headshot and useful embedded
-      // graphics are comfortably above this threshold.
+      // Ignore tiny decorative glyphs/icons by default. Tests may lower the
+      // threshold to verify that conversion preserved even a deliberately tiny fixture.
+      const minDimension = Math.max(1, options?.minDimension ?? 80);
+      const minArea = Math.max(1, options?.minArea ?? 10_000);
       if (
-        dims.width < 80 ||
-        dims.height < 80 ||
-        dims.width * dims.height < 10_000
+        dims.width < minDimension ||
+        dims.height < minDimension ||
+        dims.width * dims.height < minArea
       ) {
         continue;
       }
