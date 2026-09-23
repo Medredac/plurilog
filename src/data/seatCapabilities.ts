@@ -8,6 +8,7 @@ export interface SeatCapabilities {
   imageAnalysis: boolean;
   imageGeneration: boolean;
   imageEditing: boolean;
+  documentCreation: boolean;
 }
 
 /**
@@ -23,6 +24,7 @@ export const SEAT_CAPABILITIES: Record<ModelId, SeatCapabilities> = {
     imageAnalysis: true,
     imageGeneration: true,
     imageEditing: true,
+    documentCreation: true,
   },
   claude: {
     seatId: 'claude',
@@ -30,6 +32,7 @@ export const SEAT_CAPABILITIES: Record<ModelId, SeatCapabilities> = {
     imageAnalysis: true,
     imageGeneration: false,
     imageEditing: false,
+    documentCreation: false,
   },
   gemini: {
     seatId: 'gemini',
@@ -37,6 +40,7 @@ export const SEAT_CAPABILITIES: Record<ModelId, SeatCapabilities> = {
     imageAnalysis: true,
     imageGeneration: true,
     imageEditing: true,
+    documentCreation: false,
   },
 };
 
