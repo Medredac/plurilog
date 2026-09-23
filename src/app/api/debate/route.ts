@@ -495,6 +495,82 @@ export function isGptDocumentCreationEnabled(): boolean {
   return process.env.GPT_DOCUMENT_CREATION_ENABLED !== 'false';
 }
 
+function isSimplePdfFormatConversionRequest(value: string): boolean {
+  const prompt = (value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ');
+
+  return (
+    /^(?:i\s+want\s+(?:it|this|that)\s+in\s+pdf(?:\s+please)?|pdf\s+please)$/.test(prompt) ||
+    /^(?:(?:ok|okay|good|great)\s+)?(?:now\s+)?(?:make|create|give|return|turn|convert)\s+(?:(?:it|this|that)\s+)?(?:into\s+|as\s+|in\s+)?(?:a\s+)?pdf(?:\s+(?:one|version|copy|file))?(?:\s+please)?$/.test(
+      prompt
+    ) ||
+    /^(?:make|create|give|return)\s+(?:me\s+)?(?:a\s+)?pdf\s+(?:one|version|copy|file)(?:\s+please)?$/.test(
+      prompt
+    )
+  );
+}
+
+function latestDocxSourceFromContext(options: {
+  currentRoundAttachments?: Array<{ url?: string; filename?: string }>;
+  knownDocuments?: Array<{
+    filename?: string;
+    storagePath?: string | null;
+    createdAt?: string;
+  }>;
+}): { storagePath: string; filename: string } | null {
+  const currentDocs = (options.currentRoundAttachments || [])
+    .map((attachment) => {
+      const filename = attachment.filename || '';
+      const storagePath = extractStoragePathFromSignedUrl(attachment.url || '');
+      const path = (storagePath || attachment.url || '').split('?')[0].split('#')[0];
+      if (!filename.toLowerCase().endsWith('.docx') && !path.toLowerCase().endsWith('.docx')) {
+        return null;
+      }
+      return storagePath
+        ? {
+            storagePath,
+            filename: filename || path.split('/').pop() || 'document.docx',
+          }
+        : null;
+    })
+    .filter(
+      (item): item is { storagePath: string; filename: string } => Boolean(item)
+    );
+
+  if (currentDocs.length > 0) {
+    return currentDocs[currentDocs.length - 1];
+  }
+
+  const historical = (options.knownDocuments || [])
+    .filter((doc) => {
+      const filename = (doc.filename || '').toLowerCase();
+      const path = (doc.storagePath || '').toLowerCase();
+      return filename.endsWith('.docx') || path.endsWith('.docx');
+    })
+    .filter(
+      (doc): doc is {
+        filename: string;
+        storagePath: string;
+        createdAt?: string;
+      } => Boolean(doc.storagePath)
+    )
+    .sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return bTime - aTime;
+    });
+
+  return historical.length > 0
+    ? {
+        storagePath: historical[0].storagePath,
+        filename: historical[0].filename || 'document.docx',
+      }
+    : null;
+}
+
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   // Preview rollout: evidence inspection is available to all three panel models when
   // the feature flag is enabled. Gemini image generation remains a separate,
@@ -3645,6 +3721,22 @@ export async function POST(req: NextRequest) {
                     documentOutputFormat =
                       fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
+                    const sourceDocx =
+                      fileArgs.format === 'pdf' &&
+                      isSimplePdfFormatConversionRequest(prompt || '')
+                        ? latestDocxSourceFromContext({
+                            currentRoundAttachments,
+                            knownDocuments: discussionMemory?.knownDocuments || [],
+                          })
+                        : null;
+
+                    if (sourceDocx) {
+                      console.log('[Document Conversion] Direct Word-to-PDF source selected', {
+                        sourceFilename: sourceDocx.filename,
+                        targetFilename: fileArgs.filename,
+                      });
+                    }
+
                     const documentResult = await executeGptDocumentCreation({
                       supabase,
                       openai,
@@ -3654,6 +3746,7 @@ export async function POST(req: NextRequest) {
                       args: fileArgs,
                       signal: req.signal,
                       durableSignal: req.signal,
+                      sourceDocx,
                       availableImages: availableDocumentImages,
                       resourceContext: {
                         knownDocuments:
@@ -4576,6 +4669,30 @@ export async function POST(req: NextRequest) {
                       documentOutputFormat =
                         fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
+                      const resolvedSourceDocx =
+                        fileArgs.format === 'pdf' &&
+                        isSimplePdfFormatConversionRequest(prompt || '')
+                          ? brokerResult.status === 'resolved' &&
+                            brokerResult.evidence?.kind === 'docx' &&
+                            brokerResult.evidence.storagePath
+                            ? {
+                                storagePath: brokerResult.evidence.storagePath,
+                                filename:
+                                  brokerResult.evidence.filename || 'document.docx',
+                              }
+                            : latestDocxSourceFromContext({
+                                currentRoundAttachments: evidenceAttachments,
+                                knownDocuments: brokerKnownDocuments,
+                              })
+                          : null;
+
+                      if (resolvedSourceDocx) {
+                        console.log('[Document Conversion] Direct evidence Word-to-PDF source selected', {
+                          sourceFilename: resolvedSourceDocx.filename,
+                          targetFilename: fileArgs.filename,
+                        });
+                      }
+
                       const documentResult = await executeGptDocumentCreation({
                         supabase,
                         openai,
@@ -4585,6 +4702,7 @@ export async function POST(req: NextRequest) {
                         args: fileArgs,
                         signal: req.signal,
                         durableSignal: req.signal,
+                        sourceDocx: resolvedSourceDocx,
                         availableImages: availableDocumentImages,
                         resourceContext: {
                           knownDocuments: brokerKnownDocuments,
