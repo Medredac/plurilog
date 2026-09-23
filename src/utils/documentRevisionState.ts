@@ -326,6 +326,99 @@ function assertSafeToken(token: string): void {
   }
 }
 
+export function assertNarrowRevisionPatchSafety(
+  operations: JsonPatchOperation[],
+  userPrompt: string
+): void {
+  if (!Array.isArray(operations) || operations.length === 0) {
+    throw new Error('A narrow document revision requires at least one patch operation.');
+  }
+  if (operations.length > 12) {
+    throw new Error(
+      'A narrow document revision is limited to 12 patch operations. Use a broader redesign request for larger structural changes.'
+    );
+  }
+
+  const allowsRemoval = userExplicitlyAllowsContentRemoval(userPrompt);
+  for (const operation of operations) {
+    const path = operation.path || '';
+
+    if (
+      operation.op === 'replace' &&
+      (
+        path === '/blocks' ||
+        path === '/design' ||
+        /^\/blocks\/\d+$/.test(path)
+      )
+    ) {
+      throw new Error(
+        `Narrow revisions cannot replace an entire document structure or content block: ${path}`
+      );
+    }
+
+    if (operation.op === 'remove' && !allowsRemoval) {
+      throw new Error(
+        `The user did not ask to remove document content, so remove is not allowed for this revision: ${path}`
+      );
+    }
+  }
+}
+
+export function normalizeRevisionCompositions<T extends Record<string, any>>(
+  spec: T,
+  userPrompt: string
+): T {
+  const prompt = userPrompt || '';
+  const wantsPhoto =
+    /\b(?:photo|portrait|headshot|picture|image)\b/i.test(prompt) ||
+    /(?:写真|証明写真|顔写真|ポートレート)/.test(prompt);
+  if (!wantsPhoto || !Array.isArray((spec as any).blocks)) return spec;
+
+  const next: any = jsonClone(spec);
+  const blocks: any[] = next.blocks;
+  const tableIndex = blocks.findIndex(
+    (block) =>
+      block?.type === 'table' &&
+      Array.isArray(block.headers) &&
+      block.headers.some((value: unknown) =>
+        /(?:写真|photo)/i.test(String(value || ''))
+      )
+  );
+  if (tableIndex < 0) return spec;
+
+  const imageIndex = blocks.findIndex((block) => {
+    if (block?.type !== 'image') return false;
+    const descriptor = [
+      block.need,
+      block.prompt,
+      block.caption,
+      block.filename,
+      block.imageAltText,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    return (
+      /\b(?:photo|portrait|headshot|picture|image)\b/i.test(descriptor) ||
+      /(?:写真|証明写真|顔写真|ポートレート)/.test(descriptor)
+    );
+  });
+  if (imageIndex < 0) return spec;
+
+  const [imageBlock] = blocks.splice(imageIndex, 1);
+  const adjustedTableIndex = imageIndex < tableIndex ? tableIndex - 1 : tableIndex;
+  blocks.splice(adjustedTableIndex + 1, 0, {
+    ...imageBlock,
+    placement: 'top-right',
+    alignment: 'right',
+    size: 'small',
+    widthMm: 30,
+    heightMm: 40,
+    caption: undefined,
+  });
+
+  return next as T;
+}
+
 export function applyDocumentJsonPatch<T extends Record<string, any>>(
   baseSpec: T,
   operations: JsonPatchOperation[]
