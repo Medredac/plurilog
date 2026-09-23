@@ -152,75 +152,70 @@ export const CLAUDE_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. For PDF, act as both document designer and document engineer: write the actual Python program that will generate the final PDF inside an isolated private computing environment, similar to a local workstation. Available Python packages include ReportLab, WeasyPrint 70, Pillow, Matplotlib, and svgwrite, plus the Python standard library. Choose the production approach that best suits the requested document rather than forcing one renderer: ReportLab is excellent for precise editorial/vector page composition; WeasyPrint is useful for sophisticated paged HTML/CSS typesetting; Pillow/Matplotlib/svgwrite can support custom illustrations and diagrams. The program must write the final file to the predefined OUTPUT_PDF path. ASSET_DIR and ASSET_MANIFEST are also predefined. Do not use subprocesses, shell commands, network libraries, package installation, or external URLs. For PDF image assets, declare them in images; the runtime stores them locally and the asset manifest maps each id to its path. Infer the art direction from the user request and document purpose. Avoid generic AI-slop aesthetics: repetitive equal cards, rainbow accents, predictable dashboards, oversized callout boxes, excessive rounded rectangles, arbitrary gradients, generic visual clutter, or typography that looks like an app UI when the task calls for an editorial document. Prefer deliberate hierarchy, proportion, whitespace, strong typography, coherent limited palettes, context-specific visual language, and human editorial judgment. Do not impose minimalism or sobriety when the user asks for a playful, colourful, ornate, cultural, or otherwise different style. If an exact page count is requested, set target_page_count and design the program to meet it exactly. After the first render, Claude receives the real page images and gets one bounded code-revision pass before the final PDF is saved. For DOCX, use the core blocks array and leave python empty. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. This does not mean you can return standalone generated or edited images. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, image, tables, spacing, and page breaks so the finished document fits that count. Avoid duplicating the title across the top-level title field and a banner/heading. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
           format: { type: 'string', enum: ['docx', 'pdf'] },
           filename: {
             type: 'string',
-            description:
-              'Concise user-facing filename ending in the requested .docx or .pdf extension.',
+            description: 'A concise user-facing filename ending in the requested .docx or .pdf extension.',
           },
           title: {
             type: 'string',
-            description: 'DOCX-only optional document title.',
+            description: 'Optional title shown inside the document. For rich PDFs, omit this when a banner block already provides the title treatment.',
           },
-          python: {
-            type: 'string',
+          design: {
+            type: 'object',
             description:
-              'PDF-only complete Python source. OUTPUT_PDF, ASSET_DIR, and ASSET_MANIFEST are predefined. The code must create OUTPUT_PDF. Use only local files and installed packages.',
-          },
-          target_page_count: {
-            type: 'integer',
-            minimum: 1,
-            maximum: 30,
-            description:
-              'PDF-only. Set when the user explicitly requests an exact page count.',
-          },
-          images: {
-            type: 'array',
-            maxItems: 12,
-            description:
-              'PDF-only local image assets available to the Python program via ASSET_MANIFEST.',
-            items: {
-              type: 'object',
-              properties: {
-                id: {
-                  type: 'string',
-                  description:
-                    'Short unique asset id using only letters, numbers, underscore, or hyphen.',
-                },
-                mode: {
-                  type: 'string',
-                  enum: ['existing', 'generate', 'edit'],
-                },
-                prompt: {
-                  type: 'string',
-                  description:
-                    'For generate: image prompt. For edit: edit instruction.',
-                },
-                need: {
-                  type: 'string',
-                  description:
-                    'For existing/edit: natural-language description of which discussion image is needed.',
-                },
-                filename: {
-                  type: 'string',
-                  description:
-                    'Optional exact filename for an existing discussion image.',
-                },
+              'PDF-only, style-neutral document design controls. Use the user\'s requested aesthetic; these are capabilities, not a template.',
+            properties: {
+              pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
+              orientation: { type: 'string', enum: ['portrait', 'landscape'] },
+              marginMm: { type: 'number', minimum: 6, maximum: 35 },
+              backgroundColor: { type: 'string', description: 'Hex colour such as #ffffff.' },
+              textColor: { type: 'string', description: 'Hex colour.' },
+              mutedColor: { type: 'string', description: 'Hex colour for secondary text.' },
+              accentColor: { type: 'string', description: 'Primary accent hex colour.' },
+              accentColor2: { type: 'string', description: 'Optional second accent hex colour.' },
+              accentColor3: { type: 'string', description: 'Optional third accent hex colour.' },
+              fontFamily: {
+                type: 'string',
+                enum: ['sans', 'serif', 'mono', 'jp-sans', 'jp-serif'],
               },
-              required: ['id', 'mode'],
-              additionalProperties: false,
+              headingFontFamily: {
+                type: 'string',
+                enum: ['sans', 'serif', 'mono', 'jp-sans', 'jp-serif'],
+              },
+              bodySizePt: { type: 'number', minimum: 8, maximum: 15 },
+              lineHeight: { type: 'number', minimum: 1.05, maximum: 1.9 },
+              locale: { type: 'string' },
+              headerText: {
+                type: 'string',
+                description: 'Optional short running header text for PDFs.',
+              },
+              footerText: {
+                type: 'string',
+                description: 'Optional short running footer text for PDFs.',
+              },
+              showPageNumbers: {
+                type: 'boolean',
+                description: 'For PDFs, show current/total page numbering in the page margin when useful.',
+              },
+              targetPageCount: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 30,
+                description:
+                  'For PDFs only. Set this when the user explicitly requests an exact page count; the renderer will make a bounded fit attempt.',
+              },
             },
+            additionalProperties: false,
           },
           blocks: {
             type: 'array',
-            minItems: 0,
+            minItems: 1,
             maxItems: 200,
-            description:
-              'DOCX content blocks. For PDF, pass an empty array because the PDF is authored by the Python program.',
             items: {
               type: 'object',
               properties: {
@@ -234,6 +229,13 @@ export const CLAUDE_FILE_TOOLS = [
                     'table',
                     'image',
                     'page_break',
+                    'banner',
+                    'callout',
+                    'cards',
+                    'columns',
+                    'flow',
+                    'divider',
+                    'spacer',
                   ],
                 },
                 text: { type: 'string' },
@@ -247,18 +249,126 @@ export const CLAUDE_FILE_TOOLS = [
                 mode: {
                   type: 'string',
                   enum: ['existing', 'generate', 'edit'],
+                  description:
+                    'For image blocks: existing reuses an image from the discussion; generate creates a new image; edit transforms an existing discussion image.',
                 },
-                prompt: { type: 'string' },
-                need: { type: 'string' },
-                filename: { type: 'string' },
-                caption: { type: 'string' },
+                prompt: {
+                  type: 'string',
+                  description:
+                    'For generated images, the visual generation prompt. For edited images, the edit instruction.',
+                },
+                need: {
+                  type: 'string',
+                  description:
+                    'For existing/edited images, a concise description of which discussion image is needed.',
+                },
+                filename: {
+                  type: 'string',
+                  description:
+                    'Optional exact filename of the existing image to use or edit.',
+                },
+                caption: {
+                  type: 'string',
+                  description: 'Optional caption printed below an image.',
+                },
                 size: {
                   type: 'string',
                   enum: ['small', 'medium', 'large', 'full'],
+                  description: 'Image display size in the document.',
                 },
                 alignment: {
                   type: 'string',
                   enum: ['left', 'center', 'right'],
+                  description: 'Image alignment in the document.',
+                },
+                eyebrow: {
+                  type: 'string',
+                  description: 'Optional small label above a banner, callout, card, column, or flow step.',
+                },
+                title: {
+                  type: 'string',
+                  description: 'Title for a rich PDF block such as banner or callout.',
+                },
+                subtitle: {
+                  type: 'string',
+                  description: 'Optional subtitle for a banner block.',
+                },
+                style: {
+                  type: 'object',
+                  description: 'Optional PDF-only visual styling for rich layout blocks.',
+                  properties: {
+                    backgroundColor: { type: 'string' },
+                    textColor: { type: 'string' },
+                    accentColor: { type: 'string' },
+                    borderColor: { type: 'string' },
+                    borderWidthPt: { type: 'number', minimum: 0, maximum: 5 },
+                    radiusPt: { type: 'number', minimum: 0, maximum: 30 },
+                    paddingPt: { type: 'number', minimum: 0, maximum: 48 },
+                    marginTopPt: { type: 'number', minimum: 0, maximum: 72 },
+                    marginBottomPt: { type: 'number', minimum: 0, maximum: 72 },
+                    align: { type: 'string', enum: ['left', 'center', 'right'] },
+                    fontSizePt: { type: 'number', minimum: 7, maximum: 42 },
+                    fontWeight: { type: 'number', minimum: 300, maximum: 800 },
+                  },
+                  additionalProperties: false,
+                },
+                cardColumns: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: 4,
+                  description: 'For cards blocks, number of cards per row.',
+                },
+                cards: {
+                  type: 'array',
+                  maxItems: 16,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      eyebrow: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      accentColor: { type: 'string' },
+                      backgroundColor: { type: 'string' },
+                    },
+                    required: ['title'],
+                    additionalProperties: false,
+                  },
+                },
+                columns: {
+                  type: 'array',
+                  maxItems: 4,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      eyebrow: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      items: { type: 'array', items: { type: 'string' } },
+                      accentColor: { type: 'string' },
+                    },
+                    additionalProperties: false,
+                  },
+                },
+                steps: {
+                  type: 'array',
+                  maxItems: 7,
+                  items: {
+                    type: 'object',
+                    properties: {
+                      label: { type: 'string' },
+                      title: { type: 'string' },
+                      text: { type: 'string' },
+                      accentColor: { type: 'string' },
+                    },
+                    required: ['title'],
+                    additionalProperties: false,
+                  },
+                },
+                sizePt: {
+                  type: 'number',
+                  minimum: 2,
+                  maximum: 72,
+                  description: 'For spacer blocks, vertical space in points.',
                 },
               },
               required: ['type'],
@@ -2808,31 +2918,15 @@ export async function POST(req: NextRequest) {
             const seatsRemaining = configuredSeats.length - seatIndex;
             const fairShareMs =
               Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
-            const likelyClaudeDocumentRequest =
-              seat.seatId === 'claude' &&
-              /\b(pdf|docx|word\s+document|downloadable\s+document)\b/i.test(
-                prompt || ''
-              ) &&
-              /\b(create|make|generate|produce|build|write|return|redesign|revise)\b/i.test(
-                prompt || ''
-              );
-            const ordinarySeatTimeoutCapMs =
+            const seatTimeoutCapMs =
               configuredSeats.length === 1
                 ? 240_000
                 : configuredSeats.length === 2
                   ? 120_000
                   : 100_000;
-            const documentSeatBudgetMs = Math.max(
-              30_000,
-              softTurnBudgetRemainingMs -
-                Math.max(0, seatsRemaining - 1) * 30_000 -
-                10_000
-            );
             const seatTimeoutMs = Math.max(
               30_000,
-              likelyClaudeDocumentRequest
-                ? Math.min(180_000, documentSeatBudgetMs)
-                : Math.min(ordinarySeatTimeoutCapMs, fairShareMs)
+              Math.min(seatTimeoutCapMs, fairShareMs)
             );
 
             const seatAbortController = new AbortController();
@@ -3061,12 +3155,6 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 temperature: 0.7,
                 signal: seatAbortController.signal,
-                ...(likelyClaudeDocumentRequest
-                  ? {
-                      reasoning: { effort: 'high' },
-                      max_tokens: 32000,
-                    }
-                  : {}),
                 tools: [
                   {
                     type: 'openrouter:web_search',
