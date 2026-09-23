@@ -760,7 +760,7 @@ export const PDF_DESIGN_LIBRARY: PdfDesignReference[] = [
 
 const STOPWORDS = new Set([
   'the','and','for','with','from','into','that','this','about','create','make','generate',
-  'return','finished','pdf','document','polished','two','page','pages','please','how','what',
+  'return','finished','pdf','document','polished','one','two','page','pages','please','how','what',
   'using','use','include','multiple','models','model',
 ]);
 
