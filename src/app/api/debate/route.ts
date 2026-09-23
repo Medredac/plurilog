@@ -70,11 +70,11 @@ import {
   editChatGPTImage,
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
-import { executeClaudeDocumentCreation } from '@/utils/claudeDocumentCreation';
+import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
 import type {
-  ClaudeCreateFileArgs,
+  GptCreateFileArgs,
   DocumentImageSource,
-} from '@/utils/claudeDocumentCreation';
+} from '@/utils/gptDocumentCreation';
 import {
   mergeStreamingToolCalls,
   finalizeAllToolCalls,
@@ -95,7 +95,7 @@ export const GEMINI_IMAGE_TOOLS = [
     function: {
       name: 'generate_image',
       description:
-        'Generate an image when the user explicitly asks you to produce an image as your output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests such as "Gemini, generate the image first; Claude, then use that exact image in a document." Do not use this tool when an image is mentioned only as an element to be embedded inside a document and the user did not separately ask you to generate it. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
+        'Generate an image when the user explicitly asks you to produce an image as your output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests such as "Gemini, generate the image first; ChatGPT, then use that exact image in a document." Do not use this tool when an image is mentioned only as an element to be embedded inside a document and the user did not separately ask you to generate it. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Do not use this tool for questions merely about image generation or when the user only wants textual advice.',
       parameters: {
         type: 'object',
         properties: {
@@ -119,7 +119,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
     function: {
       name: 'edit_image',
       description:
-        'Edit or transform one existing image when the user explicitly asks you to produce an edited image as the output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests where another model will later reuse the edited image in a document. If the requested edit exists only as an embedded document operation and the user did not separately ask you to produce the edited image first, leave that document-internal edit to Claude\'s document workflow. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
+        'Edit or transform one existing image when the user explicitly asks you to produce an edited image as the output or as a distinct step/artifact in a larger workflow. This includes staged cross-model requests where another model will later reuse the edited image in a document. If the requested edit exists only as an embedded document operation and the user did not separately ask you to produce the edited image first, leave that document-internal edit to ChatGPT\'s document workflow. When appropriate, accompany the tool call with a brief natural sentence grounded in the current conversation rather than a stock confirmation. Use edit_image instead of generate_image for modifications to an existing image. Do not call request_evidence first; Plurilog resolves the canonical source image server-side. Never provide or invent storage URLs, database IDs, or source IDs.',
       parameters: {
         type: 'object',
         properties: {
@@ -147,7 +147,7 @@ export const GEMINI_IMAGE_EDIT_TOOLS = [
   },
 ];
 
-export const CLAUDE_FILE_TOOLS = [
+export const GPT_FILE_TOOLS = [
   {
     type: 'function',
     function: {
@@ -453,8 +453,8 @@ export function isChatGPTImageEditingEnabled(): boolean {
   return process.env.VERCEL_ENV === 'preview';
 }
 
-export function isClaudeDocumentCreationEnabled(): boolean {
-  return process.env.CLAUDE_DOCUMENT_CREATION_ENABLED !== 'false';
+export function isGptDocumentCreationEnabled(): boolean {
+  return process.env.GPT_DOCUMENT_CREATION_ENABLED !== 'false';
 }
 
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
@@ -536,19 +536,19 @@ CORE PRODUCT
 
 IMAGES
 - ChatGPT and Gemini can generate images and edit existing images in Plurilog when those runtime tools are enabled. They can edit user-uploaded images and can work with images created earlier by another supported image-generating model.
-- Claude cannot return standalone generated or edited images as image deliverables in Plurilog. Claude can still inspect, analyze, compare, and critique available images. Separately, when Claude is creating a Word document, its document workflow can request image generation or image editing internally and embed the resulting asset in the DOCX; this does not give Claude a standalone image-generation or image-editing capability.
+- Claude cannot return standalone generated or edited images as image deliverables in Plurilog. Claude can still inspect, analyze, compare, and critique available images. ChatGPT handles document creation and can use document-internal image generation or editing when needed for a requested DOCX or PDF.
 - All three models can analyze images when image evidence is available.
 - You are ${currentModelName}. On this turn: image analysis = ${canAnalyzeImages ? 'available' : 'unavailable'}; image generation = ${canGenerateImages ? 'available' : 'unavailable'}; image editing = ${canEditImages ? 'available' : 'unavailable'}. This turn-specific line overrides any general image-capability statement if they ever differ.
 
 FILES AND VIDEO
-- Claude handles downloadable file creation in Plurilog. In the current rollout, Claude can create real downloadable Word (.docx) documents and PDFs when document creation is enabled. As part of that document workflow, Claude may reuse existing images or request generation/editing of an image asset for embedding in the requested document, even though Claude cannot return a standalone generated or edited image.
-- ChatGPT and Gemini cannot create downloadable documents/files in Plurilog. If the user asks them to create a document or file, they should answer naturally from that limitation and may point out that Claude can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
+- ChatGPT handles downloadable file creation in Plurilog. In the current rollout, ChatGPT can create real downloadable Word (.docx) documents and PDFs when document creation is enabled. As part of that workflow, ChatGPT may reuse existing images or request generation/editing of an image asset for embedding in the requested document.
+- Claude and Gemini cannot create downloadable documents/files in Plurilog. If the user asks either of them to create a document or file, they should answer naturally from that limitation and may point out that ChatGPT can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
 - Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel. PDFs can be analyzed semantically and visually through the existing PDF workflow.
-- If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally even if the user also says Claude should later reuse that exact image inside a document. Only avoid a separate image output when the image is mentioned solely as an embedded element of the requested document and no separate image-generation/editing step was requested.
+- If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally. If the image is meant only as an embedded element of a ChatGPT-created document, ChatGPT may handle the image operation inside the document workflow instead of returning a separate image first.
 - AI-created XLSX and PPTX files are not yet available in this rollout.
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
-- Plurilog can separately export an existing discussion as a PDF; that export feature is different from Claude creating a custom PDF in response to a file-creation request.
+- Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
 - Video upload/analysis is not currently available. It is in development.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
@@ -566,7 +566,7 @@ USAGE AND PLANS
 
 COMPARING PLURILOG WITH STANDALONE AI PRODUCTS
 - Be candid. Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, file/image analysis, and supported image generation/editing in one place.
-- Do not claim Plurilog already has every feature offered by standalone AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled Claude DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -3041,7 +3041,7 @@ export async function POST(req: NextRequest) {
             const isEvidenceEnabledForSeat =
               isSeatEligibleForEvidenceRequest(seat.seatId);
             const isDocumentCreationEnabledForSeat =
-              seat.seatId === 'chatgpt' && isClaudeDocumentCreationEnabled();
+              seat.seatId === 'chatgpt' && isGptDocumentCreationEnabled();
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -3197,7 +3197,7 @@ export async function POST(req: NextRequest) {
                   },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(isDocumentCreationEnabledForSeat ? CLAUDE_FILE_TOOLS : []),
+                  ...(isDocumentCreationEnabledForSeat ? GPT_FILE_TOOLS : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(discussionId
@@ -3311,7 +3311,7 @@ export async function POST(req: NextRequest) {
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
                   const fileCall = finalizedCalls[0];
-                  const fileArgs = (fileCall.arguments || {}) as unknown as ClaudeCreateFileArgs;
+                  const fileArgs = (fileCall.arguments || {}) as unknown as GptCreateFileArgs;
                   documentOutputFormat = fileArgs.format === 'pdf' ? 'pdf' : 'docx';
                   const serviceClientForDocument = createServiceClient();
                   const knownDocumentImages = discussionId
@@ -3353,7 +3353,7 @@ export async function POST(req: NextRequest) {
                     });
                   }
 
-                  const documentResult = await executeClaudeDocumentCreation({
+                  const documentResult = await executeGptDocumentCreation({
                     supabase,
                     openai,
                     discussionId: discussionId || '',
@@ -3430,7 +3430,7 @@ export async function POST(req: NextRequest) {
 
                       if (completionUpdateError) {
                         console.warn(
-                          '[Document Completion] Could not persist contextual Claude follow-up:',
+                          '[Document Completion] Could not persist contextual GPT follow-up:',
                           completionUpdateError
                         );
                       } else {
@@ -3476,7 +3476,7 @@ export async function POST(req: NextRequest) {
 
                     if (spendError) {
                       console.error(
-                        '[Spend Tracking] Failed to record Claude document creation spend:',
+                        '[Spend Tracking] Failed to record GPT document creation spend:',
                         spendError
                       );
                       throw new Error('Failed to record document creation usage.');
@@ -3498,7 +3498,7 @@ export async function POST(req: NextRequest) {
                     response: documentFinalContent,
                   });
 
-                  // Claude's visible completion must never wait on page rendering.
+                  // GPT's visible completion must never wait on page rendering.
                   // Render only for later-seat visual review, with a hard bound.
                   const laterSeatCount = Math.max(
                     0,
@@ -5268,8 +5268,8 @@ export async function POST(req: NextRequest) {
                 });
               }
 
-              // Charge the Claude model call even if rendering, storage, indexing, or message delivery fails
-              // after Claude selected the create_file tool.
+              // Charge the GPT model call even if rendering, storage, indexing, or message delivery fails
+              // after GPT selected the create_file tool.
               if (
                 documentToolBranchActive &&
                 !spendRecorded &&
