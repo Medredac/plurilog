@@ -5,14 +5,11 @@ import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
+  createRichPdfRenderSession,
   type PdfDesign,
   type RichDocumentBlock,
   type RenderedPdfReviewPage,
 } from '@/utils/richPdfRenderer';
-import {
-  createClaudeCodePdf,
-  type CodePdfImageRequest,
-} from '@/utils/claudeCodePdfCreation';
 import {
   generateGeminiImage,
   generateChatGPTImage,
@@ -28,9 +25,6 @@ export interface ClaudeCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'
   format: 'docx' | 'pdf';
   design?: PdfDesign;
   blocks: RichDocumentBlock[];
-  python?: string;
-  target_page_count?: number;
-  images?: CodePdfImageRequest[];
 }
 
 export interface DocumentImageSource {
@@ -620,17 +614,14 @@ export async function executeClaudeDocumentCreation(
     imageCostUsd += event.costUsd;
     onImageCost?.(event);
   };
-  const resolvedDocument =
-    args.format === 'docx'
-      ? await resolveDocumentBlocks(
-          args.blocks || [],
-          serviceClient,
-          availableImages,
-          resourceContext,
-          signal,
-          costAwareCallback
-        )
-      : { blocks: [] as RichDocumentBlock[], imageAssetCount: 0 };
+  const resolvedDocument = await resolveDocumentBlocks(
+    args.blocks || [],
+    serviceClient,
+    availableImages,
+    resourceContext,
+    signal,
+    costAwareCallback
+  );
 
   let finalBuffer: Buffer;
   let finalFilename: string;
@@ -641,51 +632,99 @@ export async function executeClaudeDocumentCreation(
   let visualReviewApplied = false;
 
   if (args.format === 'pdf') {
-    if (!args.python?.trim()) {
-      throw new Error(
-        'PDF creation requires Claude-authored Python in this rollout.'
-      );
-    }
-
-    const codePdf = await createClaudeCodePdf({
-      openai,
-      serviceClient,
-      args: {
-        filename: args.filename,
-        python: args.python,
-        target_page_count: args.target_page_count,
-        images: args.images || [],
-      },
+    const renderSession = await createRichPdfRenderSession({
       signal,
-      availableImages,
-      resourceContext,
-      reviewModel,
-      reviewModels,
-      originalUserPrompt,
-      reviewSessionId,
-      onImageCost: costAwareCallback,
+      timeoutMs: 90_000,
     });
 
-    finalBuffer = codePdf.buffer;
-    finalFilename = codePdf.filename;
-    renderedFullText = codePdf.fullText;
-    generatedPdfPageCount = codePdf.pageCount;
-    finalImageAssetCount = codePdf.imageAssetCount;
-    visualReviewCostUsd = codePdf.visualReviewCostUsd;
-    visualReviewApplied = codePdf.visualReviewApplied;
-    imageCostUsd = codePdf.imageCostUsd;
+    try {
+      const initialPdf = await renderSession.render({
+        filename: args.filename,
+        title: args.title,
+        design: args.design,
+        blocks: resolvedDocument.blocks,
+      });
 
-    console.log('[Generated PDF] Rendered programmatic Claude PDF:', {
-      filename: finalFilename,
-      byteSize: finalBuffer.length,
-      initialPageCount: codePdf.initialPageCount,
-      finalPageCount: generatedPdfPageCount,
-      imageAssetCount: finalImageAssetCount,
-      imageModels: codePdf.imageModels,
-      visualReviewApplied,
-      visualReviewCostUsd,
-      reviewRationale: codePdf.reviewRationale,
-    });
+      let selectedPdf = initialPdf;
+
+      if (reviewModel && initialPdf.reviewPages.length > 0) {
+        try {
+          const review = await reviewRenderedPdfWithClaude({
+            openai,
+            model: reviewModel,
+            models: reviewModels.length > 0 ? reviewModels : [reviewModel],
+            args,
+            pages: initialPdf.reviewPages,
+            originalUserPrompt,
+            signal,
+            sessionId: reviewSessionId,
+          });
+          visualReviewCostUsd += review.costUsd;
+
+          console.log('[Generated PDF Visual Review]', {
+            applied: review.applied,
+            respondingModel: review.respondingModel,
+            initialPageCount: initialPdf.totalPageCount,
+            rationale: review.rationale,
+          });
+
+          if (review.applied) {
+            const blocksWithReusedImages = reuseResolvedImagePayloads(
+              review.args.blocks,
+              resolvedDocument.blocks
+            );
+            const reviewedResolvedDocument = await resolveDocumentBlocks(
+              blocksWithReusedImages,
+              serviceClient,
+              availableImages,
+              resourceContext,
+              signal,
+              costAwareCallback
+            );
+
+            const reviewedPdf = await renderSession.render({
+              filename: review.args.filename,
+              title: review.args.title,
+              design: review.args.design,
+              blocks: reviewedResolvedDocument.blocks,
+            });
+
+            selectedPdf = reviewedPdf;
+            finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+            visualReviewApplied = true;
+
+            console.log('[Generated PDF Visual Review] Final render:', {
+              initialPageCount: initialPdf.totalPageCount,
+              finalPageCount: reviewedPdf.totalPageCount,
+              initialBytes: initialPdf.buffer.length,
+              finalBytes: reviewedPdf.buffer.length,
+            });
+          }
+        } catch (reviewErr) {
+          console.warn(
+            '[Generated PDF Visual Review] Non-critical review failure; using first render:',
+            reviewErr
+          );
+        }
+      }
+
+      finalBuffer = selectedPdf.buffer;
+      finalFilename = selectedPdf.filename;
+      renderedFullText = selectedPdf.fullText;
+      generatedPdfPageCount = selectedPdf.totalPageCount;
+
+      console.log('[Generated PDF] Rendered rich PDF:', {
+        filename: finalFilename,
+        byteSize: finalBuffer.length,
+        pageCount: generatedPdfPageCount,
+        visualReviewApplied,
+        visualReviewCostUsd,
+        usedSnapshot: selectedPdf.usedSnapshot,
+        elapsedMs: selectedPdf.elapsedMs,
+      });
+    } finally {
+      await renderSession.close();
+    }
   } else {
     const renderedDocument = renderDocx({
       filename: args.filename,
