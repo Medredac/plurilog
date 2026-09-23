@@ -40,6 +40,7 @@ export interface GptCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   format: 'docx' | 'pdf';
   design?: PdfDesign;
   design_reference_ids?: string[];
+  source_docx_filename?: string;
   blocks: RichDocumentBlock[];
 }
 
