@@ -39,7 +39,11 @@ export interface JsonPatchOperation {
 }
 
 function jsonClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value));
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    return value;
+  }
+  return JSON.parse(serialized) as T;
 }
 
 function canonicalJson(value: unknown): string {
@@ -53,7 +57,7 @@ function canonicalJson(value: unknown): string {
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(obj[key])}`)
       .join(',')}}`;
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? 'null';
 }
 
 function stripRuntimePayloads(value: unknown): unknown {
@@ -153,6 +157,8 @@ export async function persistDocumentStateSnapshot(options: {
     generation_kind: generationKind,
   };
 
+  const serializedMetadata = JSON.stringify(metadata) ?? '{}';
+
   const fileHash = crypto
     .createHash('sha256')
     .update(
@@ -169,7 +175,7 @@ export async function persistDocumentStateSnapshot(options: {
         discussion_id: discussionId,
         artifact_type: DOCUMENT_STATE_ARTIFACT_TYPE,
         file_hash: fileHash,
-        byte_size: Buffer.byteLength(JSON.stringify(metadata), 'utf8'),
+        byte_size: Buffer.byteLength(serializedMetadata, 'utf8'),
         metadata,
       },
       { onConflict: 'discussion_id,file_hash' }
