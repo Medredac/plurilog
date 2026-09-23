@@ -19,6 +19,7 @@ import {
   type RenderedDocxPage,
 } from '@/utils/docxPageRenderer';
 import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
+import { persistPdfRenderedPages } from '@/utils/pdfRenderedPages';
 import {
   createRichPdfRenderSession,
   type PdfDesign,
@@ -1625,6 +1626,7 @@ export async function executeGptDocumentCreation(
   let visualReviewCostUsd = 0;
   let visualReviewApplied = false;
   let finalDocxReviewPages: RenderedDocxPage[] = [];
+  let finalPdfReviewPages: RenderedPdfReviewPage[] = [];
   let finalPageCount: number | null = null;
   let finalSpecForState: GptCreateFileArgs =
     sanitizeDocumentSpecForState(args) as GptCreateFileArgs;
@@ -1757,6 +1759,7 @@ export async function executeGptDocumentCreation(
       finalFilename = selectedPdf.filename;
       renderedFullText = selectedPdf.fullText;
       generatedPdfPageCount = selectedPdf.totalPageCount;
+      finalPdfReviewPages = selectedPdf.reviewPages;
       finalPageCount = generatedPdfPageCount;
       finalSpecForState = sanitizeDocumentSpecForState({
         ...selectedPdfArgs,
@@ -2236,7 +2239,29 @@ export async function executeGptDocumentCreation(
   }
 
   let renderedPageAttachments: Array<{ url: string; filename: string }> = [];
-  if (args.format === 'docx' && finalDocxReviewPages.length > 0) {
+  if (args.format === 'pdf' && finalPdfReviewPages.length > 0) {
+    try {
+      const persistedPages = await persistPdfRenderedPages({
+        supabase,
+        parentFilename: persistedDocument.filename,
+        parentFileBytes: finalBuffer,
+        pages: finalPdfReviewPages,
+      });
+      renderedPageAttachments = persistedPages.map((page) => ({
+        url: page.signedUrl,
+        filename: page.filename,
+      }));
+      console.log('[Generated PDF Visual Handoff Cache]', {
+        filename: persistedDocument.filename,
+        pageCount: renderedPageAttachments.length,
+      });
+    } catch (pagePersistErr) {
+      console.warn(
+        '[Generated PDF Visual Handoff Cache] Non-critical page persistence error:',
+        pagePersistErr
+      );
+    }
+  } else if (args.format === 'docx' && finalDocxReviewPages.length > 0) {
     try {
       const persistedPages = await persistDocxRenderedPages({
         supabase,
