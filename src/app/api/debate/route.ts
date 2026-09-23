@@ -538,9 +538,9 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
   // artifact before a replacement file can be created. This deliberately
   // includes terse deictic prompts such as "redo it" and "make it JIS-style".
   const revisionVerb =
-    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild)\b/i;
+    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put)\b/i;
   const artifactCue =
-    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style)\b/i;
+    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image)\b/i;
 
   return revisionVerb.test(prompt) && artifactCue.test(prompt);
 }
