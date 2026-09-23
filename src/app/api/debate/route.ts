@@ -4362,10 +4362,8 @@ export async function POST(req: NextRequest) {
                           incurredDocumentAssetCostUsd += event.costUsd;
                           documentImageModels.add(event.model);
                         },
-                        reviewModel:
-                          fileArgs.format === 'pdf' ? primaryModel : undefined,
-                        reviewModels:
-                          fileArgs.format === 'pdf' ? models : undefined,
+                        reviewModel: primaryModel,
+                        reviewModels: models,
                         originalUserPrompt: prompt,
                         reviewSessionId: discussionId
                           ? `${discussionId}:${seat.seatId}:${fileArgs.format}-review:evidence:${documentIndex}`
