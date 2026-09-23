@@ -1320,6 +1320,21 @@ export function buildPanelMessages(
     );
   }
 
+  if (
+    currentModelName === 'ChatGPT' &&
+    isDocumentRevisionFollowUpQuery(prompt) &&
+    currentTurnDocuments &&
+    currentTurnDocuments.length > 0
+  ) {
+    sections.push(
+      `DOCUMENT REVISION GROUNDING:
+This is a revision/reformatting request, not a fresh-document request. The document content supplied in this turn is the canonical factual basis for the replacement.
+Preserve existing factual content by default unless the user explicitly asks to remove, shorten, summarize, or rewrite it.
+If an intermediate panel-generated version contains a blank or omission but another supplied source document contains the underlying fact, do NOT treat the intermediate blank as proof that the fact was absent from the source. Restore the source-grounded fact.
+Layout/style/template changes must not silently delete names, contact details, dates, education entries, employers, job descriptions, language levels, existing images, or other source-grounded content.`
+    );
+  }
+
   // 3. [hybrid-retrieved relevant earlier discussion rounds]
   if (retrievedMemory && retrievedMemory.length > 0) {
     const memoryBlocks = retrievedMemory
@@ -4682,8 +4697,8 @@ export async function POST(req: NextRequest) {
                     serviceClientForEvidence
                   ) {
                     const resolvedDocumentIds = Array.from(
-                      new Set(
-                        evidenceResolutionRecords
+                      new Set([
+                        ...evidenceResolutionRecords
                           .filter(
                             (record) =>
                               record.brokerResult.status === 'resolved' &&
@@ -4696,8 +4711,14 @@ export async function POST(req: NextRequest) {
                           .map(
                             (record) =>
                               record.brokerResult.evidence!.documentId!
-                          )
-                      )
+                          ),
+                        ...(retrievedDocuments || [])
+                          .map((doc) => doc.documentId)
+                          .filter(
+                            (id): id is string =>
+                              typeof id === 'string' && id.length > 0
+                          ),
+                      ])
                     );
 
                     if (resolvedDocumentIds.length > 0) {
