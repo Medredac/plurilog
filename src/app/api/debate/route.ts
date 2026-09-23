@@ -77,8 +77,10 @@ import type {
 } from '@/utils/gptDocumentCreation';
 import {
   applyDocumentJsonPatch,
+  assertNarrowRevisionPatchSafety,
   findDocumentStateSnapshot,
   missingPreservedDocumentContent,
+  normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
   userExplicitlyAllowsContentRemoval,
   type DocumentStateSnapshot,
@@ -5312,9 +5314,24 @@ export async function POST(req: NextRequest) {
                           format?: 'docx' | 'pdf';
                           patch?: JsonPatchOperation[];
                         };
+                        const preserveParentContent =
+                          isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
+                          !userExplicitlyAllowsContentRemoval(prompt || '');
+
+                        if (preserveParentContent) {
+                          assertNarrowRevisionPatchSafety(
+                            reviseArgs.patch || [],
+                            prompt || ''
+                          );
+                        }
+
                         fileArgs = applyDocumentJsonPatch(
                           revisionParentState.spec as GptCreateFileArgs,
                           reviseArgs.patch || []
+                        ) as GptCreateFileArgs;
+                        fileArgs = normalizeRevisionCompositions(
+                          fileArgs,
+                          prompt || ''
                         ) as GptCreateFileArgs;
 
                         if (
@@ -5336,9 +5353,6 @@ export async function POST(req: NextRequest) {
                           prompt || ''
                         ) as GptCreateFileArgs;
 
-                        const preserveParentContent =
-                          isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
-                          !userExplicitlyAllowsContentRemoval(prompt || '');
                         if (preserveParentContent) {
                           const missingParentContent =
                             missingPreservedDocumentContent(
