@@ -79,6 +79,7 @@ import {
   applyDocumentJsonPatch,
   assertNarrowRevisionPatchSafety,
   findDocumentStateSnapshot,
+  findLatestDocumentStateSnapshot,
   missingPreservedDocumentContent,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
@@ -4473,6 +4474,63 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
+                  const promptLowerForRevision =
+                    (prompt || '').toLowerCase();
+                  const userNamedKnownDocument =
+                    brokerKnownDocuments.some((doc) => {
+                      const filename = (doc.filename || '').trim();
+                      if (!filename) return false;
+                      const lowerFilename = filename.toLowerCase();
+                      const base = lowerFilename.replace(
+                        /\.(?:pdf|docx)$/i,
+                        ''
+                      );
+                      return (
+                        promptLowerForRevision.includes(lowerFilename) ||
+                        (base.length >= 4 &&
+                          promptLowerForRevision.includes(base))
+                      );
+                    });
+                  const userRequestedOlderRevisionVersion =
+                    /\b(?:older|earlier|previous|prior|first|original)\s+(?:version|draft|document|file)\b/i.test(
+                      prompt || ''
+                    );
+
+                  let latestCanonicalRevisionState:
+                    | DocumentStateSnapshot
+                    | null = null;
+                  if (
+                    seat.seatId === 'chatgpt' &&
+                    isDocumentRevisionFollowUp &&
+                    serviceClientForEvidence &&
+                    !userNamedKnownDocument &&
+                    !userRequestedOlderRevisionVersion
+                  ) {
+                    latestCanonicalRevisionState =
+                      await findLatestDocumentStateSnapshot({
+                        serviceSupabase: serviceClientForEvidence,
+                        discussionId,
+                      });
+
+                    if (latestCanonicalRevisionState) {
+                      console.log(
+                        '[Document Revision] Latest canonical parent candidate',
+                        {
+                          snapshotId:
+                            latestCanonicalRevisionState.id,
+                          documentId:
+                            latestCanonicalRevisionState.documentId ||
+                            null,
+                          filename:
+                            latestCanonicalRevisionState.filename,
+                          pageCount:
+                            latestCanonicalRevisionState.pageCount ||
+                            null,
+                        }
+                      );
+                    }
+                  }
+
                   type EvidenceResolutionRecord = {
                     toolCall: (typeof evidenceRequestCalls)[number];
                     toolResourceType: 'auto' | 'image' | 'document';
@@ -4530,29 +4588,80 @@ export async function POST(req: NextRequest) {
                       );
                     }
 
-                    const brokerResult = resolveRequestedEvidence(
-                      {
-                        modality: 'visual',
-                        resource_type: toolResourceType,
-                        need: toolNeed || prompt,
-                        filename: toolFilename,
-                      },
-                      {
-                        knownDocuments: brokerKnownDocuments,
-                        retrievedDocuments,
-                        recentRounds: discussionMemory?.recentRounds,
-                        knownImageSources: latestKnownSources,
-                        lastRoundEvidence: lastRoundEvidenceForBroker,
-                        recentEvidenceSets: [],
-                        visualContext: isPersistentVisualContextReadsEnabled()
-                          ? visualContextState
-                          : null,
-                        previousUserPrompt: lastRound?.userPrompt,
-                        currentUserPrompt: prompt,
-                        allUserMessageIds:
-                          discussionMemory?.allUserMessageIds,
-                      }
-                    );
+                    const shouldAnchorRevisionToCanonicalParent =
+                      Boolean(latestCanonicalRevisionState) &&
+                      !toolFilename &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto');
+
+                    const brokerResult =
+                      shouldAnchorRevisionToCanonicalParent &&
+                      latestCanonicalRevisionState
+                        ? {
+                            status: 'resolved' as const,
+                            kind:
+                              latestCanonicalRevisionState.format,
+                            message:
+                              `Resolved latest canonical document revision parent: ${latestCanonicalRevisionState.filename}.`,
+                            evidence: {
+                              kind:
+                                latestCanonicalRevisionState.format,
+                              filename:
+                                latestCanonicalRevisionState.filename,
+                              storagePath:
+                                latestCanonicalRevisionState.storagePath,
+                              documentId:
+                                latestCanonicalRevisionState.documentId ||
+                                undefined,
+                              reason:
+                                'canonical_revision_parent',
+                            },
+                          }
+                        : resolveRequestedEvidence(
+                            {
+                              modality: 'visual',
+                              resource_type: toolResourceType,
+                              need: toolNeed || prompt,
+                              filename: toolFilename,
+                            },
+                            {
+                              knownDocuments: brokerKnownDocuments,
+                              retrievedDocuments,
+                              recentRounds:
+                                discussionMemory?.recentRounds,
+                              knownImageSources: latestKnownSources,
+                              lastRoundEvidence:
+                                lastRoundEvidenceForBroker,
+                              recentEvidenceSets: [],
+                              visualContext:
+                                isPersistentVisualContextReadsEnabled()
+                                  ? visualContextState
+                                  : null,
+                              previousUserPrompt:
+                                lastRound?.userPrompt,
+                              currentUserPrompt: prompt,
+                              allUserMessageIds:
+                                discussionMemory?.allUserMessageIds,
+                            }
+                          );
+
+                    if (
+                      shouldAnchorRevisionToCanonicalParent &&
+                      latestCanonicalRevisionState
+                    ) {
+                      console.log(
+                        '[Document Revision] Anchored evidence request to canonical parent',
+                        {
+                          seatId: seat.seatId,
+                          filename:
+                            latestCanonicalRevisionState.filename,
+                          snapshotId:
+                            latestCanonicalRevisionState.id,
+                          requestedResourceType:
+                            toolResourceType,
+                        }
+                      );
+                    }
 
                     let modelSafeBrokerResult =
                       toModelSafeBrokerResult(brokerResult);
