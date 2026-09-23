@@ -3749,10 +3749,13 @@ export async function POST(req: NextRequest) {
                   finalizedCalls[0]?.name === 'edit_image' &&
                   isImageEditingEnabledForSeat;
 
+                const evidenceRequestCalls = finalizedCalls.filter(
+                  (call) => call?.name === 'request_evidence'
+                );
                 const isEvidenceRequestCall =
-                  finalizedCalls.length === 1 &&
-                  finalizedCalls[0]?.name === 'request_evidence' &&
-                  isEvidenceEnabledForSeat;
+                  isEvidenceEnabledForSeat &&
+                  evidenceRequestCalls.length > 0 &&
+                  evidenceRequestCalls.length === finalizedCalls.length;
 
                 const rawCreateFileCalls = finalizedCalls.filter(
                   (call) => call?.name === 'create_file'
@@ -4182,25 +4185,14 @@ export async function POST(req: NextRequest) {
                   incurredEvidenceFirstPassCostUsd =
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
-                  const toolCall = finalizedCalls[0];
-                  const toolArgs = (toolCall.arguments || {}) as {
-                    resource_type?: 'auto' | 'image' | 'document';
-                    need?: string;
-                    filename?: string;
-                  };
-                  let toolNeed =
-                    typeof toolArgs.need === 'string' ? toolArgs.need.trim() : '';
-                  const toolResourceType = toolArgs.resource_type || 'auto';
-                  let toolFilename =
-                    typeof toolArgs.filename === 'string' ? toolArgs.filename.trim() : undefined;
-
                   const currentRoundDocumentAttachments =
                     currentRoundAttachments.filter((attachment) => {
                       const filename = (attachment.filename || '').toLowerCase();
-                      const cleanUrl = attachment.url
-                        ?.split('?')[0]
-                        .split('#')[0]
-                        .toLowerCase() || '';
+                      const cleanUrl =
+                        attachment.url
+                          ?.split('?')[0]
+                          .split('#')[0]
+                          .toLowerCase() || '';
                       return (
                         filename.endsWith('.pdf') ||
                         filename.endsWith('.docx') ||
@@ -4208,39 +4200,22 @@ export async function POST(req: NextRequest) {
                         cleanUrl.endsWith('.docx')
                       );
                     });
-
-                  const explicitlyHistoricalEvidenceRequest =
-                    /\b(previous|prior|earlier|older|old|from before|last document|last file|historical)\b/i.test(
-                      toolNeed
-                    );
                   const soleCurrentRoundDocument =
                     currentRoundDocumentAttachments.length === 1
                       ? currentRoundDocumentAttachments.at(0) || null
                       : null;
 
-                  if (
-                    !toolFilename &&
-                    !explicitlyHistoricalEvidenceRequest &&
-                    (toolResourceType === 'document' || toolResourceType === 'auto') &&
-                    soleCurrentRoundDocument
-                  ) {
-                    toolFilename = soleCurrentRoundDocument.filename || undefined;
-                    if (!toolNeed) {
-                      toolNeed = 'the document generated earlier in the current panel round';
-                    }
-                    console.log('[Evidence Broker] Anchored generic request to current-round document', {
-                      seatId: seat.seatId,
-                      filename: toolFilename || null,
-                      resourceType: toolResourceType,
-                    });
-                  }
-
                   let latestKnownSources: KnownImageSource[] = [];
                   let lastRoundEvidenceForBroker: MessageVisualEvidenceItem[] = [];
-                  let serviceClientForEvidence: ReturnType<typeof createServiceClient> | null = null;
+                  let serviceClientForEvidence: ReturnType<
+                    typeof createServiceClient
+                  > | null = null;
 
                   if (discussionId) {
-                    const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                    const isOwner = await verifyDiscussionOwnership(
+                      supabase,
+                      discussionId
+                    );
                     if (isOwner) {
                       serviceClientForEvidence = createServiceClient();
                       latestKnownSources = await fetchKnownImageSources(
@@ -4248,19 +4223,18 @@ export async function POST(req: NextRequest) {
                         discussionId
                       );
                       if (lastRound?.userMessageId) {
-                        lastRoundEvidenceForBroker = await fetchMessageVisualEvidence(
-                          serviceClientForEvidence,
-                          discussionId,
-                          lastRound.userMessageId
-                        );
+                        lastRoundEvidenceForBroker =
+                          await fetchMessageVisualEvidence(
+                            serviceClientForEvidence,
+                            discussionId,
+                            lastRound.userMessageId
+                          );
                       }
                     }
                   }
 
-                  // Keep the evidence broker's document inventory authoritative even
-                  // if the first seat sees a momentarily stale knownDocuments snapshot.
-                  // Recent-round attachments already carry the same persisted PDF identity, so
-                  // merge them read-only before mixed PDF/image ambiguity resolution.
+                  // Keep the broker inventory authoritative even if the first seat sees a
+                  // momentarily stale memory snapshot.
                   const brokerKnownDocuments = [
                     ...(discussionMemory?.knownDocuments || []),
                   ];
@@ -4273,13 +4247,12 @@ export async function POST(req: NextRequest) {
                     )
                   );
 
-                  // Current-turn PDF/DOCX uploads may not be in document memory yet.
-                  // Add them read-only so request_evidence can resolve a visual document
-                  // during the same round before normal post-round document ingestion.
                   for (const attachment of currentRoundAttachments) {
                     const filename = attachment.filename || '';
                     const cleanFilename = filename.toLowerCase();
-                    const storagePath = extractStoragePathFromSignedUrl(attachment.url);
+                    const storagePath = extractStoragePathFromSignedUrl(
+                      attachment.url
+                    );
                     const looksLikeVisualDocument =
                       cleanFilename.endsWith('.pdf') ||
                       cleanFilename.endsWith('.docx') ||
@@ -4288,9 +4261,7 @@ export async function POST(req: NextRequest) {
 
                     if (!looksLikeVisualDocument) continue;
 
-                    const identity =
-                      storagePath ||
-                      filename.toLowerCase();
+                    const identity = storagePath || filename.toLowerCase();
                     if (!identity || seenBrokerDocuments.has(identity)) continue;
 
                     brokerKnownDocuments.push({
@@ -4320,7 +4291,12 @@ export async function POST(req: NextRequest) {
                         storagePath ||
                         attachment.documentId ||
                         filename.toLowerCase();
-                      if (!identity || seenBrokerDocuments.has(identity)) continue;
+                      if (
+                        !identity ||
+                        seenBrokerDocuments.has(identity)
+                      ) {
+                        continue;
+                      }
 
                       brokerKnownDocuments.push({
                         id: attachment.documentId || null,
@@ -4335,95 +4311,177 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  const brokerResult = resolveRequestedEvidence(
-                    {
-                      modality: 'visual',
-                      resource_type: toolResourceType,
-                      need: toolNeed || prompt,
-                      filename: toolFilename,
-                    },
-                    {
-                      knownDocuments: brokerKnownDocuments,
-                      retrievedDocuments,
-                      recentRounds: discussionMemory?.recentRounds,
-                      knownImageSources: latestKnownSources,
-                      lastRoundEvidence: lastRoundEvidenceForBroker,
-                      recentEvidenceSets: [],
-                      visualContext: isPersistentVisualContextReadsEnabled()
-                        ? visualContextState
-                        : null,
-                      previousUserPrompt: lastRound?.userPrompt,
-                      currentUserPrompt: prompt,
-                      allUserMessageIds: discussionMemory?.allUserMessageIds,
-                    }
-                  );
-                  let modelSafeBrokerResult = toModelSafeBrokerResult(brokerResult);
-                  const materializedEvidenceAttachments: RouteAttachment[] = [];
+                  type EvidenceResolutionRecord = {
+                    toolCall: (typeof evidenceRequestCalls)[number];
+                    toolResourceType: 'auto' | 'image' | 'document';
+                    brokerResult: ReturnType<typeof resolveRequestedEvidence>;
+                    modelSafeBrokerResult: ReturnType<
+                      typeof toModelSafeBrokerResult
+                    >;
+                    materializedEvidenceAttachments: RouteAttachment[];
+                  };
 
-                  if (
-                    brokerResult.status === 'resolved' &&
-                    brokerResult.evidence &&
-                    serviceClientForEvidence
-                  ) {
-                    const ev = brokerResult.evidence;
+                  const evidenceResolutionRecords: EvidenceResolutionRecord[] = [];
 
-                    if (ev.kind === 'pdf' && ev.storagePath) {
-                      const { data: signedData, error: signErr } =
-                        await serviceClientForEvidence.storage
-                          .from('message-images')
-                          .createSignedUrl(ev.storagePath, 900);
+                  for (const toolCall of evidenceRequestCalls) {
+                    const toolArgs = (toolCall.arguments || {}) as {
+                      resource_type?: 'auto' | 'image' | 'document';
+                      need?: string;
+                      filename?: string;
+                    };
+                    let toolNeed =
+                      typeof toolArgs.need === 'string'
+                        ? toolArgs.need.trim()
+                        : '';
+                    const toolResourceType =
+                      toolArgs.resource_type || 'auto';
+                    let toolFilename =
+                      typeof toolArgs.filename === 'string'
+                        ? toolArgs.filename.trim()
+                        : undefined;
 
-                      if (!signErr && signedData?.signedUrl) {
-                        materializedEvidenceAttachments.push({
-                          url: signedData.signedUrl,
-                          filename: ev.filename,
-                          provenance: 'historical_user_upload',
-                        });
-                      } else {
-                        modelSafeBrokerResult = {
-                          status: 'not_found',
-                          kind: 'pdf',
-                          message:
-                            'The requested PDF visual evidence could not be retrieved for this call.',
-                        };
+                    const explicitlyHistoricalEvidenceRequest =
+                      /\b(previous|prior|earlier|older|old|from before|last document|last file|historical)\b/i.test(
+                        toolNeed
+                      );
+
+                    if (
+                      !toolFilename &&
+                      !explicitlyHistoricalEvidenceRequest &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto') &&
+                      soleCurrentRoundDocument
+                    ) {
+                      toolFilename =
+                        soleCurrentRoundDocument.filename || undefined;
+                      if (!toolNeed) {
+                        toolNeed =
+                          'the document generated earlier in the current panel round';
                       }
-                    } else if (ev.kind === 'docx' && ev.storagePath && discussionId) {
-                      try {
-                        const renderedPages =
-                          await materializeDocxRenderedPageAttachments({
-                            supabase,
-                            serviceClient: serviceClientForEvidence,
-                            discussionId,
-                            sourceUserMessageId,
-                            storagePath: ev.storagePath,
+                      console.log(
+                        '[Evidence Broker] Anchored generic request to current-round document',
+                        {
+                          seatId: seat.seatId,
+                          filename: toolFilename || null,
+                          resourceType: toolResourceType,
+                        }
+                      );
+                    }
+
+                    const brokerResult = resolveRequestedEvidence(
+                      {
+                        modality: 'visual',
+                        resource_type: toolResourceType,
+                        need: toolNeed || prompt,
+                        filename: toolFilename,
+                      },
+                      {
+                        knownDocuments: brokerKnownDocuments,
+                        retrievedDocuments,
+                        recentRounds: discussionMemory?.recentRounds,
+                        knownImageSources: latestKnownSources,
+                        lastRoundEvidence: lastRoundEvidenceForBroker,
+                        recentEvidenceSets: [],
+                        visualContext: isPersistentVisualContextReadsEnabled()
+                          ? visualContextState
+                          : null,
+                        previousUserPrompt: lastRound?.userPrompt,
+                        currentUserPrompt: prompt,
+                        allUserMessageIds:
+                          discussionMemory?.allUserMessageIds,
+                      }
+                    );
+
+                    let modelSafeBrokerResult =
+                      toModelSafeBrokerResult(brokerResult);
+                    const materializedEvidenceAttachments: RouteAttachment[] =
+                      [];
+
+                    if (
+                      brokerResult.status === 'resolved' &&
+                      brokerResult.evidence &&
+                      serviceClientForEvidence
+                    ) {
+                      const ev = brokerResult.evidence;
+
+                      if (ev.kind === 'pdf' && ev.storagePath) {
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForEvidence.storage
+                            .from('message-images')
+                            .createSignedUrl(ev.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          materializedEvidenceAttachments.push({
+                            url: signedData.signedUrl,
                             filename: ev.filename,
-                            signal: seatAbortController.signal,
-                            registerImmediately: true,
+                            provenance:
+                              'historical_assistant_generated',
                           });
-
-                        if (renderedPages.length > 0) {
-                          materializedEvidenceAttachments.push(...renderedPages);
-
-                          try {
-                            const embeddedImages =
-                              await materializeDocxEmbeddedImageAttachments({
-                                supabase,
-                                serviceClient: serviceClientForEvidence,
-                                discussionId,
-                                sourceMessageId: null,
-                                storagePath: ev.storagePath,
-                                filename: ev.filename,
-                                signal: seatAbortController.signal,
-                                registerImmediately: true,
-                              });
-                            materializedEvidenceAttachments.push(...embeddedImages);
-                          } catch (embeddedImageErr) {
-                            console.warn(
-                              '[Evidence Broker] Non-critical DOCX embedded-image materialization error:',
-                              embeddedImageErr
-                            );
-                          }
                         } else {
+                          modelSafeBrokerResult = {
+                            status: 'not_found',
+                            kind: 'pdf',
+                            message:
+                              'The requested PDF visual evidence could not be retrieved for this call.',
+                          };
+                        }
+                      } else if (
+                        ev.kind === 'docx' &&
+                        ev.storagePath &&
+                        discussionId
+                      ) {
+                        try {
+                          const renderedPages =
+                            await materializeDocxRenderedPageAttachments({
+                              supabase,
+                              serviceClient: serviceClientForEvidence,
+                              discussionId,
+                              sourceUserMessageId,
+                              storagePath: ev.storagePath,
+                              filename: ev.filename,
+                              signal: seatAbortController.signal,
+                              registerImmediately: true,
+                            });
+
+                          if (renderedPages.length > 0) {
+                            materializedEvidenceAttachments.push(
+                              ...renderedPages
+                            );
+
+                            try {
+                              const embeddedImages =
+                                await materializeDocxEmbeddedImageAttachments({
+                                  supabase,
+                                  serviceClient: serviceClientForEvidence,
+                                  discussionId,
+                                  sourceMessageId: null,
+                                  storagePath: ev.storagePath,
+                                  filename: ev.filename,
+                                  signal: seatAbortController.signal,
+                                  registerImmediately: true,
+                                });
+                              materializedEvidenceAttachments.push(
+                                ...embeddedImages
+                              );
+                            } catch (embeddedImageErr) {
+                              console.warn(
+                                '[Evidence Broker] Non-critical DOCX embedded-image materialization error:',
+                                embeddedImageErr
+                              );
+                            }
+                          } else {
+                            modelSafeBrokerResult = {
+                              status: 'not_found',
+                              kind: 'docx',
+                              message:
+                                'The requested Word document could not be rendered for visual inspection in this call.',
+                            };
+                          }
+                        } catch (docxEvidenceErr) {
+                          console.warn(
+                            '[Evidence Broker] Non-critical DOCX visual materialization error:',
+                            docxEvidenceErr
+                          );
                           modelSafeBrokerResult = {
                             status: 'not_found',
                             kind: 'docx',
@@ -4431,106 +4489,156 @@ export async function POST(req: NextRequest) {
                               'The requested Word document could not be rendered for visual inspection in this call.',
                           };
                         }
-                      } catch (docxEvidenceErr) {
-                        console.warn(
-                          '[Evidence Broker] Non-critical DOCX visual materialization error:',
-                          docxEvidenceErr
-                        );
-                        modelSafeBrokerResult = {
-                          status: 'not_found',
-                          kind: 'docx',
-                          message:
-                            'The requested Word document could not be rendered for visual inspection in this call.',
-                        };
-                      }
-                    } else if (ev.kind === 'image' && ev.sources && ev.sources.length > 0) {
-                      const signedImages: RouteAttachment[] = [];
+                      } else if (
+                        ev.kind === 'image' &&
+                        ev.sources &&
+                        ev.sources.length > 0
+                      ) {
+                        const signedImages: RouteAttachment[] = [];
 
-                      for (const source of ev.sources) {
-                        if (!source.storagePath) continue;
-                        const { data: signedData, error: signErr } =
-                          await serviceClientForEvidence.storage
-                            .from('message-images')
-                            .createSignedUrl(source.storagePath, 900);
+                        for (const source of ev.sources) {
+                          if (!source.storagePath) continue;
+                          const { data: signedData, error: signErr } =
+                            await serviceClientForEvidence.storage
+                              .from('message-images')
+                              .createSignedUrl(source.storagePath, 900);
 
-                        if (signErr || !signedData?.signedUrl) continue;
+                          if (signErr || !signedData?.signedUrl) continue;
 
-                        let provenance: AttachmentProvenance | undefined;
-                        let creatorSeatId: string | undefined;
-                        if (source.sender) {
-                          const senderLower = source.sender.toLowerCase();
-                          if (['gemini', 'chatgpt', 'claude'].includes(senderLower)) {
-                            provenance = 'historical_assistant_generated';
-                            creatorSeatId = senderLower;
-                          } else if (senderLower === 'user') {
-                            provenance = 'historical_user_upload';
+                          let provenance:
+                            | AttachmentProvenance
+                            | undefined;
+                          let creatorSeatId: string | undefined;
+                          if (source.sender) {
+                            const senderLower = source.sender.toLowerCase();
+                            if (
+                              ['gemini', 'chatgpt', 'claude'].includes(
+                                senderLower
+                              )
+                            ) {
+                              provenance =
+                                'historical_assistant_generated';
+                              creatorSeatId = senderLower;
+                            } else if (senderLower === 'user') {
+                              provenance = 'historical_user_upload';
+                            }
                           }
+
+                          signedImages.push({
+                            url: signedData.signedUrl,
+                            filename:
+                              source.filename || 'image.jpg',
+                            provenance,
+                            creatorSeatId,
+                          });
                         }
 
-                        signedImages.push({
-                          url: signedData.signedUrl,
-                          filename: source.filename || 'image.jpg',
-                          provenance,
-                          creatorSeatId,
-                        });
+                        if (signedImages.length === ev.sources.length) {
+                          materializedEvidenceAttachments.push(
+                            ...signedImages
+                          );
+                        } else {
+                          modelSafeBrokerResult = {
+                            status: 'not_found',
+                            kind: 'image',
+                            message:
+                              'The requested image evidence could not be completely retrieved for this call.',
+                          };
+                        }
                       }
-
-                      if (signedImages.length === ev.sources.length) {
-                        materializedEvidenceAttachments.push(...signedImages);
-                      } else {
-                        modelSafeBrokerResult = {
-                          status: 'not_found',
-                          kind: 'image',
-                          message:
-                            'The requested image evidence could not be completely retrieved for this call.',
-                        };
-                      }
+                    } else if (
+                      brokerResult.status === 'resolved' &&
+                      brokerResult.evidence &&
+                      !serviceClientForEvidence
+                    ) {
+                      modelSafeBrokerResult = {
+                        status: 'not_found',
+                        kind: brokerResult.kind,
+                        message:
+                          'The requested visual evidence could not be securely retrieved for this call.',
+                      };
                     }
-                  } else if (
-                    brokerResult.status === 'resolved' &&
-                    brokerResult.evidence &&
-                    !serviceClientForEvidence
-                  ) {
-                    modelSafeBrokerResult = {
-                      status: 'not_found',
-                      kind: brokerResult.kind,
-                      message:
-                        'The requested visual evidence could not be securely retrieved for this call.',
-                    };
+
+                    evidenceResolutionRecords.push({
+                      toolCall,
+                      toolResourceType,
+                      brokerResult,
+                      modelSafeBrokerResult,
+                      materializedEvidenceAttachments,
+                    });
                   }
 
-                  // Do not duplicate an already-attached resource when a model requests evidence it
-                  // already has. Compare canonical storage paths, not signed-URL tokens.
                   const existingStoragePaths = new Set(
                     currentRoundAttachments
-                      .map((a) => extractStoragePathFromSignedUrl(a.url))
+                      .map((a) =>
+                        extractStoragePathFromSignedUrl(a.url)
+                      )
                       .filter((p): p is string => Boolean(p))
                   );
-                  const newEvidenceAttachments = materializedEvidenceAttachments.filter((a) => {
-                    const storagePath = extractStoragePathFromSignedUrl(a.url);
-                    return !storagePath || !existingStoragePaths.has(storagePath);
-                  });
+                  const seenEvidenceAttachmentKeys = new Set<string>();
+                  const newEvidenceAttachments: RouteAttachment[] = [];
+
+                  for (const record of evidenceResolutionRecords) {
+                    for (const attachment of
+                      record.materializedEvidenceAttachments) {
+                      const storagePath =
+                        extractStoragePathFromSignedUrl(attachment.url);
+                      const key =
+                        storagePath ||
+                        `${attachment.filename || ''}|${attachment.url}`;
+                      if (
+                        (storagePath &&
+                          existingStoragePaths.has(storagePath)) ||
+                        seenEvidenceAttachmentKeys.has(key)
+                      ) {
+                        continue;
+                      }
+                      seenEvidenceAttachmentKeys.add(key);
+                      newEvidenceAttachments.push(attachment);
+                    }
+                  }
+
                   const evidenceAttachments = [
                     ...currentRoundAttachments,
                     ...newEvidenceAttachments,
                   ];
+                  const anyResolvedEvidence =
+                    evidenceResolutionRecords.some(
+                      (record) =>
+                        record.modelSafeBrokerResult.status ===
+                        'resolved'
+                    );
 
                   if (
-                    modelSafeBrokerResult.status === 'resolved' &&
+                    anyResolvedEvidence &&
                     newEvidenceAttachments.length > 0
                   ) {
-                    currentRoundAttachments.push(...newEvidenceAttachments);
-                    console.log('[Evidence Broker] Shared resolved evidence with later seats', {
-                      seatId: seat.seatId,
-                      sharedCount: newEvidenceAttachments.length,
-                      filenames: newEvidenceAttachments.map((attachment) => attachment.filename),
-                    });
+                    currentRoundAttachments.push(
+                      ...newEvidenceAttachments
+                    );
+                    console.log(
+                      '[Evidence Broker] Shared resolved evidence with later seats',
+                      {
+                        seatId: seat.seatId,
+                        requestCount:
+                          evidenceResolutionRecords.length,
+                        sharedCount:
+                          newEvidenceAttachments.length,
+                        filenames:
+                          newEvidenceAttachments.map(
+                            (attachment) => attachment.filename
+                          ),
+                      }
+                    );
                   }
 
-                  const evidenceWasMaterialized = newEvidenceAttachments.length > 0;
+                  const evidenceWasMaterialized =
+                    newEvidenceAttachments.length > 0;
                   const evidenceSeatAttachments =
                     seat.seatId === 'gemini'
-                      ? await prepareGeminiVisionAttachments(evidenceAttachments)
+                      ? await prepareGeminiVisionAttachments(
+                          evidenceAttachments
+                        )
                       : evidenceAttachments;
                   const evidenceBaseMessages = buildPanelMessages(
                     seat.name,
@@ -4541,7 +4649,9 @@ export async function POST(req: NextRequest) {
                     null,
                     retrievedMemory,
                     retrievedDocuments,
-                    evidenceWasMaterialized ? false : isVisualUnavailable,
+                    evidenceWasMaterialized
+                      ? false
+                      : isVisualUnavailable,
                     currentTurnDocuments,
                     visualDeliveryMismatch,
                     runtimeProductContext
@@ -4552,25 +4662,80 @@ export async function POST(req: NextRequest) {
                     {
                       role: 'assistant',
                       content: seatResponse || null,
-                      tool_calls: [
-                        {
-                          id: toolCall.id || 'call_request_evidence',
+                      tool_calls: evidenceResolutionRecords.map(
+                        ({ toolCall }, index) => ({
+                          id:
+                            toolCall.id ||
+                            `call_request_evidence_${index + 1}`,
                           type: 'function',
                           function: {
                             name: 'request_evidence',
                             arguments:
-                              toolCall.rawArguments || JSON.stringify(toolCall.arguments),
+                              toolCall.rawArguments ||
+                              JSON.stringify(toolCall.arguments),
                           },
-                        },
-                      ],
+                        })
+                      ),
                     } as any,
-                    {
-                      role: 'tool',
-                      tool_call_id: toolCall.id || 'call_request_evidence',
-                      name: 'request_evidence',
-                      content: JSON.stringify(modelSafeBrokerResult),
-                    } as any,
+                    ...evidenceResolutionRecords.map(
+                      (
+                        { toolCall, modelSafeBrokerResult },
+                        index
+                      ) =>
+                        ({
+                          role: 'tool',
+                          tool_call_id:
+                            toolCall.id ||
+                            `call_request_evidence_${index + 1}`,
+                          name: 'request_evidence',
+                          content: JSON.stringify(
+                            modelSafeBrokerResult
+                          ),
+                        }) as any
+                    ),
                   ];
+
+                  const resolvedDocxEvidence =
+                    evidenceResolutionRecords.find(
+                      (record) =>
+                        record.brokerResult.status === 'resolved' &&
+                        record.brokerResult.evidence?.kind ===
+                          'docx' &&
+                        Boolean(
+                          record.brokerResult.evidence.storagePath
+                        )
+                    )?.brokerResult.evidence || null;
+                  const aggregateModelSafeBrokerResult =
+                    anyResolvedEvidence
+                      ? {
+                          status: 'resolved' as const,
+                          kind:
+                            evidenceResolutionRecords.find(
+                              (record) =>
+                                record.modelSafeBrokerResult
+                                  .status === 'resolved'
+                            )?.modelSafeBrokerResult.kind,
+                          message:
+                            evidenceResolutionRecords
+                              .map(
+                                (record) =>
+                                  record.modelSafeBrokerResult
+                                    .message
+                              )
+                              .filter(Boolean)
+                              .join(' '),
+                        }
+                      : evidenceResolutionRecords.find(
+                            (record) =>
+                              record.modelSafeBrokerResult
+                                .status === 'ambiguous'
+                          )?.modelSafeBrokerResult ||
+                        evidenceResolutionRecords[0]
+                          ?.modelSafeBrokerResult || {
+                          status: 'not_found' as const,
+                          message:
+                            'No requested evidence could be resolved.',
+                        };
 
                   const evidencePdfAttachments = evidenceAttachments.filter((a) =>
                     a.url?.split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
@@ -4580,32 +4745,32 @@ export async function POST(req: NextRequest) {
                   console.log('[Evidence Broker Request]', {
                     discussionId,
                     seatId: seat.seatId,
-                    requestedResourceType: toolResourceType,
-                    status: modelSafeBrokerResult.status,
-                    kind: modelSafeBrokerResult.kind,
+                    requestCount: evidenceResolutionRecords.length,
+                    requests: evidenceResolutionRecords.map((record) => ({
+                      requestedResourceType: record.toolResourceType,
+                      status: record.modelSafeBrokerResult.status,
+                      kind: record.modelSafeBrokerResult.kind,
+                      filename: record.modelSafeBrokerResult.filename,
+                    })),
                     attachedCount: newEvidenceAttachments.length,
                   });
 
-                  if (modelSafeBrokerResult.status === 'resolved') {
-                    const evidenceActivity =
-                      brokerResult.evidence?.kind === 'image'
+                  if (anyResolvedEvidence) {
+                    const hasResolvedImage = evidenceResolutionRecords.some(
+                      (record) =>
+                        record.modelSafeBrokerResult.status === 'resolved' &&
+                        record.brokerResult.evidence?.kind === 'image'
+                    );
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity: hasResolvedImage
                         ? 'checking_images'
-                        : brokerResult.evidence?.kind === 'pdf' ||
-                            brokerResult.evidence?.kind === 'docx' ||
-                            brokerResult.evidence?.kind === 'document_text'
-                          ? 'checking_documents'
-                          : null;
-
-                    if (evidenceActivity) {
-                      sendEvent('seat_activity', {
-                        seatId: seat.seatId,
-                        activity: evidenceActivity,
-                      });
-                    }
+                        : 'checking_documents',
+                    });
                   }
 
                   // The provisional first-pass prose is never shown. The second inference receives
-                  // the same user request plus the actual evidence and a model-safe tool result.
+                  // the same user request plus every resolved/failed evidence result.
                   seatResponse = '';
                   seatUsage = null;
                   accumulatedToolCalls = [];
@@ -4615,7 +4780,7 @@ export async function POST(req: NextRequest) {
                   const evidenceContinuationCanCreateFile =
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
-                    modelSafeBrokerResult.status === 'resolved';
+                    anyResolvedEvidence;
                   const evidenceContinuationChunks: string[] = [];
 
                   const evidenceStream = await (openai.chat.completions.create as any)({
@@ -4849,13 +5014,11 @@ export async function POST(req: NextRequest) {
                         explicitEvidenceSourceDocx ||
                         (fileArgs.format === 'pdf' &&
                         isSimplePdfFormatConversionRequest(prompt || '')
-                          ? brokerResult.status === 'resolved' &&
-                            brokerResult.evidence?.kind === 'docx' &&
-                            brokerResult.evidence.storagePath
+                          ? resolvedDocxEvidence?.storagePath
                             ? {
-                                storagePath: brokerResult.evidence.storagePath,
+                                storagePath: resolvedDocxEvidence.storagePath,
                                 filename:
-                                  brokerResult.evidence.filename || 'document.docx',
+                                  resolvedDocxEvidence.filename || 'document.docx',
                               }
                             : latestDocxSourceFromContext({
                                 currentRoundAttachments: evidenceAttachments,
@@ -5135,10 +5298,10 @@ export async function POST(req: NextRequest) {
                   // surfacing a generic "Something went wrong" error.
                   if (
                     !seatResponse.trim() &&
-                    modelSafeBrokerResult.status !== 'resolved'
+                    aggregateModelSafeBrokerResult.status !== 'resolved'
                   ) {
                     const brokerFallbackText =
-                      modelSafeBrokerResult.message ||
+                      aggregateModelSafeBrokerResult.message ||
                       'I need you to clarify which earlier visual you mean.';
                     seatResponse = brokerFallbackText;
                     sendEvent('seat_chunk', {
