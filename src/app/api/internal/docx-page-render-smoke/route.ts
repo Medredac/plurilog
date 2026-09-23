@@ -17,11 +17,25 @@ export async function GET(request: Request) {
   const includeImage = url.searchParams.get('image') === '1';
   const fixture = renderDocx({
     filename: 'docx-page-render-smoke.docx',
-    title: 'DOCX Visual Rendering Smoke Test',
+    title: '履歴書レンダリングテスト',
+    design: {
+      fontFamily: 'jp-sans',
+      headingFontFamily: 'jp-sans',
+      locale: 'ja-JP',
+      marginMm: 16,
+    },
     blocks: [
       {
-        type: 'paragraph',
-        text: 'This is page one. The visual renderer should produce a PNG page image.',
+        type: 'table',
+        headers: ['項目', '内容'],
+        rows: [
+          ['氏名', 'メリエム・ベリ（Meryem Behri）'],
+          ['ふりがな', 'めりえむ'],
+          ['現住所', '東京都町田市'],
+          ['メールアドレス', 'test@example.com'],
+        ],
+        tableWidthPct: 66,
+        columnWidthsPct: [26, 74],
       },
       ...(includeImage
         ? [
@@ -33,19 +47,33 @@ export async function GET(request: Request) {
                 'base64'
               ),
               imageContentType: 'image/png',
-              imageAltText: 'Embedded image smoke test',
-              caption: 'Embedded image relationship smoke test',
-              size: 'medium' as const,
-              alignment: 'center' as const,
+              imageAltText: '証明写真テスト',
+              size: 'small' as const,
+              alignment: 'right' as const,
+              placement: 'top-right' as const,
+              widthMm: 30,
+              heightMm: 40,
             },
           ]
         : []),
       {
+        type: 'heading',
+        level: 2,
+        text: '学歴・職歴',
+      },
+      {
+        type: 'table',
+        headers: ['年', '月', '学歴・職歴'],
+        rows: [
+          ['2019', '3', '筑波大学 卒業'],
+          ['2021', '9', '筑波大学大学院 修了'],
+          ['2025', '2', '株式会社アクト 入社'],
+        ],
+        columnWidthsPct: [10, 8, 82],
+      },
+      {
         type: 'paragraph',
-        text: Array.from(
-          { length: 70 },
-          (_, i) => `Line ${i + 1}: rendered layout verification.`
-        ).join('\n'),
+        text: '日本語の文字と表の右側の内容が、実際のLibreOfficeレンダリングでも正しく表示されることを確認します。',
       },
     ],
   });
@@ -84,6 +112,15 @@ export async function GET(request: Request) {
     snapshotBuildElapsedMs,
     signatures,
     includeImage,
+    renderedTextIncludesJapanese:
+      rendered.renderedText.includes('履歴書レンダリングテスト') &&
+      rendered.renderedText.includes('メリエム') &&
+      rendered.renderedText.includes('東京都町田市'),
+    renderedTextIncludesRightColumns:
+      rendered.renderedText.includes('test@example.com') &&
+      rendered.renderedText.includes('筑波大学大学院') &&
+      rendered.renderedText.includes('株式会社アクト'),
+    renderedTextSample: rendered.renderedText.slice(0, 1200),
     fixtureByteSize: fixture.buffer.length,
   });
 
