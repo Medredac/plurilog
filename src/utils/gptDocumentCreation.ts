@@ -1017,7 +1017,7 @@ async function reviewRenderedPdfWithGpt(options: {
         ? parsed.title
         : args.title,
     design: reviewedDesign,
-    blocks: contentSafeBlocks,
+    blocks: imageSafeBlocks,
   };
 
   const before = JSON.stringify({
@@ -1272,7 +1272,7 @@ async function reviewRenderedDocxWithGpt(options: {
     filename: args.filename,
     title: typeof parsed.title === 'string' ? parsed.title : args.title,
     design: reviewedDesign,
-    blocks: imageSafeBlocks,
+    blocks: contentSafeBlocks,
   };
 
   const before = JSON.stringify({
