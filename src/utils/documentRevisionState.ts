@@ -553,12 +553,14 @@ export function preserveRevisionPageConstraint<T extends Record<string, any>>(
     return spec;
   }
 
-  const next = jsonClone(spec);
+  const next = jsonClone(spec) as T & {
+    design?: Record<string, unknown>;
+  };
   next.design = {
     ...(next.design || {}),
     targetPageCount: parentPageCount,
   };
-  return next;
+  return next as T;
 }
 
 export function userExplicitlyAllowsContentRemoval(prompt: string): boolean {
