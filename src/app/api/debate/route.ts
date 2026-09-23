@@ -3841,6 +3841,11 @@ export async function POST(req: NextRequest) {
                     availableDocumentImages.push({
                       filename: source.filename || 'image.png',
                       storagePath: source.storagePath,
+                      artifactId: source.artifactId,
+                      sourceMessageId: source.sourceMessageId,
+                      attachmentIndex: source.attachmentIndex,
+                      createdAt: source.createdAt,
+                      sender: source.sender,
                     });
                   }
 
@@ -4927,6 +4932,11 @@ export async function POST(req: NextRequest) {
                       availableDocumentImages.push({
                         filename: source.filename || 'image.png',
                         storagePath: source.storagePath,
+                        artifactId: source.artifactId,
+                        sourceMessageId: source.sourceMessageId,
+                        attachmentIndex: source.attachmentIndex,
+                        createdAt: source.createdAt,
+                        sender: source.sender,
                       });
                     }
 
