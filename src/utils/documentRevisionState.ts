@@ -248,6 +248,35 @@ function snapshotFromRow(
   };
 }
 
+export async function findLatestDocumentStateSnapshot(options: {
+  serviceSupabase: any;
+  discussionId: string;
+}): Promise<DocumentStateSnapshot | null> {
+  const { serviceSupabase, discussionId } = options;
+  if (!serviceSupabase || !discussionId) return null;
+
+  const { data, error } = await serviceSupabase
+    .from('discussion_artifacts')
+    .select('id, created_at, metadata')
+    .eq('discussion_id', discussionId)
+    .eq('artifact_type', DOCUMENT_STATE_ARTIFACT_TYPE)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.warn('[Document State] Latest snapshot lookup failed', {
+        discussionId,
+        error: error.message,
+      });
+    }
+    return null;
+  }
+
+  return snapshotFromRow(discussionId, data);
+}
+
 export async function findDocumentStateSnapshot(options: {
   serviceSupabase: any;
   discussionId: string;
