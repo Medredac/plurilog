@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { renderDocx } from '@/utils/docxWriter';
+import { extractPdfEmbeddedImages } from '@/utils/pdfEmbeddedImages';
 import {
   createDocxRendererSnapshot,
   renderDocxPages,
+  convertDocxToPdf,
 } from '@/utils/docxPageRenderer';
 
 export const runtime = 'nodejs';
@@ -102,6 +104,24 @@ export async function GET(request: Request) {
     pngMagic: page.data.subarray(1, 4).toString('ascii'),
   }));
 
+  const shouldTestConversion = url.searchParams.get('convert') === '1';
+  let convertedPdfByteSize: number | null = null;
+  let convertedPdfPageCount: number | null = null;
+  let convertedPdfEmbeddedImageCount: number | null = null;
+
+  if (shouldTestConversion) {
+    const converted = await convertDocxToPdf(
+      fixture.buffer,
+      snapshotId ? { snapshotId } : undefined
+    );
+    convertedPdfByteSize = converted.buffer.length;
+    convertedPdfPageCount = converted.totalPageCount;
+    const extractedImages = await extractPdfEmbeddedImages(converted.buffer, {
+      timeoutMs: 30_000,
+    });
+    convertedPdfEmbeddedImageCount = extractedImages.length;
+  }
+
   console.log('[DOCX Page Render Smoke]', {
     pageCount: rendered.pages.length,
     totalPageCount: rendered.totalPageCount,
@@ -121,6 +141,10 @@ export async function GET(request: Request) {
       rendered.renderedText.includes('筑波大学大学院') &&
       rendered.renderedText.includes('株式会社アクト'),
     renderedTextSample: rendered.renderedText.slice(0, 1200),
+    shouldTestConversion,
+    convertedPdfByteSize,
+    convertedPdfPageCount,
+    convertedPdfEmbeddedImageCount,
     fixtureByteSize: fixture.buffer.length,
   });
 
@@ -136,6 +160,18 @@ export async function GET(request: Request) {
     libreOfficeVersion,
     signatures,
     includeImage,
+    renderedTextIncludesJapanese:
+      rendered.renderedText.includes('履歴書レンダリングテスト') &&
+      rendered.renderedText.includes('メリエム') &&
+      rendered.renderedText.includes('東京都町田市'),
+    renderedTextIncludesRightColumns:
+      rendered.renderedText.includes('test@example.com') &&
+      rendered.renderedText.includes('筑波大学大学院') &&
+      rendered.renderedText.includes('株式会社アクト'),
+    shouldTestConversion,
+    convertedPdfByteSize,
+    convertedPdfPageCount,
+    convertedPdfEmbeddedImageCount,
     fixtureByteSize: fixture.buffer.length,
   });
 }
