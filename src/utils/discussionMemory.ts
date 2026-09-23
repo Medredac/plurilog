@@ -476,6 +476,34 @@ export function groupMessagesIntoRounds(
         name: modelName,
         content: msg.content || '',
       });
+
+      // Assistant-generated documents belong to the conversational round that
+      // created them. Keep them in round attachment chronology so references
+      // such as "the PDF you just made" resolve to the latest generated artifact
+      // rather than an older user upload.
+      const assistantUrls: string[] = [];
+      if (Array.isArray(msg.attachment_urls)) {
+        for (const u of msg.attachment_urls) {
+          if (u) assistantUrls.push(u);
+        }
+      }
+
+      for (const url of assistantUrls) {
+        const attMeta = extractAttachmentMetadata(url, knownDocuments);
+        if (!attMeta) continue;
+
+        currentRound.attachments ||= [];
+        const duplicate = currentRound.attachments.some(
+          (existing) =>
+            (attMeta.storagePath &&
+              existing.storagePath === attMeta.storagePath) ||
+            (attMeta.documentId &&
+              existing.documentId === attMeta.documentId)
+        );
+        if (!duplicate) {
+          currentRound.attachments.push(attMeta);
+        }
+      }
     }
   }
 
@@ -4164,33 +4192,31 @@ export function resolveVisualDocument(
     }
   }
 
-  // 3. Contextually recent PDF attachments across recent history (strict uniqueness check)
+  // 3. Contextually recent PDF attachments. Walk from newest round backward
+  // and stop at the first round that contains PDFs. One PDF in that round is an
+  // unambiguous conversational referent; multiple PDFs in that same round remain
+  // ambiguous. Older rounds must not outrank a document created more recently.
   if (Array.isArray(recentRounds) && recentRounds.length > 0) {
-    const recentPdfMap = new Map<string, ResolvedVisualDocument>();
-    for (const r of recentRounds) {
-      if (r.attachments && r.attachments.length > 0) {
-        for (const att of r.attachments) {
-          if (att.storagePath && att.filename.toLowerCase().endsWith('.pdf')) {
-            const key = att.documentId || att.storagePath;
-            if (!recentPdfMap.has(key)) {
-              recentPdfMap.set(key, {
-                documentId: att.documentId || null,
-                filename: att.filename,
-                storagePath: att.storagePath,
-              });
-            }
+    for (let i = recentRounds.length - 1; i >= 0; i -= 1) {
+      const round = recentRounds[i];
+      const recentPdfMap = new Map<string, ResolvedVisualDocument>();
+
+      for (const att of round.attachments || []) {
+        if (att.storagePath && att.filename.toLowerCase().endsWith('.pdf')) {
+          const key = att.documentId || att.storagePath;
+          if (!recentPdfMap.has(key)) {
+            recentPdfMap.set(key, {
+              documentId: att.documentId || null,
+              filename: att.filename,
+              storagePath: att.storagePath,
+            });
           }
         }
       }
-    }
 
-    const distinctRecentPdfs = Array.from(recentPdfMap.values());
-    if (distinctRecentPdfs.length === 1) {
-      return distinctRecentPdfs[0];
-    }
-    if (distinctRecentPdfs.length > 1) {
-      // Multiple distinct PDFs in recent history without explicit name/search resolution: do not guess
-      return null;
+      const roundPdfs = Array.from(recentPdfMap.values());
+      if (roundPdfs.length === 1) return roundPdfs[0];
+      if (roundPdfs.length > 1) return null;
     }
   }
 
@@ -4288,10 +4314,11 @@ export function resolveVisualDocxDocument(
   }
 
   if (Array.isArray(recentRounds) && recentRounds.length > 0) {
-    const recentDocxMap = new Map<string, ResolvedVisualDocument>();
-    for (const round of recentRounds) {
-      if (!round.attachments) continue;
-      for (const attachment of round.attachments) {
+    for (let i = recentRounds.length - 1; i >= 0; i -= 1) {
+      const round = recentRounds[i];
+      const recentDocxMap = new Map<string, ResolvedVisualDocument>();
+
+      for (const attachment of round.attachments || []) {
         if (
           attachment.storagePath &&
           attachment.filename.toLowerCase().endsWith('.docx')
@@ -4306,11 +4333,11 @@ export function resolveVisualDocxDocument(
           }
         }
       }
-    }
 
-    const distinctRecentDocx = Array.from(recentDocxMap.values());
-    if (distinctRecentDocx.length === 1) return distinctRecentDocx[0];
-    if (distinctRecentDocx.length > 1) return null;
+      const roundDocx = Array.from(recentDocxMap.values());
+      if (roundDocx.length === 1) return roundDocx[0];
+      if (roundDocx.length > 1) return null;
+    }
   }
 
   const validDocs = knownDocuments.filter(
