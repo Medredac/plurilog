@@ -12,6 +12,11 @@ export interface DocumentStateImageSource {
   sender?: string | null;
 }
 
+export interface DocumentStateImageBinding {
+  imageOrdinal: number;
+  source: DocumentStateImageSource;
+}
+
 export interface DocumentStateSnapshot {
   id: string;
   createdAt?: string | null;
@@ -29,6 +34,7 @@ export interface DocumentStateSnapshot {
   parentStoragePath?: string | null;
   sourceDocumentIds: string[];
   imageSources: DocumentStateImageSource[];
+  imageBindings: DocumentStateImageBinding[];
   generationKind: 'create' | 'revision' | 'convert';
 }
 
@@ -100,6 +106,7 @@ export async function persistDocumentStateSnapshot(options: {
   parentStoragePath?: string | null;
   sourceDocumentIds?: string[];
   imageSources?: DocumentStateImageSource[];
+  imageBindings?: DocumentStateImageBinding[];
   generationKind?: 'create' | 'revision' | 'convert';
 }): Promise<DocumentStateSnapshot | null> {
   const {
@@ -118,6 +125,7 @@ export async function persistDocumentStateSnapshot(options: {
     parentStoragePath = null,
     sourceDocumentIds = [],
     imageSources = [],
+    imageBindings = [],
     generationKind = 'create',
   } = options;
 
@@ -139,6 +147,22 @@ export async function persistDocumentStateSnapshot(options: {
     sender: source.sender || null,
   }));
 
+  const safeImageBindings = imageBindings.slice(0, 32).map((binding) => ({
+    imageOrdinal: Math.max(0, Math.floor(binding.imageOrdinal || 0)),
+    source: {
+      filename: binding.source.filename,
+      storagePath: binding.source.storagePath || null,
+      artifactId: binding.source.artifactId || null,
+      sourceMessageId: binding.source.sourceMessageId || null,
+      attachmentIndex:
+        typeof binding.source.attachmentIndex === 'number'
+          ? binding.source.attachmentIndex
+          : null,
+      createdAt: binding.source.createdAt || null,
+      sender: binding.source.sender || null,
+    },
+  }));
+
   const metadata = {
     state_version: 1,
     document_id: documentId,
@@ -154,6 +178,7 @@ export async function persistDocumentStateSnapshot(options: {
     parent_storage_path: parentStoragePath,
     source_document_ids: Array.from(new Set(sourceDocumentIds.filter(Boolean))),
     image_sources: safeImages,
+    image_bindings: safeImageBindings,
     generation_kind: generationKind,
   };
 
@@ -240,12 +265,55 @@ function snapshotFromRow(
     imageSources: Array.isArray(meta.image_sources)
       ? meta.image_sources
       : [],
+    imageBindings: Array.isArray(meta.image_bindings)
+      ? meta.image_bindings
+      : [],
     generationKind:
       meta.generation_kind === 'revision' ||
       meta.generation_kind === 'convert'
         ? meta.generation_kind
         : 'create',
   };
+}
+
+export function inferDocumentStateImageBindings(
+  snapshot: DocumentStateSnapshot
+): DocumentStateImageBinding[] {
+  if (snapshot.imageBindings.length > 0) {
+    return snapshot.imageBindings;
+  }
+
+  const imageBlocks = Array.isArray(snapshot.spec?.blocks)
+    ? snapshot.spec.blocks.filter((block: any) => block?.type === 'image')
+    : [];
+  if (imageBlocks.length === 0 || snapshot.imageSources.length === 0) {
+    return [];
+  }
+
+  const byCanonicalIdentity = new Map<string, DocumentStateImageSource>();
+  for (const source of snapshot.imageSources) {
+    const key =
+      source.artifactId ||
+      source.storagePath ||
+      source.filename;
+    const existing = byCanonicalIdentity.get(key);
+    if (!existing) {
+      byCanonicalIdentity.set(key, source);
+      continue;
+    }
+    const existingUser = (existing.sender || '').toLowerCase() === 'user';
+    const sourceUser = (source.sender || '').toLowerCase() === 'user';
+    if (sourceUser && !existingUser) {
+      byCanonicalIdentity.set(key, source);
+    }
+  }
+
+  const uniqueSources = Array.from(byCanonicalIdentity.values());
+  if (uniqueSources.length === 1 && imageBlocks.length === 1) {
+    return [{ imageOrdinal: 0, source: uniqueSources[0] }];
+  }
+
+  return [];
 }
 
 export async function findLatestDocumentStateSnapshot(options: {
