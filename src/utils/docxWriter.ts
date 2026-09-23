@@ -12,6 +12,7 @@ export type DocxBlockType =
 export type DocxImageMode = 'existing' | 'generate' | 'edit';
 export type DocxImageSize = 'small' | 'medium' | 'large' | 'full';
 export type DocxImageAlignment = 'left' | 'center' | 'right';
+export type DocxImagePlacement = 'inline' | 'top-right';
 export type DocxFontFamily = 'sans' | 'serif' | 'mono' | 'jp-sans' | 'jp-serif';
 
 export interface DocxDesign {
@@ -36,6 +37,8 @@ export interface DocxBlock {
   items?: string[];
   headers?: string[];
   rows?: string[][];
+  tableWidthPct?: number;
+  columnWidthsPct?: number[];
   mode?: DocxImageMode;
   prompt?: string;
   need?: string;
@@ -43,6 +46,9 @@ export interface DocxBlock {
   caption?: string;
   size?: DocxImageSize;
   alignment?: DocxImageAlignment;
+  placement?: DocxImagePlacement;
+  widthMm?: number;
+  heightMm?: number;
 
   // Server-resolved image payload. These fields never come from the model tool call.
   imageData?: Buffer;
@@ -283,18 +289,50 @@ function headingXml(
   });
 }
 
+function pageContentWidthTwips(
+  design: ReturnType<typeof normalizeDocxDesign>
+): number {
+  const pageWidthMm =
+    design.orientation === 'landscape'
+      ? design.pageSize === 'LETTER'
+        ? 279.4
+        : 297
+      : design.pageSize === 'LETTER'
+        ? 215.9
+        : 210;
+  return Math.max(2000, mmToTwips(pageWidthMm - design.marginMm * 2));
+}
+
+function normalizedColumnWidths(
+  columnCount: number,
+  requested: number[] | undefined
+): number[] {
+  if (
+    Array.isArray(requested) &&
+    requested.length === columnCount &&
+    requested.every((value) => typeof value === 'number' && Number.isFinite(value) && value > 0)
+  ) {
+    const total = requested.reduce((sum, value) => sum + value, 0);
+    return requested.map((value) => value / total);
+  }
+
+  if (columnCount === 2) return [0.24, 0.76];
+  if (columnCount === 3) return [0.10, 0.08, 0.82];
+  return Array.from({ length: columnCount }, () => 1 / columnCount);
+}
+
 function cellXml(
   text: string,
   design: ReturnType<typeof normalizeDocxDesign>,
+  widthTwips: number,
   header = false
 ): string {
   const fill = header ? `<w:shd w:fill="${design.accentColor}"/>` : '';
   const color = header ? 'FFFFFF' : design.textColor;
-  const weight = header;
-  return `<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/>${fill}<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${paragraphXml(
+  return `<w:tc><w:tcPr><w:tcW w:w="${widthTwips}" w:type="dxa"/>${fill}<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tcMar></w:tcPr>${paragraphXml(
     text,
     {
-      bold: weight,
+      bold: header,
       sizeHalfPoints: ptToHalfPoints(Math.max(9, design.bodySizePt - 0.5)),
       spacingAfter: 0,
       keepLines: true,
@@ -306,10 +344,11 @@ function cellXml(
 }
 
 function tableXml(
-  headers: string[],
-  rows: string[][],
+  block: DocxBlock,
   design: ReturnType<typeof normalizeDocxDesign>
 ): string {
+  const headers = block.headers || [];
+  const rows = block.rows || [];
   const normalizedHeaders = headers.slice(0, MAX_TABLE_COLUMNS).map((v) => cleanText(v, 5000));
   const normalizedRows = rows.slice(0, MAX_TABLE_ROWS).map((row) =>
     (Array.isArray(row) ? row : [])
@@ -323,10 +362,20 @@ function tableXml(
     1
   );
 
+  const availableWidth = pageContentWidthTwips(design);
+  const widthPct = clampNumber(block.tableWidthPct, 100, 35, 100);
+  const tableWidth = Math.max(1800, Math.round(availableWidth * (widthPct / 100)));
+  const proportions = normalizedColumnWidths(columnCount, block.columnWidthsPct);
+  const widths = proportions.map((proportion) =>
+    Math.max(300, Math.round(tableWidth * proportion))
+  );
+  const widthCorrection = tableWidth - widths.reduce((sum, value) => sum + value, 0);
+  widths[widths.length - 1] += widthCorrection;
+
   const rowXml = (cells: string[], header: boolean) => {
     const padded = Array.from({ length: columnCount }, (_, i) => cells[i] || '');
     return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${padded
-      .map((cell) => cellXml(cell, design, header))
+      .map((cell, index) => cellXml(cell, design, widths[index], header))
       .join('')}</w:tr>`;
   };
 
@@ -336,8 +385,8 @@ function tableXml(
 
   return `<w:tbl>
     <w:tblPr>
-      <w:tblW w:w="0" w:type="auto"/>
-      <w:tblLayout w:type="autofit"/>
+      <w:tblW w:w="${tableWidth}" w:type="dxa"/>
+      <w:tblLayout w:type="fixed"/>
       <w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="40" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="40" w:type="dxa"/></w:tblCellMar>
       <w:tblBorders>
         <w:top w:val="single" w:sz="4" w:space="0" w:color="D9E0E8"/>
@@ -348,6 +397,7 @@ function tableXml(
         <w:insideV w:val="single" w:sz="3" w:space="0" w:color="E8ECF1"/>
       </w:tblBorders>
     </w:tblPr>
+    <w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join('')}</w:tblGrid>
     ${body.join('')}
   </w:tbl>`;
 }
@@ -419,19 +469,28 @@ function imageParagraphXml(
   const dims = imageDimensions(block.imageData, contentType);
   const size = block.size || 'large';
   const alignment = block.alignment || 'center';
-  const widthInches = IMAGE_WIDTH_INCHES[size] || IMAGE_WIDTH_INCHES.large;
+  const widthInches =
+    typeof block.widthMm === 'number' && Number.isFinite(block.widthMm)
+      ? Math.max(10, Math.min(180, block.widthMm)) / 25.4
+      : IMAGE_WIDTH_INCHES[size] || IMAGE_WIDTH_INCHES.large;
   const ratio = dims.width > 0 && dims.height > 0 ? dims.height / dims.width : 0.5625;
-  const heightInches = Math.min(widthInches * ratio, 7.2);
+  const heightInches =
+    typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
+      ? Math.max(10, Math.min(240, block.heightMm)) / 25.4
+      : Math.min(widthInches * ratio, 7.2);
   const cx = Math.max(1, Math.round(widthInches * EMU_PER_INCH));
   const cy = Math.max(1, Math.round(heightInches * EMU_PER_INCH));
   const relId = `rIdImage${imageIndex + 1}`;
   const docPrId = imageIndex + 1;
-  const alt = escapeXml(cleanText(block.imageAltText || block.caption || block.prompt || block.need || 'Document image', 500));
+  const alt = escapeXml(
+    cleanText(
+      block.imageAltText || block.caption || block.prompt || block.need || 'Document image',
+      500
+    )
+  );
   const jc = alignment === 'left' ? 'left' : alignment === 'right' ? 'right' : 'center';
 
-  const image = `<w:p>
-    <w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="80" w:after="100"/><w:keepLines/></w:pPr>
-    <w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
+  const pictureGraphic = `
       <wp:extent cx="${cx}" cy="${cy}"/>
       <wp:effectExtent l="0" t="0" r="0" b="0"/>
       <wp:docPr id="${docPrId}" name="Image ${docPrId}" descr="${alt}"/>
@@ -442,11 +501,32 @@ function imageParagraphXml(
           <pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
           <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
         </pic:pic>
-      </a:graphicData></a:graphic>
-    </wp:inline></w:drawing></w:r>
-  </w:p>`;
+      </a:graphicData></a:graphic>`;
 
-  if (!block.caption) return image;
+  let image: string;
+  if (block.placement === 'top-right') {
+    image = `<w:p>
+      <w:pPr><w:spacing w:before="0" w:after="0"/><w:keepLines/></w:pPr>
+      <w:r><w:drawing><wp:anchor distT="0" distB="0" distL="114300" distR="0"
+        simplePos="0" relativeHeight="251658240" behindDoc="0" locked="0"
+        layoutInCell="1" allowOverlap="0">
+        <wp:simplePos x="0" y="0"/>
+        <wp:positionH relativeFrom="margin"><wp:align>right</wp:align></wp:positionH>
+        <wp:positionV relativeFrom="margin"><wp:posOffset>0</wp:posOffset></wp:positionV>
+        ${pictureGraphic}
+        <wp:wrapSquare wrapText="left"/>
+      </wp:anchor></w:drawing></w:r>
+    </w:p>`;
+  } else {
+    image = `<w:p>
+      <w:pPr><w:jc w:val="${jc}"/><w:spacing w:before="80" w:after="100"/><w:keepLines/></w:pPr>
+      <w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">
+        ${pictureGraphic}
+      </wp:inline></w:drawing></w:r>
+    </w:p>`;
+  }
+
+  if (!block.caption || block.placement === 'top-right') return image;
   return `${image}<w:p><w:pPr><w:jc w:val="${jc}"/><w:spacing w:after="120"/><w:keepLines/></w:pPr>${textRuns(
     cleanText(block.caption, 2000),
     {
@@ -504,11 +584,28 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
           )
         : [];
       if (headers.length === 0 && rows.length === 0) continue;
-      normalized.push({ type, headers, rows });
+      normalized.push({
+        type,
+        headers,
+        rows,
+        tableWidthPct:
+          typeof block.tableWidthPct === 'number'
+            ? Math.max(35, Math.min(100, block.tableWidthPct))
+            : undefined,
+        columnWidthsPct: Array.isArray(block.columnWidthsPct)
+          ? block.columnWidthsPct
+              .slice(0, MAX_TABLE_COLUMNS)
+              .filter((value): value is number =>
+                typeof value === 'number' && Number.isFinite(value) && value > 0
+              )
+          : undefined,
+      });
     } else if (type === 'image') {
       if (!Buffer.isBuffer(block.imageData) || block.imageData.length === 0) continue;
       const size: DocxImageSize = block.size === 'small' || block.size === 'medium' || block.size === 'full' ? block.size : 'large';
       const alignment: DocxImageAlignment = block.alignment === 'left' || block.alignment === 'right' ? block.alignment : 'center';
+      const placement: DocxImagePlacement =
+        block.placement === 'top-right' ? 'top-right' : 'inline';
       normalized.push({
         type,
         mode: block.mode === 'existing' || block.mode === 'edit' ? block.mode : 'generate',
@@ -518,6 +615,15 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
         caption: cleanText(block.caption, 2000),
         size,
         alignment,
+        placement,
+        widthMm:
+          typeof block.widthMm === 'number' && Number.isFinite(block.widthMm)
+            ? Math.max(10, Math.min(180, block.widthMm))
+            : undefined,
+        heightMm:
+          typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
+            ? Math.max(10, Math.min(240, block.heightMm))
+            : undefined,
         imageData: block.imageData,
         imageContentType: cleanText(block.imageContentType, 100) || 'image/png',
         imageAltText: cleanText(block.imageAltText, 500),
@@ -600,7 +706,7 @@ function buildDocumentXml(
         });
         break;
       case 'table':
-        body.push(tableXml(block.headers || [], block.rows || [], design));
+        body.push(tableXml(block, design));
         body.push(paragraphXml('', { spacingAfter: 80 }));
         break;
       case 'image':
