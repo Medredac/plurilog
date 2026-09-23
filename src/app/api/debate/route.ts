@@ -166,6 +166,11 @@ export const GPT_FILE_TOOLS = [
             type: 'string',
             description: 'A concise user-facing filename ending in the requested .docx or .pdf extension.',
           },
+          source_docx_filename: {
+            type: 'string',
+            description:
+              'For an exact PDF export of an existing Word document, set this to the existing .docx filename so Plurilog converts that canonical Word file directly and preserves layout, tables, fonts, and embedded images. Leave this unset when the user wants substantive edits or reformatting before the PDF is created.',
+          },
           title: {
             type: 'string',
             description: 'Optional title shown inside the document. For rich PDFs, omit this when a banner block already provides the title treatment.',
@@ -520,6 +525,7 @@ function latestDocxSourceFromContext(options: {
     storagePath?: string | null;
     createdAt?: string;
   }>;
+  preferredFilename?: string;
 }): { storagePath: string; filename: string } | null {
   const currentDocs = (options.currentRoundAttachments || [])
     .map((attachment) => {
@@ -540,7 +546,16 @@ function latestDocxSourceFromContext(options: {
       (item): item is { storagePath: string; filename: string } => Boolean(item)
     );
 
-  if (currentDocs.length > 0) {
+  const preferredFilename = (options.preferredFilename || '').trim().toLowerCase();
+
+  if (preferredFilename) {
+    const preferredCurrent = currentDocs.find(
+      (doc) => doc.filename.toLowerCase() === preferredFilename
+    );
+    if (preferredCurrent) return preferredCurrent;
+  }
+
+  if (currentDocs.length > 0 && !preferredFilename) {
     return currentDocs[currentDocs.length - 1];
   }
 
@@ -562,6 +577,18 @@ function latestDocxSourceFromContext(options: {
       const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
       return bTime - aTime;
     });
+
+  if (preferredFilename) {
+    const preferredHistorical = historical.find(
+      (doc) => (doc.filename || '').toLowerCase() === preferredFilename
+    );
+    return preferredHistorical
+      ? {
+          storagePath: preferredHistorical.storagePath,
+          filename: preferredHistorical.filename || 'document.docx',
+        }
+      : null;
+  }
 
   return historical.length > 0
     ? {
@@ -3721,14 +3748,26 @@ export async function POST(req: NextRequest) {
                     documentOutputFormat =
                       fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
-                    const sourceDocx =
+                    const explicitSourceDocx =
                       fileArgs.format === 'pdf' &&
+                      typeof fileArgs.source_docx_filename === 'string' &&
+                      fileArgs.source_docx_filename.trim()
+                        ? latestDocxSourceFromContext({
+                            currentRoundAttachments,
+                            knownDocuments: discussionMemory?.knownDocuments || [],
+                            preferredFilename: fileArgs.source_docx_filename.trim(),
+                          })
+                        : null;
+
+                    const sourceDocx =
+                      explicitSourceDocx ||
+                      (fileArgs.format === 'pdf' &&
                       isSimplePdfFormatConversionRequest(prompt || '')
                         ? latestDocxSourceFromContext({
                             currentRoundAttachments,
                             knownDocuments: discussionMemory?.knownDocuments || [],
                           })
-                        : null;
+                        : null);
 
                     if (sourceDocx) {
                       console.log('[Document Conversion] Direct Word-to-PDF source selected', {
