@@ -155,6 +155,35 @@ function isTextOnlyDocument(filenameOrPath?: string | null): boolean {
   );
 }
 
+function inferExplicitDocumentKind(
+  searchPrompt: string,
+  explicitFilename?: string
+): 'pdf' | 'docx' | null {
+  const filename = (explicitFilename || '').trim().toLowerCase();
+  if (filename.endsWith('.docx')) return 'docx';
+  if (filename.endsWith('.pdf')) return 'pdf';
+
+  const prompt = (searchPrompt || '').trim().toLowerCase();
+  if (!prompt) return null;
+
+  const strongDocxCue =
+    /\b(?:existing|source|current|latest|previous|generated)\s+(?:word|docx)\b/i.test(prompt) ||
+    /\b(?:word|docx)\s+(?:document|file|résumé|resume|cv)\b/i.test(prompt);
+  const strongPdfCue =
+    /\b(?:existing|source|current|latest|previous|generated)\s+pdf\b/i.test(prompt) ||
+    /\bpdf\s+(?:document|file|résumé|resume|cv)\b/i.test(prompt);
+
+  if (strongDocxCue && !strongPdfCue) return 'docx';
+  if (strongPdfCue && !strongDocxCue) return 'pdf';
+
+  const hasDocxCue = /\b(?:docx|word)\b/i.test(prompt);
+  const hasPdfCue = /\bpdf\b/i.test(prompt);
+  if (hasDocxCue && !hasPdfCue) return 'docx';
+  if (hasPdfCue && !hasDocxCue) return 'pdf';
+
+  return null;
+}
+
 function inferExplicitUserResourceType(
   userPrompt: string,
   context: ResourceBrokerContext
@@ -495,6 +524,85 @@ export function resolveRequestedEvidence(
 
   // 3. Modality === 'visual' with Explicit resource_type === 'document'
   if (effectiveResourceType === 'document') {
+    const explicitDocumentKind = inferExplicitDocumentKind(
+      searchPrompt,
+      explicitFilename
+    );
+
+    if (explicitDocumentKind === 'docx') {
+      const { resolved, isStrong } = resolveDocxVisual(searchPrompt, context);
+      if (resolved?.storagePath && (isStrong || knownDocx.length === 1)) {
+        return {
+          status: 'resolved',
+          kind: 'docx',
+          message: `Resolved visual Word document "${resolved.filename}".`,
+          evidence: {
+            kind: 'docx',
+            filename: resolved.filename,
+            storagePath: resolved.storagePath,
+            documentId: resolved.documentId || undefined,
+            reason: 'resolved_visual_docx',
+          },
+        };
+      }
+
+      if (knownDocx.length > 1) {
+        return {
+          status: 'ambiguous',
+          kind: 'docx',
+          message: 'Multiple Word documents match this visual evidence request. Please specify the file.',
+          candidates: knownDocx.map((d) => ({
+            label: d.filename || 'Untitled Word document',
+            filename: d.filename,
+            kind: 'docx' as const,
+          })),
+        };
+      }
+
+      return {
+        status: 'not_found',
+        kind: 'docx',
+        message: 'No matching Word document was found in this discussion.',
+      };
+    }
+
+    if (explicitDocumentKind === 'pdf') {
+      const { resolved, isStrong } = resolvePdfVisual(searchPrompt, context);
+      if (resolved?.storagePath && (isStrong || knownPdfs.length === 1)) {
+        return {
+          status: 'resolved',
+          kind: 'pdf',
+          message: `Resolved visual PDF "${resolved.filename}".`,
+          evidence: {
+            kind: 'pdf',
+            filename: resolved.filename,
+            storagePath: resolved.storagePath,
+            documentId: resolved.documentId || undefined,
+            reason: 'resolved_visual_document',
+          },
+        };
+      }
+
+      if (knownPdfs.length > 1) {
+        return {
+          status: 'ambiguous',
+          kind: 'pdf',
+          message: 'Multiple PDFs match this visual evidence request. Please specify the file.',
+          candidates: knownPdfs.map((d) => ({
+            label: d.filename || 'Untitled PDF',
+            filename: d.filename,
+            kind: 'pdf' as const,
+          })),
+        };
+      }
+
+      return {
+        status: 'not_found',
+        kind: 'pdf',
+        message: 'No matching PDF was found in this discussion.',
+      };
+    }
+
     const { resolved: resolvedPdf, isStrong: pdfStrong } =
       resolvePdfVisual(searchPrompt, context);
     const { resolved: resolvedDocx, isStrong: docxStrong } =
