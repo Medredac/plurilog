@@ -118,6 +118,8 @@ export async function GET(request: Request) {
     convertedPdfPageCount = converted.totalPageCount;
     const extractedImages = await extractPdfEmbeddedImages(converted.buffer, {
       timeoutMs: 30_000,
+      minDimension: 1,
+      minArea: 1,
     });
     convertedPdfEmbeddedImageCount = extractedImages.length;
   }
