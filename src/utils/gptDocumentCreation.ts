@@ -11,6 +11,7 @@ import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
 import {
   renderDocxPages,
+  convertDocxToPdf,
   type RenderedDocxPage,
 } from '@/utils/docxPageRenderer';
 import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
@@ -58,6 +59,10 @@ export interface ExecuteGptDocumentCreationOptions {
   args: GptCreateFileArgs;
   signal?: AbortSignal;
   durableSignal?: AbortSignal;
+  sourceDocx?: {
+    storagePath: string;
+    filename: string;
+  } | null;
   availableImages?: DocumentImageSource[];
   resourceContext?: ResourceBrokerContext;
   onImageCost?: (event: DocumentImageCostEvent) => void;
@@ -1166,6 +1171,7 @@ export async function executeGptDocumentCreation(
     args,
     signal,
     durableSignal = signal,
+    sourceDocx = null,
     availableImages = [],
     resourceContext,
     onImageCost,
@@ -1214,14 +1220,20 @@ export async function executeGptDocumentCreation(
     imageCostUsd += event.costUsd;
     onImageCost?.(event);
   };
-  const resolvedDocument = await resolveDocumentBlocks(
-    args.blocks || [],
-    serviceClient,
-    availableImages,
-    resourceContext,
-    signal,
-    costAwareCallback
-  );
+  const useDirectDocxToPdf =
+    args.format === 'pdf' &&
+    Boolean(sourceDocx?.storagePath);
+
+  const resolvedDocument = useDirectDocxToPdf
+    ? { blocks: [] as RichDocumentBlock[], imageAssetCount: 0 }
+    : await resolveDocumentBlocks(
+        args.blocks || [],
+        serviceClient,
+        availableImages,
+        resourceContext,
+        signal,
+        costAwareCallback
+      );
 
   let finalBuffer: Buffer;
   let finalFilename: string;
@@ -1232,7 +1244,45 @@ export async function executeGptDocumentCreation(
   let visualReviewApplied = false;
   let finalDocxReviewPages: RenderedDocxPage[] = [];
 
-  if (args.format === 'pdf') {
+  if (args.format === 'pdf' && useDirectDocxToPdf && sourceDocx) {
+    const { data: sourceBlob, error: sourceDownloadError } =
+      await serviceClient.storage
+        .from('message-images')
+        .download(sourceDocx.storagePath);
+
+    if (sourceDownloadError || !sourceBlob) {
+      throw new Error(
+        `Could not load the source Word document for PDF conversion: ${
+          sourceDownloadError?.message || 'not found'
+        }`
+      );
+    }
+
+    const sourceBytes = Buffer.from(await sourceBlob.arrayBuffer());
+    const parsedSource = await parseDocx(sourceBytes);
+    const converted = await convertDocxToPdf(sourceBytes, {
+      signal,
+      timeoutMs: 60_000,
+    });
+
+    finalBuffer = converted.buffer;
+    finalFilename = args.filename.toLowerCase().endsWith('.pdf')
+      ? args.filename
+      : sourceDocx.filename.replace(/\.docx$/i, '.pdf');
+    renderedFullText = parsedSource.markdown || '';
+    generatedPdfPageCount = converted.totalPageCount;
+    finalImageAssetCount = parsedSource.embeddedImages.length;
+
+    console.log('[Generated PDF] Direct DOCX conversion:', {
+      sourceFilename: sourceDocx.filename,
+      filename: finalFilename,
+      byteSize: finalBuffer.length,
+      pageCount: generatedPdfPageCount,
+      embeddedImageCount: finalImageAssetCount,
+      usedSnapshot: converted.usedSnapshot,
+      elapsedMs: converted.elapsedMs,
+    });
+  } else if (args.format === 'pdf') {
     const renderSession = await createRichPdfRenderSession({
       signal,
       timeoutMs: 90_000,
