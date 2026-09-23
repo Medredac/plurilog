@@ -310,18 +310,196 @@ function renderTable(block: DocxBlock, design: ReturnType<typeof normalizeDesign
   return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 10pt 0;page-break-inside:avoid;">${head}${body}</table>`;
 }
 
-function renderImage(block: DocxBlock, design: ReturnType<typeof normalizeDesign>): string {
-  if (!block.imageData || !Buffer.isBuffer(block.imageData) || block.imageData.length === 0) return '';
+function renderImageElement(block: DocxBlock): string {
+  if (
+    !block.imageData ||
+    !Buffer.isBuffer(block.imageData) ||
+    block.imageData.length === 0
+  ) {
+    return '';
+  }
   const contentType = cleanText(block.imageContentType, 100) || 'image/png';
   const b64 = block.imageData.toString('base64');
-  const width = block.size === 'small' ? '35%' : block.size === 'medium' ? '58%' : block.size === 'full' ? '100%' : '82%';
-  const align = block.alignment === 'left' ? 'left' : block.alignment === 'right' ? 'right' : 'center';
-  const margin = align === 'left' ? '8pt auto 10pt 0' : align === 'right' ? '8pt 0 10pt auto' : '8pt auto 10pt auto';
+  const width =
+    typeof block.widthMm === 'number' && Number.isFinite(block.widthMm)
+      ? `${Math.max(10, Math.min(180, block.widthMm))}mm`
+      : block.size === 'small'
+        ? '35%'
+        : block.size === 'medium'
+          ? '58%'
+          : block.size === 'full'
+            ? '100%'
+            : '82%';
+  const height =
+    typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
+      ? `${Math.max(10, Math.min(240, block.heightMm))}mm`
+      : 'auto';
+  const objectFit = height === 'auto' ? 'contain' : 'cover';
+  return `<img src="data:${escapeHtml(contentType)};base64,${b64}" alt="${escapeHtml(
+    cleanText(
+      block.imageAltText ||
+        block.need ||
+        block.prompt ||
+        'Document image',
+      500
+    )
+  )}" style="display:block;width:${width};height:${height};object-fit:${objectFit};max-width:100%;"/>`;
+}
+
+function renderImage(block: DocxBlock, design: ReturnType<typeof normalizeDesign>): string {
+  const image = renderImageElement(block);
+  if (!image) return '';
+  const align =
+    block.alignment === 'left'
+      ? 'left'
+      : block.alignment === 'right'
+        ? 'right'
+        : 'center';
+  const margin =
+    align === 'left'
+      ? '8pt auto 10pt 0'
+      : align === 'right'
+        ? '8pt 0 10pt auto'
+        : '8pt auto 10pt auto';
   const caption = cleanText(block.caption, 2000);
   return `<div style="text-align:${align};margin:0 0 10pt 0;page-break-inside:avoid;">
-    <img src="data:${escapeHtml(contentType)};base64,${b64}" alt="${escapeHtml(cleanText(block.imageAltText || block.need || block.prompt || 'Document image', 500))}" style="display:block;width:${width};height:auto;margin:${margin};"/>
+    <div style="display:flex;justify-content:${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'};margin:${margin};">${image}</div>
     ${caption ? `<div style="font-size:${Math.max(8, design.bodySizePt - 1.5)}pt;color:${design.mutedColor};margin-top:3pt;">${escapeHtml(caption)}</div>` : ''}
   </div>`;
+}
+
+function renderProfileTableWithPhoto(
+  tableBlock: DocxBlock,
+  imageBlock: DocxBlock,
+  design: ReturnType<typeof normalizeDesign>
+): string {
+  const headers = (tableBlock.headers || []).map((v) => cleanText(v, 5000));
+  const rows = (tableBlock.rows || [])
+    .slice(0, 100)
+    .map((row) => (row || []).map((v) => cleanText(v, 5000)));
+  const photoColumnIndex = headers.findIndex((value) =>
+    /(?:写真|photo)/i.test(value)
+  );
+  if (photoColumnIndex < 0 || rows.length === 0) {
+    return `${renderTable(tableBlock, design)}${renderImage(
+      imageBlock,
+      design
+    )}`;
+  }
+
+  const image = renderImageElement(imageBlock);
+  if (!image) return renderTable(tableBlock, design);
+
+  const columnCount = Math.max(
+    headers.length,
+    ...rows.map((row) => row.length),
+    photoColumnIndex + 1
+  );
+  const widths =
+    Array.isArray(tableBlock.columnWidthsPct) &&
+    tableBlock.columnWidthsPct.length === columnCount
+      ? tableBlock.columnWidthsPct
+      : columnCount === 3
+        ? [34, 48, 18]
+        : null;
+  const colgroup = widths
+    ? `<colgroup>${widths
+        .map(
+          (width) =>
+            `<col style="width:${Math.max(1, Number(width) || 1)}%;"/>`
+        )
+        .join('')}</colgroup>`
+    : '';
+
+  const head = `<tr>${Array.from({ length: columnCount }, (_, i) =>
+    `<th style="padding:7pt 8pt;background:${design.accentColor};color:#ffffff;border:0.5pt solid ${design.accentColor};text-align:left;font-size:${Math.max(
+      8,
+      design.bodySizePt - 0.5
+    )}pt;">${escapeHtml(headers[i] || '')}</th>`
+  ).join('')}</tr>`;
+
+  const body = rows
+    .map((row, rowIndex) => {
+      const cells: string[] = [];
+      for (let i = 0; i < columnCount; i += 1) {
+        if (i === photoColumnIndex) {
+          if (rowIndex === 0) {
+            cells.push(
+              `<td rowspan="${rows.length}" style="padding:6pt 5pt;background:#ffffff;border:0.5pt solid #d9e0e8;vertical-align:middle;text-align:center;"><div style="display:flex;justify-content:center;align-items:center;width:100%;min-height:40mm;">${image}</div></td>`
+            );
+          }
+          continue;
+        }
+        cells.push(
+          `<td style="padding:6pt 8pt;background:${
+            rowIndex % 2 ? '#f7f9fb' : '#ffffff'
+          };border:0.5pt solid #d9e0e8;vertical-align:top;font-size:${Math.max(
+            8,
+            design.bodySizePt - 0.5
+          )}pt;">${escapeHtml(row[i] || '')}</td>`
+        );
+      }
+      return `<tr>${cells.join('')}</tr>`;
+    })
+    .join('');
+
+  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 10pt 0;page-break-inside:avoid;">${colgroup}${head}${body}</table>`;
+}
+
+function renderBlocksWithCompositions(
+  blocks: RichDocumentBlock[],
+  design: ReturnType<typeof normalizeDesign>
+): string {
+  const rendered: string[] = [];
+
+  for (let i = 0; i < blocks.length; i += 1) {
+    const current = blocks[i] as any;
+    const next = blocks[i + 1] as any;
+
+    if (
+      current?.type === 'table' &&
+      next?.type === 'image' &&
+      next?.placement === 'top-right' &&
+      Array.isArray(current.headers) &&
+      current.headers.some((value: unknown) =>
+        /(?:写真|photo)/i.test(String(value || ''))
+      )
+    ) {
+      rendered.push(
+        renderProfileTableWithPhoto(
+          current as DocxBlock,
+          next as DocxBlock,
+          design
+        )
+      );
+      i += 1;
+      continue;
+    }
+
+    if (
+      current?.type === 'image' &&
+      current?.placement === 'top-right' &&
+      next?.type === 'table' &&
+      Array.isArray(next.headers) &&
+      next.headers.some((value: unknown) =>
+        /(?:写真|photo)/i.test(String(value || ''))
+      )
+    ) {
+      rendered.push(
+        renderProfileTableWithPhoto(
+          next as DocxBlock,
+          current as DocxBlock,
+          design
+        )
+      );
+      i += 1;
+      continue;
+    }
+
+    rendered.push(renderBlock(current as RichDocumentBlock, design));
+  }
+
+  return rendered.join('\n');
 }
 
 function renderCards(block: PdfCardsBlock, design: ReturnType<typeof normalizeDesign>): string {
@@ -723,7 +901,7 @@ h1, h2, h3 {
 </head>
 <body>
 ${titleHtml}
-${blocks.map((block) => renderBlock(block, design)).join('\n')}
+${renderBlocksWithCompositions(blocks, design)}
 </body>
 </html>`;
 

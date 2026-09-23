@@ -76,6 +76,15 @@ import type {
   DocumentImageSource,
 } from '@/utils/gptDocumentCreation';
 import {
+  applyDocumentJsonPatch,
+  findDocumentStateSnapshot,
+  missingPreservedDocumentContent,
+  preserveRevisionPageConstraint,
+  userExplicitlyAllowsContentRemoval,
+  type DocumentStateSnapshot,
+  type JsonPatchOperation,
+} from '@/utils/documentRevisionState';
+import {
   mergeStreamingToolCalls,
   finalizeAllToolCalls,
   AccumulatedToolCall,
@@ -434,6 +443,60 @@ export const GPT_FILE_TOOLS = [
   },
 ];
 
+export const GPT_REVISE_FILE_TOOL = [
+  {
+    type: 'function',
+    function: {
+      name: 'revise_file',
+      description:
+        'Revise the canonical existing document state using JSON Patch. Use this instead of recreating the entire file when Plurilog provides a canonical document state for a revision follow-up. Patch only the properties the user asked to change; every unmentioned property is preserved by the server. For a narrow edit such as adding a photo, changing one heading, or adjusting spacing, do not replace the whole /blocks array. Use add/replace/remove operations at the smallest practical JSON-pointer path. The server will reject narrow revisions that silently delete unrelated existing content.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filename: {
+            type: 'string',
+            description:
+              'Optional new user-facing filename. Omit to keep the parent filename.',
+          },
+          format: {
+            type: 'string',
+            enum: ['docx', 'pdf'],
+            description:
+              'Optional output format. Omit to keep the parent format.',
+          },
+          patch: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 64,
+            items: {
+              type: 'object',
+              properties: {
+                op: {
+                  type: 'string',
+                  enum: ['add', 'remove', 'replace'],
+                },
+                path: {
+                  type: 'string',
+                  description:
+                    'RFC 6901 JSON pointer into the canonical document spec, for example /design/marginMm or /blocks/3.',
+                },
+                value: {
+                  description:
+                    'Value used by add or replace. Omit for remove.',
+                },
+              },
+              required: ['op', 'path'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['patch'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
 export const REQUEST_EVIDENCE_TOOL = [
   {
     type: 'function',
@@ -543,6 +606,13 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
     /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image)\b/i;
 
   return revisionVerb.test(prompt) && artifactCue.test(prompt);
+}
+
+function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
+  if (!isDocumentRevisionFollowUpQuery(value)) return false;
+  return !/\b(?:redo|rework|reformat|restyle|redesign|rebuild|transform|convert)\b/i.test(
+    value || ''
+  );
 }
 
 function latestDocxSourceFromContext(options: {
@@ -3491,6 +3561,22 @@ export async function POST(req: NextRequest) {
                 a?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
               return isImageUrl(a?.url || '') || cleanUrl.endsWith('.pdf');
             }).length;
+            const currentDocumentAttachmentCount = (
+              currentRoundAttachments || []
+            ).filter((attachment) => {
+              const filename = (attachment.filename || '').toLowerCase();
+              const cleanUrl =
+                attachment.url
+                  ?.split('?')[0]
+                  .split('#')[0]
+                  .toLowerCase() || '';
+              return (
+                filename.endsWith('.pdf') ||
+                filename.endsWith('.docx') ||
+                cleanUrl.endsWith('.pdf') ||
+                cleanUrl.endsWith('.docx')
+              );
+            }).length;
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
                 const filename = (doc.filename || '').toLowerCase();
@@ -3508,13 +3594,14 @@ export async function POST(req: NextRequest) {
               hasKnownInspectableDocument || hasKnownInspectableImage;
             const shouldForceEvidenceOnFirstPass =
               isEvidenceEnabledForSeat &&
-              currentVisualAttachmentCount === 0 &&
               hasRetrievableHistoricalEvidence &&
               (
-                isVisualQuery ||
-                isVerificationFollowUp ||
+                ((isVisualQuery || isVerificationFollowUp) &&
+                  currentVisualAttachmentCount === 0) ||
                 (seat.seatId === 'chatgpt' &&
-                  isDocumentRevisionFollowUp)
+                  isDocumentRevisionFollowUp &&
+                  hasKnownInspectableDocument &&
+                  currentDocumentAttachmentCount === 0)
               );
 
             if (isEvidenceEnabledForSeat) {
@@ -3522,6 +3609,7 @@ export async function POST(req: NextRequest) {
                 seatId: seat.seatId,
                 enabled: isEvidenceEnabledForSeat,
                 currentVisualAttachmentCount,
+                currentDocumentAttachmentCount,
                 currentRoundAttachmentCount: currentRoundAttachments.length,
                 hasRetrievableHistoricalEvidence,
                 forceOnFirstPass: shouldForceEvidenceOnFirstPass,
@@ -4698,6 +4786,8 @@ export async function POST(req: NextRequest) {
                     filename: string;
                     content: string;
                   }> = [];
+                  let resolvedRevisionDocumentIds: string[] = [];
+                  let revisionParentState: DocumentStateSnapshot | null = null;
                   if (
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
@@ -4727,6 +4817,7 @@ export async function POST(req: NextRequest) {
                           ),
                       ])
                     );
+                    resolvedRevisionDocumentIds = resolvedDocumentIds;
 
                     if (resolvedDocumentIds.length > 0) {
                       const { data: revisionRows, error: revisionErr } =
@@ -4766,11 +4857,73 @@ export async function POST(req: NextRequest) {
                         characterCount: doc.content.length,
                       })),
                     });
+
+                    const resolvedDocumentEvidence =
+                      evidenceResolutionRecords.find(
+                        (record) =>
+                          record.brokerResult.status === 'resolved' &&
+                          (record.brokerResult.evidence?.kind === 'pdf' ||
+                            record.brokerResult.evidence?.kind === 'docx')
+                      )?.brokerResult.evidence || null;
+
+                    if (resolvedDocumentEvidence) {
+                      revisionParentState =
+                        await findDocumentStateSnapshot({
+                          serviceSupabase: serviceClientForEvidence,
+                          discussionId,
+                          storagePath:
+                            resolvedDocumentEvidence.storagePath || null,
+                          filename:
+                            resolvedDocumentEvidence.filename || null,
+                          documentId:
+                            resolvedDocumentEvidence.documentId || null,
+                        });
+
+                      if (revisionParentState) {
+                        console.log(
+                          '[Document Revision] Loaded canonical parent state',
+                          {
+                            snapshotId: revisionParentState.id,
+                            documentId:
+                              revisionParentState.documentId || null,
+                            filename: revisionParentState.filename,
+                            pageCount:
+                              revisionParentState.pageCount || null,
+                          }
+                        );
+                      } else {
+                        console.log(
+                          '[Document Revision] No canonical parent state for legacy document',
+                          {
+                            filename:
+                              resolvedDocumentEvidence.filename || null,
+                            storagePath:
+                              resolvedDocumentEvidence.storagePath || null,
+                          }
+                        );
+                      }
+                    }
                   }
+
+                  const canonicalRevisionStateDocument =
+                    revisionParentState
+                      ? [
+                          {
+                            filename:
+                              `CANONICAL DOCUMENT STATE — ${revisionParentState.filename}.json`,
+                            content: JSON.stringify(
+                              revisionParentState.spec,
+                              null,
+                              2
+                            ),
+                          },
+                        ]
+                      : [];
 
                   const evidenceTurnDocuments = [
                     ...(currentTurnDocuments || []),
                     ...resolvedRevisionDocuments,
+                    ...canonicalRevisionStateDocument,
                   ].filter(
                     (doc, index, all) =>
                       all.findIndex(
@@ -4921,6 +5074,10 @@ export async function POST(req: NextRequest) {
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
                     anyResolvedEvidence;
+                  const evidenceContinuationCanReviseFile =
+                    evidenceContinuationCanCreateFile &&
+                    isDocumentRevisionFollowUp &&
+                    Boolean(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
 
                   const evidenceStream = await (openai.chat.completions.create as any)({
@@ -4931,10 +5088,18 @@ export async function POST(req: NextRequest) {
                     temperature: 0.7,
                     signal: seatAbortController.signal,
                     ...(evidenceContinuationCanCreateFile
-                      ? {
-                          tools: GPT_FILE_TOOLS,
-                          tool_choice: 'auto',
-                        }
+                      ? evidenceContinuationCanReviseFile
+                        ? {
+                            tools: GPT_REVISE_FILE_TOOL,
+                            tool_choice: {
+                              type: 'function',
+                              function: { name: 'revise_file' },
+                            },
+                          }
+                        : {
+                            tools: GPT_FILE_TOOLS,
+                            tool_choice: 'auto',
+                          }
                       : {}),
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
@@ -5014,20 +5179,38 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCalls.filter(
                       (call) => call?.name === 'create_file'
                     );
+                  const evidenceReviseFileCalls =
+                    evidenceContinuationCalls.filter(
+                      (call) => call?.name === 'revise_file'
+                    );
                   const hasOnlyEvidenceCreateFileCalls =
                     evidenceContinuationCanCreateFile &&
                     evidenceCreateFileCalls.length > 0 &&
                     evidenceCreateFileCalls.length ===
                       evidenceContinuationCalls.length;
+                  const hasOnlyEvidenceReviseFileCalls =
+                    evidenceContinuationCanReviseFile &&
+                    evidenceReviseFileCalls.length > 0 &&
+                    evidenceReviseFileCalls.length ===
+                      evidenceContinuationCalls.length;
 
-                  if (hasOnlyEvidenceCreateFileCalls) {
+                  if (
+                    hasOnlyEvidenceCreateFileCalls ||
+                    hasOnlyEvidenceReviseFileCalls
+                  ) {
                     documentToolBranchActive = true;
                     incurredDocumentCallCostUsd =
                       incurredEvidenceFirstPassCostUsd +
                       incurredEvidenceSecondPassCostUsd;
 
-                    let evidenceDocumentCalls = evidenceCreateFileCalls;
-                    if (evidenceDocumentCalls.length > 1) {
+                    let evidenceDocumentCalls =
+                      hasOnlyEvidenceReviseFileCalls
+                        ? evidenceReviseFileCalls
+                        : evidenceCreateFileCalls;
+                    if (
+                      evidenceDocumentCalls.length > 1 &&
+                      !hasOnlyEvidenceReviseFileCalls
+                    ) {
                       const explicitlyRequestsMultipleDocuments =
                         /\b(?:both|multiple\s+(?:files|documents)|two\s+(?:files|documents)|separate\s+(?:files|documents)|(?:pdf\s*(?:and|&)\s*(?:word|docx))|(?:(?:word|docx)\s*(?:and|&)\s*pdf)|versions?)\b/i.test(
                           prompt || ''
@@ -5095,7 +5278,7 @@ export async function POST(req: NextRequest) {
                     }
 
                     const createdDocuments: Array<{
-                      fileCall: (typeof evidenceDocumentCalls)[number];
+                      fileCall: any;
                       fileArgs: GptCreateFileArgs;
                       result: Awaited<
                         ReturnType<typeof executeGptDocumentCreation>
@@ -5108,8 +5291,91 @@ export async function POST(req: NextRequest) {
                       documentIndex += 1
                     ) {
                       const fileCall = evidenceDocumentCalls[documentIndex];
-                      const fileArgs = (fileCall.arguments ||
-                        {}) as unknown as GptCreateFileArgs;
+                      let revisionContext:
+                        | {
+                            parentSnapshot?: DocumentStateSnapshot | null;
+                            sourceDocumentIds?: string[];
+                            generationKind?: 'create' | 'revision' | 'convert';
+                            preserveParentContent?: boolean;
+                          }
+                        | null = null;
+                      let fileArgs: GptCreateFileArgs;
+
+                      if (fileCall.name === 'revise_file') {
+                        if (!revisionParentState) {
+                          throw new Error(
+                            'A canonical parent document state is required for revise_file.'
+                          );
+                        }
+                        const reviseArgs = (fileCall.arguments || {}) as {
+                          filename?: string;
+                          format?: 'docx' | 'pdf';
+                          patch?: JsonPatchOperation[];
+                        };
+                        fileArgs = applyDocumentJsonPatch(
+                          revisionParentState.spec as GptCreateFileArgs,
+                          reviseArgs.patch || []
+                        ) as GptCreateFileArgs;
+
+                        if (
+                          typeof reviseArgs.filename === 'string' &&
+                          reviseArgs.filename.trim()
+                        ) {
+                          fileArgs.filename = reviseArgs.filename.trim();
+                        }
+                        if (
+                          reviseArgs.format === 'pdf' ||
+                          reviseArgs.format === 'docx'
+                        ) {
+                          fileArgs.format = reviseArgs.format;
+                        }
+
+                        fileArgs = preserveRevisionPageConstraint(
+                          fileArgs,
+                          revisionParentState.pageCount,
+                          prompt || ''
+                        ) as GptCreateFileArgs;
+
+                        const preserveParentContent =
+                          isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
+                          !userExplicitlyAllowsContentRemoval(prompt || '');
+                        if (preserveParentContent) {
+                          const missingParentContent =
+                            missingPreservedDocumentContent(
+                              revisionParentState.spec,
+                              fileArgs
+                            );
+                          if (missingParentContent.length > 0) {
+                            throw new Error(
+                              `Revision patch would remove ${missingParentContent.length} existing content value(s) that the user did not ask to remove.`
+                            );
+                          }
+                        }
+
+                        revisionContext = {
+                          parentSnapshot: revisionParentState,
+                          sourceDocumentIds:
+                            resolvedRevisionDocumentIds,
+                          generationKind: 'revision',
+                          preserveParentContent,
+                        };
+
+                        console.log(
+                          '[Document Revision] Applied canonical patch',
+                          {
+                            parentSnapshotId:
+                              revisionParentState.id,
+                            filename: fileArgs.filename,
+                            format: fileArgs.format,
+                            patchCount:
+                              reviseArgs.patch?.length || 0,
+                            preserveParentContent,
+                          }
+                        );
+                      } else {
+                        fileArgs = (fileCall.arguments ||
+                          {}) as unknown as GptCreateFileArgs;
+                      }
 
                       const isShorthandFormatVersionRequest =
                         /\b(?:make|create|turn|convert|give|return)\b[\s\S]{0,50}\b(?:pdf|word|docx)\b[\s\S]{0,24}\b(?:one|version|copy|file)\b/i.test(
@@ -5208,6 +5474,7 @@ export async function POST(req: NextRequest) {
                         reviewSessionId: discussionId
                           ? `${discussionId}:${seat.seatId}:${fileArgs.format}-review:evidence:${documentIndex}`
                           : null,
+                        revisionContext,
                       });
 
                       incurredDocumentFollowUpCostUsd +=
@@ -5422,7 +5689,8 @@ export async function POST(req: NextRequest) {
 
                   if (
                     evidenceContinuationCalls.length > 0 &&
-                    !hasOnlyEvidenceCreateFileCalls
+                    !hasOnlyEvidenceCreateFileCalls &&
+                    !hasOnlyEvidenceReviseFileCalls
                   ) {
                     throw new Error(
                       `Unsupported evidence-continuation tool calls (${evidenceContinuationCalls

@@ -35,6 +35,12 @@ import {
   resolveRequestedEvidence,
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
+import {
+  missingPreservedDocumentContent,
+  persistDocumentStateSnapshot,
+  sanitizeDocumentSpecForState,
+  type DocumentStateSnapshot,
+} from '@/utils/documentRevisionState';
 
 export interface GptCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   format: 'docx' | 'pdf';
@@ -80,6 +86,12 @@ export interface ExecuteGptDocumentCreationOptions {
   reviewModels?: string[];
   originalUserPrompt?: string;
   reviewSessionId?: string | null;
+  revisionContext?: {
+    parentSnapshot?: DocumentStateSnapshot | null;
+    sourceDocumentIds?: string[];
+    generationKind?: 'create' | 'revision' | 'convert';
+    preserveParentContent?: boolean;
+  } | null;
 }
 
 export interface ExecuteGptDocumentCreationResult {
@@ -97,6 +109,9 @@ export interface ExecuteGptDocumentCreationResult {
   visualReviewCostUsd: number;
   visualReviewApplied: boolean;
   renderedPageAttachments: Array<{ url: string; filename: string }>;
+  documentId?: string | null;
+  documentStateId?: string | null;
+  pageCount?: number | null;
 }
 
 const MAX_DOCUMENT_IMAGES = 12;
@@ -1503,6 +1518,7 @@ export async function executeGptDocumentCreation(
     reviewModels = reviewModel ? [reviewModel] : [],
     originalUserPrompt = '',
     reviewSessionId,
+    revisionContext = null,
   } = options;
 
   if (!discussionId) {
@@ -1567,6 +1583,9 @@ export async function executeGptDocumentCreation(
   let visualReviewCostUsd = 0;
   let visualReviewApplied = false;
   let finalDocxReviewPages: RenderedDocxPage[] = [];
+  let finalPageCount: number | null = null;
+  let finalSpecForState: GptCreateFileArgs =
+    sanitizeDocumentSpecForState(args) as GptCreateFileArgs;
 
   if (args.format === 'pdf' && useDirectDocxToPdf && sourceDocx) {
     const { data: sourceBlob, error: sourceDownloadError } =
@@ -1595,6 +1614,11 @@ export async function executeGptDocumentCreation(
       : sourceDocx.filename.replace(/\.docx$/i, '.pdf');
     renderedFullText = parsedSource.markdown || '';
     generatedPdfPageCount = converted.totalPageCount;
+    finalPageCount = generatedPdfPageCount;
+    finalSpecForState = sanitizeDocumentSpecForState({
+      ...args,
+      filename: finalFilename,
+    }) as GptCreateFileArgs;
     finalImageAssetCount = parsedSource.embeddedImages.length;
 
     console.log('[Generated PDF] Direct DOCX conversion:', {
@@ -1621,6 +1645,7 @@ export async function executeGptDocumentCreation(
       });
 
       let selectedPdf = initialPdf;
+      let selectedPdfArgs: GptCreateFileArgs = args;
 
       if (reviewModel && initialPdf.reviewPages.length > 0) {
         try {
@@ -1665,6 +1690,7 @@ export async function executeGptDocumentCreation(
             });
 
             selectedPdf = reviewedPdf;
+            selectedPdfArgs = review.args;
             finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
             visualReviewApplied = true;
 
@@ -1687,6 +1713,11 @@ export async function executeGptDocumentCreation(
       finalFilename = selectedPdf.filename;
       renderedFullText = selectedPdf.fullText;
       generatedPdfPageCount = selectedPdf.totalPageCount;
+      finalPageCount = generatedPdfPageCount;
+      finalSpecForState = sanitizeDocumentSpecForState({
+        ...selectedPdfArgs,
+        filename: finalFilename,
+      }) as GptCreateFileArgs;
 
       console.log('[Generated PDF] Rendered rich PDF:', {
         filename: finalFilename,
@@ -1721,6 +1752,7 @@ export async function executeGptDocumentCreation(
 
     let selectedDocument = initialDocument;
     let selectedResolvedBlocks = resolvedDocument.blocks;
+    let selectedArgsForState: GptCreateFileArgs = initialArgs;
     let selectedPageCount: number | null = null;
     let selectedRenderedText = '';
 
@@ -1821,6 +1853,7 @@ export async function executeGptDocumentCreation(
           if (chooseReviewed) {
             selectedDocument = reviewedDocument;
             selectedResolvedBlocks = reviewedResolvedDocument.blocks;
+            selectedArgsForState = review.args;
             selectedPageCount = reviewedPages.totalPageCount;
             selectedRenderedText = reviewedPages.renderedText;
             finalDocxReviewPages = reviewedPages.pages;
@@ -1887,6 +1920,10 @@ export async function executeGptDocumentCreation(
           ) {
             selectedDocument = compactDocument;
             selectedResolvedBlocks = compactBlocks;
+            selectedArgsForState = {
+              ...compactArgs,
+              blocks: compactBlocks,
+            };
             selectedPageCount = compactPages.totalPageCount;
             selectedRenderedText = compactPages.renderedText;
             finalDocxReviewPages = compactPages.pages;
@@ -1947,6 +1984,10 @@ export async function executeGptDocumentCreation(
           ) {
             selectedDocument = spreadDocument;
             selectedResolvedBlocks = spreadBlocks;
+            selectedArgsForState = {
+              ...spreadArgs,
+              blocks: spreadBlocks,
+            };
             selectedPageCount = spreadPages.totalPageCount;
             selectedRenderedText = spreadPages.renderedText;
             finalDocxReviewPages = spreadPages.pages;
@@ -1987,6 +2028,12 @@ export async function executeGptDocumentCreation(
     finalBuffer = selectedDocument.buffer;
     finalFilename = selectedDocument.filename;
     renderedFullText = selectedDocument.fullText;
+    finalPageCount = selectedPageCount;
+    finalSpecForState = sanitizeDocumentSpecForState({
+      ...selectedArgsForState,
+      filename: finalFilename,
+      blocks: selectedResolvedBlocks,
+    }) as GptCreateFileArgs;
 
     console.log('[Generated DOCX] Final render:', {
       filename: finalFilename,
@@ -1996,6 +2043,27 @@ export async function executeGptDocumentCreation(
       visualReviewApplied,
       visualReviewCostUsd,
     });
+  }
+
+  if (
+    revisionContext?.preserveParentContent &&
+    revisionContext.parentSnapshot?.spec
+  ) {
+    const missingParentContent = missingPreservedDocumentContent(
+      revisionContext.parentSnapshot.spec,
+      finalSpecForState
+    );
+    if (missingParentContent.length > 0) {
+      console.error('[Document Revision] Refusing content regression', {
+        parentSnapshotId: revisionContext.parentSnapshot.id,
+        filename: finalFilename,
+        missingCount: missingParentContent.length,
+        missing: missingParentContent.slice(0, 12),
+      });
+      throw new Error(
+        `Document revision would remove ${missingParentContent.length} existing content value(s) that the user did not ask to remove.`
+      );
+    }
   }
 
   const finalContent = `Created **${finalFilename}**.`;
@@ -2226,6 +2294,52 @@ export async function executeGptDocumentCreation(
     );
   }
 
+  let indexedDocumentId: string | null = null;
+  let documentStateId: string | null = null;
+
+  try {
+    const { data: indexedDocument, error: indexedDocumentError } =
+      await serviceClient
+        .from('discussion_documents')
+        .select('id')
+        .eq('discussion_id', discussionId)
+        .eq('storage_path', persistedDocument.storagePath)
+        .maybeSingle();
+
+    if (!indexedDocumentError && indexedDocument?.id) {
+      indexedDocumentId = indexedDocument.id;
+    }
+
+    const state = await persistDocumentStateSnapshot({
+      serviceSupabase: serviceClient,
+      discussionId,
+      documentId: indexedDocumentId,
+      filename: persistedDocument.filename,
+      storagePath: persistedDocument.storagePath,
+      messageId: persistedMsg.id,
+      format: args.format,
+      spec: finalSpecForState,
+      fullText: renderedFullText,
+      pageCount: finalPageCount,
+      parentSnapshotId: revisionContext?.parentSnapshot?.id || null,
+      parentDocumentId:
+        revisionContext?.parentSnapshot?.documentId || null,
+      parentStoragePath:
+        revisionContext?.parentSnapshot?.storagePath || null,
+      sourceDocumentIds: revisionContext?.sourceDocumentIds || [],
+      imageSources: availableImages,
+      generationKind:
+        revisionContext?.generationKind ||
+        (sourceDocx ? 'convert' : 'create'),
+    });
+    documentStateId = state?.id || null;
+  } catch (stateErr) {
+    console.warn(
+      '[Document State] Non-critical snapshot persistence error:',
+      stateErr
+    );
+  }
+
   return {
     finalContent,
     format: args.format,
@@ -2241,5 +2355,8 @@ export async function executeGptDocumentCreation(
     visualReviewCostUsd,
     visualReviewApplied,
     renderedPageAttachments,
+    documentId: indexedDocumentId,
+    documentStateId,
+    pageCount: finalPageCount,
   };
 }
