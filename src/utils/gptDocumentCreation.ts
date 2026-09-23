@@ -1,6 +1,11 @@
 import { ModelId } from '@/types/chat';
 import { createServiceClient } from '@/utils/supabase/service';
-import { ingestParsedDocument } from '@/utils/discussionMemory';
+import {
+  ingestParsedDocument,
+  ingestDiscussionArtifacts,
+} from '@/utils/discussionMemory';
+import { parseDocx } from '@/utils/docxParser';
+import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { persistGeneratedDocument } from '@/utils/generatedDocumentStorage';
 import { renderDocx } from '@/utils/docxWriter';
 import type { DocxBlock, StructuredDocxInput } from '@/utils/docxWriter';
@@ -820,6 +825,50 @@ export async function executeGptDocumentCreation(
       }
     }
     throw err;
+  }
+
+  // Make images embedded inside GPT-generated DOCX files durable, reusable discussion
+  // assets. This lets later turns faithfully reuse/edit those exact illustrations
+  // instead of trying to infer them from rendered page screenshots.
+  if (args.format === 'docx') {
+    try {
+      const parsedDocx = await parseDocx(finalBuffer);
+      if (parsedDocx.embeddedImages.length > 0) {
+        const persistedEmbeddedImages = await persistDocxEmbeddedImages({
+          supabase,
+          parentFilename: persistedDocument.filename,
+          parentFileBytes: finalBuffer,
+          images: parsedDocx.embeddedImages,
+        });
+
+        if (persistedEmbeddedImages.length > 0) {
+          const artifactResult = await ingestDiscussionArtifacts({
+            serviceSupabase: serviceClient,
+            discussionId,
+            attachments: persistedEmbeddedImages.map((image) => ({
+              url: image.signedUrl,
+              filename: image.filename,
+            })),
+            sourceUserMessageId: persistedMsg.id,
+            signal,
+          });
+
+          console.log('[Generated DOCX Embedded Images]', {
+            discussionId,
+            filename: persistedDocument.filename,
+            extractedCount: parsedDocx.embeddedImages.length,
+            persistedCount: persistedEmbeddedImages.length,
+            indexedCount: artifactResult.ingestedCount,
+            errorCount: artifactResult.errors.length,
+          });
+        }
+      }
+    } catch (embeddedImageErr) {
+      console.warn(
+        '[Generated DOCX Embedded Images] Non-critical extraction/indexing error:',
+        embeddedImageErr
+      );
+    }
   }
 
   // Indexing is deliberately non-critical to file creation. The user should still
