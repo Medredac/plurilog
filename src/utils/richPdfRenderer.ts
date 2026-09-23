@@ -331,7 +331,7 @@ function renderCards(block: PdfCardsBlock, design: ReturnType<typeof normalizeDe
   return `<div class="pdf-card-grid" style="grid-template-columns:repeat(${cols},minmax(0,1fr));">${items.map((item, index) => {
     const accent = safeColor(
       item.accentColor,
-      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+      design.accentColor
     );
     const bg = safeColor(item.backgroundColor, '#f6f8fb');
     return `<div class="pdf-card" style="--card-accent:${accent};background:${bg};">
@@ -348,7 +348,7 @@ function renderColumns(block: PdfColumnsBlock, design: ReturnType<typeof normali
   return `<div class="pdf-columns" style="grid-template-columns:repeat(${cols.length},minmax(0,1fr));">${cols.map((col, index) => {
     const accent = safeColor(
       col.accentColor,
-      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+      design.accentColor
     );
     return `<div class="pdf-column">
       ${col.eyebrow ? `<div class="pdf-eyebrow" style="color:${accent};">${escapeHtml(cleanText(col.eyebrow, 200))}</div>` : ''}
@@ -365,7 +365,7 @@ function renderFlow(block: PdfFlowBlock, design: ReturnType<typeof normalizeDesi
   return `<div class="pdf-flow">${steps.map((step, index) => {
     const accent = safeColor(
       step.accentColor,
-      [design.accentColor, design.accentColor2, design.accentColor3][index % 3]
+      design.accentColor
     );
     return `<div class="pdf-flow-unit">
       <div class="pdf-flow-step" style="background:${accent};">
@@ -975,6 +975,7 @@ export async function createRichPdfRenderSession(
               '--no-first-run',
               '--no-default-browser-check',
               '--print-to-pdf-no-header',
+              '--no-pdf-header-footer',
               `--print-to-pdf=${outputPath}`,
               `file://${htmlPath}`,
             ],
