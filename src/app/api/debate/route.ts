@@ -599,15 +599,38 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
   const prompt = (value || '').trim();
   if (!prompt) return false;
 
-  // Follow-up transformations of an existing artifact must be grounded in that
-  // artifact before a replacement file can be created. This deliberately
-  // includes terse deictic prompts such as "redo it" and "make it JIS-style".
+  // Follow-up transformations of an existing artifact must be grounded in the
+  // canonical parent document. Keep "make" narrower than the other mutation
+  // verbs so generic creation requests such as "make a PDF" do not get
+  // misclassified as edits.
   const revisionVerb =
-    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put)\b/i;
+    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
   const artifactCue =
-    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image)\b/i;
+    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  const documentElementCue =
+    /\b(?:title|heading|header|footer|font|photo|portrait|image|table|margin|spacing|colour|color|section|layout|style|page)\b/i;
+  const makeMutation =
+    /\bmake\b/i.test(prompt) &&
+    documentElementCue.test(prompt) &&
+    !/\bmake\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:pdf|docx|word\s+document|document|file)\b/i.test(
+      prompt
+    );
+  const comparativeMutation =
+    /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i.test(
+      prompt
+    ) && documentElementCue.test(prompt);
+  const preservationPhrase =
+    /\b(?:change|touch|alter)\s+nothing\s+else\b/i.test(prompt) ||
+    /\b(?:leave|keep)\s+(?:everything|the\s+rest)\s+(?:else\s+)?(?:unchanged|the\s+same|as\s+is)\b/i.test(
+      prompt
+    );
 
-  return revisionVerb.test(prompt) && artifactCue.test(prompt);
+  return (
+    (revisionVerb.test(prompt) && artifactCue.test(prompt)) ||
+    makeMutation ||
+    comparativeMutation ||
+    preservationPhrase
+  );
 }
 
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
