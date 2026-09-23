@@ -4974,7 +4974,7 @@ export async function POST(req: NextRequest) {
                           prompt || ''
                         );
                       const sourceRenderedPageCount =
-                        materializedEvidenceAttachments.filter(
+                        newEvidenceAttachments.filter(
                           (attachment) =>
                             attachment.provenance === 'current_document_render'
                         ).length;
