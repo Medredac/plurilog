@@ -47,6 +47,15 @@ function normalizeExtension(image: EmbeddedDocxImage): string {
   return image.extension || 'bin';
 }
 
+function safeImageLabel(value?: string): string {
+  return (value || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 90);
+}
+
 export async function persistDocxEmbeddedImages(
   options: PersistDocxEmbeddedImagesOptions
 ): Promise<PersistedDocxEmbeddedImage[]> {
@@ -135,7 +144,10 @@ export async function persistDocxEmbeddedImages(
       continue;
     }
 
-    const filename = `${parentBase} — embedded image ${image.index + 1}.${extension}`;
+    const altLabel = safeImageLabel(image.altText);
+    const filename = altLabel
+      ? `${parentBase} — embedded image ${image.index + 1} — ${altLabel}.${extension}`
+      : `${parentBase} — embedded image ${image.index + 1}.${extension}`;
     persisted.push({
       index: image.index,
       filename,
