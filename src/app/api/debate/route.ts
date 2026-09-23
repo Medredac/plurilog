@@ -530,6 +530,21 @@ function isSimplePdfFormatConversionRequest(value: string): boolean {
   );
 }
 
+function isDocumentRevisionFollowUpQuery(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt) return false;
+
+  // Follow-up transformations of an existing artifact must be grounded in that
+  // artifact before a replacement file can be created. This deliberately
+  // includes terse deictic prompts such as "redo it" and "make it JIS-style".
+  const revisionVerb =
+    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild)\b/i;
+  const artifactCue =
+    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style)\b/i;
+
+  return revisionVerb.test(prompt) && artifactCue.test(prompt);
+}
+
 function latestDocxSourceFromContext(options: {
   currentRoundAttachments?: Array<{ url?: string; filename?: string }>;
   knownDocuments?: Array<{
@@ -2425,6 +2440,8 @@ export async function POST(req: NextRequest) {
 
           const isVisualQuery = isVisualEvidenceQuery(prompt);
           const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
+          const isDocumentRevisionFollowUp =
+            isDocumentRevisionFollowUpQuery(prompt);
 
           const lastRound =
             discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0
@@ -3471,7 +3488,12 @@ export async function POST(req: NextRequest) {
               isEvidenceEnabledForSeat &&
               currentVisualAttachmentCount === 0 &&
               hasRetrievableHistoricalEvidence &&
-              (isVisualQuery || isVerificationFollowUp);
+              (
+                isVisualQuery ||
+                isVerificationFollowUp ||
+                (seat.seatId === 'chatgpt' &&
+                  isDocumentRevisionFollowUp)
+              );
 
             if (isEvidenceEnabledForSeat) {
               console.log('[Evidence Tool Availability]', {
@@ -4645,6 +4667,91 @@ export async function POST(req: NextRequest) {
                           evidenceAttachments
                         )
                       : evidenceAttachments;
+
+                  // A document revision must receive the complete canonical text
+                  // of the document it is revising. Visual evidence alone is not
+                  // enough for factual preservation, and generic semantic retrieval
+                  // may return an unrelated/partial source chunk.
+                  const resolvedRevisionDocuments: Array<{
+                    filename: string;
+                    content: string;
+                  }> = [];
+                  if (
+                    seat.seatId === 'chatgpt' &&
+                    isDocumentRevisionFollowUp &&
+                    serviceClientForEvidence
+                  ) {
+                    const resolvedDocumentIds = Array.from(
+                      new Set(
+                        evidenceResolutionRecords
+                          .filter(
+                            (record) =>
+                              record.brokerResult.status === 'resolved' &&
+                              (record.brokerResult.evidence?.kind === 'pdf' ||
+                                record.brokerResult.evidence?.kind === 'docx') &&
+                              Boolean(
+                                record.brokerResult.evidence?.documentId
+                              )
+                          )
+                          .map(
+                            (record) =>
+                              record.brokerResult.evidence!.documentId!
+                          )
+                      )
+                    );
+
+                    if (resolvedDocumentIds.length > 0) {
+                      const { data: revisionRows, error: revisionErr } =
+                        await serviceClientForEvidence
+                          .from('discussion_documents')
+                          .select('id, filename, full_text')
+                          .eq('discussion_id', discussionId)
+                          .in('id', resolvedDocumentIds);
+
+                      if (revisionErr) {
+                        console.warn(
+                          '[Document Revision] Could not hydrate canonical source text',
+                          revisionErr
+                        );
+                      } else if (Array.isArray(revisionRows)) {
+                        for (const row of revisionRows) {
+                          const textValue =
+                            typeof row?.full_text === 'string'
+                              ? row.full_text.trim()
+                              : '';
+                          if (!textValue) continue;
+                          resolvedRevisionDocuments.push({
+                            filename:
+                              row.filename || 'revision-source-document',
+                            content: textValue,
+                          });
+                        }
+                      }
+                    }
+
+                    console.log('[Document Revision] Hydrated canonical source', {
+                      discussionId,
+                      seatId: seat.seatId,
+                      documentCount: resolvedRevisionDocuments.length,
+                      documents: resolvedRevisionDocuments.map((doc) => ({
+                        filename: doc.filename,
+                        characterCount: doc.content.length,
+                      })),
+                    });
+                  }
+
+                  const evidenceTurnDocuments = [
+                    ...(currentTurnDocuments || []),
+                    ...resolvedRevisionDocuments,
+                  ].filter(
+                    (doc, index, all) =>
+                      all.findIndex(
+                        (candidate) =>
+                          candidate.filename === doc.filename &&
+                          candidate.content === doc.content
+                      ) === index
+                  );
+
                   const evidenceBaseMessages = buildPanelMessages(
                     seat.name,
                     prompt,
@@ -4657,7 +4764,7 @@ export async function POST(req: NextRequest) {
                     evidenceWasMaterialized
                       ? false
                       : isVisualUnavailable,
-                    currentTurnDocuments,
+                    evidenceTurnDocuments,
                     visualDeliveryMismatch,
                     runtimeProductContext
                   );
