@@ -723,6 +723,190 @@ function latestDocxSourceFromContext(options: {
     : null;
 }
 
+
+type UserUploadedDocumentReference = {
+  messageId: string;
+  createdAt: string;
+  attachmentIndex: number;
+  filename: string;
+  storagePath: string;
+  documentId?: string | null;
+  format: 'pdf' | 'docx';
+};
+
+function filenameFromAttachmentUrl(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw, 'https://plurilog.local');
+    const queryFilename = parsed.searchParams.get('filename');
+    const hashParams = new URLSearchParams(
+      parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash
+    );
+    const hashFilename = hashParams.get('filename');
+    const explicit = queryFilename || hashFilename;
+    if (explicit) return explicit;
+
+    const base = parsed.pathname.split('/').pop() || '';
+    try {
+      return decodeURIComponent(base);
+    } catch {
+      return base;
+    }
+  } catch {
+    const clean = raw.split('#')[0].split('?')[0];
+    const base = clean.split('/').pop() || '';
+    try {
+      return decodeURIComponent(base);
+    } catch {
+      return base;
+    }
+  }
+}
+
+function promptReferencesUserUploadedDocument(prompt: string): boolean {
+  const value = prompt || '';
+  return (
+    /\b(?:pdf|docx|word\s+document|document|file)\s+(?:that\s+)?i\s+(?:uploaded|attached)\b/i.test(
+      value
+    ) ||
+    /\bmy\s+(?:(?:first|second|third|last|latest|original)\s+)?(?:uploaded|attached)\s+(?:pdf|docx|word\s+document|document|file)\b/i.test(
+      value
+    ) ||
+    /\b(?:uploaded|attached)\s+by\s+me\b/i.test(value)
+  );
+}
+
+function selectUserUploadedDocumentByReference(
+  documents: UserUploadedDocumentReference[],
+  prompt: string
+): UserUploadedDocumentReference | null {
+  if (!Array.isArray(documents) || documents.length === 0) return null;
+  const value = prompt || '';
+
+  let candidates = [...documents];
+  if (/\bpdf\b/i.test(value)) {
+    candidates = candidates.filter((document) => document.format === 'pdf');
+  } else if (/\b(?:docx|word\s+document)\b/i.test(value)) {
+    candidates = candidates.filter((document) => document.format === 'docx');
+  }
+  if (candidates.length === 0) return null;
+
+  if (/\b(?:first|earliest|1st|original)\b/i.test(value)) {
+    return candidates[0] || null;
+  }
+  if (/\b(?:second|2nd)\b/i.test(value)) {
+    return candidates[1] || null;
+  }
+  if (/\b(?:third|3rd)\b/i.test(value)) {
+    return candidates[2] || null;
+  }
+  if (/\b(?:fourth|4th)\b/i.test(value)) {
+    return candidates[3] || null;
+  }
+  if (/\b(?:last|latest|newest|most recent)\b/i.test(value)) {
+    return candidates[candidates.length - 1] || null;
+  }
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+async function listUserUploadedDocumentReferences(options: {
+  serviceSupabase: any;
+  discussionId: string;
+}): Promise<UserUploadedDocumentReference[]> {
+  const { serviceSupabase, discussionId } = options;
+  if (!serviceSupabase || !discussionId) return [];
+
+  const [{ data: messageRows, error: messageError }, { data: sourceRows, error: sourceError }] =
+    await Promise.all([
+      serviceSupabase
+        .from('messages')
+        .select('id, created_at, attachment_urls')
+        .eq('discussion_id', discussionId)
+        .eq('sender', 'user')
+        .order('created_at', { ascending: true }),
+      serviceSupabase
+        .from('discussion_document_sources')
+        .select('document_id, storage_path, filename')
+        .eq('discussion_id', discussionId),
+    ]);
+
+  if (messageError || !Array.isArray(messageRows)) {
+    if (messageError) {
+      console.warn('[Document Selection] User-upload chronology lookup failed', {
+        discussionId,
+        error: messageError.message,
+      });
+    }
+    return [];
+  }
+  if (sourceError) {
+    console.warn('[Document Selection] Document-source lookup failed', {
+      discussionId,
+      error: sourceError.message,
+    });
+  }
+
+  const sourceByStoragePath = new Map<
+    string,
+    { documentId?: string | null; filename?: string | null }
+  >();
+  for (const row of Array.isArray(sourceRows) ? sourceRows : []) {
+    const storagePath =
+      typeof row?.storage_path === 'string' ? row.storage_path : '';
+    if (!storagePath) continue;
+    sourceByStoragePath.set(storagePath, {
+      documentId: row.document_id || null,
+      filename: row.filename || null,
+    });
+  }
+
+  const result: UserUploadedDocumentReference[] = [];
+  for (const row of messageRows) {
+    const urls = Array.isArray(row?.attachment_urls)
+      ? row.attachment_urls
+      : [];
+    for (let attachmentIndex = 0; attachmentIndex < urls.length; attachmentIndex += 1) {
+      const url = typeof urls[attachmentIndex] === 'string'
+        ? urls[attachmentIndex]
+        : '';
+      if (!url) continue;
+
+      const storagePath = extractStoragePathFromSignedUrl(url);
+      if (!storagePath) continue;
+
+      const source = sourceByStoragePath.get(storagePath);
+      const filename =
+        source?.filename ||
+        filenameFromAttachmentUrl(url) ||
+        storagePath.split('/').pop() ||
+        '';
+      const lowerFilename = filename.toLowerCase();
+      const lowerPath = storagePath.toLowerCase();
+      const format =
+        lowerFilename.endsWith('.pdf') || lowerPath.endsWith('.pdf')
+          ? 'pdf'
+          : lowerFilename.endsWith('.docx') || lowerPath.endsWith('.docx')
+            ? 'docx'
+            : null;
+      if (!format) continue;
+
+      result.push({
+        messageId: row.id,
+        createdAt: row.created_at || '',
+        attachmentIndex,
+        filename,
+        storagePath,
+        documentId: source?.documentId || null,
+        format,
+      });
+    }
+  }
+
+  return result;
+}
+
 export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   // Preview rollout: evidence inspection is available to all three panel models when
   // the feature flag is enabled. Gemini image generation remains a separate,
@@ -4544,10 +4728,15 @@ export async function POST(req: NextRequest) {
                       );
                     });
                   const userRequestedOlderRevisionVersion =
-                    /\b(?:older|earlier|previous|prior|first|original)\s+(?:version|draft|document|file)\b/i.test(
+                    /\b(?:older|earlier|previous|prior|first|original)\s+(?:version|draft|document|file|pdf|docx|rirekisho)\b/i.test(
                       prompt || ''
                     );
+                  const userRequestedUserUploadedDocument =
+                    promptReferencesUserUploadedDocument(prompt || '');
 
+                  let explicitlySelectedUserUploadedDocument:
+                    | UserUploadedDocumentReference
+                    | null = null;
                   let explicitlySelectedCanonicalRevisionState:
                     | DocumentStateSnapshot
                     | null = null;
@@ -4558,63 +4747,110 @@ export async function POST(req: NextRequest) {
                   if (
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
-                    serviceClientForEvidence &&
-                    !userNamedKnownDocument
+                    serviceClientForEvidence
                   ) {
-                    const orderedCanonicalStates =
-                      await listDocumentStateSnapshots({
-                        serviceSupabase: serviceClientForEvidence,
-                        discussionId,
-                      });
-                    explicitlySelectedCanonicalRevisionState =
-                      selectGeneratedDocumentStateByReference(
-                        orderedCanonicalStates,
-                        prompt || ''
-                      );
-
-                    if (explicitlySelectedCanonicalRevisionState) {
-                      console.log(
-                        '[Document Revision] Deterministically selected historical canonical parent',
-                        {
-                          snapshotId:
-                            explicitlySelectedCanonicalRevisionState.id,
-                          documentId:
-                            explicitlySelectedCanonicalRevisionState.documentId ||
-                            null,
-                          filename:
-                            explicitlySelectedCanonicalRevisionState.filename,
-                          createdAt:
-                            explicitlySelectedCanonicalRevisionState.createdAt ||
-                            null,
-                          pageCount:
-                            explicitlySelectedCanonicalRevisionState.pageCount ||
-                            null,
-                          selector: 'generated_document_ordinal',
-                        }
-                      );
-                    } else if (!userRequestedOlderRevisionVersion) {
-                      latestCanonicalRevisionState =
-                        await findLatestDocumentStateSnapshot({
+                    if (userRequestedUserUploadedDocument) {
+                      const userUploads =
+                        await listUserUploadedDocumentReferences({
                           serviceSupabase: serviceClientForEvidence,
                           discussionId,
                         });
+                      explicitlySelectedUserUploadedDocument =
+                        selectUserUploadedDocumentByReference(
+                          userUploads,
+                          prompt || ''
+                        );
 
-                      if (latestCanonicalRevisionState) {
+                      if (explicitlySelectedUserUploadedDocument) {
                         console.log(
-                          '[Document Revision] Latest canonical parent candidate',
+                          '[Document Revision] Deterministically selected user-uploaded source',
                           {
-                            snapshotId:
-                              latestCanonicalRevisionState.id,
+                            messageId:
+                              explicitlySelectedUserUploadedDocument.messageId,
                             documentId:
-                              latestCanonicalRevisionState.documentId ||
+                              explicitlySelectedUserUploadedDocument.documentId ||
                               null,
                             filename:
-                              latestCanonicalRevisionState.filename,
-                            pageCount:
-                              latestCanonicalRevisionState.pageCount ||
-                              null,
+                              explicitlySelectedUserUploadedDocument.filename,
+                            storagePath:
+                              explicitlySelectedUserUploadedDocument.storagePath,
+                            createdAt:
+                              explicitlySelectedUserUploadedDocument.createdAt,
+                            attachmentIndex:
+                              explicitlySelectedUserUploadedDocument.attachmentIndex,
+                            selector: 'user_upload_ordinal',
                           }
                         );
+                      } else {
+                        console.log(
+                          '[Document Revision] Explicit user-upload reference did not resolve',
+                          {
+                            prompt: prompt || '',
+                            uploadCount: userUploads.length,
+                          }
+                        );
+                      }
+                    }
+
+                    if (
+                      !userRequestedUserUploadedDocument &&
+                      !userNamedKnownDocument
+                    ) {
+                      const orderedCanonicalStates =
+                        await listDocumentStateSnapshots({
+                          serviceSupabase: serviceClientForEvidence,
+                          discussionId,
+                        });
+                      explicitlySelectedCanonicalRevisionState =
+                        selectGeneratedDocumentStateByReference(
+                          orderedCanonicalStates,
+                          prompt || ''
+                        );
+
+                      if (explicitlySelectedCanonicalRevisionState) {
+                        console.log(
+                          '[Document Revision] Deterministically selected historical canonical parent',
+                          {
+                            snapshotId:
+                              explicitlySelectedCanonicalRevisionState.id,
+                            documentId:
+                              explicitlySelectedCanonicalRevisionState.documentId ||
+                              null,
+                            filename:
+                              explicitlySelectedCanonicalRevisionState.filename,
+                            createdAt:
+                              explicitlySelectedCanonicalRevisionState.createdAt ||
+                              null,
+                            pageCount:
+                              explicitlySelectedCanonicalRevisionState.pageCount ||
+                              null,
+                            selector: 'generated_document_ordinal',
+                          }
+                        );
+                      } else if (!userRequestedOlderRevisionVersion) {
+                        latestCanonicalRevisionState =
+                          await findLatestDocumentStateSnapshot({
+                            serviceSupabase: serviceClientForEvidence,
+                            discussionId,
+                          });
+
+                        if (latestCanonicalRevisionState) {
+                          console.log(
+                            '[Document Revision] Latest canonical parent candidate',
+                            {
+                              snapshotId:
+                                latestCanonicalRevisionState.id,
+                              documentId:
+                                latestCanonicalRevisionState.documentId ||
+                                null,
+                              filename:
+                                latestCanonicalRevisionState.filename,
+                              pageCount:
+                                latestCanonicalRevisionState.pageCount ||
+                                null,
+                            }
+                          );
+                        }
                       }
                     }
                   }
@@ -4666,7 +4902,12 @@ export async function POST(req: NextRequest) {
                     const canonicalRevisionParent =
                       explicitlySelectedCanonicalRevisionState ||
                       latestCanonicalRevisionState;
+                    const shouldAnchorToUserUploadedDocument =
+                      Boolean(explicitlySelectedUserUploadedDocument) &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto');
                     const shouldAnchorRevisionToCanonicalParent =
+                      !shouldAnchorToUserUploadedDocument &&
                       Boolean(canonicalRevisionParent);
                     const shouldAnchorToSameRoundGeneratedDocument =
                       !shouldAnchorRevisionToCanonicalParent &&
@@ -4679,7 +4920,35 @@ export async function POST(req: NextRequest) {
                       );
 
                     const brokerResult =
-                      shouldAnchorRevisionToCanonicalParent &&
+                      shouldAnchorToUserUploadedDocument &&
+                      explicitlySelectedUserUploadedDocument
+                        ? {
+                            status: 'resolved' as const,
+                            kind:
+                              explicitlySelectedUserUploadedDocument.format,
+                            message:
+                              `Resolved explicitly selected user-uploaded document: ${explicitlySelectedUserUploadedDocument.filename}.`,
+                            evidence: {
+                              kind:
+                                explicitlySelectedUserUploadedDocument.format,
+                              filename:
+                                explicitlySelectedUserUploadedDocument.filename,
+                              storagePath:
+                                explicitlySelectedUserUploadedDocument.storagePath,
+                              documentId:
+                                explicitlySelectedUserUploadedDocument.documentId ||
+                                undefined,
+                              reason:
+                                'user_uploaded_document_ordinal',
+                            },
+                          }
+                        : userRequestedUserUploadedDocument
+                          ? {
+                              status: 'not_found' as const,
+                              message:
+                                'The requested user-uploaded document could not be resolved from this discussion.',
+                            }
+                        : shouldAnchorRevisionToCanonicalParent &&
                       canonicalRevisionParent
                         ? {
                             status: 'resolved' as const,
@@ -4763,6 +5032,25 @@ export async function POST(req: NextRequest) {
                           );
 
                     if (
+                      shouldAnchorToUserUploadedDocument &&
+                      explicitlySelectedUserUploadedDocument
+                    ) {
+                      console.log(
+                        '[Document Revision] Anchored evidence request to user-uploaded source',
+                        {
+                          seatId: seat.seatId,
+                          filename:
+                            explicitlySelectedUserUploadedDocument.filename,
+                          messageId:
+                            explicitlySelectedUserUploadedDocument.messageId,
+                          documentId:
+                            explicitlySelectedUserUploadedDocument.documentId ||
+                            null,
+                          requestedResourceType: toolResourceType,
+                          selection: 'user_upload_ordinal',
+                        }
+                      );
+                    } else if (
                       shouldAnchorRevisionToCanonicalParent &&
                       canonicalRevisionParent
                     ) {
@@ -4821,7 +5109,9 @@ export async function POST(req: NextRequest) {
                             url: signedData.signedUrl,
                             filename: ev.filename,
                             provenance:
-                              'historical_assistant_generated',
+                              ev.reason === 'user_uploaded_document_ordinal'
+                                ? 'historical_user_upload'
+                                : 'historical_assistant_generated',
                           });
                         } else {
                           modelSafeBrokerResult = {
@@ -5062,6 +5352,12 @@ export async function POST(req: NextRequest) {
                     isDocumentRevisionFollowUp &&
                     serviceClientForEvidence
                   ) {
+                    const hasDeterministicRevisionTarget =
+                      Boolean(
+                        explicitlySelectedUserUploadedDocument ||
+                          explicitlySelectedCanonicalRevisionState ||
+                          latestCanonicalRevisionState
+                      );
                     const resolvedDocumentIds = Array.from(
                       new Set([
                         ...evidenceResolutionRecords
@@ -5078,12 +5374,14 @@ export async function POST(req: NextRequest) {
                             (record) =>
                               record.brokerResult.evidence!.documentId!
                           ),
-                        ...(retrievedDocuments || [])
-                          .map((doc) => doc.documentId)
-                          .filter(
-                            (id): id is string =>
-                              typeof id === 'string' && id.length > 0
-                          ),
+                        ...(!hasDeterministicRevisionTarget
+                          ? (retrievedDocuments || [])
+                              .map((doc) => doc.documentId)
+                              .filter(
+                                (id): id is string =>
+                                  typeof id === 'string' && id.length > 0
+                              )
+                          : []),
                       ])
                     );
                     resolvedRevisionDocumentIds = resolvedDocumentIds;
@@ -5210,7 +5508,9 @@ export async function POST(req: NextRequest) {
                     evidenceSeatAttachments,
                     null,
                     retrievedMemory,
-                    retrievedDocuments,
+                    hasDeterministicRevisionTarget
+                      ? []
+                      : retrievedDocuments,
                     evidenceWasMaterialized
                       ? false
                       : isVisualUnavailable,
