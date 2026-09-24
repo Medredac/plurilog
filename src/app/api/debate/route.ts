@@ -1641,7 +1641,10 @@ Layout/style/template changes must not silently delete names, contact details, d
   }
 
   // 4. [current round's prior seat responses — provisional peer claims to evaluate]
-  if (priorResponses.length > 0) {
+  // For deterministic chronology lookups, every seat should answer independently from
+  // the same authoritative resolved event. Suppress peer answers so a mistaken
+  // reinterpretation by an earlier seat cannot contaminate later seats.
+  if (!hasTargetedChronology && priorResponses.length > 0) {
     const priorFormatted = priorResponses
       .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
       .join('');
@@ -1773,10 +1776,10 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
           : '';
 
     sections.push(
-      `Targeted conversation-history result (evaluated at the moment you asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""${attachmentContext}`
+      `AUTHORITATIVE RESOLVED ANSWER TO THE CURRENT CONVERSATION-HISTORY QUERY:\nThe backend has already interpreted the user's temporal wording (including first/last/before/after/previous, speaker identity, and any resolved anchor) and navigated the ordered conversation history. DO NOT apply the user's temporal relation a second time. The quoted content below is the FINAL HISTORICAL EVENT selected as the answer to the current question, not an anchor or an excerpt that you must navigate beyond.\n\nResolved position: ${cm.label}\nResolved content:\n"""\n${cm.content.trim()}\n"""${attachmentContext}`
     );
     sections.push(
-      `For this chronology question, the targeted conversation-history result above and its same-message user-attachment list are authoritative for the requested chronological position. Do not reinterpret them from summaries, semantic memory, document-registry ordering, filenames, or prior panel claims. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of when you asked, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
+      `Answer the user's current history question directly from the resolved content above. If the user asked "what did X say after/before that?", the before/after navigation has ALREADY been performed: quote or faithfully summarize the resolved content itself. Never say that the next/previous message is unavailable merely because the payload contains only one resolved event; that single event is intentionally the answer. The resolved result and same-message user-attachment list are authoritative over summaries, semantic memory, filenames, document-registry ordering, prior panel claims, and your own reconstruction. Do not reinterpret the referent or move one additional step forward/backward. Current-round responses are not part of the historical answer.`
     );
   }
 
