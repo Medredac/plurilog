@@ -408,6 +408,14 @@ export async function executeSourcePreservingDocumentEdit(
 
   validateEdits(options.args.edits);
 
+  console.log('[Source Document Edit] Starting', {
+    discussionId: options.discussionId,
+    sourceFilename: options.sourceFilename,
+    sourceStoragePath: options.sourceStoragePath,
+    editCount: options.args.edits.length,
+    hasParentSnapshot: Boolean(options.parentSnapshot),
+  });
+
   const format: 'docx' | 'pdf' =
     options.sourceFilename.toLowerCase().endsWith('.pdf')
       ? 'pdf'
@@ -608,6 +616,16 @@ export async function executeSourcePreservingDocumentEdit(
       stateError
     );
   }
+
+  console.log('[Source Document Edit] Completed', {
+    discussionId: options.discussionId,
+    sourceFilename: options.sourceFilename,
+    outputFilename: persisted.filename,
+    format,
+    pageCount: edited.pageCount,
+    documentId,
+    documentStateId,
+  });
 
   return {
     finalContent,
