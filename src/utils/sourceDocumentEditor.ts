@@ -359,6 +359,7 @@ export interface ExecuteSourceDocumentEditResult {
 interface EditedBytesResult {
   buffer: Buffer;
   fullText: string;
+  sourcePageCount: number | null;
   pageCount: number | null;
   pages: Array<{
     pageNumber: number;
@@ -486,6 +487,10 @@ async function editDocxBytes(
       throw new Error('DOCX edit produced an empty file.');
     }
     const parsed = await parseDocx(output);
+    const sourceRendered = await renderDocxPages(source, {
+      signal,
+      timeoutMs: 60_000,
+    });
     const rendered = await renderDocxPages(output, {
       signal,
       timeoutMs: 60_000,
@@ -493,6 +498,7 @@ async function editDocxBytes(
     return {
       buffer: output,
       fullText: parsed.markdown || rendered.renderedText || '',
+      sourcePageCount: sourceRendered.totalPageCount,
       pageCount: rendered.totalPageCount,
       pages: rendered.pages,
     };
@@ -539,6 +545,15 @@ async function editPdfBytes(
       ],
     });
     await assertCommand(run, 'Source-preserving PDF edit');
+
+    const sourceInfo = await sandbox.runCommand({
+      cmd: 'pdfinfo',
+      args: ['/vercel/sandbox/input.pdf'],
+    });
+    await assertCommand(sourceInfo, 'Source PDF inspection');
+    const sourceInfoText = await sourceInfo.stdout();
+    const sourcePageMatch = sourceInfoText.match(/^Pages:\s+(\d+)$/im);
+    const sourcePageCount = sourcePageMatch ? Number(sourcePageMatch[1]) : null;
 
     const info = await sandbox.runCommand({
       cmd: 'pdfinfo',
@@ -609,6 +624,10 @@ async function editPdfBytes(
     return {
       buffer: output,
       fullText,
+      sourcePageCount:
+        typeof sourcePageCount === 'number' && Number.isFinite(sourcePageCount)
+          ? sourcePageCount
+          : null,
       pageCount:
         typeof pageCount === 'number' && Number.isFinite(pageCount)
           ? pageCount
@@ -723,17 +742,19 @@ export async function executeSourcePreservingDocumentEdit(
       ? await editDocxBytes(sourceBytes, options.args.edits, options.signal)
       : await editPdfBytes(sourceBytes, options.args.edits, options.signal);
 
+  const baselinePageCount =
+    options.parentSnapshot?.pageCount || edited.sourcePageCount || null;
   if (
-    options.parentSnapshot?.pageCount &&
+    baselinePageCount &&
     edited.pageCount &&
-    options.parentSnapshot.pageCount !== edited.pageCount
+    baselinePageCount !== edited.pageCount
   ) {
     throw new Error(
       'Source-preserving edit changed page count from ' +
-        options.parentSnapshot.pageCount +
+        baselinePageCount +
         ' to ' +
         edited.pageCount +
-        '.'
+        '. The requested narrow edit was not saved because unrelated pagination changed.'
     );
   }
 
@@ -891,6 +912,7 @@ export async function executeSourcePreservingDocumentEdit(
     sourceFilename: options.sourceFilename,
     outputFilename: persisted.filename,
     format,
+    sourcePageCount: edited.sourcePageCount,
     pageCount: edited.pageCount,
     documentId,
     documentStateId,
