@@ -1025,18 +1025,36 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
                       {documentAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
-                        const isPdfDocument = filename.toLowerCase().endsWith('.pdf');
-                        const documentBadge = isPdfDocument ? 'PDF' : 'DOCX';
+                        const lowerFilename = filename.toLowerCase();
+                        const isPdfDocument = lowerFilename.endsWith('.pdf');
+                        const isDocxDocument = lowerFilename.endsWith('.docx');
+                        const isTextDocument =
+                          isTextFileUrl(url) || isTextFileName(lowerFilename);
+                        const documentBadge = isPdfDocument
+                          ? 'PDF'
+                          : isDocxDocument
+                            ? 'DOCX'
+                            : isTextDocument
+                              ? getTextFileDisplayBadge(filename)
+                              : 'FILE';
+                        const documentIconClass = isPdfDocument
+                          ? 'text-red-500'
+                          : isDocxDocument
+                            ? 'text-blue-600'
+                            : isTextDocument
+                              ? 'text-emerald-600'
+                              : 'text-zinc-600';
+
                         return (
                           <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             <button
                               type="button"
                               onClick={() => setPreviewDocument({ url, filename })}
                               className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
-                              title={`Download ${filename}`}
+                              title={`Preview ${filename}`}
                             >
                               <FileText
-                                className={`w-6 h-6 sm:w-8 sm:h-8 ${isPdfDocument ? 'text-red-500' : 'text-blue-600'}`}
+                                className={`w-6 h-6 sm:w-8 sm:h-8 ${documentIconClass}`}
                               />
                               <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-zinc-200/60">
                                 {documentBadge}
@@ -1126,6 +1144,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         isOpen={!!lightboxImageUrl}
         onClose={() => setLightboxImageUrl(null)}
         imageUrl={lightboxImageUrl}
+      />
+
+      <DocumentPreviewDrawer
+        isOpen={!!previewDocument}
+        onClose={() => setPreviewDocument(null)}
+        documentUrl={previewDocument?.url || null}
+        filename={previewDocument?.filename || null}
       />
     </div>
   );
