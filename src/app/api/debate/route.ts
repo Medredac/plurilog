@@ -3964,6 +3964,11 @@ export async function POST(req: NextRequest) {
                 cleanUrl.endsWith('.docx')
               );
             }).length;
+            const sourceDocumentEditingForCurrentTurn =
+              isDocumentCreationEnabledForSeat &&
+              isDocumentRevisionFollowUp &&
+              currentDocumentAttachmentCount > 0 &&
+              !isSimplePdfFormatConversionRequest(prompt || '');
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
                 const filename = (doc.filename || '').toLowerCase();
@@ -4093,7 +4098,11 @@ export async function POST(req: NextRequest) {
                   },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(isDocumentCreationEnabledForSeat ? GPT_FILE_TOOLS : []),
+                  ...(sourceDocumentEditingForCurrentTurn
+                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                    : isDocumentCreationEnabledForSeat
+                      ? GPT_FILE_TOOLS
+                      : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(shouldForceEvidenceOnFirstPass
