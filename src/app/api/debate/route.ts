@@ -5347,17 +5347,17 @@ export async function POST(req: NextRequest) {
                   }> = [];
                   let resolvedRevisionDocumentIds: string[] = [];
                   let revisionParentState: DocumentStateSnapshot | null = null;
+                  const hasDeterministicRevisionTarget =
+                    Boolean(
+                      explicitlySelectedUserUploadedDocument ||
+                        explicitlySelectedCanonicalRevisionState ||
+                        latestCanonicalRevisionState
+                    );
                   if (
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
                     serviceClientForEvidence
                   ) {
-                    const hasDeterministicRevisionTarget =
-                      Boolean(
-                        explicitlySelectedUserUploadedDocument ||
-                          explicitlySelectedCanonicalRevisionState ||
-                          latestCanonicalRevisionState
-                      );
                     const resolvedDocumentIds = Array.from(
                       new Set([
                         ...evidenceResolutionRecords
