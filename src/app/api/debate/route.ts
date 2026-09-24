@@ -4362,7 +4362,7 @@ export async function POST(req: NextRequest) {
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
                   const editCall = sourceDocumentEditCalls[0];
-                  const editArgs = (editCall.arguments || {}) as SourceDocumentEditArgs;
+                  const editArgs = (editCall.arguments || {}) as unknown as SourceDocumentEditArgs;
                   const candidateDocuments = (currentRoundAttachments || []).filter(
                     (attachment) => {
                       const filename = (attachment.filename || '').toLowerCase();
@@ -6143,7 +6143,7 @@ export async function POST(req: NextRequest) {
                         : null;
                     const editArgs = (
                       evidenceSourceEditCalls[0].arguments || {}
-                    ) as SourceDocumentEditArgs;
+                    ) as unknown as SourceDocumentEditArgs;
                     const editResult =
                       await executeSourcePreservingDocumentEdit({
                         supabase,
