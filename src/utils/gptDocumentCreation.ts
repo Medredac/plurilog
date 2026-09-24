@@ -1554,6 +1554,10 @@ export async function executeGptDocumentCreation(
     revisionContext = null,
   } = options;
 
+  const protectNarrowRevisionFromVisualMutation =
+    revisionContext?.generationKind === 'revision' &&
+    revisionContext?.preserveParentContent === true;
+
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');
   }
@@ -1712,7 +1716,7 @@ export async function executeGptDocumentCreation(
             rationale: review.rationale,
           });
 
-          if (review.applied) {
+          if (review.applied && !protectNarrowRevisionFromVisualMutation) {
             const blocksWithReusedImages = reuseResolvedImagePayloads(
               review.args.blocks,
               resolvedDocument.blocks
@@ -1746,6 +1750,17 @@ export async function executeGptDocumentCreation(
               initialBytes: initialPdf.buffer.length,
               finalBytes: reviewedPdf.buffer.length,
             });
+          }
+          else if (review.applied && protectNarrowRevisionFromVisualMutation) {
+            console.log(
+              '[Generated PDF Visual Review] Ignored layout mutation for protected narrow revision',
+              {
+                parentSnapshotId:
+                  revisionContext?.parentSnapshot?.id || null,
+                filename: args.filename,
+                rationale: review.rationale,
+              }
+            );
           }
         } catch (reviewErr) {
           console.warn(
@@ -1844,7 +1859,7 @@ export async function executeGptDocumentCreation(
           rationale: review.rationale,
         });
 
-        if (review.applied) {
+        if (review.applied && !protectNarrowRevisionFromVisualMutation) {
           const blocksWithReusedImages = reuseResolvedImagePayloads(
             review.args.blocks,
             resolvedDocument.blocks
@@ -1918,10 +1933,23 @@ export async function executeGptDocumentCreation(
           });
         }
 
+        if (review.applied && protectNarrowRevisionFromVisualMutation) {
+          console.log(
+            '[Generated DOCX Visual Review] Ignored layout mutation for protected narrow revision',
+            {
+              parentSnapshotId:
+                revisionContext?.parentSnapshot?.id || null,
+              filename: initialArgs.filename,
+              rationale: review.rationale,
+            }
+          );
+        }
+
         // If the model improved the layout but the file is still one page over an
         // explicit target, make one deterministic compacting attempt and keep it
         // only when it is objectively closer to the requested page count.
         if (
+          !protectNarrowRevisionFromVisualMutation &&
           target &&
           selectedPageCount &&
           selectedPageCount > target
@@ -1987,6 +2015,7 @@ export async function executeGptDocumentCreation(
         }
 
         if (
+          !protectNarrowRevisionFromVisualMutation &&
           target &&
           selectedPageCount &&
           selectedPageCount < target
