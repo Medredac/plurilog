@@ -103,6 +103,11 @@ import {
   extractPdfEmbeddedImages,
   persistPdfEmbeddedImages,
 } from '@/utils/pdfEmbeddedImages';
+import {
+  executeSourcePreservingDocumentEdit,
+  isSourcePreservingDocumentState,
+  type SourceDocumentEditArgs,
+} from '@/utils/sourceDocumentEditor';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -496,6 +501,104 @@ export const GPT_REVISE_FILE_TOOL = [
           },
         },
         required: ['patch'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
+  {
+    type: 'function',
+    function: {
+      name: 'edit_source_document',
+      description:
+        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. Make only the requested localized edits. Identify target text exactly as it appears in the source evidence. Use occurrence when the same text appears more than once. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source_filename: {
+            type: 'string',
+            description:
+              'The exact source PDF/DOCX filename when more than one existing document is visible. Omit when there is only one unambiguous source document.',
+          },
+          filename: {
+            type: 'string',
+            description:
+              'Optional output filename. Omit to derive an edited filename from the source.',
+          },
+          edits: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 24,
+            items: {
+              type: 'object',
+              properties: {
+                action: {
+                  type: 'string',
+                  enum: [
+                    'replace_text',
+                    'delete_text',
+                    'set_font_size',
+                    'set_bold',
+                    'set_italic',
+                    'set_alignment',
+                  ],
+                },
+                target_text: {
+                  type: 'string',
+                  description:
+                    'Exact existing text to locate in the source document. Use the smallest distinctive text span that safely identifies the requested element.',
+                },
+                occurrence: {
+                  type: 'integer',
+                  minimum: 1,
+                  description:
+                    '1-based occurrence when target_text appears more than once. Omit for the first occurrence.',
+                },
+                replacement_text: {
+                  type: 'string',
+                  description:
+                    'New text for replace_text. Do not provide for unrelated edit actions.',
+                },
+                font_size_pt: {
+                  type: 'number',
+                  minimum: 5,
+                  maximum: 96,
+                  description:
+                    'Absolute font size for set_font_size when the user requested a specific size.',
+                },
+                font_size_delta_pt: {
+                  type: 'number',
+                  minimum: -24,
+                  maximum: 24,
+                  description:
+                    'Relative point-size change for set_font_size, e.g. +1 for slightly larger or -1 for slightly smaller.',
+                },
+                value: {
+                  type: 'boolean',
+                  description:
+                    'For set_bold or set_italic: true to enable, false to disable.',
+                },
+                alignment: {
+                  type: 'string',
+                  enum: ['left', 'center', 'right', 'justify'],
+                  description: 'Paragraph/text alignment for set_alignment.',
+                },
+                page_number: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: 200,
+                  description:
+                    'Optional PDF page number when the same target text occurs on multiple pages.',
+                },
+              },
+              required: ['action', 'target_text'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['edits'],
         additionalProperties: false,
       },
     },
