@@ -346,6 +346,7 @@ export interface ExecuteSourceDocumentEditResult {
   signedUrl: string;
   durableUrl: string;
   fullText: string;
+  sourceRenderedPageAttachments: Array<{ url: string; filename: string }>;
   renderedPageAttachments: Array<{ url: string; filename: string }>;
   documentId?: string | null;
   documentStateId?: string | null;
@@ -361,6 +362,11 @@ interface EditedBytesResult {
   fullText: string;
   sourcePageCount: number | null;
   pageCount: number | null;
+  sourcePages: Array<{
+    pageNumber: number;
+    data: Buffer;
+    contentType: 'image/png';
+  }>;
   pages: Array<{
     pageNumber: number;
     data: Buffer;
@@ -500,6 +506,7 @@ async function editDocxBytes(
       fullText: parsed.markdown || rendered.renderedText || '',
       sourcePageCount: sourceRendered.totalPageCount,
       pageCount: rendered.totalPageCount,
+      sourcePages: sourceRendered.pages,
       pages: rendered.pages,
     };
   } finally {
@@ -571,6 +578,22 @@ async function editPdfBytes(
     await assertCommand(text, 'Edited PDF text extraction');
     const fullText = (await text.stdout()).trim();
 
+    const sourceRender = await sandbox.runCommand({
+      cmd: 'pdftoppm',
+      args: [
+        '-png',
+        '-r',
+        '120',
+        '-f',
+        '1',
+        '-l',
+        String(MAX_RENDERED_PAGES),
+        '/vercel/sandbox/input.pdf',
+        '/vercel/sandbox/source-page',
+      ],
+    });
+    await assertCommand(sourceRender, 'Source PDF rendering');
+
     const render = await sandbox.runCommand({
       cmd: 'pdftoppm',
       args: [
@@ -587,6 +610,15 @@ async function editPdfBytes(
     });
     await assertCommand(render, 'Edited PDF rendering');
 
+    const sourceListing = await sandbox.runCommand({
+      cmd: 'sh',
+      args: [
+        '-lc',
+        "find /vercel/sandbox -maxdepth 1 -type f -name 'source-page-*.png' -printf '%f\\n' | sort -V",
+      ],
+    });
+    await assertCommand(sourceListing, 'Source PDF page enumeration');
+
     const listing = await sandbox.runCommand({
       cmd: 'sh',
       args: [
@@ -595,11 +627,30 @@ async function editPdfBytes(
       ],
     });
     await assertCommand(listing, 'Edited PDF page enumeration');
+    const sourceNames = (await sourceListing.stdout())
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .slice(0, MAX_RENDERED_PAGES);
     const names = (await listing.stdout())
       .split(/\r?\n/)
       .map((value) => value.trim())
       .filter(Boolean)
       .slice(0, MAX_RENDERED_PAGES);
+
+    const sourcePages: EditedBytesResult['sourcePages'] = [];
+    for (let i = 0; i < sourceNames.length; i += 1) {
+      const data = await sandbox.readFileToBuffer({
+        path: '/vercel/sandbox/' + sourceNames[i],
+      });
+      if (data && data.length) {
+        sourcePages.push({
+          pageNumber: i + 1,
+          data,
+          contentType: 'image/png',
+        });
+      }
+    }
 
     const pages: EditedBytesResult['pages'] = [];
     for (let i = 0; i < names.length; i += 1) {
@@ -632,6 +683,7 @@ async function editPdfBytes(
         typeof pageCount === 'number' && Number.isFinite(pageCount)
           ? pageCount
           : null,
+      sourcePages,
       pages,
     };
   } finally {
@@ -781,6 +833,10 @@ export async function executeSourcePreservingDocumentEdit(
     format,
   });
 
+  let sourceRenderedPageAttachments: Array<{
+    url: string;
+    filename: string;
+  }> = [];
   let renderedPageAttachments: Array<{
     url: string;
     filename: string;
@@ -788,6 +844,16 @@ export async function executeSourcePreservingDocumentEdit(
 
   try {
     if (format === 'docx') {
+      const sourcePages = await persistDocxRenderedPages({
+        supabase: options.supabase,
+        parentFilename: options.sourceFilename,
+        parentFileBytes: sourceBytes,
+        pages: edited.sourcePages,
+      });
+      sourceRenderedPageAttachments = sourcePages.map((page) => ({
+        url: page.signedUrl,
+        filename: page.filename,
+      }));
       const pages = await persistDocxRenderedPages({
         supabase: options.supabase,
         parentFilename: persisted.filename,
@@ -799,6 +865,16 @@ export async function executeSourcePreservingDocumentEdit(
         filename: page.filename,
       }));
     } else {
+      const sourcePages = await persistPdfRenderedPages({
+        supabase: options.supabase,
+        parentFilename: options.sourceFilename,
+        parentFileBytes: sourceBytes,
+        pages: edited.sourcePages,
+      });
+      sourceRenderedPageAttachments = sourcePages.map((page) => ({
+        url: page.signedUrl,
+        filename: page.filename,
+      }));
       const pages = await persistPdfRenderedPages({
         supabase: options.supabase,
         parentFilename: persisted.filename,
@@ -928,6 +1004,7 @@ export async function executeSourcePreservingDocumentEdit(
     signedUrl: persisted.signedUrl,
     durableUrl: persisted.durableUrl,
     fullText: edited.fullText,
+    sourceRenderedPageAttachments,
     renderedPageAttachments,
     documentId,
     documentStateId,
