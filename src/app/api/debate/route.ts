@@ -103,6 +103,11 @@ import {
   extractPdfEmbeddedImages,
   persistPdfEmbeddedImages,
 } from '@/utils/pdfEmbeddedImages';
+import {
+  executeSourcePreservingDocumentEdit,
+  isSourcePreservingDocumentState,
+  type SourceDocumentEditArgs,
+} from '@/utils/sourceDocumentEditor';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -496,6 +501,111 @@ export const GPT_REVISE_FILE_TOOL = [
           },
         },
         required: ['patch'],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
+  {
+    type: 'function',
+    function: {
+      name: 'edit_source_document',
+      description:
+        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. Make only the requested localized edits. Identify target text exactly as it appears in the source evidence. Use occurrence when the same text appears more than once. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source_filename: {
+            type: 'string',
+            description:
+              'The exact source PDF/DOCX filename when more than one existing document is visible. Omit when there is only one unambiguous source document.',
+          },
+          filename: {
+            type: 'string',
+            description:
+              'Optional output filename. Omit to derive an edited filename from the source.',
+          },
+          edits: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 24,
+            items: {
+              type: 'object',
+              properties: {
+                action: {
+                  type: 'string',
+                  enum: [
+                    'replace_text',
+                    'delete_text',
+                    'set_font_size',
+                    'set_bold',
+                    'set_italic',
+                    'set_alignment',
+                  ],
+                },
+                target_text: {
+                  type: 'string',
+                  description:
+                    'Exact existing text to locate in the source document. Use the smallest distinctive text span that safely identifies the requested element.',
+                },
+                occurrence: {
+                  type: 'integer',
+                  minimum: 1,
+                  description:
+                    '1-based occurrence when target_text appears more than once. Omit for the first occurrence.',
+                },
+                replacement_text: {
+                  type: 'string',
+                  description:
+                    'New text for replace_text. Do not provide for unrelated edit actions.',
+                },
+                font_size_pt: {
+                  type: 'number',
+                  minimum: 5,
+                  maximum: 96,
+                  description:
+                    'Absolute font size for set_font_size when the user requested a specific size.',
+                },
+                font_size_delta_pt: {
+                  type: 'number',
+                  minimum: -24,
+                  maximum: 24,
+                  description:
+                    'Exact relative point-size change for set_font_size, e.g. -1 only when the user explicitly asks for one point smaller.',
+                },
+                font_size_scale: {
+                  type: 'number',
+                  minimum: 0.5,
+                  maximum: 2,
+                  description:
+                    'Proportional size multiplier for semantic relative requests. Use about 0.9 for "slightly smaller" and about 1.1 for "slightly larger". Prefer this over font_size_delta_pt when the user gives no exact point amount.',
+                },
+                value: {
+                  type: 'boolean',
+                  description:
+                    'For set_bold or set_italic: true to enable, false to disable.',
+                },
+                alignment: {
+                  type: 'string',
+                  enum: ['left', 'center', 'right', 'justify'],
+                  description: 'Paragraph/text alignment for set_alignment.',
+                },
+                page_number: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: 200,
+                  description:
+                    'Optional PDF page number when the same target text occurs on multiple pages.',
+                },
+              },
+              required: ['action', 'target_text'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['edits'],
         additionalProperties: false,
       },
     },
@@ -1148,6 +1258,7 @@ export type AttachmentProvenance =
   | 'historical_user_upload'
   | 'historical_assistant_generated'
   | 'same_round_assistant_generated'
+  | 'same_round_source_document_render'
   | 'same_round_document_render'
   | 'historical_document_embedded';
 
@@ -1190,11 +1301,14 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   if (attachment.provenance === 'current_document_render') {
     return `Rendered page from a Word document attached by the user in the current turn: ${cleanName}`;
   }
+  if (attachment.provenance === 'same_round_source_document_render') {
+    return `BEFORE EDIT — rendered page from the source document for the current round: ${cleanName}`;
+  }
   if (attachment.provenance === 'same_round_document_render') {
     const seatName = attachment.creatorSeatId
       ? (SEAT_DISPLAY_NAMES[attachment.creatorSeatId.toLowerCase()] || attachment.creatorSeatId)
       : 'an assistant';
-    return `Rendered page from a Word document created by ${seatName} earlier in the current round: ${cleanName}`;
+    return `AFTER EDIT — rendered page from the resulting document created by ${seatName} earlier in the current round: ${cleanName}`;
   }
   return `File: ${cleanName}`;
 }
@@ -1662,7 +1776,7 @@ Layout/style/template changes must not silently delete names, contact details, d
       .join(', ');
     sections.push(
       `CURRENT-ROUND ARTIFACT STATUS:
-An earlier model has already fulfilled the user's document-creation request by creating: ${createdNames}.
+An earlier model has already fulfilled the user's document creation or editing request and produced: ${createdNames}.
 The finished document is available in this same round. If rendered page images are attached, inspect those pages directly for layout, pagination, image placement, tables, spacing, and other visual details.
 Respond as a normal panel reviewer/contributor. Do not repeat the user's creation request, do not generate a redundant standalone image, and do not claim the finished document is unavailable when its text or rendered pages are present.`
     );
@@ -1787,11 +1901,31 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
       ? 'Please review and discuss the attached document(s).'
       : trimmedPrompt;
 
+  const currentRoundArtifactFollowThrough =
+    runtimeProductContext?.documentCreatedThisTurn &&
+    currentTurnDocuments &&
+    currentTurnDocuments.length > 0
+      ? `CURRENT-ROUND EXECUTION STATE — AUTHORITATIVE:
+The user's document request in this round has already been completed by an earlier panel seat.
+The resulting document(s) are: ${currentTurnDocuments
+          .map((doc) => doc.filename)
+          .filter(Boolean)
+          .join(', ')}.
+Do not speak as though the requested edit/creation is still pending, and do not tell the user to wait for ChatGPT to apply it.
+Your job now is to inspect the resulting artifact evidence available in this call, evaluate the completed result independently, and report what you actually observe. If rendered page images are attached, treat those as the visual result of the completed document action.
+When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corresponding pages directly and distinguish pre-existing source-render conditions from changes introduced by the edit. When only the resulting artifact is visually available, do not claim that a visual/layout condition was pre-existing, newly introduced, preserved, or changed relative to the source; describe the result itself without inventing a before/after comparison.`
+      : '';
+
   let userContent = effectivePrompt;
   if (sections.length > 0) {
     userContent = effectivePrompt
       ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
       : sections.join('\n\n');
+  }
+  if (currentRoundArtifactFollowThrough) {
+    userContent = userContent
+      ? `${userContent}\n\n${currentRoundArtifactFollowThrough}`
+      : currentRoundArtifactFollowThrough;
   }
 
   const isLikelyDocumentCreationRequest =
@@ -3768,18 +3902,28 @@ export async function POST(req: NextRequest) {
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
 
+            const sameRoundSourceDocumentPages =
+              currentRoundAttachments.filter(
+                (attachment) =>
+                  attachment.provenance ===
+                  'same_round_source_document_render'
+              );
             const sameRoundRenderedDocumentPages =
               currentRoundAttachments.filter(
                 (attachment) =>
                   attachment.provenance ===
                   'same_round_document_render'
               );
+            const sameRoundDocumentReviewPages = [
+              ...sameRoundSourceDocumentPages,
+              ...sameRoundRenderedDocumentPages,
+            ];
             const reviewScopedToGeneratedDocument =
               documentCreatedThisTurn &&
               sameRoundRenderedDocumentPages.length > 0;
             const modelInputAttachments =
               reviewScopedToGeneratedDocument
-                ? sameRoundRenderedDocumentPages
+                ? sameRoundDocumentReviewPages
                 : currentRoundAttachments;
 
             const pdfAttachments = modelInputAttachments.filter((att: any) =>
@@ -3861,6 +4005,11 @@ export async function POST(req: NextRequest) {
                 cleanUrl.endsWith('.docx')
               );
             }).length;
+            const sourceDocumentEditingForCurrentTurn =
+              isDocumentCreationEnabledForSeat &&
+              isDocumentRevisionFollowUp &&
+              currentDocumentAttachmentCount > 0 &&
+              !isSimplePdfFormatConversionRequest(prompt || '');
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
                 const filename = (doc.filename || '').toLowerCase();
@@ -3892,6 +4041,8 @@ export async function POST(req: NextRequest) {
             if (reviewScopedToGeneratedDocument) {
               console.log('[Generated Document Review Scope]', {
                 seatId: seat.seatId,
+                sourceRenderedPageCount:
+                  sameRoundSourceDocumentPages.length,
                 renderedPageCount:
                   sameRoundRenderedDocumentPages.length,
                 semanticDocumentContextSuppressed: true,
@@ -3990,7 +4141,11 @@ export async function POST(req: NextRequest) {
                   },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(isDocumentCreationEnabledForSeat ? GPT_FILE_TOOLS : []),
+                  ...(sourceDocumentEditingForCurrentTurn
+                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                    : isDocumentCreationEnabledForSeat
+                      ? GPT_FILE_TOOLS
+                      : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
                 ...(shouldForceEvidenceOnFirstPass
@@ -4000,7 +4155,14 @@ export async function POST(req: NextRequest) {
                         function: { name: 'request_evidence' },
                       },
                     }
-                  : {}),
+                  : sourceDocumentEditingForCurrentTurn
+                    ? {
+                        tool_choice: {
+                          type: 'function',
+                          function: { name: 'edit_source_document' },
+                        },
+                      }
+                    : {}),
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
@@ -4176,6 +4338,14 @@ export async function POST(req: NextRequest) {
                   finalizedCalls[0]?.name === 'edit_image' &&
                   isImageEditingEnabledForSeat;
 
+                const sourceDocumentEditCalls = finalizedCalls.filter(
+                  (call) => call?.name === 'edit_source_document'
+                );
+                const isSourceDocumentEditCall =
+                  sourceDocumentEditingForCurrentTurn &&
+                  sourceDocumentEditCalls.length === 1 &&
+                  sourceDocumentEditCalls.length === finalizedCalls.length;
+
                 const evidenceRequestCalls = finalizedCalls.filter(
                   (call) => call?.name === 'request_evidence'
                 );
@@ -4235,6 +4405,166 @@ export async function POST(req: NextRequest) {
 
                 const isCreateFileCall =
                   hasOnlyCreateFileCalls && documentCalls.length > 0;
+
+                if (isSourceDocumentEditCall) {
+                  documentToolBranchActive = true;
+                  incurredDocumentCallCostUsd =
+                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+
+                  const editCall = sourceDocumentEditCalls[0];
+                  const editArgs = (editCall.arguments || {}) as unknown as SourceDocumentEditArgs;
+                  const candidateDocuments = (currentRoundAttachments || []).filter(
+                    (attachment) => {
+                      const filename = (attachment.filename || '').toLowerCase();
+                      const cleanUrl =
+                        attachment.url
+                          ?.split('?')[0]
+                          .split('#')[0]
+                          .toLowerCase() || '';
+                      return (
+                        filename.endsWith('.pdf') ||
+                        filename.endsWith('.docx') ||
+                        cleanUrl.endsWith('.pdf') ||
+                        cleanUrl.endsWith('.docx')
+                      );
+                    }
+                  );
+
+                  const requestedSourceName =
+                    typeof editArgs.source_filename === 'string'
+                      ? editArgs.source_filename.trim().toLowerCase()
+                      : '';
+                  const sourceAttachment = requestedSourceName
+                    ? candidateDocuments.find(
+                        (attachment) =>
+                          (attachment.filename || '').trim().toLowerCase() ===
+                          requestedSourceName
+                      )
+                    : candidateDocuments.length === 1
+                      ? candidateDocuments[0]
+                      : null;
+
+                  if (!sourceAttachment) {
+                    throw new Error(
+                      candidateDocuments.length > 1
+                        ? 'Multiple source documents are attached. The edit tool must identify source_filename exactly.'
+                        : 'No editable PDF or DOCX source attachment was found in the current turn.'
+                    );
+                  }
+
+                  const sourceStoragePath =
+                    extractStoragePathFromSignedUrl(sourceAttachment.url || '');
+                  if (!sourceStoragePath) {
+                    throw new Error(
+                      'The current source document does not have a durable storage path.'
+                    );
+                  }
+
+                  const serviceClientForSourceEdit = createServiceClient();
+                  const currentParentState = await findDocumentStateSnapshot({
+                    serviceSupabase: serviceClientForSourceEdit,
+                    discussionId: discussionId || '',
+                    storagePath: sourceStoragePath,
+                    filename: sourceAttachment.filename || null,
+                  });
+
+                  const knownSourceDocument =
+                    (discussionMemory?.knownDocuments || []).find(
+                      (doc) => doc.storagePath === sourceStoragePath
+                    ) || null;
+
+                  const editResult = await executeSourcePreservingDocumentEdit({
+                    supabase,
+                    openai,
+                    discussionId: discussionId || '',
+                    messageId,
+                    seatId: seat.seatId,
+                    sourceStoragePath,
+                    sourceFilename:
+                      sourceAttachment.filename ||
+                      (sourceStoragePath.toLowerCase().endsWith('.pdf')
+                        ? 'document.pdf'
+                        : 'document.docx'),
+                    sourceDocumentId:
+                      currentParentState?.documentId ||
+                      knownSourceDocument?.id ||
+                      null,
+                    parentSnapshot: isSourcePreservingDocumentState(
+                      currentParentState
+                    )
+                      ? currentParentState
+                      : null,
+                    args: editArgs,
+                    signal: seatAbortController.signal,
+                  });
+
+                  documentCreatedThisTurn = true;
+                  documentOutputFormat = editResult.format;
+                  currentTurnDocuments.push({
+                    filename: editResult.filename,
+                    content: editResult.fullText,
+                  });
+                  currentRoundAttachments.push({
+                    url: editResult.signedUrl,
+                    filename: editResult.filename,
+                    provenance: 'same_round_assistant_generated',
+                    creatorSeatId: seat.seatId,
+                  });
+                  for (const page of editResult.sourceRenderedPageAttachments) {
+                    currentRoundAttachments.push({
+                      url: page.url,
+                      filename: page.filename,
+                      provenance: 'same_round_source_document_render',
+                      creatorSeatId: seat.seatId,
+                    });
+                  }
+                  for (const page of editResult.renderedPageAttachments) {
+                    currentRoundAttachments.push({
+                      url: page.url,
+                      filename: page.filename,
+                      provenance: 'same_round_document_render',
+                      creatorSeatId: seat.seatId,
+                    });
+                  }
+
+                  if (incurredDocumentCallCostUsd > 0) {
+                    const { error: spendError } = await supabase.rpc(
+                      'spend_credits',
+                      {
+                        p_cents: incurredDocumentCallCostUsd * 100,
+                        p_model: respondingModel,
+                        p_discussion_id: discussionId || null,
+                        p_meta: {
+                          seatId: seat.seatId,
+                          documentCreation: true,
+                          sourcePreservingEdit: true,
+                          format: editResult.format,
+                        },
+                      }
+                    );
+                    if (spendError) {
+                      throw new Error(
+                        'Failed to record source-document editing usage.'
+                      );
+                    }
+                    spendRecorded = true;
+                  }
+
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: respondingModel,
+                    content: editResult.finalContent,
+                    messageId: editResult.messageId,
+                    createdAt: editResult.createdAt,
+                    attachment_urls: [editResult.durableUrl],
+                  });
+
+                  priorResponses.push({
+                    name: seat.name,
+                    response: editResult.finalContent,
+                  });
+                  continue seatLoop;
+                }
 
                 if (isCreateFileCall) {
                   documentToolBranchActive = true;
@@ -5621,6 +5951,14 @@ export async function POST(req: NextRequest) {
                           record.brokerResult.evidence.storagePath
                         )
                     )?.brokerResult.evidence || null;
+                  const resolvedEditableDocumentEvidence =
+                    evidenceResolutionRecords.find(
+                      (record) =>
+                        record.brokerResult.status === 'resolved' &&
+                        (record.brokerResult.evidence?.kind === 'pdf' ||
+                          record.brokerResult.evidence?.kind === 'docx') &&
+                        Boolean(record.brokerResult.evidence?.storagePath)
+                    )?.brokerResult.evidence || null;
                   const aggregateModelSafeBrokerResult =
                     anyResolvedEvidence
                       ? {
@@ -5697,10 +6035,17 @@ export async function POST(req: NextRequest) {
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
                     anyResolvedEvidence;
+                  const evidenceContinuationCanSourceEdit =
+                    evidenceContinuationCanCreateFile &&
+                    isDocumentRevisionFollowUp &&
+                    Boolean(resolvedEditableDocumentEvidence) &&
+                    (!revisionParentState ||
+                      isSourcePreservingDocumentState(revisionParentState));
                   const evidenceContinuationCanReviseFile =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
-                    Boolean(revisionParentState);
+                    Boolean(revisionParentState) &&
+                    !isSourcePreservingDocumentState(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
 
                   const evidenceStream = await (openai.chat.completions.create as any)({
@@ -5711,18 +6056,26 @@ export async function POST(req: NextRequest) {
                     temperature: 0.7,
                     signal: seatAbortController.signal,
                     ...(evidenceContinuationCanCreateFile
-                      ? evidenceContinuationCanReviseFile
+                      ? evidenceContinuationCanSourceEdit
                         ? {
-                            tools: GPT_REVISE_FILE_TOOL,
+                            tools: GPT_SOURCE_DOCUMENT_EDIT_TOOL,
                             tool_choice: {
                               type: 'function',
-                              function: { name: 'revise_file' },
+                              function: { name: 'edit_source_document' },
                             },
                           }
-                        : {
-                            tools: GPT_FILE_TOOLS,
-                            tool_choice: 'auto',
-                          }
+                        : evidenceContinuationCanReviseFile
+                          ? {
+                              tools: GPT_REVISE_FILE_TOOL,
+                              tool_choice: {
+                                type: 'function',
+                                function: { name: 'revise_file' },
+                              },
+                            }
+                          : {
+                              tools: GPT_FILE_TOOLS,
+                              tool_choice: 'auto',
+                            }
                       : {}),
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
@@ -5806,6 +6159,15 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCalls.filter(
                       (call) => call?.name === 'revise_file'
                     );
+                  const evidenceSourceEditCalls =
+                    evidenceContinuationCalls.filter(
+                      (call) => call?.name === 'edit_source_document'
+                    );
+                  const hasOnlyEvidenceSourceEditCalls =
+                    evidenceContinuationCanSourceEdit &&
+                    evidenceSourceEditCalls.length === 1 &&
+                    evidenceSourceEditCalls.length ===
+                      evidenceContinuationCalls.length;
                   const hasOnlyEvidenceCreateFileCalls =
                     evidenceContinuationCanCreateFile &&
                     evidenceCreateFileCalls.length > 0 &&
@@ -5816,6 +6178,120 @@ export async function POST(req: NextRequest) {
                     evidenceReviseFileCalls.length > 0 &&
                     evidenceReviseFileCalls.length ===
                       evidenceContinuationCalls.length;
+
+                  if (hasOnlyEvidenceSourceEditCalls) {
+                    documentToolBranchActive = true;
+                    incurredDocumentCallCostUsd =
+                      incurredEvidenceFirstPassCostUsd +
+                      incurredEvidenceSecondPassCostUsd;
+
+                    if (
+                      !resolvedEditableDocumentEvidence?.storagePath ||
+                      !resolvedEditableDocumentEvidence?.filename
+                    ) {
+                      throw new Error(
+                        'The resolved source document is missing durable edit provenance.'
+                      );
+                    }
+
+                    const sourceParentState =
+                      revisionParentState &&
+                      isSourcePreservingDocumentState(revisionParentState)
+                        ? revisionParentState
+                        : null;
+                    const editArgs = (
+                      evidenceSourceEditCalls[0].arguments || {}
+                    ) as unknown as SourceDocumentEditArgs;
+                    const editResult =
+                      await executeSourcePreservingDocumentEdit({
+                        supabase,
+                        openai,
+                        discussionId: discussionId || '',
+                        messageId,
+                        seatId: seat.seatId,
+                        sourceStoragePath:
+                          sourceParentState?.storagePath ||
+                          resolvedEditableDocumentEvidence.storagePath,
+                        sourceFilename:
+                          sourceParentState?.filename ||
+                          resolvedEditableDocumentEvidence.filename,
+                        sourceDocumentId:
+                          sourceParentState?.documentId ||
+                          resolvedEditableDocumentEvidence.documentId ||
+                          null,
+                        parentSnapshot: sourceParentState,
+                        args: editArgs,
+                        signal: seatAbortController.signal,
+                      });
+
+                    documentCreatedThisTurn = true;
+                    documentOutputFormat = editResult.format;
+                    currentTurnDocuments.push({
+                      filename: editResult.filename,
+                      content: editResult.fullText,
+                    });
+                    currentRoundAttachments.push({
+                      url: editResult.signedUrl,
+                      filename: editResult.filename,
+                      provenance: 'same_round_assistant_generated',
+                      creatorSeatId: seat.seatId,
+                    });
+                    for (const page of editResult.sourceRenderedPageAttachments) {
+                      currentRoundAttachments.push({
+                        url: page.url,
+                        filename: page.filename,
+                        provenance: 'same_round_source_document_render',
+                        creatorSeatId: seat.seatId,
+                      });
+                    }
+                    for (const page of editResult.renderedPageAttachments) {
+                      currentRoundAttachments.push({
+                        url: page.url,
+                        filename: page.filename,
+                        provenance: 'same_round_document_render',
+                        creatorSeatId: seat.seatId,
+                      });
+                    }
+
+                    if (incurredDocumentCallCostUsd > 0) {
+                      const { error: spendError } = await supabase.rpc(
+                        'spend_credits',
+                        {
+                          p_cents: incurredDocumentCallCostUsd * 100,
+                          p_model: respondingModel,
+                          p_discussion_id: discussionId || null,
+                          p_meta: {
+                            seatId: seat.seatId,
+                            documentCreation: true,
+                            evidenceThenDocument: true,
+                            sourcePreservingEdit: true,
+                            format: editResult.format,
+                          },
+                        }
+                      );
+                      if (spendError) {
+                        throw new Error(
+                          'Failed to record source-document editing usage.'
+                        );
+                      }
+                      spendRecorded = true;
+                    }
+
+                    sendEvent('seat_done', {
+                      seatId: seat.seatId,
+                      modelId: respondingModel,
+                      content: editResult.finalContent,
+                      messageId: editResult.messageId,
+                      createdAt: editResult.createdAt,
+                      attachment_urls: [editResult.durableUrl],
+                    });
+
+                    priorResponses.push({
+                      name: seat.name,
+                      response: editResult.finalContent,
+                    });
+                    continue seatLoop;
+                  }
 
                   if (
                     hasOnlyEvidenceCreateFileCalls ||
@@ -6348,7 +6824,8 @@ export async function POST(req: NextRequest) {
                   if (
                     evidenceContinuationCalls.length > 0 &&
                     !hasOnlyEvidenceCreateFileCalls &&
-                    !hasOnlyEvidenceReviseFileCalls
+                    !hasOnlyEvidenceReviseFileCalls &&
+                    !hasOnlyEvidenceSourceEditCalls
                   ) {
                     throw new Error(
                       `Unsupported evidence-continuation tool calls (${evidenceContinuationCalls
