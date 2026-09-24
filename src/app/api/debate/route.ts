@@ -1641,10 +1641,7 @@ Layout/style/template changes must not silently delete names, contact details, d
   }
 
   // 4. [current round's prior seat responses — provisional peer claims to evaluate]
-  // For deterministic chronology lookups, every seat should answer independently from
-  // the same authoritative resolved event. Suppress peer answers so a mistaken
-  // reinterpretation by an earlier seat cannot contaminate later seats.
-  if (!hasTargetedChronology && priorResponses.length > 0) {
+  if (priorResponses.length > 0) {
     const priorFormatted = priorResponses
       .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
       .join('');
