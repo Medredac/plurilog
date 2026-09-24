@@ -5893,6 +5893,14 @@ export async function POST(req: NextRequest) {
                           record.brokerResult.evidence.storagePath
                         )
                     )?.brokerResult.evidence || null;
+                  const resolvedEditableDocumentEvidence =
+                    evidenceResolutionRecords.find(
+                      (record) =>
+                        record.brokerResult.status === 'resolved' &&
+                        (record.brokerResult.evidence?.kind === 'pdf' ||
+                          record.brokerResult.evidence?.kind === 'docx') &&
+                        Boolean(record.brokerResult.evidence?.storagePath)
+                    )?.brokerResult.evidence || null;
                   const aggregateModelSafeBrokerResult =
                     anyResolvedEvidence
                       ? {
@@ -5969,10 +5977,17 @@ export async function POST(req: NextRequest) {
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
                     anyResolvedEvidence;
+                  const evidenceContinuationCanSourceEdit =
+                    evidenceContinuationCanCreateFile &&
+                    isDocumentRevisionFollowUp &&
+                    Boolean(resolvedEditableDocumentEvidence) &&
+                    (!revisionParentState ||
+                      isSourcePreservingDocumentState(revisionParentState));
                   const evidenceContinuationCanReviseFile =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
-                    Boolean(revisionParentState);
+                    Boolean(revisionParentState) &&
+                    !isSourcePreservingDocumentState(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
 
                   const evidenceStream = await (openai.chat.completions.create as any)({
@@ -5983,18 +5998,26 @@ export async function POST(req: NextRequest) {
                     temperature: 0.7,
                     signal: seatAbortController.signal,
                     ...(evidenceContinuationCanCreateFile
-                      ? evidenceContinuationCanReviseFile
+                      ? evidenceContinuationCanSourceEdit
                         ? {
-                            tools: GPT_REVISE_FILE_TOOL,
+                            tools: GPT_SOURCE_DOCUMENT_EDIT_TOOL,
                             tool_choice: {
                               type: 'function',
-                              function: { name: 'revise_file' },
+                              function: { name: 'edit_source_document' },
                             },
                           }
-                        : {
-                            tools: GPT_FILE_TOOLS,
-                            tool_choice: 'auto',
-                          }
+                        : evidenceContinuationCanReviseFile
+                          ? {
+                              tools: GPT_REVISE_FILE_TOOL,
+                              tool_choice: {
+                                type: 'function',
+                                function: { name: 'revise_file' },
+                              },
+                            }
+                          : {
+                              tools: GPT_FILE_TOOLS,
+                              tool_choice: 'auto',
+                            }
                       : {}),
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
@@ -6078,6 +6101,15 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCalls.filter(
                       (call) => call?.name === 'revise_file'
                     );
+                  const evidenceSourceEditCalls =
+                    evidenceContinuationCalls.filter(
+                      (call) => call?.name === 'edit_source_document'
+                    );
+                  const hasOnlyEvidenceSourceEditCalls =
+                    evidenceContinuationCanSourceEdit &&
+                    evidenceSourceEditCalls.length === 1 &&
+                    evidenceSourceEditCalls.length ===
+                      evidenceContinuationCalls.length;
                   const hasOnlyEvidenceCreateFileCalls =
                     evidenceContinuationCanCreateFile &&
                     evidenceCreateFileCalls.length > 0 &&
@@ -6088,6 +6120,112 @@ export async function POST(req: NextRequest) {
                     evidenceReviseFileCalls.length > 0 &&
                     evidenceReviseFileCalls.length ===
                       evidenceContinuationCalls.length;
+
+                  if (hasOnlyEvidenceSourceEditCalls) {
+                    documentToolBranchActive = true;
+                    incurredDocumentCallCostUsd =
+                      incurredEvidenceFirstPassCostUsd +
+                      incurredEvidenceSecondPassCostUsd;
+
+                    if (
+                      !resolvedEditableDocumentEvidence?.storagePath ||
+                      !resolvedEditableDocumentEvidence?.filename
+                    ) {
+                      throw new Error(
+                        'The resolved source document is missing durable edit provenance.'
+                      );
+                    }
+
+                    const sourceParentState =
+                      revisionParentState &&
+                      isSourcePreservingDocumentState(revisionParentState)
+                        ? revisionParentState
+                        : null;
+                    const editArgs = (
+                      evidenceSourceEditCalls[0].arguments || {}
+                    ) as SourceDocumentEditArgs;
+                    const editResult =
+                      await executeSourcePreservingDocumentEdit({
+                        supabase,
+                        openai,
+                        discussionId: discussionId || '',
+                        messageId,
+                        seatId: seat.seatId,
+                        sourceStoragePath:
+                          sourceParentState?.storagePath ||
+                          resolvedEditableDocumentEvidence.storagePath,
+                        sourceFilename:
+                          sourceParentState?.filename ||
+                          resolvedEditableDocumentEvidence.filename,
+                        sourceDocumentId:
+                          sourceParentState?.documentId ||
+                          resolvedEditableDocumentEvidence.documentId ||
+                          null,
+                        parentSnapshot: sourceParentState,
+                        args: editArgs,
+                        signal: seatAbortController.signal,
+                      });
+
+                    documentCreatedThisTurn = true;
+                    documentOutputFormat = editResult.format;
+                    currentTurnDocuments.push({
+                      filename: editResult.filename,
+                      content: editResult.fullText,
+                    });
+                    currentRoundAttachments.push({
+                      url: editResult.signedUrl,
+                      filename: editResult.filename,
+                      provenance: 'same_round_assistant_generated',
+                      creatorSeatId: seat.seatId,
+                    });
+                    for (const page of editResult.renderedPageAttachments) {
+                      currentRoundAttachments.push({
+                        url: page.url,
+                        filename: page.filename,
+                        provenance: 'same_round_document_render',
+                        creatorSeatId: seat.seatId,
+                      });
+                    }
+
+                    if (incurredDocumentCallCostUsd > 0) {
+                      const { error: spendError } = await supabase.rpc(
+                        'spend_credits',
+                        {
+                          p_cents: incurredDocumentCallCostUsd * 100,
+                          p_model: respondingModel,
+                          p_discussion_id: discussionId || null,
+                          p_meta: {
+                            seatId: seat.seatId,
+                            documentCreation: true,
+                            evidenceThenDocument: true,
+                            sourcePreservingEdit: true,
+                            format: editResult.format,
+                          },
+                        }
+                      );
+                      if (spendError) {
+                        throw new Error(
+                          'Failed to record source-document editing usage.'
+                        );
+                      }
+                      spendRecorded = true;
+                    }
+
+                    sendEvent('seat_done', {
+                      seatId: seat.seatId,
+                      modelId: respondingModel,
+                      content: editResult.finalContent,
+                      messageId: editResult.messageId,
+                      createdAt: editResult.createdAt,
+                      attachment_urls: [editResult.durableUrl],
+                    });
+
+                    priorResponses.push({
+                      name: seat.name,
+                      response: editResult.finalContent,
+                    });
+                    continue seatLoop;
+                  }
 
                   if (
                     hasOnlyEvidenceCreateFileCalls ||
@@ -6620,7 +6758,8 @@ export async function POST(req: NextRequest) {
                   if (
                     evidenceContinuationCalls.length > 0 &&
                     !hasOnlyEvidenceCreateFileCalls &&
-                    !hasOnlyEvidenceReviseFileCalls
+                    !hasOnlyEvidenceReviseFileCalls &&
+                    !hasOnlyEvidenceSourceEditCalls
                   ) {
                     throw new Error(
                       `Unsupported evidence-continuation tool calls (${evidenceContinuationCalls
