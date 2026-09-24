@@ -80,6 +80,8 @@ import {
   assertNarrowRevisionPatchSafety,
   findDocumentStateSnapshot,
   findLatestDocumentStateSnapshot,
+  listDocumentStateSnapshots,
+  selectGeneratedDocumentStateByReference,
   missingPreservedDocumentContent,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
@@ -4546,38 +4548,74 @@ export async function POST(req: NextRequest) {
                       prompt || ''
                     );
 
+                  let explicitlySelectedCanonicalRevisionState:
+                    | DocumentStateSnapshot
+                    | null = null;
                   let latestCanonicalRevisionState:
                     | DocumentStateSnapshot
                     | null = null;
+
                   if (
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
                     serviceClientForEvidence &&
-                    !userNamedKnownDocument &&
-                    !userRequestedOlderRevisionVersion
+                    !userNamedKnownDocument
                   ) {
-                    latestCanonicalRevisionState =
-                      await findLatestDocumentStateSnapshot({
+                    const orderedCanonicalStates =
+                      await listDocumentStateSnapshots({
                         serviceSupabase: serviceClientForEvidence,
                         discussionId,
                       });
+                    explicitlySelectedCanonicalRevisionState =
+                      selectGeneratedDocumentStateByReference(
+                        orderedCanonicalStates,
+                        prompt || ''
+                      );
 
-                    if (latestCanonicalRevisionState) {
+                    if (explicitlySelectedCanonicalRevisionState) {
                       console.log(
-                        '[Document Revision] Latest canonical parent candidate',
+                        '[Document Revision] Deterministically selected historical canonical parent',
                         {
                           snapshotId:
-                            latestCanonicalRevisionState.id,
+                            explicitlySelectedCanonicalRevisionState.id,
                           documentId:
-                            latestCanonicalRevisionState.documentId ||
+                            explicitlySelectedCanonicalRevisionState.documentId ||
                             null,
                           filename:
-                            latestCanonicalRevisionState.filename,
-                          pageCount:
-                            latestCanonicalRevisionState.pageCount ||
+                            explicitlySelectedCanonicalRevisionState.filename,
+                          createdAt:
+                            explicitlySelectedCanonicalRevisionState.createdAt ||
                             null,
+                          pageCount:
+                            explicitlySelectedCanonicalRevisionState.pageCount ||
+                            null,
+                          selector: 'generated_document_ordinal',
                         }
                       );
+                    } else if (!userRequestedOlderRevisionVersion) {
+                      latestCanonicalRevisionState =
+                        await findLatestDocumentStateSnapshot({
+                          serviceSupabase: serviceClientForEvidence,
+                          discussionId,
+                        });
+
+                      if (latestCanonicalRevisionState) {
+                        console.log(
+                          '[Document Revision] Latest canonical parent candidate',
+                          {
+                            snapshotId:
+                              latestCanonicalRevisionState.id,
+                            documentId:
+                              latestCanonicalRevisionState.documentId ||
+                              null,
+                            filename:
+                              latestCanonicalRevisionState.filename,
+                            pageCount:
+                              latestCanonicalRevisionState.pageCount ||
+                              null,
+                          }
+                        );
+                      }
                     }
                   }
 
@@ -4625,8 +4663,11 @@ export async function POST(req: NextRequest) {
                           )
                         : null;
 
+                    const canonicalRevisionParent =
+                      explicitlySelectedCanonicalRevisionState ||
+                      latestCanonicalRevisionState;
                     const shouldAnchorRevisionToCanonicalParent =
-                      Boolean(latestCanonicalRevisionState);
+                      Boolean(canonicalRevisionParent);
                     const shouldAnchorToSameRoundGeneratedDocument =
                       !shouldAnchorRevisionToCanonicalParent &&
                       !userExplicitlyRequestsHistoricalDocument &&
@@ -4639,25 +4680,29 @@ export async function POST(req: NextRequest) {
 
                     const brokerResult =
                       shouldAnchorRevisionToCanonicalParent &&
-                      latestCanonicalRevisionState
+                      canonicalRevisionParent
                         ? {
                             status: 'resolved' as const,
                             kind:
-                              latestCanonicalRevisionState.format,
+                              canonicalRevisionParent.format,
                             message:
-                              `Resolved latest canonical document revision parent: ${latestCanonicalRevisionState.filename}.`,
+                              explicitlySelectedCanonicalRevisionState
+                                ? `Resolved explicitly selected historical generated document: ${canonicalRevisionParent.filename}.`
+                                : `Resolved latest canonical document revision parent: ${canonicalRevisionParent.filename}.`,
                             evidence: {
                               kind:
-                                latestCanonicalRevisionState.format,
+                                canonicalRevisionParent.format,
                               filename:
-                                latestCanonicalRevisionState.filename,
+                                canonicalRevisionParent.filename,
                               storagePath:
-                                latestCanonicalRevisionState.storagePath,
+                                canonicalRevisionParent.storagePath,
                               documentId:
-                                latestCanonicalRevisionState.documentId ||
+                                canonicalRevisionParent.documentId ||
                                 undefined,
                               reason:
-                                'canonical_revision_parent',
+                                explicitlySelectedCanonicalRevisionState
+                                  ? 'canonical_historical_revision_parent'
+                                  : 'canonical_revision_parent',
                             },
                           }
                         : shouldAnchorToSameRoundGeneratedDocument &&
@@ -4719,18 +4764,22 @@ export async function POST(req: NextRequest) {
 
                     if (
                       shouldAnchorRevisionToCanonicalParent &&
-                      latestCanonicalRevisionState
+                      canonicalRevisionParent
                     ) {
                       console.log(
                         '[Document Revision] Anchored evidence request to canonical parent',
                         {
                           seatId: seat.seatId,
                           filename:
-                            latestCanonicalRevisionState.filename,
+                            canonicalRevisionParent.filename,
                           snapshotId:
-                            latestCanonicalRevisionState.id,
+                            canonicalRevisionParent.id,
                           requestedResourceType:
                             toolResourceType,
+                          selection:
+                            explicitlySelectedCanonicalRevisionState
+                              ? 'historical_generated_ordinal'
+                              : 'latest',
                         }
                       );
                     } else if (
