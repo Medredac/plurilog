@@ -527,35 +527,34 @@ def font_name(page, span, text, bold=False, italic=False):
         if xref > 0 and ext and ext != 'n/a':
             try:
                 extracted=doc.extract_font(xref, named=True)
-                content=extracted.get('content') if isinstance(extracted,dict) else None
-                if content:
-                    name='PlurilogSrcFont%d' % xref
-                    page.insert_font(fontname=name,fontbuffer=content)
-                    return name
+                font_bytes=extracted.get('content') if isinstance(extracted,dict) else None
+                if font_bytes:
+                    safe_ext=re.sub(r'[^a-zA-Z0-9]+','',ext) or 'font'
+                    font_path='/vercel/sandbox/source-font-%d.%s' % (xref,safe_ext)
+                    with open(font_path,'wb') as font_file:
+                        font_file.write(font_bytes)
+                    return ('PlurilogSrcFont%d' % xref,font_path)
             except Exception as exc:
-                print('WARN embedded font extraction/re-registration failed:',repr(exc),file=sys.stderr)
+                print('WARN embedded font extraction failed:',repr(exc),file=sys.stderr)
             raise RuntimeError(
                 'Original embedded PDF font could not be safely reused for %r.' % text
             )
-        return existing['resource']
+        return (existing['resource'],None)
 
     if any(ord(ch)>127 for ch in text):
         try:
             fp=subprocess.check_output(['fc-match','-f','%{file}','Noto Sans CJK JP'], text=True).strip()
             if fp and os.path.exists(fp):
-                name='PlurilogCJK'
-                try: page.insert_font(fontname=name, fontfile=fp)
-                except: pass
-                return name
+                return ('PlurilogCJK',fp)
         except:
             pass
 
     raw=str(span.get('font') or '').lower()
-    if bold: return 'hebo'
-    if italic: return 'heit'
-    if 'times' in raw or 'serif' in raw: return 'tiro'
-    if 'courier' in raw or 'mono' in raw: return 'cour'
-    return 'helv'
+    if bold: return ('hebo',None)
+    if italic: return ('heit',None)
+    if 'times' in raw or 'serif' in raw: return ('tiro',None)
+    if 'courier' in raw or 'mono' in raw: return ('cour',None)
+    return ('helv',None)
 \`;
 
 function buildPdfEditScript(): Buffer {
@@ -564,13 +563,20 @@ function buildPdfEditScript(): Buffer {
   if (!base.includes(loopAnchor)) {
     throw new Error('PDF source editor loop anchor is missing.');
   }
-  return Buffer.from(
-    base.replace(
-      loopAnchor,
-      '\\n' + PDF_FONT_BUFFER_OVERRIDE + '\\nfor edit in edits:\\n'
-    ),
-    'utf8'
+  const withOverride = base.replace(
+    loopAnchor,
+    '\\n' + PDF_FONT_BUFFER_OVERRIDE + '\\nfor edit in edits:\\n'
   );
+  const oldInsert =
+    "        font=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\\n" +
+    "        rc=page.insert_textbox(wr,text,fontsize=size,fontname=font,color=rgb(span.get('color',0)),align=align,overlay=True)";
+  const newInsert =
+    "        font,fontfile=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\\n" +
+    "        rc=page.insert_textbox(wr,text,fontsize=size,fontname=font,fontfile=fontfile,color=rgb(span.get('color',0)),align=align,overlay=True)";
+  if (!withOverride.includes(oldInsert)) {
+    throw new Error('PDF source editor insertion anchor is missing.');
+  }
+  return Buffer.from(withOverride.replace(oldInsert, newInsert), 'utf8');
 }
 
 async function createEditSandbox(timeoutMs: number, signal?: AbortSignal) {
