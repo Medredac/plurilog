@@ -19,6 +19,7 @@ import {
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
+import { DocumentPreviewDrawer } from './DocumentPreviewDrawer';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
@@ -570,6 +571,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<{ url: string; filename: string } | null>(null);
 
   // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
   useEffect(() => {
@@ -756,9 +758,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             {isPdf ? (
                               <button
                                 type="button"
-                                onClick={() => window.open(url, '_blank')}
+                                onClick={() => setPreviewDocument({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Click to view ${filename} in new tab`}
+                                title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
                                 <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
@@ -768,9 +770,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : isDocx ? (
                               <button
                                 type="button"
-                                onClick={() => window.open(url, '_blank')}
+                                onClick={() => setPreviewDocument({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Click to download ${filename}`}
+                                title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
                                 <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
@@ -780,9 +782,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : isText ? (
                               <button
                                 type="button"
-                                onClick={() => window.open(url, '_blank')}
+                                onClick={() => setPreviewDocument({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Click to view ${filename} in new tab`}
+                                title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
                                 <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
@@ -805,7 +807,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => window.open(url, '_blank')}
+                                onClick={() => setPreviewDocument({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
@@ -929,11 +931,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           return isImageUrl(url, filename);
         });
         const documentAttachments = attachments.filter((url) => {
-          const filename = getAttachmentDisplayFilename(url).toLowerCase();
-          return (
-            !isImageUrl(url, filename) &&
-            (filename.endsWith('.docx') || filename.endsWith('.pdf'))
-          );
+          const filename = getAttachmentDisplayFilename(url);
+          return !isImageUrl(url, filename);
         });
 
         return (
@@ -1032,7 +1031,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                           <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={() => window.open(url, '_blank')}
+                              onClick={() => setPreviewDocument({ url, filename })}
                               className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
                               title={`Download ${filename}`}
                             >
