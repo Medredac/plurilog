@@ -573,7 +573,14 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
                   minimum: -24,
                   maximum: 24,
                   description:
-                    'Relative point-size change for set_font_size, e.g. +1 for slightly larger or -1 for slightly smaller.',
+                    'Exact relative point-size change for set_font_size, e.g. -1 only when the user explicitly asks for one point smaller.',
+                },
+                font_size_scale: {
+                  type: 'number',
+                  minimum: 0.5,
+                  maximum: 2,
+                  description:
+                    'Proportional size multiplier for semantic relative requests. Use about 0.9 for "slightly smaller" and about 1.1 for "slightly larger". Prefer this over font_size_delta_pt when the user gives no exact point amount.',
                 },
                 value: {
                   type: 'boolean',
