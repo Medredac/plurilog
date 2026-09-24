@@ -1583,16 +1583,27 @@ export function buildPanelMessages(
   runtimeProductContext?: PlurilogRuntimeProductContext
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
+  const hasTargetedChronology = Boolean(
+    discussionMemory?.chronologicalMemory?.content
+  );
 
   // 1. [rolling summary, if one exists for this discussion]
   let summarySection = '';
-  if (discussionMemory?.summary && discussionMemory.summary.trim()) {
+  if (
+    !hasTargetedChronology &&
+    discussionMemory?.summary &&
+    discussionMemory.summary.trim()
+  ) {
     summarySection = `Summary of earlier discussion history:\n"""\n${discussionMemory.summary.trim()}\n"""`;
     sections.push(summarySection);
   }
 
   // 2. [authoritative known PDF documents registry, if documents exist in this discussion]
-  if (discussionMemory?.knownDocuments && discussionMemory.knownDocuments.length > 0) {
+  if (
+    !hasTargetedChronology &&
+    discussionMemory?.knownDocuments &&
+    discussionMemory.knownDocuments.length > 0
+  ) {
     const docList = discussionMemory.knownDocuments
       .map((doc) => (doc.id ? `- doc_${doc.id} — ${doc.filename}` : `- ${doc.filename}`))
       .join('\n');
@@ -1618,7 +1629,7 @@ Layout/style/template changes must not silently delete names, contact details, d
   }
 
   // 3. [hybrid-retrieved relevant earlier discussion rounds]
-  if (retrievedMemory && retrievedMemory.length > 0) {
+  if (!hasTargetedChronology && retrievedMemory && retrievedMemory.length > 0) {
     const memoryBlocks = retrievedMemory
       .map((row) => (typeof row?.content === 'string' ? row.content.trim() : ''))
       .filter(Boolean)
@@ -1658,7 +1669,11 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
   }
 
   // 5. [retrieved document context from previously provided files — primary evidence]
-  if (retrievedDocuments && retrievedDocuments.length > 0) {
+  if (
+    !hasTargetedChronology &&
+    retrievedDocuments &&
+    retrievedDocuments.length > 0
+  ) {
     const docBlocks = retrievedDocuments
       .map((doc) => `[Document: ${doc.filename}]\n"""\n${doc.content.trim()}\n"""`)
       .filter(Boolean)
@@ -1726,7 +1741,11 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
   }
 
   // 8. [recent exact conversation rounds within token budget]
-  if (discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0) {
+  if (
+    !hasTargetedChronology &&
+    discussionMemory?.recentRounds &&
+    discussionMemory.recentRounds.length > 0
+  ) {
     const rawRoundsFormatted = discussionMemory.recentRounds
       .map(formatRoundForContext)
       .filter(Boolean)
@@ -1740,11 +1759,24 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
   // 9. [targeted chronological conversation history]
   if (discussionMemory?.chronologicalMemory && discussionMemory.chronologicalMemory.content) {
     const cm = discussionMemory.chronologicalMemory;
+    const sameMessageAttachments =
+      cm.kind === 'user_prompt' && Array.isArray(cm.attachments)
+        ? cm.attachments
+        : [];
+    const attachmentContext =
+      sameMessageAttachments.length > 0
+        ? `\nUser-uploaded attachment(s) on that exact same message:\n${sameMessageAttachments
+            .map((attachment) => `- ${attachment.filename}`)
+            .join('\n')}`
+        : cm.kind === 'user_prompt'
+          ? '\nUser-uploaded attachments on that exact same message: none.'
+          : '';
+
     sections.push(
-      `Targeted conversation-history result (evaluated at the moment you asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""`
+      `Targeted conversation-history result (evaluated at the moment you asked, before any responses in the current round):\n${cm.label}:\n"""\n${cm.content.trim()}\n"""${attachmentContext}`
     );
     sections.push(
-      `For this chronology question, the targeted conversation-history result above is the authoritative answer for the requested chronological position at the moment you asked. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of when you asked, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
+      `For this chronology question, the targeted conversation-history result above and its same-message user-attachment list are authoritative for the requested chronological position. Do not reinterpret them from summaries, semantic memory, document-registry ordering, filenames, or prior panel claims. Current-round panelist responses happened afterward. Only for speaker-specific last/latest/most-recent queries, if that same speaker has responded again in the current round, explicitly distinguish the two time points: first give the historical result as of when you asked, then briefly note what the speaker has said since. For first/earliest/ordinal queries, do not add a current-round update.`
     );
   }
 
@@ -2136,7 +2168,13 @@ export async function POST(req: NextRequest) {
           // Attempt hybrid discussion-memory retrieval (non-critical)
           let retrievedMemory: any[] = [];
           let retrievedDocuments: RetrievedDocumentExcerpt[] = [];
-          if (discussionId && prompt && prompt.trim() && !req.signal.aborted) {
+          if (
+            discussionId &&
+            prompt &&
+            prompt.trim() &&
+            !req.signal.aborted &&
+            !discussionMemory?.chronologicalMemory
+          ) {
             // 1. Attempt deterministic structured section resolution first (does NOT require embedding)
             try {
               const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
@@ -2320,6 +2358,15 @@ export async function POST(req: NextRequest) {
                 retrievalErr
               );
             }
+          }
+
+          if (discussionMemory?.chronologicalMemory) {
+            console.log('[Memory Retrieval] Skipped hybrid/document retrieval for deterministic chronology', {
+              discussionId: discussionId || null,
+              label: discussionMemory.chronologicalMemory.label,
+              roundUserMessageId:
+                discussionMemory.chronologicalMemory.roundUserMessageId || null,
+            });
           }
 
           console.log('[Document Retrieval]', {
