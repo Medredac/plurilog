@@ -1251,6 +1251,7 @@ export type AttachmentProvenance =
   | 'historical_user_upload'
   | 'historical_assistant_generated'
   | 'same_round_assistant_generated'
+  | 'same_round_source_document_render'
   | 'same_round_document_render'
   | 'historical_document_embedded';
 
@@ -1293,11 +1294,14 @@ function formatImageBlockLabel(attachment: RouteAttachment): string {
   if (attachment.provenance === 'current_document_render') {
     return `Rendered page from a Word document attached by the user in the current turn: ${cleanName}`;
   }
+  if (attachment.provenance === 'same_round_source_document_render') {
+    return `BEFORE EDIT — rendered page from the source document for the current round: ${cleanName}`;
+  }
   if (attachment.provenance === 'same_round_document_render') {
     const seatName = attachment.creatorSeatId
       ? (SEAT_DISPLAY_NAMES[attachment.creatorSeatId.toLowerCase()] || attachment.creatorSeatId)
       : 'an assistant';
-    return `Rendered page from a Word document created by ${seatName} earlier in the current round: ${cleanName}`;
+    return `AFTER EDIT — rendered page from the resulting document created by ${seatName} earlier in the current round: ${cleanName}`;
   }
   return `File: ${cleanName}`;
 }
@@ -1902,7 +1906,7 @@ The resulting document(s) are: ${currentTurnDocuments
           .join(', ')}.
 Do not speak as though the requested edit/creation is still pending, and do not tell the user to wait for ChatGPT to apply it.
 Your job now is to inspect the resulting artifact evidence available in this call, evaluate the completed result independently, and report what you actually observe. If rendered page images are attached, treat those as the visual result of the completed document action.
-Do not claim that a visual/layout condition was pre-existing, newly introduced, preserved, or changed relative to the source unless the corresponding source-state visual evidence is also available in your current call. When only the resulting artifact is visually available, describe the result itself without inventing a before/after comparison.`
+When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corresponding pages directly and distinguish pre-existing source-render conditions from changes introduced by the edit. When only the resulting artifact is visually available, do not claim that a visual/layout condition was pre-existing, newly introduced, preserved, or changed relative to the source; describe the result itself without inventing a before/after comparison.`
       : '';
 
   let userContent = effectivePrompt;
@@ -3891,18 +3895,28 @@ export async function POST(req: NextRequest) {
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
 
+            const sameRoundSourceDocumentPages =
+              currentRoundAttachments.filter(
+                (attachment) =>
+                  attachment.provenance ===
+                  'same_round_source_document_render'
+              );
             const sameRoundRenderedDocumentPages =
               currentRoundAttachments.filter(
                 (attachment) =>
                   attachment.provenance ===
                   'same_round_document_render'
               );
+            const sameRoundDocumentReviewPages = [
+              ...sameRoundSourceDocumentPages,
+              ...sameRoundRenderedDocumentPages,
+            ];
             const reviewScopedToGeneratedDocument =
               documentCreatedThisTurn &&
               sameRoundRenderedDocumentPages.length > 0;
             const modelInputAttachments =
               reviewScopedToGeneratedDocument
-                ? sameRoundRenderedDocumentPages
+                ? sameRoundDocumentReviewPages
                 : currentRoundAttachments;
 
             const pdfAttachments = modelInputAttachments.filter((att: any) =>
@@ -4020,6 +4034,8 @@ export async function POST(req: NextRequest) {
             if (reviewScopedToGeneratedDocument) {
               console.log('[Generated Document Review Scope]', {
                 seatId: seat.seatId,
+                sourceRenderedPageCount:
+                  sameRoundSourceDocumentPages.length,
                 renderedPageCount:
                   sameRoundRenderedDocumentPages.length,
                 semanticDocumentContextSuppressed: true,
@@ -4487,6 +4503,14 @@ export async function POST(req: NextRequest) {
                     provenance: 'same_round_assistant_generated',
                     creatorSeatId: seat.seatId,
                   });
+                  for (const page of editResult.sourceRenderedPageAttachments) {
+                    currentRoundAttachments.push({
+                      url: page.url,
+                      filename: page.filename,
+                      provenance: 'same_round_source_document_render',
+                      creatorSeatId: seat.seatId,
+                    });
+                  }
                   for (const page of editResult.renderedPageAttachments) {
                     currentRoundAttachments.push({
                       url: page.url,
@@ -6205,6 +6229,14 @@ export async function POST(req: NextRequest) {
                       provenance: 'same_round_assistant_generated',
                       creatorSeatId: seat.seatId,
                     });
+                    for (const page of editResult.sourceRenderedPageAttachments) {
+                      currentRoundAttachments.push({
+                        url: page.url,
+                        filename: page.filename,
+                        provenance: 'same_round_source_document_render',
+                        creatorSeatId: seat.seatId,
+                      });
+                    }
                     for (const page of editResult.renderedPageAttachments) {
                       currentRoundAttachments.push({
                         url: page.url,
