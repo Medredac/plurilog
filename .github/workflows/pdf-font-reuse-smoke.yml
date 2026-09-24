@@ -1,0 +1,71 @@
+name: PDF font reuse smoke
+
+on:
+  push:
+    branches:
+      - debug/pdf-font-reuse-smoke
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract PDF editor
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const src=fs.readFileSync('src/utils/sourceDocumentEditor.ts','utf8');
+          const m=src.match(/const PDF_EDIT_SCRIPT = Buffer\.from\(\s*'([^']+)'\s*,\s*'base64'\s*\)/);
+          if(!m) throw new Error('PDF script missing');
+          fs.writeFileSync('/tmp/edit_pdf.py',Buffer.from(m[1],'base64'));
+          NODE
+          python3 -m py_compile /tmp/edit_pdf.py
+
+      - name: Install PyMuPDF
+        run: python3 -m pip install --quiet 'PyMuPDF==1.26.4'
+
+      - name: Build source PDF
+        run: |
+          python3 <<'PY'
+          import fitz
+          doc=fitz.open()
+          p=doc.new_page()
+          p.insert_text((72,90),'MERYEM BEHRI',fontsize=24,fontname='Times-Bold')
+          p.insert_text((72,130),'Subtitle stays here',fontsize=12,fontname='Times-Roman')
+          doc.save('/tmp/input.pdf')
+          doc.close()
+          PY
+          cat >/tmp/plan.json <<'JSON'
+          [{"action":"set_font_size","target_text":"MERYEM BEHRI","font_size_scale":0.9,"occurrence":1,"page_number":1}]
+          JSON
+
+      - name: Run editor and verify font reuse
+        run: |
+          python3 /tmp/edit_pdf.py /tmp/input.pdf /tmp/plan.json /tmp/output.pdf
+          python3 <<'PY'
+          import fitz
+          src=fitz.open('/tmp/input.pdf')
+          out=fitz.open('/tmp/output.pdf')
+          def span(doc,text):
+            for b in doc[0].get_text('dict')['blocks']:
+              for l in b.get('lines',[]):
+                for s in l.get('spans',[]):
+                  if text in s.get('text',''):
+                    return s
+            raise AssertionError(text+' not found')
+          a=span(src,'MERYEM BEHRI')
+          b=span(out,'MERYEM BEHRI')
+          keep=span(out,'Subtitle stays here')
+          print('source font',a['font'],'source size',a['size'])
+          print('output font',b['font'],'output size',b['size'])
+          assert b['size'] < a['size']
+          assert abs(b['size'] - a['size']*0.9) < 0.8, (a['size'],b['size'])
+          assert b['font'] == a['font'], (a['font'],b['font'])
+          assert keep['text']=='Subtitle stays here'
+          assert len(out)==len(src)==1
+          print('PASS: embedded page font reused and unrelated text preserved')
+          PY
