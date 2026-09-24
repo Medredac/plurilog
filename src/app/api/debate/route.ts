@@ -1765,7 +1765,7 @@ Layout/style/template changes must not silently delete names, contact details, d
       .join(', ');
     sections.push(
       `CURRENT-ROUND ARTIFACT STATUS:
-An earlier model has already fulfilled the user's document-creation request by creating: ${createdNames}.
+An earlier model has already fulfilled the user's document creation or editing request and produced: ${createdNames}.
 The finished document is available in this same round. If rendered page images are attached, inspect those pages directly for layout, pagination, image placement, tables, spacing, and other visual details.
 Respond as a normal panel reviewer/contributor. Do not repeat the user's creation request, do not generate a redundant standalone image, and do not claim the finished document is unavailable when its text or rendered pages are present.`
     );
@@ -1890,11 +1890,30 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
       ? 'Please review and discuss the attached document(s).'
       : trimmedPrompt;
 
+  const currentRoundArtifactFollowThrough =
+    runtimeProductContext?.documentCreatedThisTurn &&
+    currentTurnDocuments &&
+    currentTurnDocuments.length > 0
+      ? `CURRENT-ROUND EXECUTION STATE — AUTHORITATIVE:
+The user's document request in this round has already been completed by an earlier panel seat.
+The resulting document(s) are: ${currentTurnDocuments
+          .map((doc) => doc.filename)
+          .filter(Boolean)
+          .join(', ')}.
+Do not speak as though the requested edit/creation is still pending, and do not tell the user to wait for ChatGPT to apply it.
+Your job now is to inspect the resulting artifact evidence available in this call, evaluate the completed result independently, and report what you actually observe. If rendered page images are attached, treat those as the visual result of the completed document action.`
+      : '';
+
   let userContent = effectivePrompt;
   if (sections.length > 0) {
     userContent = effectivePrompt
       ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
       : sections.join('\n\n');
+  }
+  if (currentRoundArtifactFollowThrough) {
+    userContent = userContent
+      ? `${userContent}\n\n${currentRoundArtifactFollowThrough}`
+      : currentRoundArtifactFollowThrough;
   }
 
   const isLikelyDocumentCreationRequest =
