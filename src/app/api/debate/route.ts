@@ -4413,7 +4413,7 @@ export async function POST(req: NextRequest) {
                   const serviceClientForSourceEdit = createServiceClient();
                   const currentParentState = await findDocumentStateSnapshot({
                     serviceSupabase: serviceClientForSourceEdit,
-                    discussionId,
+                    discussionId: discussionId || '',
                     storagePath: sourceStoragePath,
                     filename: sourceAttachment.filename || null,
                   });
