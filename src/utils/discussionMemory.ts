@@ -534,6 +534,377 @@ export function groupMessagesIntoRounds(
   return rounds;
 }
 
+export interface ConversationHistoryPlan {
+  is_history_lookup: boolean;
+  target: 'user' | 'chatgpt' | 'claude' | 'gemini' | null;
+  relation:
+    | 'first'
+    | 'last'
+    | 'ordinal'
+    | 'before'
+    | 'after'
+    | 'previous'
+    | null;
+  ordinal: number | null;
+  anchor: string | null;
+  include_attachments: boolean;
+  confidence: number;
+}
+
+function compactRecentRoundsForHistoryPlanner(
+  allRounds: Round[],
+  maxRounds: number = 3
+): string {
+  return allRounds
+    .slice(Math.max(0, allRounds.length - maxRounds))
+    .map((round, index, selected) => {
+      const absoluteIndex =
+        allRounds.length - selected.length + index + 1;
+      const responses = round.modelResponses
+        .map((response) => {
+          const content = (response.content || '').trim();
+          const clipped =
+            content.length > 900
+              ? `${content.slice(0, 900)}…`
+              : content;
+          return `${response.name}: ${clipped}`;
+        })
+        .join('\n');
+      return [
+        `[Round ${absoluteIndex}]`,
+        `User: ${round.userPrompt || ''}`,
+        responses,
+      ]
+        .filter(Boolean)
+        .join('\n');
+    })
+    .join('\n\n');
+}
+
+function validateConversationHistoryPlan(
+  raw: any
+): ConversationHistoryPlan | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (typeof raw.is_history_lookup !== 'boolean') return null;
+
+  const target =
+    raw.target === null ||
+    ['user', 'chatgpt', 'claude', 'gemini'].includes(raw.target)
+      ? raw.target
+      : null;
+  const relation =
+    raw.relation === null ||
+    ['first', 'last', 'ordinal', 'before', 'after', 'previous'].includes(
+      raw.relation
+    )
+      ? raw.relation
+      : null;
+  const ordinal =
+    Number.isInteger(raw.ordinal) && raw.ordinal >= 1
+      ? raw.ordinal
+      : null;
+  const anchor =
+    typeof raw.anchor === 'string' && raw.anchor.trim()
+      ? raw.anchor.trim()
+      : null;
+  const confidence =
+    typeof raw.confidence === 'number' &&
+    Number.isFinite(raw.confidence)
+      ? Math.max(0, Math.min(1, raw.confidence))
+      : 0;
+
+  if (!raw.is_history_lookup) {
+    return {
+      is_history_lookup: false,
+      target: null,
+      relation: null,
+      ordinal: null,
+      anchor: null,
+      include_attachments: false,
+      confidence,
+    };
+  }
+
+  if (!target || !relation) return null;
+  if (relation === 'ordinal' && !ordinal) return null;
+  if ((relation === 'before' || relation === 'after') && !anchor) {
+    return null;
+  }
+
+  return {
+    is_history_lookup: true,
+    target,
+    relation,
+    ordinal,
+    anchor,
+    include_attachments: Boolean(raw.include_attachments),
+    confidence,
+  };
+}
+
+/**
+ * Uses a small language model only to understand the user's natural-language
+ * history/navigation intent. It never decides the historical answer itself.
+ * The returned plan is executed against the complete ordered raw discussion.
+ *
+ * This is deliberately separate from semantic/vector retrieval: embeddings are
+ * useful for locating a topical anchor, but they do not understand discourse
+ * acts such as an elliptical "No, that wasn't my first message. Check again."
+ */
+export async function planConversationHistoryLookup(
+  currentPrompt: string,
+  allRounds: Round[],
+  openai: OpenAI
+): Promise<ConversationHistoryPlan | null> {
+  if (!currentPrompt?.trim() || !Array.isArray(allRounds) || allRounds.length === 0) {
+    return null;
+  }
+
+  const recentContext = compactRecentRoundsForHistoryPlanner(allRounds, 3);
+  const systemPrompt = `You are a conversation-history query planner.
+Your sole job is to decide whether the user's CURRENT message is asking to retrieve, verify, navigate, or correct something from the exact prior conversation history.
+
+Understand meaning, including paraphrase, slang, typos, ellipsis, corrections, and follow-ups. Use the recent exact rounds only to resolve references in the current message. For example, if the previous user turn asked for their first message and the current turn says "No, that's not it. Check again", preserve that prior history request.
+
+Do NOT answer the user's question. Do NOT infer the historical content. Return only a retrieval plan.
+
+Return exactly this JSON shape:
+{
+  "is_history_lookup": boolean,
+  "target": "user" | "chatgpt" | "claude" | "gemini" | null,
+  "relation": "first" | "last" | "ordinal" | "before" | "after" | "previous" | null,
+  "ordinal": integer | null,
+  "anchor": string | null,
+  "include_attachments": boolean,
+  "confidence": number
+}
+
+Definitions:
+- target=user means a historical user message/prompt.
+- target=chatgpt/claude/gemini means that panelist's historical response.
+- first/last are chronological positions across the entire discussion.
+- ordinal means the Nth message/response from that target; ordinal is 1-based.
+- previous means the immediately preceding relevant message from that target before the current turn.
+- before/after means relative to a historical topic/message described by anchor.
+- anchor must be the user's natural-language topic/message description, not an answer you invent.
+- include_attachments=true when the user also asks what file/document/image was attached to the resolved user message.
+- A general request to continue an earlier task is NOT automatically a history lookup.
+- A request about what somebody literally said, which message came first/last/Nth, what came before/after something, or a correction like "that wasn't my first message, check again" IS a history lookup.
+- When the current message is an elliptical correction/follow-up to the immediately previous history request, inherit the previous retrieval intent instead of returning false.
+- If uncertain whether this is a history-navigation request, return is_history_lookup=false rather than guessing.`;
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'google/gemini-3.1-flash-lite',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `RECENT EXACT CONTEXT:\n${recentContext}\n\nCURRENT MESSAGE:\n${currentPrompt.trim()}`,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 250,
+      temperature: 0,
+    });
+
+    const rawContent = res.choices?.[0]?.message?.content?.trim();
+    if (!rawContent) return null;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawContent);
+    } catch {
+      return null;
+    }
+
+    const plan = validateConversationHistoryPlan(parsed);
+    if (!plan) return null;
+
+    console.log('[Memory History Planner]', {
+      prompt: currentPrompt.slice(0, 220),
+      isHistoryLookup: plan.is_history_lookup,
+      target: plan.target,
+      relation: plan.relation,
+      ordinal: plan.ordinal,
+      anchor: plan.anchor,
+      includeAttachments: plan.include_attachments,
+      confidence: plan.confidence,
+    });
+
+    return plan;
+  } catch (err) {
+    console.warn('[Memory History Planner] Non-critical planner failure:', err);
+    return null;
+  }
+}
+
+function speakerDisplayName(
+  target: ConversationHistoryPlan['target']
+): 'Claude' | 'Gemini' | 'ChatGPT' | null {
+  if (target === 'claude') return 'Claude';
+  if (target === 'gemini') return 'Gemini';
+  if (target === 'chatgpt') return 'ChatGPT';
+  return null;
+}
+
+export async function executeConversationHistoryPlan(
+  plan: ConversationHistoryPlan,
+  allRounds: Round[],
+  semanticOptions?: SemanticAnchorOptions
+): Promise<ChronologicalMemoryResult | null> {
+  if (
+    !plan.is_history_lookup ||
+    plan.confidence < 0.55 ||
+    !plan.target ||
+    !plan.relation ||
+    allRounds.length === 0
+  ) {
+    return null;
+  }
+
+  if (plan.target === 'user') {
+    if (
+      plan.relation === 'first' ||
+      plan.relation === 'last' ||
+      plan.relation === 'previous' ||
+      plan.relation === 'ordinal'
+    ) {
+      let index: number;
+      if (plan.relation === 'first') index = 0;
+      else if (plan.relation === 'last' || plan.relation === 'previous') {
+        index = allRounds.length - 1;
+      } else {
+        index = (plan.ordinal || 1) - 1;
+      }
+
+      if (index < 0 || index >= allRounds.length) return null;
+      const round = allRounds[index];
+      return {
+        roundUserMessageId: round.userMessageId,
+        kind: 'user_prompt',
+        speaker: 'User',
+        content: (round.userPrompt || '').trim(),
+        label:
+          plan.relation === 'first'
+            ? "User's first question / statement"
+            : plan.relation === 'last' || plan.relation === 'previous'
+              ? "User's most recent prior question / statement"
+              : `User's message #${plan.ordinal}`,
+      };
+    }
+  } else {
+    const speaker = speakerDisplayName(plan.target);
+    if (
+      speaker &&
+      (plan.relation === 'first' ||
+        plan.relation === 'last' ||
+        plan.relation === 'previous' ||
+        plan.relation === 'ordinal')
+    ) {
+      const responses: Array<{
+        round: Round;
+        content: string;
+      }> = [];
+      for (const round of allRounds) {
+        const response = round.modelResponses.find(
+          (item) => item.name.toLowerCase() === speaker.toLowerCase()
+        );
+        if (response?.content?.trim()) {
+          responses.push({ round, content: response.content.trim() });
+        }
+      }
+      if (responses.length === 0) return null;
+
+      let index: number;
+      if (plan.relation === 'first') index = 0;
+      else if (plan.relation === 'last' || plan.relation === 'previous') {
+        index = responses.length - 1;
+      } else {
+        index = (plan.ordinal || 1) - 1;
+      }
+      if (index < 0 || index >= responses.length) return null;
+
+      const chosen = responses[index];
+      return {
+        roundUserMessageId: chosen.round.userMessageId,
+        kind: 'model_response',
+        speaker,
+        content: chosen.content,
+        label:
+          plan.relation === 'first'
+            ? `${speaker}'s first response`
+            : plan.relation === 'last' || plan.relation === 'previous'
+              ? `${speaker}'s most recent prior response`
+              : `${speaker}'s response #${plan.ordinal}`,
+      };
+    }
+  }
+
+  if (
+    (plan.relation === 'before' || plan.relation === 'after') &&
+    plan.anchor
+  ) {
+    let anchorIndex = findAnchorRoundIndex(plan.anchor, allRounds);
+    if (anchorIndex === null && semanticOptions) {
+      anchorIndex = await resolveSemanticAnchorRoundIndex(
+        plan.anchor,
+        allRounds,
+        semanticOptions
+      );
+    }
+    if (anchorIndex === null) return null;
+
+    if (plan.target === 'user') {
+      const targetIndex =
+        plan.relation === 'before' ? anchorIndex - 1 : anchorIndex + 1;
+      if (targetIndex < 0 || targetIndex >= allRounds.length) return null;
+      const targetRound = allRounds[targetIndex];
+      return {
+        roundUserMessageId: targetRound.userMessageId,
+        kind: 'user_prompt',
+        speaker: 'User',
+        content: targetRound.userPrompt.trim(),
+        label: `User's question immediately ${plan.relation} "${plan.anchor}" (Round ${targetIndex + 1})`,
+      };
+    }
+
+    const speaker = speakerDisplayName(plan.target);
+    if (!speaker) return null;
+
+    if (plan.relation === 'after') {
+      const response = allRounds[anchorIndex].modelResponses.find(
+        (item) => item.name.toLowerCase() === speaker.toLowerCase()
+      );
+      if (!response?.content?.trim()) return null;
+      return {
+        roundUserMessageId: allRounds[anchorIndex].userMessageId,
+        kind: 'model_response',
+        speaker,
+        content: response.content.trim(),
+        label: `${speaker}'s response to "${plan.anchor}" (Round ${anchorIndex + 1})`,
+      };
+    }
+
+    for (let index = anchorIndex - 1; index >= 0; index -= 1) {
+      const response = allRounds[index].modelResponses.find(
+        (item) => item.name.toLowerCase() === speaker.toLowerCase()
+      );
+      if (response?.content?.trim()) {
+        return {
+          roundUserMessageId: allRounds[index].userMessageId,
+          kind: 'model_response',
+          speaker,
+          content: response.content.trim(),
+          label: `${speaker}'s response prior to "${plan.anchor}" (Round ${index + 1})`,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 export const ORDINAL_MAP: Record<string, number> = {
   first: 0,
   '1st': 0,
@@ -1632,11 +2003,35 @@ export async function getScopedDiscussionMemory(
       }
     }
 
-    let chronologicalMemory = await resolveDeterministicChronology(currentPrompt, allRounds, {
-      supabase,
-      openai,
-      discussionId,
-    });
+    // Natural-language planner is the primary chronology-intent layer.
+    // It understands paraphrases and elliptical follow-ups, then delegates the
+    // factual answer to deterministic ordered-history execution. The legacy
+    // parser remains only as a fail-safe if the planner is unavailable.
+    const historyPlan = await planConversationHistoryLookup(
+      currentPrompt,
+      allRounds,
+      openai
+    );
+
+    let chronologicalMemory = historyPlan
+      ? await executeConversationHistoryPlan(historyPlan, allRounds, {
+          supabase,
+          openai,
+          discussionId,
+        })
+      : null;
+
+    if (!chronologicalMemory) {
+      chronologicalMemory = await resolveDeterministicChronology(
+        currentPrompt,
+        allRounds,
+        {
+          supabase,
+          openai,
+          discussionId,
+        }
+      );
+    }
 
     if (
       chronologicalMemory?.kind === 'user_prompt' &&
