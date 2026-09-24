@@ -558,7 +558,7 @@ def font_name(page, span, text, bold=False, italic=False):
 `;
 
 function buildPdfEditScript(): Buffer {
-  const base = PDF_EDIT_SCRIPT.toString('utf8');
+  const base = PDF_EDIT_SCRIPT;
   const loopAnchor = '\\nfor edit in edits:\\n';
   if (!base.includes(loopAnchor)) {
     throw new Error('PDF source editor loop anchor is missing.');
