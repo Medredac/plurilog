@@ -57,6 +57,8 @@ export interface ChronologicalMemoryResult {
   content: string;
   label: string;
   attachments?: RoundAttachment[];
+  historyEventIndex?: number;
+  roundIndex?: number;
 }
 
 export interface DiscussionMemoryResult {
@@ -685,7 +687,10 @@ Definitions:
 - first/last are chronological positions across the entire discussion.
 - ordinal means the Nth message/response from that target; ordinal is 1-based.
 - previous means the immediately preceding relevant message from that target before the current turn.
-- before/after means relative to a historical topic/message described by anchor.
+- before/after means navigation on the actual ordered message-event timeline. "after" means the first matching target event strictly after the resolved anchor event; "before" means the nearest matching target event strictly before it.
+- anchor must describe the HISTORICAL EVENT being navigated around, not merely repeat the immediately preceding lookup question.
+- For elliptical follow-ups such as "and what did Claude say immediately after that?", resolve "that" to the older historical event/topic the previous user turn was referring to. If the previous turn says "when I asked you to make X smaller...", the anchor should describe that earlier "make X smaller" request, not the later meta-question about it.
+- Only anchor to the immediately preceding user query itself when the current user explicitly means that query as the event.
 - anchor must be the user's natural-language topic/message description, not an answer you invent.
 - include_attachments=true when the user also asks what file/document/image was attached to the resolved user message.
 - A general request to continue an earlier task is NOT automatically a history lookup.
@@ -721,18 +726,25 @@ Definitions:
     const plan = validateConversationHistoryPlan(parsed);
     if (!plan) return null;
 
+    const refinedPlan = await refineConversationHistoryAnchor(
+      plan,
+      currentPrompt,
+      allRounds,
+      openai
+    );
+
     console.log('[Memory History Planner]', {
       prompt: currentPrompt.slice(0, 220),
-      isHistoryLookup: plan.is_history_lookup,
-      target: plan.target,
-      relation: plan.relation,
-      ordinal: plan.ordinal,
-      anchor: plan.anchor,
-      includeAttachments: plan.include_attachments,
-      confidence: plan.confidence,
+      isHistoryLookup: refinedPlan.is_history_lookup,
+      target: refinedPlan.target,
+      relation: refinedPlan.relation,
+      ordinal: refinedPlan.ordinal,
+      anchor: refinedPlan.anchor,
+      includeAttachments: refinedPlan.include_attachments,
+      confidence: refinedPlan.confidence,
     });
 
-    return plan;
+    return refinedPlan;
   } catch (err) {
     console.warn('[Memory History Planner] Non-critical planner failure:', err);
     return null;
@@ -746,6 +758,233 @@ function speakerDisplayName(
   if (target === 'gemini') return 'Gemini';
   if (target === 'chatgpt') return 'ChatGPT';
   return null;
+}
+
+interface ConversationHistoryEvent {
+  eventIndex: number;
+  roundIndex: number;
+  roundUserMessageId?: string;
+  kind: 'user_prompt' | 'model_response';
+  speaker: 'Claude' | 'Gemini' | 'ChatGPT' | 'User';
+  content: string;
+}
+
+function normalizeHistoryAnchorText(value: string): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[-_]/g, ' ')
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildConversationHistoryEvents(
+  allRounds: Round[]
+): ConversationHistoryEvent[] {
+  const events: ConversationHistoryEvent[] = [];
+
+  for (let roundIndex = 0; roundIndex < allRounds.length; roundIndex += 1) {
+    const round = allRounds[roundIndex];
+
+    events.push({
+      eventIndex: events.length,
+      roundIndex,
+      roundUserMessageId: round.userMessageId,
+      kind: 'user_prompt',
+      speaker: 'User',
+      content: (round.userPrompt || '').trim(),
+    });
+
+    for (const response of round.modelResponses) {
+      const lower = response.name.toLowerCase();
+      let speaker: ConversationHistoryEvent['speaker'] | null = null;
+      if (lower === 'claude') speaker = 'Claude';
+      else if (lower === 'gemini') speaker = 'Gemini';
+      else if (lower === 'chatgpt') speaker = 'ChatGPT';
+      if (!speaker) continue;
+
+      events.push({
+        eventIndex: events.length,
+        roundIndex,
+        roundUserMessageId: round.userMessageId,
+        kind: 'model_response',
+        speaker,
+        content: (response.content || '').trim(),
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * When an elliptical follow-up such as "and what did Claude say after that?"
+ * causes the planner to use the immediately preceding history-query wording as
+ * its anchor, ask the small planner model one focused question: does "that"
+ * refer to the previous query utterance itself, or to the historical event that
+ * query was describing? This is semantic dereferencing, not phrase matching.
+ */
+async function refineConversationHistoryAnchor(
+  plan: ConversationHistoryPlan,
+  currentPrompt: string,
+  allRounds: Round[],
+  openai: OpenAI
+): Promise<ConversationHistoryPlan> {
+  if (
+    !plan.is_history_lookup ||
+    (plan.relation !== 'before' && plan.relation !== 'after') ||
+    !plan.anchor ||
+    allRounds.length === 0
+  ) {
+    return plan;
+  }
+
+  const previousRound = allRounds[allRounds.length - 1];
+  const previousPrompt = (previousRound.userPrompt || '').trim();
+  if (!previousPrompt) return plan;
+
+  const normalizedAnchor = normalizeHistoryAnchorText(plan.anchor);
+  const normalizedPreviousPrompt = normalizeHistoryAnchorText(previousPrompt);
+
+  // Only refine when the first planner anchored directly to the immediately
+  // preceding user query. Ordinary explicit anchors are left untouched.
+  if (
+    !normalizedAnchor ||
+    !normalizedPreviousPrompt ||
+    normalizedAnchor !== normalizedPreviousPrompt
+  ) {
+    return plan;
+  }
+
+  const systemPrompt = `You refine the anchor for a conversation-history navigation query.
+
+The CURRENT message asks for something before/after "that" (or an equivalent reference), and the first planner anchored "that" to the entire immediately preceding user query.
+
+Decide whether the user means:
+1. the previous query utterance itself as a literal event in the conversation, or
+2. the older historical event/topic that the previous query was referring to.
+
+If it is (2), rewrite the anchor as a concise natural-language description of that older historical event. Preserve distinctive wording needed to locate it in the actual conversation. Do not answer the history question and do not invent historical content.
+
+Return exactly:
+{
+  "keep_previous_query_as_anchor": boolean,
+  "anchor": string | null
+}
+
+Examples:
+- Previous query: "When I asked you to shrink the title on the first PDF I uploaded, which file did I mean?"
+  Current: "What did Claude say immediately after that?"
+  -> anchor should describe "I asked you to shrink the title on the first PDF I uploaded", not the meta-question asking which file it meant.
+- Previous query: "What did I say in my previous question?"
+  Current: "What did Claude say after that previous question?"
+  -> keep_previous_query_as_anchor may be true.`;
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'google/gemini-3.1-flash-lite',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        {
+          role: 'user',
+          content: `PREVIOUS USER QUERY:
+${previousPrompt}
+
+CURRENT USER QUERY:
+${currentPrompt.trim()}`,
+        },
+      ],
+      response_format: { type: 'json_object' },
+      max_tokens: 180,
+      temperature: 0,
+    });
+
+    const raw = res.choices?.[0]?.message?.content?.trim();
+    if (!raw) return plan;
+
+    const parsed = JSON.parse(raw);
+    const keep = parsed?.keep_previous_query_as_anchor === true;
+    const refinedAnchor =
+      typeof parsed?.anchor === 'string' && parsed.anchor.trim()
+        ? parsed.anchor.trim()
+        : null;
+
+    if (keep || !refinedAnchor) {
+      return plan;
+    }
+
+    console.log('[Memory History Anchor Refiner]', {
+      originalAnchor: plan.anchor,
+      refinedAnchor,
+      previousPrompt: previousPrompt.slice(0, 220),
+    });
+
+    return {
+      ...plan,
+      anchor: refinedAnchor,
+    };
+  } catch (err) {
+    console.warn('[Memory History Anchor Refiner] Non-critical refinement failure:', err);
+    return plan;
+  }
+}
+
+function localHistoryAnchorEventIndex(
+  rawAnchor: string,
+  events: ConversationHistoryEvent[],
+  allRounds: Round[]
+): number | null {
+  const normalizedRaw = normalizeHistoryAnchorText(rawAnchor);
+  const tokens = normalizedRaw.split(/\s+/).filter(Boolean);
+  const meaningfulTerms = tokens.filter(
+    (term) => !ANCHOR_NOISE_WORDS.has(term) && term.length >= 2
+  );
+  if (meaningfulTerms.length === 0) return null;
+
+  const phrase = meaningfulTerms.join(' ');
+  const phraseMatches: number[] = [];
+  const allTermsMatches: number[] = [];
+
+  for (const event of events) {
+    const round = allRounds[event.roundIndex];
+    if (
+      event.kind === 'user_prompt' &&
+      round &&
+      isChronologyQuery(round.userPrompt)
+    ) {
+      continue;
+    }
+
+    const normalizedContent = normalizeHistoryAnchorText(event.content);
+    if (!normalizedContent) continue;
+
+    if (normalizedContent.includes(phrase)) {
+      phraseMatches.push(event.eventIndex);
+    }
+    if (meaningfulTerms.every((term) => normalizedContent.includes(term))) {
+      allTermsMatches.push(event.eventIndex);
+    }
+  }
+
+  if (phraseMatches.length === 1) return phraseMatches[0];
+  if (phraseMatches.length > 1) return null;
+  if (allTermsMatches.length === 1) return allTermsMatches[0];
+  return null;
+}
+
+function resultFromHistoryEvent(
+  event: ConversationHistoryEvent,
+  label: string
+): ChronologicalMemoryResult {
+  return {
+    roundUserMessageId: event.roundUserMessageId,
+    kind: event.kind,
+    speaker: event.speaker,
+    content: event.content,
+    label,
+    historyEventIndex: event.eventIndex,
+    roundIndex: event.roundIndex,
+  };
 }
 
 export async function executeConversationHistoryPlan(
@@ -763,141 +1002,104 @@ export async function executeConversationHistoryPlan(
     return null;
   }
 
-  if (plan.target === 'user') {
-    if (
-      plan.relation === 'first' ||
-      plan.relation === 'last' ||
-      plan.relation === 'previous' ||
-      plan.relation === 'ordinal'
-    ) {
-      let index: number;
-      if (plan.relation === 'first') index = 0;
-      else if (plan.relation === 'last' || plan.relation === 'previous') {
-        index = allRounds.length - 1;
-      } else {
-        index = (plan.ordinal || 1) - 1;
-      }
+  const events = buildConversationHistoryEvents(allRounds);
+  const targetSpeaker: ConversationHistoryEvent['speaker'] =
+    plan.target === 'user'
+      ? 'User'
+      : speakerDisplayName(plan.target) || 'User';
 
-      if (index < 0 || index >= allRounds.length) return null;
-      const round = allRounds[index];
-      return {
-        roundUserMessageId: round.userMessageId,
-        kind: 'user_prompt',
-        speaker: 'User',
-        content: (round.userPrompt || '').trim(),
-        label:
-          plan.relation === 'first'
-            ? "User's first question / statement"
-            : plan.relation === 'last' || plan.relation === 'previous'
-              ? "User's most recent prior question / statement"
-              : `User's message #${plan.ordinal}`,
-      };
+  const targetEvents = events.filter(
+    (event) => event.speaker === targetSpeaker && event.content.trim()
+  );
+
+  if (
+    plan.relation === 'first' ||
+    plan.relation === 'last' ||
+    plan.relation === 'previous' ||
+    plan.relation === 'ordinal'
+  ) {
+    if (targetEvents.length === 0) return null;
+
+    let targetIndex: number;
+    if (plan.relation === 'first') {
+      targetIndex = 0;
+    } else if (plan.relation === 'last' || plan.relation === 'previous') {
+      targetIndex = targetEvents.length - 1;
+    } else {
+      targetIndex = (plan.ordinal || 1) - 1;
     }
-  } else {
-    const speaker = speakerDisplayName(plan.target);
-    if (
-      speaker &&
-      (plan.relation === 'first' ||
-        plan.relation === 'last' ||
-        plan.relation === 'previous' ||
-        plan.relation === 'ordinal')
-    ) {
-      const responses: Array<{
-        round: Round;
-        content: string;
-      }> = [];
-      for (const round of allRounds) {
-        const response = round.modelResponses.find(
-          (item) => item.name.toLowerCase() === speaker.toLowerCase()
-        );
-        if (response?.content?.trim()) {
-          responses.push({ round, content: response.content.trim() });
-        }
-      }
-      if (responses.length === 0) return null;
 
-      let index: number;
-      if (plan.relation === 'first') index = 0;
-      else if (plan.relation === 'last' || plan.relation === 'previous') {
-        index = responses.length - 1;
-      } else {
-        index = (plan.ordinal || 1) - 1;
-      }
-      if (index < 0 || index >= responses.length) return null;
+    if (targetIndex < 0 || targetIndex >= targetEvents.length) return null;
+    const chosen = targetEvents[targetIndex];
 
-      const chosen = responses[index];
-      return {
-        roundUserMessageId: chosen.round.userMessageId,
-        kind: 'model_response',
-        speaker,
-        content: chosen.content,
-        label:
-          plan.relation === 'first'
-            ? `${speaker}'s first response`
-            : plan.relation === 'last' || plan.relation === 'previous'
-              ? `${speaker}'s most recent prior response`
-              : `${speaker}'s response #${plan.ordinal}`,
-      };
-    }
+    const label =
+      plan.relation === 'first'
+        ? targetSpeaker === 'User'
+          ? "User's first question / statement"
+          : `${targetSpeaker}'s first response`
+        : plan.relation === 'last' || plan.relation === 'previous'
+          ? targetSpeaker === 'User'
+            ? "User's most recent prior question / statement"
+            : `${targetSpeaker}'s most recent prior response`
+          : targetSpeaker === 'User'
+            ? `User's message #${plan.ordinal}`
+            : `${targetSpeaker}'s response #${plan.ordinal}`;
+
+    return resultFromHistoryEvent(chosen, label);
   }
 
   if (
     (plan.relation === 'before' || plan.relation === 'after') &&
     plan.anchor
   ) {
-    let anchorIndex = findAnchorRoundIndex(plan.anchor, allRounds);
-    if (anchorIndex === null && semanticOptions) {
-      anchorIndex = await resolveSemanticAnchorRoundIndex(
-        plan.anchor,
-        allRounds,
-        semanticOptions
-      );
-    }
-    if (anchorIndex === null) return null;
+    let anchorEventIndex = localHistoryAnchorEventIndex(
+      plan.anchor,
+      events,
+      allRounds
+    );
 
-    if (plan.target === 'user') {
-      const targetIndex =
-        plan.relation === 'before' ? anchorIndex - 1 : anchorIndex + 1;
-      if (targetIndex < 0 || targetIndex >= allRounds.length) return null;
-      const targetRound = allRounds[targetIndex];
-      return {
-        roundUserMessageId: targetRound.userMessageId,
-        kind: 'user_prompt',
-        speaker: 'User',
-        content: targetRound.userPrompt.trim(),
-        label: `User's question immediately ${plan.relation} "${plan.anchor}" (Round ${targetIndex + 1})`,
-      };
+    if (anchorEventIndex === null) {
+      let anchorRoundIndex = findAnchorRoundIndex(plan.anchor, allRounds);
+      if (anchorRoundIndex === null && semanticOptions) {
+        anchorRoundIndex = await resolveSemanticAnchorRoundIndex(
+          plan.anchor,
+          allRounds,
+          semanticOptions
+        );
+      }
+
+      if (anchorRoundIndex !== null) {
+        const userEvent = events.find(
+          (event) =>
+            event.roundIndex === anchorRoundIndex &&
+            event.kind === 'user_prompt'
+        );
+        anchorEventIndex = userEvent?.eventIndex ?? null;
+      }
     }
 
-    const speaker = speakerDisplayName(plan.target);
-    if (!speaker) return null;
+    if (anchorEventIndex === null) return null;
 
     if (plan.relation === 'after') {
-      const response = allRounds[anchorIndex].modelResponses.find(
-        (item) => item.name.toLowerCase() === speaker.toLowerCase()
-      );
-      if (!response?.content?.trim()) return null;
-      return {
-        roundUserMessageId: allRounds[anchorIndex].userMessageId,
-        kind: 'model_response',
-        speaker,
-        content: response.content.trim(),
-        label: `${speaker}'s response to "${plan.anchor}" (Round ${anchorIndex + 1})`,
-      };
+      for (let index = anchorEventIndex + 1; index < events.length; index += 1) {
+        const event = events[index];
+        if (event.speaker === targetSpeaker && event.content.trim()) {
+          return resultFromHistoryEvent(
+            event,
+            `${targetSpeaker}'s first response/message after "${plan.anchor}"`
+          );
+        }
+      }
+      return null;
     }
 
-    for (let index = anchorIndex - 1; index >= 0; index -= 1) {
-      const response = allRounds[index].modelResponses.find(
-        (item) => item.name.toLowerCase() === speaker.toLowerCase()
-      );
-      if (response?.content?.trim()) {
-        return {
-          roundUserMessageId: allRounds[index].userMessageId,
-          kind: 'model_response',
-          speaker,
-          content: response.content.trim(),
-          label: `${speaker}'s response prior to "${plan.anchor}" (Round ${index + 1})`,
-        };
+    for (let index = anchorEventIndex - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event.speaker === targetSpeaker && event.content.trim()) {
+        return resultFromHistoryEvent(
+          event,
+          `${targetSpeaker}'s first response/message before "${plan.anchor}"`
+        );
       }
     }
   }
