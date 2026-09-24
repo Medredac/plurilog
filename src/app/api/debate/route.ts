@@ -1901,7 +1901,8 @@ The resulting document(s) are: ${currentTurnDocuments
           .filter(Boolean)
           .join(', ')}.
 Do not speak as though the requested edit/creation is still pending, and do not tell the user to wait for ChatGPT to apply it.
-Your job now is to inspect the resulting artifact evidence available in this call, evaluate the completed result independently, and report what you actually observe. If rendered page images are attached, treat those as the visual result of the completed document action.`
+Your job now is to inspect the resulting artifact evidence available in this call, evaluate the completed result independently, and report what you actually observe. If rendered page images are attached, treat those as the visual result of the completed document action.
+Do not claim that a visual/layout condition was pre-existing, newly introduced, preserved, or changed relative to the source unless the corresponding source-state visual evidence is also available in your current call. When only the resulting artifact is visually available, describe the result itself without inventing a before/after comparison.`
       : '';
 
   let userContent = effectivePrompt;
