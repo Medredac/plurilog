@@ -26,6 +26,7 @@ export interface RoundAttachment {
   filename: string;
   storagePath?: string | null;
   documentId?: string | null;
+  sender?: 'user' | 'assistant';
 }
 
 export interface Round {
@@ -55,6 +56,7 @@ export interface ChronologicalMemoryResult {
   speaker?: 'Claude' | 'Gemini' | 'ChatGPT' | 'User';
   content: string;
   label: string;
+  attachments?: RoundAttachment[];
 }
 
 export interface DiscussionMemoryResult {
@@ -454,7 +456,10 @@ export function groupMessagesIntoRounds(
       for (const url of rawUrls) {
         const attMeta = extractAttachmentMetadata(url, knownDocuments);
         if (attMeta) {
-          attachments.push(attMeta);
+          attachments.push({
+            ...attMeta,
+            sender: 'user',
+          });
         }
       }
 
@@ -501,7 +506,10 @@ export function groupMessagesIntoRounds(
               existing.documentId === attMeta.documentId)
         );
         if (!duplicate) {
-          currentRound.attachments.push(attMeta);
+          currentRound.attachments.push({
+            ...attMeta,
+            sender: 'assistant',
+          });
         }
       }
     }
@@ -589,6 +597,16 @@ export const ANCHOR_NOISE_WORDS = new Set([
 export function isChronologyQuery(prompt: string): boolean {
   if (!prompt) return false;
   const clean = prompt.trim().toLowerCase().replace(/[?.!]+$/, '').trim();
+
+  // Stage A user first / ordinal chronology, including natural wording such as
+  // "What was my very first message in this conversation?"
+  if (
+    /\bwhat (?:was|did i (?:ask|say) in) (?:my |the )?(?:very )?(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th) (?:thing|question|prompt|turn|message)\b/i.test(clean) ||
+    /\bwhat did i (?:ask|say|write|send) (?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b/i.test(clean) ||
+    /\bwhat was (?:my |the )?(?:very )?(?:first|earliest|initial) (?:thing|question|prompt|turn|message)(?: i (?:asked|said|wrote|sent))?(?: in (?:this|the) (?:conversation|discussion|thread|chat))?\b/i.test(clean)
+  ) {
+    return true;
+  }
 
   // 1. Stage B current-turn & relative intents
   if (
@@ -1081,21 +1099,24 @@ export async function resolveDeterministicChronology(
   // 2. User ordinal / first / earliest queries
   const ordinalMatch =
     lower.match(
-      /\bwhat (?:was|did I (?:ask|say) in) (?:my |the )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th) (?:thing|question|prompt|turn)\b/i
+      /\bwhat (?:was|did i (?:ask|say) in) (?:my |the )?(?:very )?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th) (?:thing|question|prompt|turn|message)\b/i
     ) ||
     lower.match(
-      /\bwhat did I (?:ask|say) (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b/i
+      /\bwhat did i (?:ask|say|write|send) (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th|6th|7th|8th|9th|10th)\b/i
     ) ||
     lower.match(
-      /\bwhat was (?:my |the )?(first|earliest) (?:thing|question|prompt|turn)(?: I (?:asked|said))?\b/i
+      /\bwhat was (?:my |the )?(?:very )?(first|earliest|initial) (?:thing|question|prompt|turn|message)(?: i (?:asked|said|wrote|sent))?(?: in (?:this|the) (?:conversation|discussion|thread|chat))?\b/i
     ) ||
     lower.match(
-      /\bwhat was the (first|earliest) thing I said\b/i
+      /\bwhat was the (?:very )?(first|earliest|initial) thing i (?:said|asked|wrote|sent)\b/i
     );
 
   if (ordinalMatch) {
     const rawOrdinal = ordinalMatch[1]?.toLowerCase();
-    const targetIndex = rawOrdinal === 'earliest' ? 0 : (rawOrdinal ? ORDINAL_MAP[rawOrdinal] : 0);
+    const targetIndex =
+      rawOrdinal === 'earliest' || rawOrdinal === 'initial'
+        ? 0
+        : (rawOrdinal ? ORDINAL_MAP[rawOrdinal] : 0);
 
     if (typeof targetIndex === 'number' && targetIndex >= 0 && targetIndex < allRounds.length) {
       const targetRound = allRounds[targetIndex];
@@ -1611,11 +1632,30 @@ export async function getScopedDiscussionMemory(
       }
     }
 
-    const chronologicalMemory = await resolveDeterministicChronology(currentPrompt, allRounds, {
+    let chronologicalMemory = await resolveDeterministicChronology(currentPrompt, allRounds, {
       supabase,
       openai,
       discussionId,
     });
+
+    if (
+      chronologicalMemory?.kind === 'user_prompt' &&
+      chronologicalMemory.roundUserMessageId
+    ) {
+      const resolvedRound = allRounds.find(
+        (round) =>
+          round.userMessageId === chronologicalMemory!.roundUserMessageId
+      );
+      const userAttachments = (resolvedRound?.attachments || []).filter(
+        (attachment) => attachment.sender === 'user'
+      );
+      if (userAttachments.length > 0) {
+        chronologicalMemory = {
+          ...chronologicalMemory,
+          attachments: userAttachments,
+        };
+      }
+    }
     if (chronologicalMemory) {
       console.log(
         `[Memory Chronology] Resolved deterministic chronology: ${chronologicalMemory.label}`,
