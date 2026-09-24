@@ -316,6 +316,106 @@ export function inferDocumentStateImageBindings(
   return [];
 }
 
+export async function listDocumentStateSnapshots(options: {
+  serviceSupabase: any;
+  discussionId: string;
+}): Promise<DocumentStateSnapshot[]> {
+  const { serviceSupabase, discussionId } = options;
+  if (!serviceSupabase || !discussionId) return [];
+
+  const { data, error } = await serviceSupabase
+    .from('discussion_artifacts')
+    .select('id, created_at, metadata')
+    .eq('discussion_id', discussionId)
+    .eq('artifact_type', DOCUMENT_STATE_ARTIFACT_TYPE)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  if (error || !Array.isArray(data)) {
+    if (error) {
+      console.warn('[Document State] Snapshot chronology lookup failed', {
+        discussionId,
+        error: error.message,
+      });
+    }
+    return [];
+  }
+
+  return data
+    .map((row: any) => snapshotFromRow(discussionId, row))
+    .filter(
+      (snapshot: DocumentStateSnapshot | null): snapshot is DocumentStateSnapshot =>
+        Boolean(snapshot)
+    );
+}
+
+export function selectGeneratedDocumentStateByReference(
+  snapshots: DocumentStateSnapshot[],
+  userPrompt: string
+): DocumentStateSnapshot | null {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) return null;
+  const prompt = (userPrompt || '').trim();
+  const lower = prompt.toLowerCase();
+
+  // Only resolve this path when the user explicitly refers to something the
+  // panel generated/created. Uploaded-source references belong to the upload
+  // provenance resolver, not the canonical generated-document chain.
+  const explicitlyGenerated =
+    /\b(?:generated|created|made|produced)\b/i.test(prompt) ||
+    /(?:生成|作成)した/.test(prompt);
+  if (!explicitlyGenerated) return null;
+
+  let candidates = [...snapshots];
+
+  if (/\bpdf\b/i.test(prompt)) {
+    candidates = candidates.filter((snapshot) => snapshot.format === 'pdf');
+  } else if (/\b(?:docx|word)\b/i.test(prompt)) {
+    candidates = candidates.filter((snapshot) => snapshot.format === 'docx');
+  }
+
+  const wantsJapanese =
+    /\bjapanese\b/i.test(prompt) ||
+    /\brirekisho\b/i.test(prompt) ||
+    /履歴書/.test(prompt);
+  if (wantsJapanese) {
+    candidates = candidates.filter((snapshot) => {
+      const locale = String(snapshot.spec?.design?.locale || '').toLowerCase();
+      const identity = [
+        snapshot.filename,
+        snapshot.fullText.slice(0, 400),
+        snapshot.spec?.title || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+      return (
+        locale.startsWith('ja') ||
+        identity.includes('履歴書') ||
+        identity.includes('rirekisho')
+      );
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  if (/\b(?:first|earliest|1st)\b/i.test(lower)) {
+    return candidates[0] || null;
+  }
+  if (/\b(?:second|2nd)\b/i.test(lower)) {
+    return candidates[1] || null;
+  }
+  if (/\b(?:third|3rd)\b/i.test(lower)) {
+    return candidates[2] || null;
+  }
+  if (/\b(?:fourth|4th)\b/i.test(lower)) {
+    return candidates[3] || null;
+  }
+  if (/\b(?:last|latest|newest|most recent)\b/i.test(lower)) {
+    return candidates[candidates.length - 1] || null;
+  }
+
+  return null;
+}
+
 export async function findLatestDocumentStateSnapshot(options: {
   serviceSupabase: any;
   discussionId: string;
