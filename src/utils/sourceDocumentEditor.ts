@@ -453,6 +453,126 @@ async function assertCommand(
   );
 }
 
+
+
+const PDF_FONT_BUFFER_OVERRIDE = String.raw\`
+def page_font_candidates(page):
+    out=[]
+    try:
+        fonts=page.get_fonts(full=True)
+    except:
+        fonts=[]
+    for item in fonts:
+        if len(item) < 5:
+            continue
+        base=str(item[3] or '')
+        resource=str(item[4] or '')
+        referencer=item[6] if len(item) > 6 else 0
+        if not resource:
+            continue
+        out.append({
+            'xref': int(item[0] or 0),
+            'ext': str(item[1] or ''),
+            'type': str(item[2] or ''),
+            'base': base,
+            'resource': '/' + resource.lstrip('/'),
+            'norm': normalize_font_label(base),
+            'family': font_family_label(base),
+            'referencer': referencer,
+        })
+    return out
+
+def matching_existing_font(page, span, want_bold=False, want_italic=False):
+    span_font=str(span.get('font') or '')
+    span_norm=normalize_font_label(span_font)
+    span_family=font_family_label(span_font)
+    candidates=page_font_candidates(page)
+
+    exact=[
+        c for c in candidates
+        if c['norm'] == span_norm
+        or (span_norm and (c['norm'].endswith(span_norm) or span_norm.endswith(c['norm'])))
+    ]
+    exact.sort(key=lambda c: (c['referencer'] != 0, len(c['norm'])))
+    if not want_bold and not want_italic and exact:
+        return exact[0]
+
+    related=[c for c in candidates if span_family and c['family'] == span_family]
+    if want_bold:
+        bold_related=[
+            c for c in related
+            if any(k in c['norm'] for k in ('bold','semibold','demibold','extrabold','ultrabold'))
+            and (not want_italic or any(k in c['norm'] for k in ('italic','oblique')))
+        ]
+        bold_related.sort(key=lambda c: (c['referencer'] != 0, len(c['norm'])))
+        if bold_related:
+            return bold_related[0]
+    if want_italic:
+        italic_related=[
+            c for c in related
+            if any(k in c['norm'] for k in ('italic','oblique'))
+        ]
+        italic_related.sort(key=lambda c: (c['referencer'] != 0, len(c['norm'])))
+        if italic_related:
+            return italic_related[0]
+    if exact:
+        return exact[0]
+    return None
+
+def font_name(page, span, text, bold=False, italic=False):
+    existing=matching_existing_font(page,span,bold,italic)
+    if existing:
+        xref=int(existing.get('xref') or 0)
+        ext=str(existing.get('ext') or '')
+        if xref > 0 and ext and ext != 'n/a':
+            try:
+                extracted=doc.extract_font(xref, named=True)
+                content=extracted.get('content') if isinstance(extracted,dict) else None
+                if content:
+                    name='PlurilogSrcFont%d' % xref
+                    page.insert_font(fontname=name,fontbuffer=content)
+                    return name
+            except Exception as exc:
+                print('WARN embedded font extraction/re-registration failed:',repr(exc),file=sys.stderr)
+            raise RuntimeError(
+                'Original embedded PDF font could not be safely reused for %r.' % text
+            )
+        return existing['resource']
+
+    if any(ord(ch)>127 for ch in text):
+        try:
+            fp=subprocess.check_output(['fc-match','-f','%{file}','Noto Sans CJK JP'], text=True).strip()
+            if fp and os.path.exists(fp):
+                name='PlurilogCJK'
+                try: page.insert_font(fontname=name, fontfile=fp)
+                except: pass
+                return name
+        except:
+            pass
+
+    raw=str(span.get('font') or '').lower()
+    if bold: return 'hebo'
+    if italic: return 'heit'
+    if 'times' in raw or 'serif' in raw: return 'tiro'
+    if 'courier' in raw or 'mono' in raw: return 'cour'
+    return 'helv'
+\`;
+
+function buildPdfEditScript(): Buffer {
+  const base = PDF_EDIT_SCRIPT.toString('utf8');
+  const loopAnchor = '\\nfor edit in edits:\\n';
+  if (!base.includes(loopAnchor)) {
+    throw new Error('PDF source editor loop anchor is missing.');
+  }
+  return Buffer.from(
+    base.replace(
+      loopAnchor,
+      '\\n' + PDF_FONT_BUFFER_OVERRIDE + '\\nfor edit in edits:\\n'
+    ),
+    'utf8'
+  );
+}
+
 async function createEditSandbox(timeoutMs: number, signal?: AbortSignal) {
   if (signal && signal.aborted) {
     throw new DOMException('Document edit aborted.', 'AbortError');
@@ -544,7 +664,7 @@ async function editPdfBytes(
       },
       {
         path: '/vercel/sandbox/edit_pdf.py',
-        content: Buffer.from(PDF_EDIT_SCRIPT, 'utf8'),
+        content: buildPdfEditScript(),
       },
     ]);
     const ensure = await sandbox.runCommand({
