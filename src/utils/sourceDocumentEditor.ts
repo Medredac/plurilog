@@ -455,7 +455,7 @@ async function assertCommand(
 
 
 
-const PDF_FONT_BUFFER_OVERRIDE = String.raw\`
+const PDF_FONT_BUFFER_OVERRIDE = String.raw`
 def page_font_candidates(page):
     out=[]
     try:
@@ -555,7 +555,7 @@ def font_name(page, span, text, bold=False, italic=False):
     if 'times' in raw or 'serif' in raw: return ('tiro',None)
     if 'courier' in raw or 'mono' in raw: return ('cour',None)
     return ('helv',None)
-\`;
+`;
 
 function buildPdfEditScript(): Buffer {
   const base = PDF_EDIT_SCRIPT.toString('utf8');
