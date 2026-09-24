@@ -70,6 +70,32 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isDocked, setIsDocked] = useState(false);
   const [dockedWidth, setDockedWidth] = useState(720);
+  const [isResizing, setIsResizing] = useState(false);
+  const hasCustomDockedWidthRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; width: number } | null>(null);
+
+  const getDockBounds = () => {
+    if (typeof window === 'undefined') {
+      return { min: 540, max: 960, preferred: 720 };
+    }
+
+    const min = 540;
+    const max = Math.max(
+      min,
+      Math.min(960, window.innerWidth - 288 - 420)
+    );
+    const preferred = Math.min(
+      max,
+      Math.max(min, window.innerWidth * 0.48)
+    );
+
+    return { min, max, preferred };
+  };
+
+  const clampDockedWidth = (width: number) => {
+    const { min, max } = getDockBounds();
+    return Math.min(max, Math.max(min, width));
+  };
 
   const extension = useMemo(() => getExtension(filename), [filename]);
   const isPdf = extension === 'pdf';
@@ -83,8 +109,14 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
     const updateLayout = () => {
       const docked = mq.matches;
       setIsDocked(docked);
+
       if (docked) {
-        setDockedWidth(Math.min(Math.max(window.innerWidth * 0.42, 520), 760));
+        const { preferred } = getDockBounds();
+        setDockedWidth((current) =>
+          hasCustomDockedWidthRef.current
+            ? clampDockedWidth(current)
+            : preferred
+        );
       }
     };
 
@@ -107,6 +139,50 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
 
     return null;
   }, [documentUrl, isDocx, isPdf, isText]);
+
+  const framePreviewUrl = useMemo(() => {
+    if (!previewUrl || !isPdf) return previewUrl;
+
+    const base = previewUrl.split('#')[0];
+    return `${base}#view=FitH`;
+  }, [previewUrl, isPdf]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const previousUserSelect = document.body.style.userSelect;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const start = dragStartRef.current;
+      if (!start) return;
+
+      const nextWidth = clampDockedWidth(
+        start.width + (start.x - event.clientX)
+      );
+      hasCustomDockedWidthRef.current = true;
+      setDockedWidth(nextWidth);
+    };
+
+    const stopResizing = () => {
+      dragStartRef.current = null;
+      setIsResizing(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResizing);
+    window.addEventListener('pointercancel', stopResizing);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResizing);
+      window.removeEventListener('pointercancel', stopResizing);
+      document.body.style.userSelect = previousUserSelect;
+      document.body.style.cursor = previousCursor;
+    };
+  }, [isResizing]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -273,8 +349,8 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
                 </div>
               )}
               <iframe
-                key={previewUrl}
-                src={previewUrl || undefined}
+                key={framePreviewUrl}
+                src={framePreviewUrl || undefined}
                 title={`Preview of ${filename}`}
                 className="h-full w-full border-0 bg-white"
                 onLoad={() => setFrameLoading(false)}
@@ -313,12 +389,53 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
             animate={{ width: dockedWidth, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.28,
+              duration: shouldReduceMotion || isResizing ? 0 : 0.28,
               ease: [0.16, 1, 0.3, 1],
             }}
             className="relative z-30 h-full shrink-0 overflow-hidden border-l border-zinc-200/80 bg-white shadow-[-12px_0_30px_-24px_rgba(0,0,0,0.35)]"
           >
-            <div className="flex h-full min-w-[520px] flex-col bg-white">
+            <div
+              role="separator"
+              aria-label="Resize document preview"
+              aria-orientation="vertical"
+              aria-valuemin={getDockBounds().min}
+              aria-valuemax={getDockBounds().max}
+              aria-valuenow={Math.round(dockedWidth)}
+              tabIndex={0}
+              title="Drag to resize document preview"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                dragStartRef.current = {
+                  x: event.clientX,
+                  width: dockedWidth,
+                };
+                setIsResizing(true);
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+              }}
+              onDoubleClick={() => {
+                const { preferred } = getDockBounds();
+                hasCustomDockedWidthRef.current = false;
+                setDockedWidth(preferred);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+                  return;
+                }
+
+                event.preventDefault();
+                const direction = event.key === 'ArrowLeft' ? 1 : -1;
+                hasCustomDockedWidthRef.current = true;
+                setDockedWidth((current) =>
+                  clampDockedWidth(current + direction * 32)
+                );
+              }}
+              className="group absolute inset-y-0 left-0 z-50 w-3 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+            >
+              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-200 transition-all group-hover:w-0.5 group-hover:bg-zinc-400 group-focus-visible:w-0.5 group-focus-visible:bg-amber-500/70" />
+              <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+            </div>
+
+            <div className="flex h-full min-w-0 flex-col bg-white">
               {panelContent}
             </div>
           </motion.aside>
