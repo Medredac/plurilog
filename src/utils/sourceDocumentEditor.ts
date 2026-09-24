@@ -559,19 +559,19 @@ def font_name(page, span, text, bold=False, italic=False):
 
 function buildPdfEditScript(): Buffer {
   const base = PDF_EDIT_SCRIPT;
-  const loopAnchor = '\\nfor edit in edits:\\n';
+  const loopAnchor = '\nfor edit in edits:\n';
   if (!base.includes(loopAnchor)) {
     throw new Error('PDF source editor loop anchor is missing.');
   }
   const withOverride = base.replace(
     loopAnchor,
-    '\\n' + PDF_FONT_BUFFER_OVERRIDE + '\\nfor edit in edits:\\n'
+    '\n' + PDF_FONT_BUFFER_OVERRIDE + '\nfor edit in edits:\n'
   );
   const oldInsert =
-    "        font=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\\n" +
+    "        font=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\n" +
     "        rc=page.insert_textbox(wr,text,fontsize=size,fontname=font,color=rgb(span.get('color',0)),align=align,overlay=True)";
   const newInsert =
-    "        font,fontfile=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\\n" +
+    "        font,fontfile=font_name(page,span,text,action=='set_bold' and bool(edit.get('value',True)),action=='set_italic' and bool(edit.get('value',True)))\n" +
     "        rc=page.insert_textbox(wr,text,fontsize=size,fontname=font,fontfile=fontfile,color=rgb(span.get('color',0)),align=align,overlay=True)";
   if (!withOverride.includes(oldInsert)) {
     throw new Error('PDF source editor insertion anchor is missing.');
