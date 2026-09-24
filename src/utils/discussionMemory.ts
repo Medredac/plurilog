@@ -657,11 +657,30 @@ function validateConversationHistoryPlan(
     return null;
   }
 
+  let normalizedRelation = relation;
+  let normalizedOrdinal = ordinal;
+
+  // A top-level ordinal means "the Nth response/message from the target".
+  // If the planner also supplied a qualified historical anchor occurrence,
+  // the ordinal belongs to that anchor ("the second time I said X"), not to
+  // the target's global response sequence. Repair this structurally instead
+  // of letting the executor discard the anchor.
+  if (
+    normalizedRelation === 'ordinal' &&
+    anchor &&
+    anchorOccurrence &&
+    anchorTarget &&
+    anchorTarget !== target
+  ) {
+    normalizedRelation = 'after';
+    normalizedOrdinal = null;
+  }
+
   return {
     is_history_lookup: true,
     target,
-    relation,
-    ordinal,
+    relation: normalizedRelation,
+    ordinal: normalizedOrdinal,
     anchor,
     anchor_target: anchorTarget,
     anchor_occurrence: anchorOccurrence,
@@ -715,9 +734,12 @@ Definitions:
 - target=user means a historical user message/prompt.
 - target=chatgpt/claude/gemini means that panelist's historical response.
 - first/last are chronological positions across the entire discussion.
-- ordinal means the Nth message/response from that target; ordinal is 1-based.
+- relation=ordinal means the Nth message/response from the TARGET across the whole discussion and should normally have no anchor.
+- For relation=before/after, ordinal may optionally mean the Nth matching TARGET event relative to the resolved anchor; omit it for the nearest/first matching target event.
 - previous means the immediately preceding relevant message from that target before the current turn.
-- before/after means navigation on the actual ordered message-event timeline. "after" means the first matching target event strictly after the resolved anchor event; "before" means the nearest matching target event strictly before it.
+- before/after means navigation on the actual ordered message-event timeline. "after" means a matching target event strictly after the resolved anchor event; "before" means a matching target event strictly before it.
+- IMPORTANT: "the second time I said X, what did GPT reply?" is NOT target relation=ordinal. It is target=chatgpt, relation=after, ordinal=null, anchor=X, anchor_target=user, anchor_occurrence=ordinal, anchor_ordinal=2.
+- By contrast, "what was GPT's second response after I first said X?" is target=chatgpt, relation=after, ordinal=2, anchor=X, anchor_target=user, anchor_occurrence=first.
 - anchor must describe the HISTORICAL EVENT being navigated around, not merely repeat the immediately preceding lookup question.
 - anchor_target identifies who produced the anchor event when the user specifies it. Example: "when I first said X, what did GPT reply?" => anchor_target=user.
 - anchor_occurrence identifies which occurrence of a repeated anchor the user means: first, last, or ordinal. For ordinal, put the 1-based number in anchor_ordinal.
@@ -1142,26 +1164,40 @@ export async function executeConversationHistoryPlan(
 
     if (anchorEventIndex === null) return null;
 
+    const desiredRelativeOrdinal = plan.ordinal || 1;
+
     if (plan.relation === 'after') {
+      let seen = 0;
       for (let index = anchorEventIndex + 1; index < events.length; index += 1) {
         const event = events[index];
         if (event.speaker === targetSpeaker && event.content.trim()) {
-          return resultFromHistoryEvent(
-            event,
-            `${targetSpeaker}'s first response/message after "${plan.anchor}"`
-          );
+          seen += 1;
+          if (seen === desiredRelativeOrdinal) {
+            return resultFromHistoryEvent(
+              event,
+              desiredRelativeOrdinal === 1
+                ? `${targetSpeaker}'s first response/message after "${plan.anchor}"`
+                : `${targetSpeaker}'s response/message #${desiredRelativeOrdinal} after "${plan.anchor}"`
+            );
+          }
         }
       }
       return null;
     }
 
+    let seen = 0;
     for (let index = anchorEventIndex - 1; index >= 0; index -= 1) {
       const event = events[index];
       if (event.speaker === targetSpeaker && event.content.trim()) {
-        return resultFromHistoryEvent(
-          event,
-          `${targetSpeaker}'s first response/message before "${plan.anchor}"`
-        );
+        seen += 1;
+        if (seen === desiredRelativeOrdinal) {
+          return resultFromHistoryEvent(
+            event,
+            desiredRelativeOrdinal === 1
+              ? `${targetSpeaker}'s first response/message before "${plan.anchor}"`
+              : `${targetSpeaker}'s response/message #${desiredRelativeOrdinal} before "${plan.anchor}"`
+          );
+        }
       }
     }
   }
