@@ -3727,6 +3727,8 @@ export async function POST(req: NextRequest) {
               elapsedTurnMs: Date.now() - turnStartedAt,
             });
 
+            const isHistoryLookupTurn =
+              discussionMemory?.historyLookupIntent === true;
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
             const isChatGPTImageEnabled =
@@ -3734,6 +3736,7 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageGeneration === true &&
               isChatGPTImageGenerationEnabled();
             const isImageGenerationEnabledForSeat =
+              !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
               (isGeminiImageEnabled || isChatGPTImageEnabled);
             const isGeminiImageEditingEnabledForSeat =
@@ -3745,13 +3748,16 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageEditing === true &&
               isChatGPTImageEditingEnabled();
             const isImageEditingEnabledForSeat =
+              !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
               (isGeminiImageEditingEnabledForSeat ||
                 isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat =
               isSeatEligibleForEvidenceRequest(seat.seatId);
             const isDocumentCreationEnabledForSeat =
-              seat.seatId === 'chatgpt' && isGptDocumentCreationEnabled();
+              !isHistoryLookupTurn &&
+              seat.seatId === 'chatgpt' &&
+              isGptDocumentCreationEnabled();
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -3877,6 +3883,7 @@ export async function POST(req: NextRequest) {
                 ((isVisualQuery || isVerificationFollowUp) &&
                   currentVisualAttachmentCount === 0) ||
                 (seat.seatId === 'chatgpt' &&
+                  !isHistoryLookupTurn &&
                   isDocumentRevisionFollowUp &&
                   hasKnownInspectableDocument &&
                   currentDocumentAttachmentCount === 0)
