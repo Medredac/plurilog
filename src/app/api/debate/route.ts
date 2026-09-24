@@ -4112,7 +4112,14 @@ export async function POST(req: NextRequest) {
                         function: { name: 'request_evidence' },
                       },
                     }
-                  : {}),
+                  : sourceDocumentEditingForCurrentTurn
+                    ? {
+                        tool_choice: {
+                          type: 'function',
+                          function: { name: 'edit_source_document' },
+                        },
+                      }
+                    : {}),
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
