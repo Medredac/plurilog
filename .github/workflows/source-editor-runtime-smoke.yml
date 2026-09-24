@@ -1,0 +1,98 @@
+name: Source editor runtime smoke
+
+on:
+  push:
+    branches:
+      - debug/source-editor-runtime-smoke
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Extract embedded editor scripts
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const src = fs.readFileSync('src/utils/sourceDocumentEditor.ts', 'utf8');
+          const matches = [...src.matchAll(/Buffer\.from\(\s*'([^']+)'\s*,\s*'base64'\s*\)/g)];
+          if (matches.length < 2) throw new Error('Could not find both embedded Python scripts');
+          fs.writeFileSync('/tmp/edit_docx.py', Buffer.from(matches[0][1], 'base64'));
+          fs.writeFileSync('/tmp/edit_pdf.py', Buffer.from(matches[1][1], 'base64'));
+          NODE
+          python3 -m py_compile /tmp/edit_docx.py
+          python3 -m py_compile /tmp/edit_pdf.py
+      - name: Smoke test source-preserving DOCX edit
+        run: |
+          python3 <<'PY'
+          import json, os, zipfile
+          from xml.etree import ElementTree as ET
+          W='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+          os.makedirs('/tmp/docx/word', exist_ok=True)
+          os.makedirs('/tmp/docx/_rels', exist_ok=True)
+          document=f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <w:document xmlns:w="{W}"><w:body>
+            <w:p><w:r><w:rPr><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr><w:t>Main Title</w:t></w:r></w:p>
+            <w:p><w:r><w:t>Keep Me</w:t></w:r></w:p>
+            <w:sectPr/>
+          </w:body></w:document>'''
+          styles=f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <w:styles xmlns:w="{W}"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>'''
+          open('/tmp/docx/word/document.xml','w').write(document)
+          open('/tmp/docx/word/styles.xml','w').write(styles)
+          open('/tmp/docx/[Content_Types].xml','w').write('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>')
+          with zipfile.ZipFile('/tmp/input.docx','w',zipfile.ZIP_DEFLATED) as z:
+            for root,_,files in os.walk('/tmp/docx'):
+              for name in files:
+                p=os.path.join(root,name)
+                z.write(p, os.path.relpath(p,'/tmp/docx'))
+          json.dump([{"action":"set_font_size","target_text":"Main Title","font_size_delta_pt":-1}],open('/tmp/docx-plan.json','w'))
+          PY
+          python3 /tmp/edit_docx.py /tmp/input.docx /tmp/docx-plan.json /tmp/output.docx
+          python3 <<'PY'
+          import zipfile
+          from xml.etree import ElementTree as ET
+          W='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+          NS={'w':W}
+          with zipfile.ZipFile('/tmp/output.docx') as z:
+            root=ET.fromstring(z.read('word/document.xml'))
+          text=''.join((n.text or '') for n in root.findall('.//w:t',NS))
+          assert 'Main Title' in text
+          assert 'Keep Me' in text
+          title_p=next(p for p in root.findall('.//w:p',NS) if 'Main Title' in ''.join((n.text or '') for n in p.findall('.//w:t',NS)))
+          size=title_p.find('.//w:sz',NS).get('{%s}val'%W)
+          assert size == '34', size
+          print('DOCX smoke passed; title size half-points:', size)
+          PY
+      - name: Install PDF smoke dependency
+        run: python3 -m pip install --quiet 'PyMuPDF==1.26.4'
+      - name: Smoke test source-preserving PDF edit
+        run: |
+          python3 <<'PY'
+          import fitz, json
+          doc=fitz.open()
+          page=doc.new_page()
+          page.insert_text((72,90),'Main Title',fontsize=18,fontname='helv')
+          page.insert_text((72,130),'Keep Me',fontsize=12,fontname='helv')
+          doc.save('/tmp/input.pdf')
+          doc.close()
+          json.dump([{"action":"set_font_size","target_text":"Main Title","font_size_delta_pt":-1}],open('/tmp/pdf-plan.json','w'))
+          PY
+          python3 /tmp/edit_pdf.py /tmp/input.pdf /tmp/pdf-plan.json /tmp/output.pdf
+          python3 <<'PY'
+          import fitz
+          src=fitz.open('/tmp/input.pdf')
+          out=fitz.open('/tmp/output.pdf')
+          assert len(src)==len(out)==1
+          text=out[0].get_text()
+          assert 'Main Title' in text, text
+          assert 'Keep Me' in text, text
+          spans=[s for b in out[0].get_text('dict').get('blocks',[]) for l in b.get('lines',[]) for s in l.get('spans',[]) if 'Main Title' in s.get('text','')]
+          assert spans, text
+          size=spans[0]['size']
+          assert 16.0 <= size <= 17.5, size
+          print('PDF smoke passed; title size:', size)
+          PY
