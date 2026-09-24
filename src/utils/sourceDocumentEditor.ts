@@ -17,10 +17,279 @@ const SOURCE_EDIT_SNAPSHOT_ID = 'snap_vwQhLmdtlIxq4OliWzLOjVlHEzuD';
 const MAX_SOURCE_DOCUMENT_BYTES = 25 * 1024 * 1024;
 const MAX_RENDERED_PAGES = 12;
 
-const DOCX_EDIT_SCRIPT = Buffer.from(
-  'aW1wb3J0IGpzb24sIG9zLCByZSwgc3lzLCB0ZW1wZmlsZSwgemlwZmlsZQpmcm9tIHhtbC5ldHJlZSBpbXBvcnQgRWxlbWVudFRyZWUgYXMgRVQKClcgPSAnaHR0cDovL3NjaGVtYXMub3BlbnhtbGZvcm1hdHMub3JnL3dvcmRwcm9jZXNzaW5nbWwvMjAwNi9tYWluJwpYTUwgPSAnaHR0cDovL3d3dy53My5vcmcvWE1MLzE5OTgvbmFtZXNwYWNlJwpOUyA9IHsndyc6IFd9CkVULnJlZ2lzdGVyX25hbWVzcGFjZSgndycsIFcpCgpzcmMsIHBsYW5fcGF0aCwgb3V0ID0gc3lzLmFyZ3ZbMV0sIHN5cy5hcmd2WzJdLCBzeXMuYXJndlszXQp3aXRoIG9wZW4ocGxhbl9wYXRoLCAncicsIGVuY29kaW5nPSd1dGYtOCcpIGFzIGY6CiAgICBlZGl0cyA9IGpzb24ubG9hZChmKQoKd29yayA9IHRlbXBmaWxlLm1rZHRlbXAocHJlZml4PSdwbHVyaWxvZy1kb2N4LScpCndpdGggemlwZmlsZS5aaXBGaWxlKHNyYywgJ3InKSBhcyB6OgogICAgei5leHRyYWN0YWxsKHdvcmspCgpzdHlsZXNfcGF0aCA9IG9zLnBhdGguam9pbih3b3JrLCAnd29yZCcsICdzdHlsZXMueG1sJykKc3R5bGVfc2l6ZXMgPSB7fQpzdHlsZV9iYXNlZF9vbiA9IHt9CmRlZmF1bHRfc2l6ZSA9IDExLjAKaWYgb3MucGF0aC5leGlzdHMoc3R5bGVzX3BhdGgpOgogICAgc3RyZWUgPSBFVC5wYXJzZShzdHlsZXNfcGF0aCkKICAgIHNyb290ID0gc3RyZWUuZ2V0cm9vdCgpCiAgICBkc3ogPSBzcm9vdC5maW5kKCcuLy93OmRvY0RlZmF1bHRzL3c6clByRGVmYXVsdC93OnJQci93OnN6JywgTlMpCiAgICBpZiBkc3ogaXMgbm90IE5vbmUgYW5kIGRzei5nZXQoJ3slc312YWwnICUgVyk6CiAgICAgICAgdHJ5OiBkZWZhdWx0X3NpemUgPSBmbG9hdChkc3ouZ2V0KCd7JXN9dmFsJyAlIFcpKSAvIDIuMAogICAgICAgIGV4Y2VwdDogcGFzcwogICAgZm9yIHN0eWxlIGluIHNyb290LmZpbmRhbGwoJy4vL3c6c3R5bGUnLCBOUyk6CiAgICAgICAgc2lkID0gc3R5bGUuZ2V0KCd7JXN9c3R5bGVJZCcgJSBXKQogICAgICAgIGlmIG5vdCBzaWQ6IGNvbnRpbnVlCiAgICAgICAgYmFzZWQgPSBzdHlsZS5maW5kKCd3OmJhc2VkT24nLCBOUykKICAgICAgICBpZiBiYXNlZCBpcyBub3QgTm9uZToKICAgICAgICAgICAgc3R5bGVfYmFzZWRfb25bc2lkXSA9IGJhc2VkLmdldCgneyVzfXZhbCcgJSBXKQogICAgICAgIHN6ID0gc3R5bGUuZmluZCgndzpyUHIvdzpzeicsIE5TKQogICAgICAgIGlmIHN6IGlzIG5vdCBOb25lIGFuZCBzei5nZXQoJ3slc312YWwnICUgVyk6CiAgICAgICAgICAgIHRyeTogc3R5bGVfc2l6ZXNbc2lkXSA9IGZsb2F0KHN6LmdldCgneyVzfXZhbCcgJSBXKSkgLyAyLjAKICAgICAgICAgICAgZXhjZXB0OiBwYXNzCgpkZWYgc3R5bGVfc2l6ZShzdHlsZV9pZCk6CiAgICBzZWVuID0gc2V0KCkKICAgIGN1ciA9IHN0eWxlX2lkCiAgICB3aGlsZSBjdXIgYW5kIGN1ciBub3QgaW4gc2VlbjoKICAgICAgICBzZWVuLmFkZChjdXIpCiAgICAgICAgaWYgY3VyIGluIHN0eWxlX3NpemVzOgogICAgICAgICAgICByZXR1cm4gc3R5bGVfc2l6ZXNbY3VyXQogICAgICAgIGN1ciA9IHN0eWxlX2Jhc2VkX29uLmdldChjdXIpCiAgICByZXR1cm4gZGVmYXVsdF9zaXplCgpkZWYgdGV4dF9ub2RlcyhwKToKICAgIHJldHVybiBwLmZpbmRhbGwoJy4vL3c6dCcsIE5TKQoKZGVmIHB0ZXh0KHApOgogICAgcmV0dXJuICcnLmpvaW4oKG4udGV4dCBvciAnJykgZm9yIG4gaW4gdGV4dF9ub2RlcyhwKSkKCmRlZiBydW5zKHApOgogICAgcmV0dXJuIHAuZmluZGFsbCgnLi8vdzpyJywgTlMpCgpkZWYgcnRleHQocik6CiAgICByZXR1cm4gJycuam9pbigobi50ZXh0IG9yICcnKSBmb3IgbiBpbiByLmZpbmRhbGwoJy4vL3c6dCcsIE5TKSkKCmRlZiBwX3N0eWxlX2lkKHApOgogICAgbm9kZSA9IHAuZmluZCgndzpwUHIvdzpwU3R5bGUnLCBOUykKICAgIHJldHVybiBub2RlLmdldCgneyVzfXZhbCcgJSBXKSBpZiBub2RlIGlzIG5vdCBOb25lIGVsc2UgTm9uZQoKZGVmIGVmZmVjdGl2ZV9ydW5fc2l6ZShydW4sIHApOgogICAgcnByID0gcnVuLmZpbmQoJ3c6clByJywgTlMpCiAgICBpZiBycHIgaXMgbm90IE5vbmU6CiAgICAgICAgc3ogPSBycHIuZmluZCgndzpzeicsIE5TKQogICAgICAgIGlmIHN6IGlzIG5vdCBOb25lIGFuZCBzei5nZXQoJ3slc312YWwnICUgVyk6CiAgICAgICAgICAgIHRyeTogcmV0dXJuIGZsb2F0KHN6LmdldCgneyVzfXZhbCcgJSBXKSkgLyAyLjAKICAgICAgICAgICAgZXhjZXB0OiBwYXNzCiAgICByZXR1cm4gc3R5bGVfc2l6ZShwX3N0eWxlX2lkKHApKQoKZGVmIHNldF9ydW5fc2l6ZShydW4sIHAsIGFic29sdXRlPU5vbmUsIGRlbHRhPU5vbmUpOgogICAgY3VycmVudCA9IGVmZmVjdGl2ZV9ydW5fc2l6ZShydW4sIHApCiAgICBzaXplID0gYWJzb2x1dGUgaWYgYWJzb2x1dGUgaXMgbm90IE5vbmUgZWxzZSBjdXJyZW50ICsgKGRlbHRhIG9yIDApCiAgICBzaXplID0gbWF4KDUuMCwgbWluKDk2LjAsIGZsb2F0KHNpemUpKSkKICAgIHJwciA9IHJ1bi5maW5kKCd3OnJQcicsIE5TKQogICAgaWYgcnByIGlzIE5vbmU6CiAgICAgICAgcnByID0gRVQuRWxlbWVudCgneyVzfXJQcicgJSBXKQogICAgICAgIHJ1bi5pbnNlcnQoMCwgcnByKQogICAgZm9yIG5hbWUgaW4gKCdzeicsICdzekNzJyk6CiAgICAgICAgbm9kZSA9IHJwci5maW5kKCd3OicgKyBuYW1lLCBOUykKICAgICAgICBpZiBub2RlIGlzIE5vbmU6CiAgICAgICAgICAgIG5vZGUgPSBFVC5TdWJFbGVtZW50KHJwciwgJ3slc30lcycgJSAoVywgbmFtZSkpCiAgICAgICAgbm9kZS5zZXQoJ3slc312YWwnICUgVywgc3RyKGludChyb3VuZChzaXplICogMikpKSkKCmRlZiBzZXRfdG9nZ2xlKHJ1biwgbmFtZSwgdmFsdWUpOgogICAgcnByID0gcnVuLmZpbmQoJ3c6clByJywgTlMpCiAgICBpZiBycHIgaXMgTm9uZToKICAgICAgICBycHIgPSBFVC5FbGVtZW50KCd7JXN9clByJyAlIFcpCiAgICAgICAgcnVuLmluc2VydCgwLCBycHIpCiAgICBub2RlID0gcnByLmZpbmQoJ3c6JyArIG5hbWUsIE5TKQogICAgaWYgbm9kZSBpcyBOb25lOgogICAgICAgIG5vZGUgPSBFVC5TdWJFbGVtZW50KHJwciwgJ3slc30lcycgJSAoVywgbmFtZSkpCiAgICBub2RlLnNldCgneyVzfXZhbCcgJSBXLCAnMScgaWYgdmFsdWUgZWxzZSAnMCcpCgpkZWYgcmVwbGFjZV9yYW5nZShwLCBzdGFydCwgZW5kLCByZXBsYWNlbWVudCk6CiAgICBub2RlcyA9IHRleHRfbm9kZXMocCkKICAgIHNwYW5zID0gW10KICAgIHBvcyA9IDAKICAgIGZvciBub2RlIGluIG5vZGVzOgogICAgICAgIHR4dCA9IG5vZGUudGV4dCBvciAnJwogICAgICAgIHNwYW5zLmFwcGVuZCgobm9kZSwgcG9zLCBwb3MgKyBsZW4odHh0KSkpCiAgICAgICAgcG9zICs9IGxlbih0eHQpCiAgICBhZmZlY3RlZCA9IFsobixzLGUpIGZvciBuLHMsZSBpbiBzcGFucyBpZiBlID4gc3RhcnQgYW5kIHMgPCBlbmRdCiAgICBpZiBub3QgYWZmZWN0ZWQ6CiAgICAgICAgcmV0dXJuIEZhbHNlCiAgICBmaXJzdF9ub2RlLCBmcywgZmUgPSBhZmZlY3RlZFswXQogICAgbGFzdF9ub2RlLCBscywgbGUgPSBhZmZlY3RlZFstMV0KICAgIGZpcnN0X3R4dCA9IGZpcnN0X25vZGUudGV4dCBvciAnJwogICAgcHJlZml4ID0gZmlyc3RfdHh0WzptYXgoMCwgc3RhcnQtZnMpXQogICAgaWYgZmlyc3Rfbm9kZSBpcyBsYXN0X25vZGU6CiAgICAgICAgc3VmZml4ID0gZmlyc3RfdHh0W21heCgwLCBlbmQtZnMpOl0KICAgICAgICBmaXJzdF9ub2RlLnRleHQgPSBwcmVmaXggKyByZXBsYWNlbWVudCArIHN1ZmZpeAogICAgZWxzZToKICAgICAgICBmaXJzdF9ub2RlLnRleHQgPSBwcmVmaXggKyByZXBsYWNlbWVudAogICAgICAgIGZvciBub2RlLCBfLCBfIGluIGFmZmVjdGVkWzE6LTFdOgogICAgICAgICAgICBub2RlLnRleHQgPSAnJwogICAgICAgIGxhc3RfdHh0ID0gbGFzdF9ub2RlLnRleHQgb3IgJycKICAgICAgICBsYXN0X25vZGUudGV4dCA9IGxhc3RfdHh0W21heCgwLCBlbmQtbHMpOl0KICAgIGZvciBub2RlLCBfLCBfIGluIGFmZmVjdGVkOgogICAgICAgIHZhbHVlID0gbm9kZS50ZXh0IG9yICcnCiAgICAgICAgaWYgdmFsdWUuc3RhcnRzd2l0aCgnICcpIG9yIHZhbHVlLmVuZHN3aXRoKCcgJyk6CiAgICAgICAgICAgIG5vZGUuc2V0KCd7JXN9c3BhY2UnICUgWE1MLCAncHJlc2VydmUnKQogICAgcmV0dXJuIFRydWUKCmRlZiBvdmVybGFwcGluZ19ydW5zKHAsIHN0YXJ0LCBlbmQpOgogICAgb3V0ID0gW10KICAgIHBvcyA9IDAKICAgIGZvciBydW4gaW4gcnVucyhwKToKICAgICAgICB0eHQgPSBydGV4dChydW4pCiAgICAgICAgcywgZSA9IHBvcywgcG9zICsgbGVuKHR4dCkKICAgICAgICBpZiBlID4gc3RhcnQgYW5kIHMgPCBlbmQ6CiAgICAgICAgICAgIG91dC5hcHBlbmQocnVuKQogICAgICAgIHBvcyA9IGUKICAgIHJldHVybiBvdXQKCndvcmRfZGlyID0gb3MucGF0aC5qb2luKHdvcmssICd3b3JkJykKeG1sX2ZpbGVzID0gW29zLnBhdGguam9pbih3b3JkX2RpciwgJ2RvY3VtZW50LnhtbCcpXQpmb3IgbmFtZSBpbiBzb3J0ZWQob3MubGlzdGRpcih3b3JkX2RpcikpOgogICAgaWYgcmUubWF0Y2gocideKGhlYWRlcnxmb290ZXIpXGQqXC54bWwkJywgbmFtZSk6CiAgICAgICAgeG1sX2ZpbGVzLmFwcGVuZChvcy5wYXRoLmpvaW4od29yZF9kaXIsIG5hbWUpKQoKdHJlZXMgPSBbKHBhdGgsIEVULnBhcnNlKHBhdGgpKSBmb3IgcGF0aCBpbiB4bWxfZmlsZXMgaWYgb3MucGF0aC5leGlzdHMocGF0aCldCgpmb3IgZWRpdCBpbiBlZGl0czoKICAgIHRhcmdldCA9IHN0cihlZGl0LmdldCgndGFyZ2V0X3RleHQnKSBvciAnJykKICAgIGlmIG5vdCB0YXJnZXQ6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCdFbXB0eSB0YXJnZXRfdGV4dCcpCiAgICBvY2N1cnJlbmNlID0gbWF4KDEsIGludChlZGl0LmdldCgnb2NjdXJyZW5jZScpIG9yIDEpKQogICAgbWF0Y2hlcyA9IFtdCiAgICBmb3IgcGF0aCwgdHJlZSBpbiB0cmVlczoKICAgICAgICBmb3IgcCBpbiB0cmVlLmdldHJvb3QoKS5maW5kYWxsKCcuLy93OnAnLCBOUyk6CiAgICAgICAgICAgIHR4dCA9IHB0ZXh0KHApCiAgICAgICAgICAgIHN0YXJ0ID0gMAogICAgICAgICAgICB3aGlsZSBUcnVlOgogICAgICAgICAgICAgICAgaWR4ID0gdHh0LmZpbmQodGFyZ2V0LCBzdGFydCkKICAgICAgICAgICAgICAgIGlmIGlkeCA8IDA6IGJyZWFrCiAgICAgICAgICAgICAgICBtYXRjaGVzLmFwcGVuZCgocCwgaWR4LCBpZHggKyBsZW4odGFyZ2V0KSkpCiAgICAgICAgICAgICAgICBzdGFydCA9IGlkeCArIG1heCgxLCBsZW4odGFyZ2V0KSkKICAgIGlmIG9jY3VycmVuY2UgPiBsZW4obWF0Y2hlcyk6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCJUYXJnZXQgbm90IGZvdW5kIGF0IHJlcXVlc3RlZCBvY2N1cnJlbmNlOiAlciAoIyVkLCBtYXRjaGVzPSVkKSIgJSAodGFyZ2V0LCBvY2N1cnJlbmNlLCBsZW4obWF0Y2hlcykpKQogICAgcCwgc3RhcnQsIGVuZCA9IG1hdGNoZXNbb2NjdXJyZW5jZSAtIDFdCiAgICBhY3Rpb24gPSBlZGl0LmdldCgnYWN0aW9uJykKICAgIGlmIGFjdGlvbiA9PSAncmVwbGFjZV90ZXh0JzoKICAgICAgICByZXBsYWNlX3JhbmdlKHAsIHN0YXJ0LCBlbmQsIHN0cihlZGl0LmdldCgncmVwbGFjZW1lbnRfdGV4dCcpIG9yICcnKSkKICAgIGVsaWYgYWN0aW9uID09ICdkZWxldGVfdGV4dCc6CiAgICAgICAgcmVwbGFjZV9yYW5nZShwLCBzdGFydCwgZW5kLCAnJykKICAgIGVsaWYgYWN0aW9uID09ICdzZXRfZm9udF9zaXplJzoKICAgICAgICBmb3IgcnVuIGluIG92ZXJsYXBwaW5nX3J1bnMocCwgc3RhcnQsIGVuZCk6CiAgICAgICAgICAgIHNldF9ydW5fc2l6ZShydW4sIHAsIGVkaXQuZ2V0KCdmb250X3NpemVfcHQnKSwgZWRpdC5nZXQoJ2ZvbnRfc2l6ZV9kZWx0YV9wdCcpKQogICAgZWxpZiBhY3Rpb24gaW4gKCdzZXRfYm9sZCcsICdzZXRfaXRhbGljJyk6CiAgICAgICAgcHJvcCA9ICdiJyBpZiBhY3Rpb24gPT0gJ3NldF9ib2xkJyBlbHNlICdpJwogICAgICAgIGZvciBydW4gaW4gb3ZlcmxhcHBpbmdfcnVucyhwLCBzdGFydCwgZW5kKToKICAgICAgICAgICAgc2V0X3RvZ2dsZShydW4sIHByb3AsIGJvb2woZWRpdC5nZXQoJ3ZhbHVlJywgVHJ1ZSkpKQogICAgZWxpZiBhY3Rpb24gPT0gJ3NldF9hbGlnbm1lbnQnOgogICAgICAgIHBwciA9IHAuZmluZCgndzpwUHInLCBOUykKICAgICAgICBpZiBwcHIgaXMgTm9uZToKICAgICAgICAgICAgcHByID0gRVQuRWxlbWVudCgneyVzfXBQcicgJSBXKQogICAgICAgICAgICBwLmluc2VydCgwLCBwcHIpCiAgICAgICAgamMgPSBwcHIuZmluZCgndzpqYycsIE5TKQogICAgICAgIGlmIGpjIGlzIE5vbmU6CiAgICAgICAgICAgIGpjID0gRVQuU3ViRWxlbWVudChwcHIsICd7JXN9amMnICUgVykKICAgICAgICBqYy5zZXQoJ3slc312YWwnICUgVywgZWRpdC5nZXQoJ2FsaWdubWVudCcpIG9yICdsZWZ0JykKICAgIGVsc2U6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCdVbnN1cHBvcnRlZCBET0NYIGVkaXQgYWN0aW9uOiAlcycgJSBhY3Rpb24pCgpmb3IgcGF0aCwgdHJlZSBpbiB0cmVlczoKICAgIHRyZWUud3JpdGUocGF0aCwgZW5jb2Rpbmc9J1VURi04JywgeG1sX2RlY2xhcmF0aW9uPVRydWUpCgp3aXRoIHppcGZpbGUuWmlwRmlsZShvdXQsICd3JywgemlwZmlsZS5aSVBfREVGTEFURUQpIGFzIHo6CiAgICBmb3Igcm9vdCwgZGlycywgZmlsZXMgaW4gb3Mud2Fsayh3b3JrKToKICAgICAgICBmb3IgbmFtZSBpbiBmaWxlczoKICAgICAgICAgICAgcCA9IG9zLnBhdGguam9pbihyb290LCBuYW1lKQogICAgICAgICAgICB6LndyaXRlKHAsIG9zLnBhdGgucmVscGF0aChwLCB3b3JrKSk=',
-  'base64'
-).toString('utf8');
+const DOCX_EDIT_SCRIPT = String.raw`
+import copy, html, os, re, sys, zipfile, json
+from xml.etree import ElementTree as ET
+
+W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+NS = {'w': W}
+
+src, plan_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(plan_path, 'r', encoding='utf-8') as f:
+    edits = json.load(f)
+
+def decode_text(raw):
+    return html.unescape(raw or '')
+
+def encode_text(value):
+    return html.escape(value or '', quote=False)
+
+with zipfile.ZipFile(src, 'r') as zin:
+    infos = zin.infolist()
+    original = {info.filename: zin.read(info.filename) for info in infos}
+
+styles_bytes = original.get('word/styles.xml')
+style_sizes = {}
+style_based_on = {}
+default_size = 11.0
+if styles_bytes:
+    try:
+        sroot = ET.fromstring(styles_bytes)
+        dsz = sroot.find('.//w:docDefaults/w:rPrDefault/w:rPr/w:sz', NS)
+        if dsz is not None and dsz.get('{%s}val' % W):
+            default_size = float(dsz.get('{%s}val' % W)) / 2.0
+        for style in sroot.findall('.//w:style', NS):
+            sid = style.get('{%s}styleId' % W)
+            if not sid:
+                continue
+            based = style.find('w:basedOn', NS)
+            if based is not None:
+                style_based_on[sid] = based.get('{%s}val' % W)
+            sz = style.find('w:rPr/w:sz', NS)
+            if sz is not None and sz.get('{%s}val' % W):
+                style_sizes[sid] = float(sz.get('{%s}val' % W)) / 2.0
+    except Exception:
+        pass
+
+def style_size(style_id):
+    seen = set()
+    cur = style_id
+    while cur and cur not in seen:
+        seen.add(cur)
+        if cur in style_sizes:
+            return style_sizes[cur]
+        cur = style_based_on.get(cur)
+    return default_size
+
+P_RE = re.compile(r'<w:p\b[^>]*>.*?</w:p>', re.S)
+R_RE = re.compile(r'<w:r\b[^>]*>.*?</w:r>', re.S)
+T_RE = re.compile(r'(<w:t\b[^>]*>)(.*?)(</w:t>)', re.S)
+PSTYLE_RE = re.compile(r'<w:pStyle\b[^>]*\bw:val=(["\'])(.*?)\1[^>]*/?>', re.S)
+RPR_RE = re.compile(r'<w:rPr\b[^>]*>.*?</w:rPr>', re.S)
+PPR_RE = re.compile(r'<w:pPr\b[^>]*>.*?</w:pPr>', re.S)
+
+def paragraph_text(pxml):
+    return ''.join(decode_text(m.group(2)) for m in T_RE.finditer(pxml))
+
+def p_style_id(pxml):
+    m = PSTYLE_RE.search(pxml)
+    return m.group(2) if m else None
+
+def run_text(rxml):
+    return ''.join(decode_text(m.group(2)) for m in T_RE.finditer(rxml))
+
+def get_val(xml, tag):
+    pat = re.compile(
+        r'(<w:' + re.escape(tag) + r'\b[^>]*\bw:val=(["\']))(.*?)(\2[^>]*/?>)',
+        re.S,
+    )
+    m = pat.search(xml)
+    return m.group(3) if m else None
+
+def replace_or_insert_rpr_property(rxml, tag, val=None, toggle=False):
+    prop_re = re.compile(r'<w:' + re.escape(tag) + r'\b[^>]*/?>', re.S)
+    rpr_m = RPR_RE.search(rxml)
+    if toggle:
+        prop = '<w:%s w:val="%s"/>' % (tag, '1' if bool(val) else '0')
+    else:
+        prop = '<w:%s w:val="%s"/>' % (tag, val)
+    if rpr_m:
+        rpr = rpr_m.group(0)
+        if prop_re.search(rpr):
+            if toggle:
+                new_rpr = prop_re.sub(prop, rpr, count=1)
+            else:
+                value_re = re.compile(
+                    r'(<w:' + re.escape(tag) + r'\b[^>]*\bw:val=(["\']))(.*?)(\2[^>]*/?>)',
+                    re.S
+                )
+                if value_re.search(rpr):
+                    new_rpr = value_re.sub(
+                        lambda m: m.group(1) + str(val) + m.group(4),
+                        rpr,
+                        count=1
+                    )
+                else:
+                    new_rpr = prop_re.sub(prop, rpr, count=1)
+        else:
+            new_rpr = rpr[:-len('</w:rPr>')] + prop + '</w:rPr>'
+        return rxml[:rpr_m.start()] + new_rpr + rxml[rpr_m.end():]
+    opening = re.match(r'<w:r\b[^>]*>', rxml, re.S)
+    if not opening:
+        return rxml
+    return rxml[:opening.end()] + '<w:rPr>' + prop + '</w:rPr>' + rxml[opening.end():]
+
+def explicit_run_size(rxml):
+    val = get_val(rxml, 'sz')
+    if val is None:
+        return None
+    try:
+        return float(val) / 2.0
+    except Exception:
+        return None
+
+def patch_run_size(rxml, pxml, absolute=None, delta=None):
+    current = explicit_run_size(rxml)
+    if current is None:
+        current = style_size(p_style_id(pxml))
+    size = float(absolute) if absolute is not None else current + float(delta or 0)
+    size = max(5.0, min(96.0, size))
+    half_points = str(int(round(size * 2)))
+    rxml = replace_or_insert_rpr_property(rxml, 'sz', half_points)
+    rxml = replace_or_insert_rpr_property(rxml, 'szCs', half_points)
+    return rxml
+
+def text_node_spans(pxml):
+    spans = []
+    pos = 0
+    for m in T_RE.finditer(pxml):
+        decoded = decode_text(m.group(2))
+        spans.append({'match': m, 'start': pos, 'end': pos + len(decoded), 'text': decoded})
+        pos += len(decoded)
+    return spans
+
+def run_spans(pxml):
+    out = []
+    pos = 0
+    for m in R_RE.finditer(pxml):
+        txt = run_text(m.group(0))
+        out.append({'match': m, 'start': pos, 'end': pos + len(txt), 'text': txt})
+        pos += len(txt)
+    return out
+
+def replace_text_range(pxml, start, end, replacement):
+    nodes = text_node_spans(pxml)
+    affected = [n for n in nodes if n['end'] > start and n['start'] < end]
+    if not affected:
+        return pxml
+    replacements = []
+    first = affected[0]
+    last = affected[-1]
+    for node in affected:
+        txt = node['text']
+        if first is last:
+            new_txt = txt[:max(0, start-node['start'])] + replacement + txt[max(0, end-node['start']):]
+        elif node is first:
+            new_txt = txt[:max(0, start-node['start'])] + replacement
+        elif node is last:
+            new_txt = txt[max(0, end-node['start']):]
+        else:
+            new_txt = ''
+        m = node['match']
+        raw_open = m.group(1)
+        if (new_txt.startswith(' ') or new_txt.endswith(' ')) and 'xml:space=' not in raw_open:
+            raw_open = raw_open[:-1] + ' xml:space="preserve">'
+        replacements.append((m.start(), m.end(), raw_open + encode_text(new_txt) + m.group(3)))
+    for s, e, rep in reversed(replacements):
+        pxml = pxml[:s] + rep + pxml[e:]
+    return pxml
+
+def patch_runs_overlapping(pxml, start, end, action, edit):
+    spans = run_spans(pxml)
+    replacements = []
+    for item in spans:
+        if item['end'] <= start or item['start'] >= end:
+            continue
+        rxml = item['match'].group(0)
+        if action == 'set_font_size':
+            rxml = patch_run_size(rxml, pxml, absolute=edit.get('font_size_pt'), delta=edit.get('font_size_delta_pt'))
+        elif action == 'set_bold':
+            rxml = replace_or_insert_rpr_property(rxml, 'b', edit.get('value', True), toggle=True)
+        elif action == 'set_italic':
+            rxml = replace_or_insert_rpr_property(rxml, 'i', edit.get('value', True), toggle=True)
+        replacements.append((item['match'].start(), item['match'].end(), rxml))
+    for s, e, rep in reversed(replacements):
+        pxml = pxml[:s] + rep + pxml[e:]
+    return pxml
+
+def patch_alignment(pxml, alignment):
+    prop = '<w:jc w:val="%s"/>' % alignment
+    ppr_m = PPR_RE.search(pxml)
+    jc_re = re.compile(r'<w:jc\b[^>]*/?>', re.S)
+    if ppr_m:
+        ppr = ppr_m.group(0)
+        if jc_re.search(ppr):
+            new_ppr = jc_re.sub(prop, ppr, count=1)
+        else:
+            new_ppr = ppr[:-len('</w:pPr>')] + prop + '</w:pPr>'
+        return pxml[:ppr_m.start()] + new_ppr + pxml[ppr_m.end():]
+    opening = re.match(r'<w:p\b[^>]*>', pxml, re.S)
+    if not opening:
+        return pxml
+    return pxml[:opening.end()] + '<w:pPr>' + prop + '</w:pPr>' + pxml[opening.end():]
+
+xml_names = ['word/document.xml'] + sorted(
+    name for name in original
+    if re.match(r'^word/(?:header|footer)\d*\.xml$', name)
+)
+xml_text = {}
+for name in xml_names:
+    if name in original:
+        try:
+            xml_text[name] = original[name].decode('utf-8')
+        except UnicodeDecodeError:
+            xml_text[name] = original[name].decode('utf-8-sig')
+
+for edit in edits:
+    target = str(edit.get('target_text') or '')
+    if not target:
+        raise RuntimeError('Empty target_text')
+    occurrence = max(1, int(edit.get('occurrence') or 1))
+    matches = []
+    for name in xml_names:
+        text = xml_text.get(name)
+        if text is None:
+            continue
+        for pm in P_RE.finditer(text):
+            pxml = pm.group(0)
+            ptxt = paragraph_text(pxml)
+            start = 0
+            while True:
+                idx = ptxt.find(target, start)
+                if idx < 0:
+                    break
+                matches.append((name, pm.start(), pm.end(), pxml, idx, idx + len(target)))
+                start = idx + max(1, len(target))
+    if occurrence > len(matches):
+        raise RuntimeError("Target not found at requested occurrence: %r (#%d, matches=%d)" % (target, occurrence, len(matches)))
+
+    name, ps, pe, pxml, start, end = matches[occurrence - 1]
+    action = edit.get('action')
+    if action == 'replace_text':
+        new_pxml = replace_text_range(pxml, start, end, str(edit.get('replacement_text') or ''))
+    elif action == 'delete_text':
+        new_pxml = replace_text_range(pxml, start, end, '')
+    elif action in ('set_font_size', 'set_bold', 'set_italic'):
+        new_pxml = patch_runs_overlapping(pxml, start, end, action, edit)
+    elif action == 'set_alignment':
+        new_pxml = patch_alignment(pxml, edit.get('alignment') or 'left')
+    else:
+        raise RuntimeError('Unsupported DOCX edit action: %s' % action)
+
+    if new_pxml == pxml:
+        raise RuntimeError('Requested DOCX edit did not modify the target XML.')
+    xml_text[name] = xml_text[name][:ps] + new_pxml + xml_text[name][pe:]
+
+modified = dict(original)
+for name, text in xml_text.items():
+    modified[name] = text.encode('utf-8')
+
+with zipfile.ZipFile(out, 'w') as zout:
+    for info in infos:
+        data = modified[info.filename]
+        new_info = copy.copy(info)
+        zout.writestr(new_info, data)
+`;
 
 const PDF_EDIT_SCRIPT = Buffer.from(
   'aW1wb3J0IGpzb24sIG9zLCBzdWJwcm9jZXNzLCBzeXMKaW1wb3J0IGZpdHoKCnNyYywgcGxhbl9wYXRoLCBvdXQgPSBzeXMuYXJndlsxXSwgc3lzLmFyZ3ZbMl0sIHN5cy5hcmd2WzNdCndpdGggb3BlbihwbGFuX3BhdGgsICdyJywgZW5jb2Rpbmc9J3V0Zi04JykgYXMgZjoKICAgIGVkaXRzID0ganNvbi5sb2FkKGYpCmRvYyA9IGZpdHoub3BlbihzcmMpCgpkZWYgcmdiKHYpOgogICAgdHJ5OgogICAgICAgIHYgPSBpbnQodikKICAgICAgICByZXR1cm4gKCgodiA+PiAxNikgJiAyNTUpLzI1NS4wLCAoKHYgPj4gOCkgJiAyNTUpLzI1NS4wLCAodiAmIDI1NSkvMjU1LjApCiAgICBleGNlcHQ6CiAgICAgICAgcmV0dXJuICgwLDAsMCkKCmRlZiBiZ19jb2xvcihwYWdlLCByZWN0KToKICAgIGNsaXAgPSBmaXR6LlJlY3QobWF4KHBhZ2UucmVjdC54MCwgcmVjdC54MC0yKSwgbWF4KHBhZ2UucmVjdC55MCwgcmVjdC55MC0yKSwKICAgICAgICAgICAgICAgICAgICAgbWluKHBhZ2UucmVjdC54MSwgcmVjdC54MSsyKSwgbWluKHBhZ2UucmVjdC55MSwgcmVjdC55MSsyKSkKICAgIHRyeToKICAgICAgICBwaXggPSBwYWdlLmdldF9waXhtYXAobWF0cml4PWZpdHouTWF0cml4KDEsMSksIGNsaXA9Y2xpcCwgYWxwaGE9RmFsc2UpCiAgICAgICAgaWYgcGl4LndpZHRoIDwgMSBvciBwaXguaGVpZ2h0IDwgMSBvciBwaXgubiA8IDM6IHJldHVybiAoMSwxLDEpCiAgICAgICAgcHRzPVtdCiAgICAgICAgZm9yIHgseSBpbiBbKDAsMCksKHBpeC53aWR0aC0xLDApLCgwLHBpeC5oZWlnaHQtMSksKHBpeC53aWR0aC0xLHBpeC5oZWlnaHQtMSldOgogICAgICAgICAgICBpPSh5KnBpeC53aWR0aCt4KSpwaXgubgogICAgICAgICAgICBwdHMuYXBwZW5kKHR1cGxlKHBpeC5zYW1wbGVzW2kral0vMjU1LjAgZm9yIGogaW4gcmFuZ2UoMykpKQogICAgICAgIHJldHVybiB0dXBsZShzdW0ocFtrXSBmb3IgcCBpbiBwdHMpLzQgZm9yIGsgaW4gcmFuZ2UoMykpCiAgICBleGNlcHQ6CiAgICAgICAgcmV0dXJuICgxLDEsMSkKCmRlZiBiZXN0X3NwYW4ocGFnZSwgcmVjdCk6CiAgICBiZXN0LCBiZXN0X2FyZWEgPSB7fSwgMAogICAgZm9yIGJsb2NrIGluIHBhZ2UuZ2V0X3RleHQoJ2RpY3QnKS5nZXQoJ2Jsb2NrcycsIFtdKToKICAgICAgICBmb3IgbGluZSBpbiBibG9jay5nZXQoJ2xpbmVzJywgW10pOgogICAgICAgICAgICBmb3Igc3BhbiBpbiBsaW5lLmdldCgnc3BhbnMnLCBbXSk6CiAgICAgICAgICAgICAgICByPWZpdHouUmVjdChzcGFuLmdldCgnYmJveCcpKQogICAgICAgICAgICAgICAgaW50ZXI9ciAmIHJlY3QKICAgICAgICAgICAgICAgIGFyZWE9bWF4KDAsaW50ZXIud2lkdGgpKm1heCgwLGludGVyLmhlaWdodCkKICAgICAgICAgICAgICAgIGlmIGFyZWEgPiBiZXN0X2FyZWE6CiAgICAgICAgICAgICAgICAgICAgYmVzdCwgYmVzdF9hcmVhPXNwYW4sIGFyZWEKICAgIHJldHVybiBiZXN0CgpkZWYgZm9udF9uYW1lKHBhZ2UsIHNwYW4sIHRleHQsIGJvbGQ9RmFsc2UsIGl0YWxpYz1GYWxzZSk6CiAgICBpZiBhbnkob3JkKGNoKT4xMjcgZm9yIGNoIGluIHRleHQpOgogICAgICAgIHRyeToKICAgICAgICAgICAgZnA9c3VicHJvY2Vzcy5jaGVja19vdXRwdXQoWydmYy1tYXRjaCcsJy1mJywnJXtmaWxlfScsJ05vdG8gU2FucyBDSksgSlAnXSwgdGV4dD1UcnVlKS5zdHJpcCgpCiAgICAgICAgICAgIGlmIGZwIGFuZCBvcy5wYXRoLmV4aXN0cyhmcCk6CiAgICAgICAgICAgICAgICBuYW1lPSdQbHVyaWxvZ0NKSycKICAgICAgICAgICAgICAgIHRyeTogcGFnZS5pbnNlcnRfZm9udChmb250bmFtZT1uYW1lLCBmb250ZmlsZT1mcCkKICAgICAgICAgICAgICAgIGV4Y2VwdDogcGFzcwogICAgICAgICAgICAgICAgcmV0dXJuIG5hbWUKICAgICAgICBleGNlcHQ6CiAgICAgICAgICAgIHBhc3MKICAgIHJhdz1zdHIoc3Bhbi5nZXQoJ2ZvbnQnKSBvciAnJykubG93ZXIoKQogICAgaWYgYm9sZDogcmV0dXJuICdoZWJvJwogICAgaWYgaXRhbGljOiByZXR1cm4gJ2hlaXQnCiAgICBpZiAndGltZXMnIGluIHJhdyBvciAnc2VyaWYnIGluIHJhdzogcmV0dXJuICd0aXJvJwogICAgaWYgJ2NvdXJpZXInIGluIHJhdyBvciAnbW9ubycgaW4gcmF3OiByZXR1cm4gJ2NvdXInCiAgICByZXR1cm4gJ2hlbHYnCgpmb3IgZWRpdCBpbiBlZGl0czoKICAgIHRhcmdldD1zdHIoZWRpdC5nZXQoJ3RhcmdldF90ZXh0Jykgb3IgJycpCiAgICBpZiBub3QgdGFyZ2V0OiByYWlzZSBSdW50aW1lRXJyb3IoJ0VtcHR5IHRhcmdldF90ZXh0JykKICAgIG9jYz1tYXgoMSxpbnQoZWRpdC5nZXQoJ29jY3VycmVuY2UnKSBvciAxKSkKICAgIHBhZ2VfZmlsdGVyPWVkaXQuZ2V0KCdwYWdlX251bWJlcicpCiAgICBtYXRjaGVzPVtdCiAgICBmb3IgcGkgaW4gcmFuZ2UobGVuKGRvYykpOgogICAgICAgIGlmIHBhZ2VfZmlsdGVyIGFuZCBwaSsxICE9IGludChwYWdlX2ZpbHRlcik6IGNvbnRpbnVlCiAgICAgICAgZm9yIHJlY3QgaW4gZG9jW3BpXS5zZWFyY2hfZm9yKHRhcmdldCk6CiAgICAgICAgICAgIG1hdGNoZXMuYXBwZW5kKChwaSxyZWN0KSkKICAgIGlmIG9jYyA+IGxlbihtYXRjaGVzKToKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIlBERiB0YXJnZXQgbm90IGZvdW5kIGF0IHJlcXVlc3RlZCBvY2N1cnJlbmNlOiAlciAoIyVkLCBtYXRjaGVzPSVkKSIgJSAodGFyZ2V0LG9jYyxsZW4obWF0Y2hlcykpKQogICAgcGksIHJlY3Q9bWF0Y2hlc1tvY2MtMV0KICAgIHBhZ2U9ZG9jW3BpXQogICAgc3Bhbj1iZXN0X3NwYW4ocGFnZSxyZWN0KQogICAgYWN0aW9uPWVkaXQuZ2V0KCdhY3Rpb24nKQogICAgdGV4dD10YXJnZXQKICAgIGlmIGFjdGlvbiA9PSAncmVwbGFjZV90ZXh0JzogdGV4dD1zdHIoZWRpdC5nZXQoJ3JlcGxhY2VtZW50X3RleHQnKSBvciAnJykKICAgIGVsaWYgYWN0aW9uID09ICdkZWxldGVfdGV4dCc6IHRleHQ9JycKICAgIGVsaWYgYWN0aW9uIG5vdCBpbiAoJ3NldF9mb250X3NpemUnLCdzZXRfYm9sZCcsJ3NldF9pdGFsaWMnLCdzZXRfYWxpZ25tZW50Jyk6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCdVbnN1cHBvcnRlZCBQREYgZWRpdCBhY3Rpb246ICVzJyAlIGFjdGlvbikKICAgIG9sZF9zaXplPWZsb2F0KHNwYW4uZ2V0KCdzaXplJykgb3IgMTEuMCkKICAgIHNpemU9ZWRpdC5nZXQoJ2ZvbnRfc2l6ZV9wdCcpCiAgICBpZiBzaXplIGlzIE5vbmU6IHNpemU9b2xkX3NpemUrZmxvYXQoZWRpdC5nZXQoJ2ZvbnRfc2l6ZV9kZWx0YV9wdCcpIG9yIDApCiAgICBzaXplPW1heCg1LjAsbWluKDk2LjAsZmxvYXQoc2l6ZSkpKQogICAgcGFkX3g9bWF4KDEuNSxvbGRfc2l6ZSowLjEyKTsgcGFkX3k9bWF4KDEuMCxvbGRfc2l6ZSowLjEwKQogICAgcnI9Zml0ei5SZWN0KHJlY3QueDAtcGFkX3gscmVjdC55MC1wYWRfeSxyZWN0LngxK3BhZF94LHJlY3QueTErcGFkX3kpCiAgICBwYWdlLmFkZF9yZWRhY3RfYW5ub3QocnIsIGZpbGw9YmdfY29sb3IocGFnZSxyZWN0KSkKICAgIHBhZ2UuYXBwbHlfcmVkYWN0aW9ucyhpbWFnZXM9MCwgZ3JhcGhpY3M9MCkKICAgIGlmIHRleHQ6CiAgICAgICAgc2NhbGU9bWF4KDEuMCxsZW4odGV4dCkvbWF4KDEsbGVuKHRhcmdldCkpLHNpemUvbWF4KDEuMCxvbGRfc2l6ZSkpCiAgICAgICAgd3I9Zml0ei5SZWN0KHJlY3QueDAtcGFkX3gscmVjdC55MC1wYWRfeSwKICAgICAgICAgICAgICAgICAgICAgbWluKHBhZ2UucmVjdC54MSxyZWN0LngwKyhyZWN0LndpZHRoKzIqcGFkX3gpKnNjYWxlKzE2KSwKICAgICAgICAgICAgICAgICAgICAgbWluKHBhZ2UucmVjdC55MSxyZWN0LnkwKyhyZWN0LmhlaWdodCsyKnBhZF95KSptYXgoMS4yNSxzY2FsZSkrMTApKQogICAgICAgIGFsaWduX25hbWU9ZWRpdC5nZXQoJ2FsaWdubWVudCcpCiAgICAgICAgYWxpZ249MSBpZiBhbGlnbl9uYW1lPT0nY2VudGVyJyBlbHNlIDIgaWYgYWxpZ25fbmFtZT09J3JpZ2h0JyBlbHNlIDAKICAgICAgICBmb250PWZvbnRfbmFtZShwYWdlLHNwYW4sdGV4dCxhY3Rpb249PSdzZXRfYm9sZCcgYW5kIGJvb2woZWRpdC5nZXQoJ3ZhbHVlJyxUcnVlKSksYWN0aW9uPT0nc2V0X2l0YWxpYycgYW5kIGJvb2woZWRpdC5nZXQoJ3ZhbHVlJyxUcnVlKSkpCiAgICAgICAgcmM9cGFnZS5pbnNlcnRfdGV4dGJveCh3cix0ZXh0LGZvbnRzaXplPXNpemUsZm9udG5hbWU9Zm9udCxjb2xvcj1yZ2Ioc3Bhbi5nZXQoJ2NvbG9yJywwKSksYWxpZ249YWxpZ24sb3ZlcmxheT1UcnVlKQogICAgICAgIGlmIHJjIDwgLTI6IHJhaXNlIFJ1bnRpbWVFcnJvcigiUmVwbGFjZW1lbnQgdGV4dCBkaWQgbm90IGZpdCB0YXJnZXQgcmVnaW9uIGZvciAlciIgJSB0YXJnZXQpCgpkb2Muc2F2ZShvdXQsZ2FyYmFnZT0zLGRlZmxhdGU9VHJ1ZSxjbGVhbj1GYWxzZSkKZG9jLmNsb3NlKCk=',
