@@ -3529,7 +3529,21 @@ export async function POST(req: NextRequest) {
               accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
             };
 
-            const pdfAttachments = currentRoundAttachments.filter((att: any) =>
+            const sameRoundRenderedDocumentPages =
+              currentRoundAttachments.filter(
+                (attachment) =>
+                  attachment.provenance ===
+                  'same_round_document_render'
+              );
+            const reviewScopedToGeneratedDocument =
+              documentCreatedThisTurn &&
+              sameRoundRenderedDocumentPages.length > 0;
+            const modelInputAttachments =
+              reviewScopedToGeneratedDocument
+                ? sameRoundRenderedDocumentPages
+                : currentRoundAttachments;
+
+            const pdfAttachments = modelInputAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
             ) || [];
             const hasPdf = pdfAttachments.length > 0;
@@ -3579,8 +3593,13 @@ export async function POST(req: NextRequest) {
 
             const seatAttachments =
               seat.seatId === 'gemini'
-                ? await prepareGeminiVisionAttachments(currentRoundAttachments)
-                : currentRoundAttachments;
+                ? await prepareGeminiVisionAttachments(modelInputAttachments)
+                : modelInputAttachments;
+
+            const seatRetrievedDocuments =
+              reviewScopedToGeneratedDocument
+                ? []
+                : retrievedDocuments;
 
             const currentVisualAttachmentCount = (seatAttachments || []).filter((a) => {
               const cleanUrl =
@@ -3630,6 +3649,16 @@ export async function POST(req: NextRequest) {
                   currentDocumentAttachmentCount === 0)
               );
 
+            if (reviewScopedToGeneratedDocument) {
+              console.log('[Generated Document Review Scope]', {
+                seatId: seat.seatId,
+                renderedPageCount:
+                  sameRoundRenderedDocumentPages.length,
+                semanticDocumentContextSuppressed: true,
+                pdfRelaySuppressed: true,
+              });
+            }
+
             if (isEvidenceEnabledForSeat) {
               console.log('[Evidence Tool Availability]', {
                 seatId: seat.seatId,
@@ -3650,7 +3679,7 @@ export async function POST(req: NextRequest) {
               seatAttachments,
               isReusingAnnotations ? roundFileAnnotations : null,
               retrievedMemory,
-              retrievedDocuments,
+              seatRetrievedDocuments,
               isVisualUnavailable,
               currentTurnDocuments,
               visualDeliveryMismatch,
