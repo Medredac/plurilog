@@ -67,6 +67,7 @@ export interface DiscussionMemoryResult {
   allUserMessageIds?: string[];
   chronologicalMemory?: ChronologicalMemoryResult;
   knownDocuments?: KnownDiscussionDocument[];
+  historyLookupIntent?: boolean;
 }
 
 export const SEMANTIC_KEYS = [
@@ -549,6 +550,9 @@ export interface ConversationHistoryPlan {
     | null;
   ordinal: number | null;
   anchor: string | null;
+  anchor_target: 'user' | 'chatgpt' | 'claude' | 'gemini' | null;
+  anchor_occurrence: 'first' | 'last' | 'ordinal' | null;
+  anchor_ordinal: number | null;
   include_attachments: boolean;
   confidence: number;
 }
@@ -609,6 +613,20 @@ function validateConversationHistoryPlan(
     typeof raw.anchor === 'string' && raw.anchor.trim()
       ? raw.anchor.trim()
       : null;
+  const anchorTarget =
+    raw.anchor_target === null ||
+    ['user', 'chatgpt', 'claude', 'gemini'].includes(raw.anchor_target)
+      ? raw.anchor_target
+      : null;
+  const anchorOccurrence =
+    raw.anchor_occurrence === null ||
+    ['first', 'last', 'ordinal'].includes(raw.anchor_occurrence)
+      ? raw.anchor_occurrence
+      : null;
+  const anchorOrdinal =
+    Number.isInteger(raw.anchor_ordinal) && raw.anchor_ordinal >= 1
+      ? raw.anchor_ordinal
+      : null;
   const confidence =
     typeof raw.confidence === 'number' &&
     Number.isFinite(raw.confidence)
@@ -622,6 +640,9 @@ function validateConversationHistoryPlan(
       relation: null,
       ordinal: null,
       anchor: null,
+      anchor_target: null,
+      anchor_occurrence: null,
+      anchor_ordinal: null,
       include_attachments: false,
       confidence,
     };
@@ -632,6 +653,9 @@ function validateConversationHistoryPlan(
   if ((relation === 'before' || relation === 'after') && !anchor) {
     return null;
   }
+  if (anchorOccurrence === 'ordinal' && !anchorOrdinal) {
+    return null;
+  }
 
   return {
     is_history_lookup: true,
@@ -639,6 +663,9 @@ function validateConversationHistoryPlan(
     relation,
     ordinal,
     anchor,
+    anchor_target: anchorTarget,
+    anchor_occurrence: anchorOccurrence,
+    anchor_ordinal: anchorOrdinal,
     include_attachments: Boolean(raw.include_attachments),
     confidence,
   };
@@ -677,6 +704,9 @@ Return exactly this JSON shape:
   "relation": "first" | "last" | "ordinal" | "before" | "after" | "previous" | null,
   "ordinal": integer | null,
   "anchor": string | null,
+  "anchor_target": "user" | "chatgpt" | "claude" | "gemini" | null,
+  "anchor_occurrence": "first" | "last" | "ordinal" | null,
+  "anchor_ordinal": integer | null,
   "include_attachments": boolean,
   "confidence": number
 }
@@ -689,6 +719,9 @@ Definitions:
 - previous means the immediately preceding relevant message from that target before the current turn.
 - before/after means navigation on the actual ordered message-event timeline. "after" means the first matching target event strictly after the resolved anchor event; "before" means the nearest matching target event strictly before it.
 - anchor must describe the HISTORICAL EVENT being navigated around, not merely repeat the immediately preceding lookup question.
+- anchor_target identifies who produced the anchor event when the user specifies it. Example: "when I first said X, what did GPT reply?" => anchor_target=user.
+- anchor_occurrence identifies which occurrence of a repeated anchor the user means: first, last, or ordinal. For ordinal, put the 1-based number in anchor_ordinal.
+- IMPORTANT: modifiers such as "first" can apply to the ANCHOR rather than the requested target. Example: "when I first said to make the title larger, what did GPT reply?" => target=chatgpt, relation=after, anchor="make the title larger", anchor_target=user, anchor_occurrence=first. Do not discard that first/last/Nth qualifier.
 - For elliptical follow-ups such as "and what did Claude say immediately after that?", resolve "that" to the older historical event/topic the previous user turn was referring to. If the previous turn says "when I asked you to make X smaller...", the anchor should describe that earlier "make X smaller" request, not the later meta-question about it.
 - Only anchor to the immediately preceding user query itself when the current user explicitly means that query as the event.
 - anchor must be the user's natural-language topic/message description, not an answer you invent.
@@ -740,6 +773,9 @@ Definitions:
       relation: refinedPlan.relation,
       ordinal: refinedPlan.ordinal,
       anchor: refinedPlan.anchor,
+      anchorTarget: refinedPlan.anchor_target,
+      anchorOccurrence: refinedPlan.anchor_occurrence,
+      anchorOrdinal: refinedPlan.anchor_ordinal,
       includeAttachments: refinedPlan.include_attachments,
       confidence: refinedPlan.confidence,
     });
@@ -932,7 +968,10 @@ ${currentPrompt.trim()}`,
 function localHistoryAnchorEventIndex(
   rawAnchor: string,
   events: ConversationHistoryEvent[],
-  allRounds: Round[]
+  allRounds: Round[],
+  anchorTarget: ConversationHistoryPlan['anchor_target'] = null,
+  anchorOccurrence: ConversationHistoryPlan['anchor_occurrence'] = null,
+  anchorOrdinal: number | null = null
 ): number | null {
   const normalizedRaw = normalizeHistoryAnchorText(rawAnchor);
   const tokens = normalizedRaw.split(/\s+/).filter(Boolean);
@@ -944,8 +983,14 @@ function localHistoryAnchorEventIndex(
   const phrase = meaningfulTerms.join(' ');
   const phraseMatches: number[] = [];
   const allTermsMatches: number[] = [];
+  const anchorSpeaker =
+    anchorTarget === 'user'
+      ? 'User'
+      : speakerDisplayName(anchorTarget);
 
   for (const event of events) {
+    if (anchorSpeaker && event.speaker !== anchorSpeaker) continue;
+
     const round = allRounds[event.roundIndex];
     if (
       event.kind === 'user_prompt' &&
@@ -966,9 +1011,23 @@ function localHistoryAnchorEventIndex(
     }
   }
 
-  if (phraseMatches.length === 1) return phraseMatches[0];
-  if (phraseMatches.length > 1) return null;
-  if (allTermsMatches.length === 1) return allTermsMatches[0];
+  const candidates =
+    phraseMatches.length > 0
+      ? Array.from(new Set(phraseMatches))
+      : Array.from(new Set(allTermsMatches));
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  if (anchorOccurrence === 'first') return candidates[0];
+  if (anchorOccurrence === 'last') return candidates[candidates.length - 1];
+  if (anchorOccurrence === 'ordinal' && anchorOrdinal) {
+    const index = anchorOrdinal - 1;
+    return index >= 0 && index < candidates.length ? candidates[index] : null;
+  }
+
+  // Multiple historical events match and the user did not identify which one.
+  // Fail closed rather than guessing.
   return null;
 }
 
@@ -1055,10 +1114,13 @@ export async function executeConversationHistoryPlan(
     let anchorEventIndex = localHistoryAnchorEventIndex(
       plan.anchor,
       events,
-      allRounds
+      allRounds,
+      plan.anchor_target,
+      plan.anchor_occurrence,
+      plan.anchor_ordinal
     );
 
-    if (anchorEventIndex === null) {
+    if (anchorEventIndex === null && !plan.anchor_occurrence) {
       let anchorRoundIndex = findAnchorRoundIndex(plan.anchor, allRounds);
       if (anchorRoundIndex === null && semanticOptions) {
         anchorRoundIndex = await resolveSemanticAnchorRoundIndex(
@@ -2215,6 +2277,10 @@ export async function getScopedDiscussionMemory(
       openai
     );
 
+    const historyLookupIntent = Boolean(
+      historyPlan?.is_history_lookup && historyPlan.confidence >= 0.55
+    );
+
     let chronologicalMemory = historyPlan
       ? await executeConversationHistoryPlan(historyPlan, allRounds, {
           supabase,
@@ -2274,6 +2340,7 @@ export async function getScopedDiscussionMemory(
       allUserMessageIds,
       chronologicalMemory: chronologicalMemory || undefined,
       knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
+      historyLookupIntent,
     };
   } catch (err) {
     console.error('[Memory] Exception in getScopedDiscussionMemory:', err, { discussion_id: discussionId });
