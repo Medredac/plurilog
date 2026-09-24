@@ -1,0 +1,137 @@
+name: DOCX XML preservation smoke
+
+on:
+  push:
+    branches:
+      - debug/docx-xml-preservation-smoke
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract surgical DOCX editor
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const src = fs.readFileSync('src/utils/sourceDocumentEditor.ts', 'utf8');
+          const m = src.match(/const DOCX_EDIT_SCRIPT = String\.raw`([\s\S]*?)`;\n\nconst PDF_EDIT_SCRIPT/);
+          if (!m) throw new Error('Could not extract DOCX editor script');
+          fs.writeFileSync('/tmp/edit_docx.py', m[1]);
+          NODE
+          python3 -m py_compile /tmp/edit_docx.py
+
+      - name: Build complex Word-like DOCX
+        run: |
+          python3 <<'PY'
+          import os, zipfile
+          os.makedirs('/tmp/pkg/word/_rels', exist_ok=True)
+          os.makedirs('/tmp/pkg/_rels', exist_ok=True)
+
+          document = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <w:document
+            xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+            xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"
+            xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"
+            mc:Ignorable="w14 w15">
+            <w:body>
+              <w:p w14:paraId="11111111">
+                <w:pPr><w:jc w:val="left"/></w:pPr>
+                <w:r><w:rPr><w:sz w:val="36"/><w:szCs w:val="36"/></w:rPr><w:t>履歴書</w:t></w:r>
+              </w:p>
+              <w:tbl>
+                <w:tr>
+                  <w:tc><w:p><w:r><w:t>氏名</w:t></w:r></w:p></w:tc>
+                  <w:tc><w:p w14:paraId="22222222"><w:r><w:t>Meryem Behri</w:t></w:r></w:p></w:tc>
+                </w:tr>
+                <w:tr>
+                  <w:tc><w:p><w:r><w:t>学歴</w:t></w:r></w:p></w:tc>
+                  <w:tc><w:p><w:r><w:t>筑波大学大学院</w:t></w:r></w:p></w:tc>
+                </w:tr>
+              </w:tbl>
+              <w:sectPr/>
+            </w:body>
+          </w:document>'''
+
+          styles = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+            <w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>
+          </w:styles>'''
+
+          content_types = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+            <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+            <Default Extension="xml" ContentType="application/xml"/>
+            <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+            <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+          </Types>'''
+
+          rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+          </Relationships>'''
+
+          docrels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+          <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+          </Relationships>'''
+
+          open('/tmp/pkg/word/document.xml','w',encoding='utf-8').write(document)
+          open('/tmp/pkg/word/styles.xml','w',encoding='utf-8').write(styles)
+          open('/tmp/pkg/[Content_Types].xml','w',encoding='utf-8').write(content_types)
+          open('/tmp/pkg/_rels/.rels','w',encoding='utf-8').write(rels)
+          open('/tmp/pkg/word/_rels/document.xml.rels','w',encoding='utf-8').write(docrels)
+
+          with zipfile.ZipFile('/tmp/input.docx','w',zipfile.ZIP_DEFLATED) as z:
+            for root,_,files in os.walk('/tmp/pkg'):
+              for name in files:
+                p=os.path.join(root,name)
+                z.write(p, os.path.relpath(p,'/tmp/pkg'))
+          PY
+
+      - name: Apply title-only edit
+        run: |
+          cat >/tmp/plan.json <<'JSON'
+          [{"action":"set_font_size","target_text":"履歴書","font_size_delta_pt":-1}]
+          JSON
+          python3 /tmp/edit_docx.py /tmp/input.docx /tmp/plan.json /tmp/output.docx
+
+      - name: Verify surgical preservation
+        run: |
+          python3 <<'PY'
+          import re, zipfile
+
+          with zipfile.ZipFile('/tmp/input.docx') as a, zipfile.ZipFile('/tmp/output.docx') as b:
+            names_a = a.namelist()
+            names_b = b.namelist()
+            assert names_a == names_b, (names_a, names_b)
+
+            for name in names_a:
+              if name != 'word/document.xml':
+                assert a.read(name) == b.read(name), 'Unrelated ZIP entry changed: ' + name
+
+            before = a.read('word/document.xml').decode('utf-8')
+            after = b.read('word/document.xml').decode('utf-8')
+
+          assert 'mc:Ignorable="w14 w15"' in after
+          assert 'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"' in after
+          assert 'xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml"' in after
+          assert '<w:t>Meryem Behri</w:t>' in after
+          assert '<w:t>筑波大学大学院</w:t>' in after
+          assert '<w:sz w:val="34"/>' in after
+          assert '<w:szCs w:val="34"/>' in after
+
+          title_re = re.compile(r'<w:p\b[^>]*>.*?<w:t>履歴書</w:t>.*?</w:p>', re.S)
+          assert title_re.search(before)
+          assert title_re.search(after)
+          before_without_title = title_re.sub('TITLE_PARAGRAPH', before, count=1)
+          after_without_title = title_re.sub('TITLE_PARAGRAPH', after, count=1)
+          assert before_without_title == after_without_title, 'XML outside title paragraph changed'
+
+          print('PASS: only title paragraph changed; table content and namespace declarations preserved byte-for-byte')
+          PY
