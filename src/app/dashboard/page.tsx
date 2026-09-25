@@ -2176,6 +2176,33 @@ export default function DashboardPage() {
           durableAttachmentUrls.push(buildDurableAttachmentUrl(filePath, file.name));
         }
 
+        // Keep optimistic image previews visible until their durable browser
+        // URLs are actually decodable. Without this handoff the blob URL can
+        // be revoked just as React swaps src, producing a brief empty tile.
+        const durableImagesToPreload = durableAttachmentUrls.filter((_, index) => {
+          const sourceFile = preparedUploadBodies[index]?.file;
+          return Boolean(sourceFile?.type?.startsWith('image/'));
+        });
+
+        if (durableImagesToPreload.length > 0) {
+          await Promise.allSettled(
+            durableImagesToPreload.map(
+              (url) =>
+                new Promise<void>((resolve) => {
+                  const img = new Image();
+                  const timeout = window.setTimeout(resolve, 4000);
+                  const finish = () => {
+                    window.clearTimeout(timeout);
+                    resolve();
+                  };
+                  img.onload = finish;
+                  img.onerror = finish;
+                  img.src = url;
+                })
+            )
+          );
+        }
+
         // Replace temporary object URLs with stable authenticated attachment URLs.
         // Signed URLs are transport-only for the current model call and are never the durable UI identity.
         setMessages((prev) =>
@@ -2189,7 +2216,14 @@ export default function DashboardPage() {
               : m
           )
         );
-        tempObjectUrls.forEach((url) => URL.revokeObjectURL(url.split('#')[0]));
+
+        // Give React one paint with the preloaded durable source before
+        // releasing the optimistic blob backing store.
+        window.setTimeout(() => {
+          tempObjectUrls.forEach((url) =>
+            URL.revokeObjectURL(url.split('#')[0])
+          );
+        }, 250);
       } catch (err: any) {
         console.error('[Supabase Storage Exception]', err);
         rollbackOptimistic();

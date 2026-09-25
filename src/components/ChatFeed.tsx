@@ -135,6 +135,54 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
   return trimmed || defaultFallback;
 }
 
+const USER_MESSAGE_URL_REGEX = /(?:https?:\/\/|www\.)[^\s<]+/gi;
+
+function renderUserMessageContent(content: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of content.matchAll(USER_MESSAGE_URL_REGEX)) {
+    const start = match.index ?? 0;
+    const rawMatch = match[0];
+
+    if (start > cursor) {
+      nodes.push(content.slice(cursor, start));
+    }
+
+    // Keep sentence punctuation outside the clickable URL while preserving
+    // everything the user typed exactly as visible text.
+    const trailingMatch = rawMatch.match(/[.,;:!]+$/);
+    const trailing = trailingMatch?.[0] || '';
+    const visibleUrl = trailing
+      ? rawMatch.slice(0, rawMatch.length - trailing.length)
+      : rawMatch;
+    const href = visibleUrl.toLowerCase().startsWith('www.')
+      ? `https://${visibleUrl}`
+      : visibleUrl;
+
+    nodes.push(
+      <a
+        key={`user-url-${start}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2 decoration-stone-400 hover:decoration-stone-700 hover:text-stone-700 transition-colors [overflow-wrap:anywhere]"
+      >
+        {visibleUrl}
+      </a>
+    );
+
+    if (trailing) nodes.push(trailing);
+    cursor = start + rawMatch.length;
+  }
+
+  if (cursor < content.length) {
+    nodes.push(content.slice(cursor));
+  }
+
+  return nodes.length > 0 ? nodes : [content];
+}
+
 interface ParsedSource {
   title: string;
   url: string;
@@ -1197,7 +1245,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-full sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 relative min-w-0">
+                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-[24px] p-3.5 sm:p-4.5 relative min-w-0">
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
@@ -1212,12 +1260,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         const isImage = isImageUrl(url, filename);
 
                         return (
-                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
+                          <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             {isPdf ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
@@ -1229,7 +1277,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
@@ -1241,7 +1289,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
@@ -1253,7 +1301,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setLightboxImageUrl(url)}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <img
@@ -1266,7 +1314,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-zinc-600" />
@@ -1295,7 +1343,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                           isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
                         }`}
                       >
-                        {message.content}
+                        {renderUserMessageContent(message.content)}
                       </p>
 
                       {/* Show More / Show Less Toggle */}
@@ -1321,6 +1369,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     </div>
                   ) : null}
                 </div>
+
+                {message.content?.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(message.id, message.content)}
+                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-zinc-900 transition-colors cursor-pointer"
+                    aria-label={copiedId === message.id ? 'Copied' : 'Copy message'}
+                    title={copiedId === message.id ? 'Copied' : 'Copy'}
+                  >
+                    {copiedId === message.id ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
 
                 {/* Inline Failed Turn State: Active failure (with Try again button) */}
                 {failedTurn && failedTurn.uiMessageId === message.id ? (
@@ -1414,7 +1478,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             )}
             <div
               id={message.id}
-              className={`rounded-xl border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
+              className={`rounded-[24px] border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
             >
               {/* Header: Model name & timestamp only */}
               <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
@@ -1465,7 +1529,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             <button
                               type="button"
                               onClick={() => setLightboxImageUrl(url)}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                               title={`Click to view ${filename}`}
                             >
                               <img
@@ -1516,7 +1580,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             <button
                               type="button"
                               onClick={() => onPreviewDocument?.({ url, filename })}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
                               title={`Preview ${filename}`}
                             >
                               <FileText
