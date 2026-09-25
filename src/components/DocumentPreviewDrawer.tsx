@@ -9,6 +9,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import { ResponsiveDocumentViewer } from './ResponsiveDocumentViewer';
 
 interface DocumentPreviewDrawerProps {
   isOpen: boolean;
@@ -64,7 +65,6 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const [frameLoading, setFrameLoading] = useState(true);
   const [textLoading, setTextLoading] = useState(false);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -248,9 +248,8 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setFrameLoading(!isText && Boolean(previewUrl));
     setPreviewError(null);
-  }, [isOpen, previewUrl, isText, documentUrl]);
+  }, [isOpen, previewUrl, documentUrl]);
 
   const badge = extension ? extension.toUpperCase() : 'FILE';
   const canPreview = Boolean(previewUrl) && (isPdf || isDocx || isText);
@@ -339,23 +338,11 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
               </div>
             </div>
           ) : (
-            <>
-              {frameLoading && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-100">
-                  <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-2 text-xs text-zinc-500 shadow-sm">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Preparing preview…
-                  </div>
-                </div>
-              )}
-              <iframe
-                key={framePreviewUrl}
-                src={framePreviewUrl || undefined}
-                title={`Preview of ${filename}`}
-                className="h-full w-full border-0 bg-white"
-                onLoad={() => setFrameLoading(false)}
-              />
-            </>
+            <ResponsiveDocumentViewer
+              documentUrl={documentUrl}
+              filename={filename}
+              fallbackPreviewUrl={framePreviewUrl}
+            />
           )
         ) : (
           <div className="flex h-full items-center justify-center p-6">
