@@ -1881,6 +1881,13 @@ export function buildPanelMessages(
     discussionMemory?.chronologicalMemory?.content
   );
 
+  if (/\b(?:svg|vector|logo|logomark|wordmark|icon|diagram)\b/i.test(prompt)) {
+    sections.push(
+      `VECTOR ARTWORK OUTPUT:
+If you choose to provide standalone vector artwork (for example a logo, icon, logomark, wordmark, or diagram), output the finished visual as one self-contained fenced \`\`\`svg code block. Keep every visible element, including text, inside the SVG itself; do not wrap the artwork in HTML, JSX, Tailwind, or surrounding <span>/<div> elements. Plurilog can preview and download self-contained SVG blocks directly. Use ordinary HTML/code only when the user is specifically asking for implementation code rather than a standalone visual asset.`
+    );
+  }
+
   // 1. [rolling summary, if one exists for this discussion]
   let summarySection = '';
   if (
