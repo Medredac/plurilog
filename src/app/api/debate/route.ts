@@ -802,6 +802,40 @@ function isStrongDocumentMutationRequest(value: string): boolean {
   );
 }
 
+function isStrongImageActionRequest(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt) return false;
+
+  const action =
+    '\\b(?:generate|create|make|draw|render|illustrate|edit|modify|change|transform|retouch|rework)\\b';
+  const imageCue =
+    '\\b(?:image|picture|photo|portrait|illustration|artwork|graphic|visual|drawing)\\b';
+
+  const explicitImageAction = new RegExp(
+    `(?:${action}[\\s\\S]{0,80}${imageCue}|${imageCue}[\\s\\S]{0,80}${action})`,
+    'i'
+  );
+
+  // Follow-ups such as "Gemini, you too, generate please" inherit the obvious
+  // image-generation intent from the immediately preceding exchange. They are
+  // action requests, not requests to retrieve Gemini's earlier message.
+  const directlyAddressedGeneration = new RegExp(
+    `^\\s*(?:ok(?:ay)?[,.!]?\\s*)?(?:gemini|chatgpt|gpt)[,:]?\\s+(?:(?:you\\s+too|also)[,]?\\s+)?(?:please\\s+)?(?:generate|create|make|draw|render|illustrate)\\b`,
+    'i'
+  );
+
+  const directlyAddressedEdit = new RegExp(
+    `^\\s*(?:ok(?:ay)?[,.!]?\\s*)?(?:gemini|chatgpt|gpt)[,:]?\\s+(?:please\\s+)?(?:edit|modify|change|transform|retouch|rework)\\b`,
+    'i'
+  );
+
+  return (
+    explicitImageAction.test(prompt) ||
+    directlyAddressedGeneration.test(prompt) ||
+    directlyAddressedEdit.test(prompt)
+  );
+}
+
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
   if (!isDocumentRevisionFollowUpQuery(value)) return false;
   return !/\b(?:redo|rework|reformat|restyle|redesign|rebuild|transform|convert)\b/i.test(
@@ -2284,12 +2318,18 @@ export async function POST(req: NextRequest) {
 
       if (
         discussionMemory?.historyLookupIntent === true &&
-        isStrongDocumentMutationRequest(prompt || '')
+        (
+          isStrongDocumentMutationRequest(prompt || '') ||
+          isStrongImageActionRequest(prompt || '')
+        )
       ) {
         console.log(
-          '[Memory History Override] Clear document mutation takes precedence over chronology lookup',
+          '[Memory History Override] Clear artifact action takes precedence over chronology lookup',
           {
             prompt: prompt || '',
+            actionKind: isStrongDocumentMutationRequest(prompt || '')
+              ? 'document'
+              : 'image',
             priorChronologyLabel:
               discussionMemory.chronologicalMemory?.label || null,
           }
