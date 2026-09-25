@@ -712,29 +712,52 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
   const prompt = (value || '').trim();
   if (!prompt) return false;
 
-  // Follow-up transformations of an existing artifact must be grounded in the
-  // canonical parent document. Generic pronouns such as "it" / "this" are not
-  // enough on their own for broad verbs like "put", "add", or "include":
-  // ordinary product/marketing language frequently uses those combinations.
-  const revisionVerb =
-    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
+  // Treat a turn as a document revision only when the language actually looks
+  // like an edit instruction. A long conversational prompt may naturally
+  // contain words such as "move", "put", "page", "image", or "it" without
+  // asking Plurilog to mutate a document.
+  const actionVerb =
+    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|place|embed|attach|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
   const explicitArtifactCue =
     /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
-  const pronounMutationVerb =
-    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
-  const pronounArtifactCue = /\b(?:it|this|that)\b/i;
+  const softPrefix =
+    '(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\\s+you|now|then|also|and|go\\s+ahead)[,!.\\s-]*)*';
+
+  const politeAction = new RegExp(
+    `^${softPrefix}(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const imperativeAction = new RegExp(
+    `^${softPrefix}(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const requestedAction = new RegExp(
+    `\\b(?:i\\s+(?:want|need)|i['’]?d\\s+like)\\s+(?:you\\s+to\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+
+  const startsLikeMutation =
+    politeAction.test(prompt) ||
+    imperativeAction.test(prompt) ||
+    requestedAction.test(prompt);
+
+  const shortPronounMutation =
+    prompt.length <= 220 &&
+    startsLikeMutation &&
+    /\b(?:it|this|that)\b/i.test(prompt);
+
+  const explicitDocumentMutation =
+    startsLikeMutation && explicitArtifactCue.test(prompt);
+
   const documentElementCue =
     /\b(?:title|heading|header|footer|font|photo|portrait|image|table|margin|spacing|colour|color|section|layout|style|page)\b/i;
-  const makeMutation =
-    /\bmake\b/i.test(prompt) &&
-    documentElementCue.test(prompt) &&
-    !/\bmake\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:pdf|docx|word\s+document|document|file)\b/i.test(
-      prompt
-    );
   const comparativeMutation =
     /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i.test(
       prompt
-    ) && documentElementCue.test(prompt);
+    ) &&
+    (documentElementCue.test(prompt) ||
+      (prompt.length <= 220 && /\b(?:it|this|that)\b/i.test(prompt)));
+
   const preservationPhrase =
     /\b(?:change|touch|alter)\s+nothing\s+else\b/i.test(prompt) ||
     /\b(?:leave|keep)\s+(?:everything|the\s+rest)\s+(?:else\s+)?(?:unchanged|the\s+same|as\s+is)\b/i.test(
@@ -746,15 +769,9 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
       prompt
     );
 
-  const explicitDocumentMutation =
-    revisionVerb.test(prompt) && explicitArtifactCue.test(prompt);
-  const narrowPronounMutation =
-    pronounMutationVerb.test(prompt) && pronounArtifactCue.test(prompt);
-
   return (
     explicitDocumentMutation ||
-    narrowPronounMutation ||
-    makeMutation ||
+    shortPronounMutation ||
     comparativeMutation ||
     preservationPhrase ||
     generatedAssetInsertion
