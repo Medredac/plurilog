@@ -2415,7 +2415,7 @@ export default function DashboardPage() {
         />
 
         {/* Main Chamber */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
+        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-dashboard-tech-grid min-w-0">
           {/* Simplified Header */}
           <CouncilHeader
             seatOrder={seatOrder}
