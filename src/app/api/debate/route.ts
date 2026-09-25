@@ -3126,16 +3126,13 @@ export async function POST(req: NextRequest) {
               : null;
 
           const hasCurrentUserDocumentContext =
-            (currentRoundAttachments || []).some((attachment) => {
-              if (attachment.provenance !== 'current_user_upload') {
-                return false;
-              }
-              const filename = (attachment.filename || '').toLowerCase();
+            (Array.isArray(attachments) ? attachments : []).some((attachment: any) => {
+              const filename = (attachment?.filename || '').toLowerCase();
               const cleanUrl =
-                attachment.url
-                  ?.split('?')[0]
+                String(attachment?.url || '')
+                  .split('?')[0]
                   .split('#')[0]
-                  .toLowerCase() || '';
+                  .toLowerCase();
               return (
                 filename.endsWith('.pdf') ||
                 filename.endsWith('.docx') ||
