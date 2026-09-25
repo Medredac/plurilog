@@ -543,7 +543,7 @@ function sanitizeStandaloneSvg(rawSvg: string): string | null {
   if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return null;
 
   const trimmed = rawSvg.trim();
-  if (!/^<svg(?:\\s|>)/i.test(trimmed) || !/<\\/svg>\\s*$/i.test(trimmed)) {
+  if (!/^<svg(?:\s|>)/i.test(trimmed) || !/<\/svg>\s*$/i.test(trimmed)) {
     return null;
   }
 
@@ -576,12 +576,12 @@ function sanitizeStandaloneSvg(rawSvg: string): string | null {
         continue;
       }
 
-      if (/javascript:/i.test(value) || /data:text\\/html/i.test(value)) {
+      if (/javascript:/i.test(value) || /data:text\/html/i.test(value)) {
         element.removeAttribute(attribute.name);
         continue;
       }
 
-      if (/url\\s*\\(/i.test(value) && !/url\\s*\\(\\s*#[-_a-z0-9]+\\s*\\)/i.test(value)) {
+      if (/url\s*\(/i.test(value) && !/url\s*\(\s*#[-_a-z0-9]+\s*\)/i.test(value)) {
         element.removeAttribute(attribute.name);
       }
     }
@@ -598,7 +598,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
   children,
   className,
 }) => {
-  const codeContent = String(children || '').replace(/\\n$/, '');
+  const codeContent = String(children || '').replace(/\n$/, '');
   const [safeSvg, setSafeSvg] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
@@ -799,11 +799,11 @@ const markdownComponents: Components = {
       );
     }
 
-    const codeContent = String(children || '').replace(/\\n$/, '');
+    const codeContent = String(children || '').replace(/\n$/, '');
     const language = match ? match[1].toLowerCase() : '';
     const looksLikeStandaloneSvg =
       language === 'svg' ||
-      (/^<svg(?:\\s|>)/i.test(codeContent.trim()) && /<\\/svg>\\s*$/i.test(codeContent.trim()));
+      (/^<svg(?:\s|>)/i.test(codeContent.trim()) && /<\/svg>\s*$/i.test(codeContent.trim()));
 
     if (looksLikeStandaloneSvg) {
       return <SvgCodeBlock className={className || 'language-svg'}>{children}</SvgCodeBlock>;
