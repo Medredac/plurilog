@@ -855,6 +855,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
+  const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
   // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
@@ -906,6 +907,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
+  };
+
+  const toggleAiCollapse = (id: string) => {
+    setCollapsedAiMsgIds((prev) => ({
       ...prev,
       [id]: !prev[id],
     }));
@@ -1210,6 +1218,15 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           const filename = getAttachmentDisplayFilename(url);
           return !isImageUrl(url, filename);
         });
+        const isAiCollapsible =
+          !message.isStreaming &&
+          (
+            message.content.length > 280 ||
+            message.content.split('\n').length > 5 ||
+            attachments.length > 0
+          );
+        const isAiCollapsed =
+          isAiCollapsible && Boolean(collapsedAiMsgIds[message.id]);
 
         return (
           <React.Fragment key={message.id}>
@@ -1251,11 +1268,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   reduceMotion={Boolean(shouldReduceMotion)}
                 />
               ) : (
-                <>
-                  <StreamingMessageBody
-                    content={message.content}
-                    isStreaming={message.isStreaming}
-                  />
+                <motion.div
+                  initial={false}
+                  animate={{ height: isAiCollapsed ? 82 : 'auto' }}
+                  transition={{
+                    duration: shouldReduceMotion ? 0 : 0.28,
+                    ease: [0.16, 1, 0.3, 1],
+                  }}
+                  className="relative min-w-0 max-w-full overflow-hidden"
+                >
+                  <div className={isAiCollapsed ? 'pointer-events-none' : ''}>
+                    <StreamingMessageBody
+                      content={message.content}
+                      isStreaming={message.isStreaming}
+                    />
 
                   {/* Attached Images (if present) */}
                   {imageAttachments.length > 0 && (
@@ -1339,10 +1365,25 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       })}
                     </div>
                   )}
-                </>
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {isAiCollapsed && (
+                      <motion.div
+                        key="collapsed-fade"
+                        initial={shouldReduceMotion ? false : { opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-white/0 via-white/80 to-white"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </AnimatePresence>
+                </motion.div>
               )}
 
-              {/* Bottom Actions Bar: Copy & Export (Rendered once content exists) */}
+              {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
               {!isThinking && (
                 <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2">
@@ -1376,6 +1417,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       </button>
                     )}
                   </div>
+
+                  {isAiCollapsible && (
+                    <button
+                      type="button"
+                      onClick={() => toggleAiCollapse(message.id)}
+                      className="flex items-center justify-center p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
+                      title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                      aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                      aria-expanded={!isAiCollapsed}
+                    >
+                      {isAiCollapsed ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
