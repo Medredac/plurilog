@@ -1025,6 +1025,7 @@ export default function DashboardPage() {
     let adoptedFirstSeat = false;
     let documentIndexingStarted = false;
     const currentAttemptModelMsgIds = new Set<string>();
+    const pendingSeatPlaceholders = new Map<ModelId, string>();
 
     if (optimisticPlaceholder?.msgId) {
       currentAttemptModelMsgIds.add(optimisticPlaceholder.msgId);
@@ -1221,12 +1222,13 @@ export default function DashboardPage() {
               inProgressMessageId = data.messageId || null;
 
               const modelInfo = COUNCIL_MEMBERS[seatId];
+              const handoffPlaceholderId = pendingSeatPlaceholders.get(seatId) || null;
               const msgId =
                 !adoptedFirstSeat &&
                 optimisticPlaceholder &&
                 optimisticPlaceholder.firstSeatId === seatId
                   ? optimisticPlaceholder.msgId
-                  : `msg-${seatId}-${Date.now()}`;
+                  : handoffPlaceholderId || `msg-${seatId}-${Date.now()}`;
 
               if (!adoptedFirstSeat && optimisticPlaceholder && optimisticPlaceholder.firstSeatId !== seatId) {
                 currentAttemptModelMsgIds.delete(optimisticPlaceholder.msgId);
@@ -1287,6 +1289,23 @@ export default function DashboardPage() {
                         : m
                     )
                   );
+                } else if (handoffPlaceholderId) {
+                  // Adopt the placeholder that was inserted as soon as the
+                  // previous seat finished its visible output.
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === handoffPlaceholderId
+                        ? {
+                            ...m,
+                            discussionId: discussionId || m.discussionId,
+                            authorName: modelInfo?.name || data.name || m.authorName,
+                            timestamp: newMsg.timestamp,
+                            createdAt: newMsg.createdAt,
+                          }
+                        : m
+                    )
+                  );
+                  pendingSeatPlaceholders.delete(seatId);
                 } else {
                   setMessages((prev) => {
                     const placeholder = optimisticPlaceholder
@@ -1313,6 +1332,54 @@ export default function DashboardPage() {
                     return [...base, newMsg];
                   });
                 }
+              }
+            } else if (eventType === 'seat_handoff') {
+              const nextSeatId = data.nextSeatId as ModelId;
+              const placeholderId =
+                typeof data.placeholderId === 'string' && data.placeholderId
+                  ? data.placeholderId
+                  : `handoff-${nextSeatId}-${Date.now()}`;
+              const nextSeatInfo = COUNCIL_MEMBERS[nextSeatId];
+              const nowForPlaceholder = new Date();
+              const placeholder: ChatMessage = {
+                id: placeholderId,
+                discussionId: discussionId || undefined,
+                role: 'model',
+                modelId: nextSeatId,
+                authorName: nextSeatInfo?.name || data.nextSeatName || 'AI',
+                content: '',
+                timestamp: nowForPlaceholder.toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+                createdAt: nowForPlaceholder.toISOString(),
+                isStreaming: true,
+              };
+
+              pendingSeatPlaceholders.set(nextSeatId, placeholderId);
+              currentAttemptModelMsgIds.add(placeholderId);
+
+              if (discussionId) {
+                const activeGen = activeGenerationsRef.current.get(discussionId);
+                if (activeGen) {
+                  activeGen.liveSeatMessage = { ...placeholder };
+                  activeGen.seatStatuses = {
+                    ...activeGen.seatStatuses,
+                    [nextSeatId]: 'waiting',
+                  };
+                }
+              }
+
+              if (isCurrentDiscussionActive) {
+                setSeatStatuses((prev) => ({
+                  ...prev,
+                  [nextSeatId]: 'waiting',
+                }));
+                setMessages((prev) =>
+                  prev.some((m) => m.id === placeholderId)
+                    ? prev
+                    : [...prev, placeholder]
+                );
               }
             } else if (eventType === 'seat_activity') {
               const seatId = data.seatId as ModelId;
@@ -1462,7 +1529,9 @@ export default function DashboardPage() {
                     ...activeGen.seatStatuses,
                     [seatId]: 'done',
                   };
-                  activeGen.liveSeatMessage = null;
+                  if (activeGen.liveSeatMessage?.modelId === seatId) {
+                    activeGen.liveSeatMessage = null;
+                  }
                 }
               }
 
@@ -1567,7 +1636,9 @@ export default function DashboardPage() {
                     ...activeGen.seatStatuses,
                     [seatId]: 'done',
                   };
-                  activeGen.liveSeatMessage = null;
+                  if (activeGen.liveSeatMessage?.modelId === seatId) {
+                    activeGen.liveSeatMessage = null;
+                  }
                   activeGen.activeSpeaker = null;
                 }
               }
