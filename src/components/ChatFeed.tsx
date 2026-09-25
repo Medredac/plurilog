@@ -135,6 +135,54 @@ export function getAttachmentDisplayFilename(url?: string | null): string {
   return trimmed || defaultFallback;
 }
 
+const USER_MESSAGE_URL_REGEX = /(?:https?:\/\/|www\.)[^\s<]+/gi;
+
+function renderUserMessageContent(content: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+
+  for (const match of content.matchAll(USER_MESSAGE_URL_REGEX)) {
+    const start = match.index ?? 0;
+    const rawMatch = match[0];
+
+    if (start > cursor) {
+      nodes.push(content.slice(cursor, start));
+    }
+
+    // Keep sentence punctuation outside the clickable URL while preserving
+    // everything the user typed exactly as visible text.
+    const trailingMatch = rawMatch.match(/[.,;:!]+$/);
+    const trailing = trailingMatch?.[0] || '';
+    const visibleUrl = trailing
+      ? rawMatch.slice(0, rawMatch.length - trailing.length)
+      : rawMatch;
+    const href = visibleUrl.toLowerCase().startsWith('www.')
+      ? `https://${visibleUrl}`
+      : visibleUrl;
+
+    nodes.push(
+      <a
+        key={`user-url-${start}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2 decoration-stone-400 hover:decoration-stone-700 hover:text-stone-700 transition-colors [overflow-wrap:anywhere]"
+      >
+        {visibleUrl}
+      </a>
+    );
+
+    if (trailing) nodes.push(trailing);
+    cursor = start + rawMatch.length;
+  }
+
+  if (cursor < content.length) {
+    nodes.push(content.slice(cursor));
+  }
+
+  return nodes.length > 0 ? nodes : [content];
+}
+
 interface ParsedSource {
   title: string;
   url: string;
@@ -1295,7 +1343,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                           isLongContent && !isExpanded ? 'line-clamp-4 max-h-28 overflow-hidden' : ''
                         }`}
                       >
-                        {message.content}
+                        {renderUserMessageContent(message.content)}
                       </p>
 
                       {/* Show More / Show Less Toggle */}
