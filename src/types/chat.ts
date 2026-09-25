@@ -36,4 +36,29 @@ export interface DebateTopic {
   messages: ChatMessage[];
 }
 
-export type SeatStatus = 'idle' | 'waiting' | 'thinking' | 'checking_documents' | 'checking_images' | 'generating_image' | 'editing_image' | 'creating_document' | 'speaking' | 'done' | 'error';
+export type SeatStatus =
+  | 'idle'
+  | 'waiting'
+  | 'thinking'
+  | 'working'
+  | 'checking_documents'
+  | 'checking_images'
+  | 'searching_web'
+  | 'generating_image'
+  | 'editing_image'
+  | 'generating_file'
+  | 'generating_pdf'
+  | 'generating_word'
+  | 'editing_file'
+  | 'editing_pdf'
+  | 'editing_word'
+  | 'creating_document'
+  | 'speaking'
+  | 'done'
+  | 'error';
+
+export interface SeatSearchSource {
+  url: string;
+  title: string;
+  hostname: string;
+}
