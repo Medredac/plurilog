@@ -4489,6 +4489,21 @@ export async function POST(req: NextRequest) {
                       (doc) => doc.storagePath === sourceStoragePath
                     ) || null;
 
+                  const sourceEditFilename =
+                    sourceAttachment.filename ||
+                    (sourceStoragePath.toLowerCase().endsWith('.pdf')
+                      ? 'document.pdf'
+                      : 'document.docx');
+                  const sourceEditLower = sourceEditFilename.toLowerCase();
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: sourceEditLower.endsWith('.pdf')
+                      ? 'editing_pdf'
+                      : sourceEditLower.endsWith('.docx')
+                        ? 'editing_word'
+                        : 'editing_file',
+                  });
+
                   const editResult = await executeSourcePreservingDocumentEdit({
                     supabase,
                     openai,
@@ -4496,11 +4511,7 @@ export async function POST(req: NextRequest) {
                     messageId,
                     seatId: seat.seatId,
                     sourceStoragePath,
-                    sourceFilename:
-                      sourceAttachment.filename ||
-                      (sourceStoragePath.toLowerCase().endsWith('.pdf')
-                        ? 'document.pdf'
-                        : 'document.docx'),
+                    sourceFilename: sourceEditFilename,
                     sourceDocumentId:
                       currentParentState?.documentId ||
                       knownSourceDocument?.id ||
@@ -4653,6 +4664,16 @@ export async function POST(req: NextRequest) {
                       {}) as unknown as GptCreateFileArgs;
                     documentOutputFormat =
                       fileArgs.format === 'pdf' ? 'pdf' : 'docx';
+
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity:
+                        fileArgs.format === 'pdf'
+                          ? 'generating_pdf'
+                          : fileArgs.format === 'docx'
+                            ? 'generating_word'
+                            : 'generating_file',
+                    });
 
                     const explicitSourceDocx =
                       fileArgs.format === 'pdf' &&
@@ -6218,6 +6239,20 @@ export async function POST(req: NextRequest) {
                     const editArgs = (
                       evidenceSourceEditCalls[0].arguments || {}
                     ) as unknown as SourceDocumentEditArgs;
+                    const evidenceSourceFilename =
+                      sourceParentState?.filename ||
+                      resolvedEditableDocumentEvidence.filename;
+                    const evidenceSourceLower =
+                      evidenceSourceFilename.toLowerCase();
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity: evidenceSourceLower.endsWith('.pdf')
+                        ? 'editing_pdf'
+                        : evidenceSourceLower.endsWith('.docx')
+                          ? 'editing_word'
+                          : 'editing_file',
+                    });
+
                     const editResult =
                       await executeSourcePreservingDocumentEdit({
                         supabase,
@@ -6228,9 +6263,7 @@ export async function POST(req: NextRequest) {
                         sourceStoragePath:
                           sourceParentState?.storagePath ||
                           resolvedEditableDocumentEvidence.storagePath,
-                        sourceFilename:
-                          sourceParentState?.filename ||
-                          resolvedEditableDocumentEvidence.filename,
+                        sourceFilename: evidenceSourceFilename,
                         sourceDocumentId:
                           sourceParentState?.documentId ||
                           resolvedEditableDocumentEvidence.documentId ||
@@ -6535,6 +6568,23 @@ export async function POST(req: NextRequest) {
 
                       documentOutputFormat =
                         fileArgs.format === 'pdf' ? 'pdf' : 'docx';
+
+                      const isDocumentRevisionActivity =
+                        fileCall.name === 'revise_file';
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: isDocumentRevisionActivity
+                          ? fileArgs.format === 'pdf'
+                            ? 'editing_pdf'
+                            : fileArgs.format === 'docx'
+                              ? 'editing_word'
+                              : 'editing_file'
+                          : fileArgs.format === 'pdf'
+                            ? 'generating_pdf'
+                            : fileArgs.format === 'docx'
+                              ? 'generating_word'
+                              : 'generating_file',
+                      });
 
                       const explicitEvidenceSourceDocx =
                         fileArgs.format === 'pdf' &&
