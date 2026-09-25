@@ -4042,7 +4042,15 @@ export async function POST(req: NextRequest) {
               pdfCount: pdfAttachments.length,
             });
 
-            if (hasPdf && needsPdfPlugin) {
+            if (reviewScopedToGeneratedDocument) {
+              // Later seats are genuinely inspecting rendered pages of the document
+              // created earlier in this round. The PDF relay is intentionally suppressed
+              // here because the rendered pages are the authoritative visual evidence.
+              sendEvent('seat_activity', {
+                seatId: seat.seatId,
+                activity: 'checking_documents',
+              });
+            } else if (hasPdf && needsPdfPlugin) {
               sendEvent('seat_activity', {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
