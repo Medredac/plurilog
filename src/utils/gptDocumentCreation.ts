@@ -69,6 +69,17 @@ export interface DocumentImageCostEvent {
   model: string;
   operation: 'generate' | 'edit';
 }
+
+export type DocumentCreationActivity =
+  | 'generating_image'
+  | 'editing_image'
+  | 'generating_file'
+  | 'generating_pdf'
+  | 'generating_word'
+  | 'editing_file'
+  | 'editing_pdf'
+  | 'editing_word';
+
 export interface ExecuteGptDocumentCreationOptions {
   supabase: any;
   openai: any;
@@ -85,6 +96,7 @@ export interface ExecuteGptDocumentCreationOptions {
   availableImages?: DocumentImageSource[];
   resourceContext?: ResourceBrokerContext;
   onImageCost?: (event: DocumentImageCostEvent) => void;
+  onActivity?: (activity: DocumentCreationActivity) => void;
   reviewModel?: string;
   reviewModels?: string[];
   originalUserPrompt?: string;
@@ -749,10 +761,12 @@ async function signImageSource(serviceClient: any, source: DocumentImageSource):
 async function generateDocumentImage(
   prompt: string,
   signal: AbortSignal | undefined,
-  onImageCost?: (event: DocumentImageCostEvent) => void
+  onImageCost?: (event: DocumentImageCostEvent) => void,
+  onActivity?: (activity: DocumentCreationActivity) => void
 ): Promise<{ data: Buffer; contentType: string; altText: string }> {
   const trimmed = (prompt || '').trim();
   if (!trimmed) throw new Error('Generated document images require a prompt.');
+  onActivity?.('generating_image');
   let result;
   try {
     result = await generateGeminiImage({ prompt: trimmed, signal });
@@ -773,10 +787,12 @@ async function editDocumentImage(
   prompt: string,
   referenceImageUrl: string,
   signal: AbortSignal | undefined,
-  onImageCost?: (event: DocumentImageCostEvent) => void
+  onImageCost?: (event: DocumentImageCostEvent) => void,
+  onActivity?: (activity: DocumentCreationActivity) => void
 ): Promise<{ data: Buffer; contentType: string; altText: string }> {
   const trimmed = (prompt || '').trim();
   if (!trimmed) throw new Error('Edited document images require an editing instruction.');
+  onActivity?.('editing_image');
   let result;
   try {
     result = await editGeminiImage({ prompt: trimmed, referenceImageUrl, signal });
@@ -800,7 +816,8 @@ async function resolveDocumentBlocks(
   resourceContext: ResourceBrokerContext | undefined,
   signal: AbortSignal | undefined,
   onImageCost?: (event: DocumentImageCostEvent) => void,
-  preferredImageBindings: DocumentStateImageBinding[] = []
+  preferredImageBindings: DocumentStateImageBinding[] = [],
+  onActivity?: (activity: DocumentCreationActivity) => void
 ): Promise<{
   blocks: RichDocumentBlock[];
   imageAssetCount: number;
@@ -839,7 +856,12 @@ async function resolveDocumentBlocks(
     let payload: { data: Buffer; contentType: string; altText: string };
 
     if (mode === 'generate') {
-      payload = await generateDocumentImage(block.prompt || need, signal, onImageCost);
+      payload = await generateDocumentImage(
+        block.prompt || need,
+        signal,
+        onImageCost,
+        onActivity
+      );
     } else {
       let source: DocumentImageSource | null =
         preferredBinding?.source || null;
@@ -868,7 +890,13 @@ async function resolveDocumentBlocks(
         payload = { data: downloaded.data, contentType: downloaded.contentType, altText: need };
       } else {
         const signedUrl = await signImageSource(serviceClient, source);
-        payload = await editDocumentImage(block.prompt || need, signedUrl, signal, onImageCost);
+        payload = await editDocumentImage(
+          block.prompt || need,
+          signedUrl,
+          signal,
+          onImageCost,
+          onActivity
+        );
       }
 
       imageBindings.push({
@@ -1547,6 +1575,7 @@ export async function executeGptDocumentCreation(
     availableImages = [],
     resourceContext,
     onImageCost,
+    onActivity,
     reviewModel,
     reviewModels = reviewModel ? [reviewModel] : [],
     originalUserPrompt = '',
@@ -1618,8 +1647,24 @@ export async function executeGptDocumentCreation(
         resourceContext,
         signal,
         costAwareCallback,
-        parentImageBindings
+        parentImageBindings,
+        onActivity
       );
+
+  const finalDocumentActivity: DocumentCreationActivity =
+    revisionContext?.generationKind === 'revision'
+      ? args.format === 'pdf'
+        ? 'editing_pdf'
+        : args.format === 'docx'
+          ? 'editing_word'
+          : 'editing_file'
+      : args.format === 'pdf'
+        ? 'generating_pdf'
+        : args.format === 'docx'
+          ? 'generating_word'
+          : 'generating_file';
+
+  onActivity?.(finalDocumentActivity);
 
   let finalBuffer: Buffer;
   let finalFilename: string;
