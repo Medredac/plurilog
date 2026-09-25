@@ -746,6 +746,56 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
   );
 }
 
+function isStrongDocumentMutationRequest(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt || !isDocumentRevisionFollowUpQuery(prompt)) return false;
+
+  const artifactCue =
+    /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  if (!artifactCue.test(prompt)) return false;
+
+  // Read-only questions about prior work must remain chronology/history requests.
+  const retrospectiveQuestion =
+    /\b(?:what|which|how|why|when|where)\b[\s\S]{0,120}\b(?:did|was|were|have|has|changed|edited|modified|created|made|generated|removed|added)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:tell|show|remind)\s+me\b[\s\S]{0,120}\b(?:last|previous|prior|earlier|changed|edited|modified|created|made|generated)\b/i.test(
+      prompt
+    );
+  if (retrospectiveQuestion) return false;
+
+  const actionVerb =
+    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
+  const softPrefix =
+    '(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\\s+you|now|then|also|and|go\\s+ahead)[,!.\\s-]*)*';
+
+  const politeAction = new RegExp(
+    `^${softPrefix}(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const imperativeAction = new RegExp(
+    `^${softPrefix}(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const requestedAction = new RegExp(
+    `\\b(?:i\\s+(?:want|need)|i['’]?d\\s+like)\\s+(?:you\\s+to\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+
+  const preservationPhrase =
+    /\b(?:change|touch|alter)\s+nothing\s+else\b/i.test(prompt) ||
+    /\b(?:leave|keep)\s+(?:everything|the\s+rest)\s+(?:else\s+)?(?:unchanged|the\s+same|as\s+is)\b/i.test(
+      prompt
+    );
+
+  return (
+    politeAction.test(prompt) ||
+    imperativeAction.test(prompt) ||
+    requestedAction.test(prompt) ||
+    preservationPhrase
+  );
+}
+
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
   if (!isDocumentRevisionFollowUpQuery(value)) return false;
   return !/\b(?:redo|rework|reformat|restyle|redesign|rebuild|transform|convert)\b/i.test(
@@ -2225,6 +2275,25 @@ export async function POST(req: NextRequest) {
     let discussionMemory: DiscussionMemoryResult | undefined;
     if (discussionId) {
       discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
+
+      if (
+        discussionMemory?.historyLookupIntent === true &&
+        isStrongDocumentMutationRequest(prompt || '')
+      ) {
+        console.log(
+          '[Memory History Override] Clear document mutation takes precedence over chronology lookup',
+          {
+            prompt: prompt || '',
+            priorChronologyLabel:
+              discussionMemory.chronologicalMemory?.label || null,
+          }
+        );
+        discussionMemory = {
+          ...discussionMemory,
+          historyLookupIntent: false,
+          chronologicalMemory: undefined,
+        };
+      }
     }
 
     const encoder = new TextEncoder();
