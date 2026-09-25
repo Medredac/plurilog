@@ -1265,7 +1265,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
@@ -1277,7 +1277,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
@@ -1289,7 +1289,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
@@ -1301,7 +1301,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setLightboxImageUrl(url)}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <img
@@ -1314,7 +1314,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-zinc-600" />
@@ -1529,7 +1529,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             <button
                               type="button"
                               onClick={() => setLightboxImageUrl(url)}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                               title={`Click to view ${filename}`}
                             >
                               <img
@@ -1580,7 +1580,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             <button
                               type="button"
                               onClick={() => onPreviewDocument?.({ url, filename })}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
                               title={`Preview ${filename}`}
                             >
                               <FileText
