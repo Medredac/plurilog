@@ -21,6 +21,8 @@ interface PreviewResponse {
   pages: PreviewPage[];
 }
 
+const previewMemoryCache = new Map<string, PreviewResponse>();
+
 interface ResponsiveDocumentViewerProps {
   documentUrl: string;
   filename: string;
@@ -70,6 +72,16 @@ export const ResponsiveDocumentViewer: React.FC<
       return;
     }
 
+    const cached = previewMemoryCache.get(previewPagesUrl);
+    if (cached) {
+      setPreview(cached);
+      setPreviewError(null);
+      setLoading(false);
+      setCurrentPage(1);
+      setZoom(1);
+      return;
+    }
+
     const controller = new AbortController();
     setLoading(true);
     setPreview(null);
@@ -92,6 +104,7 @@ export const ResponsiveDocumentViewer: React.FC<
         if (!Array.isArray(data.pages) || data.pages.length === 0) {
           throw new Error('Preview returned no pages.');
         }
+        previewMemoryCache.set(previewPagesUrl, data);
         setPreview(data);
       })
       .catch((error) => {
@@ -161,7 +174,7 @@ export const ResponsiveDocumentViewer: React.FC<
       <div className="flex h-full items-center justify-center bg-zinc-100">
         <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs text-zinc-500 shadow-sm">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Preparing responsive preview…
+          Preparing preview…
         </div>
       </div>
     );
@@ -248,9 +261,6 @@ export const ResponsiveDocumentViewer: React.FC<
           <Plus className="h-4 w-4" />
         </button>
 
-        <span className="ml-auto hidden truncate text-[10px] text-zinc-400 sm:block">
-          Resizes with the panel
-        </span>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
