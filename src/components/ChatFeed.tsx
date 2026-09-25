@@ -194,6 +194,8 @@ type SeatIndicatorStatus =
 
 function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   switch (status) {
+    case 'waiting':
+      return 'Preparing…';
     case 'analyzing_input':
       return 'Analyzing input…';
     case 'thinking_again':
@@ -334,6 +336,8 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
   const ActivityIcon = (() => {
     switch (effectiveStatus) {
+      case 'waiting':
+        return Clock3;
       case 'working':
         return Sparkles;
       case 'analyzing_input':
