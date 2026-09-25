@@ -530,12 +530,6 @@ export function assertNarrowRevisionPatchSafety(
   if (!Array.isArray(operations) || operations.length === 0) {
     throw new Error('A narrow document revision requires at least one patch operation.');
   }
-  if (operations.length > 12) {
-    throw new Error(
-      'A narrow document revision is limited to 12 patch operations. Use a broader redesign request for larger structural changes.'
-    );
-  }
-
   const allowsRemoval = userExplicitlyAllowsContentRemoval(userPrompt);
   for (const operation of operations) {
     const path = operation.path || '';
