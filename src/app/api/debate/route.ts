@@ -804,8 +804,23 @@ function isStrongDocumentMutationRequest(value: string): boolean {
 
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
   if (!isDocumentRevisionFollowUpQuery(value)) return false;
+  const prompt = value || '';
+
+  // Requests that explicitly ask to incorporate broader review/feedback are
+  // multi-part revisions, even when they also contain one localized visual edit.
+  // Treating them as "narrow" prevents legitimate block reordering/restructuring.
+  const broaderReviewRevision =
+    /\b(?:implement|incorporate|apply|address|use|take\s+on)\b[\s\S]{0,100}\b(?:insights?|feedback|suggestions?|recommendations?|comments?|review|changes?)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:claude|gemini|chatgpt|gpt)\b[\s\S]{0,80}\b(?:insights?|feedback|suggestions?|recommendations?|comments?)\b/i.test(
+      prompt
+    );
+
+  if (broaderReviewRevision) return false;
+
   return !/\b(?:redo|rework|reformat|restyle|redesign|rebuild|transform|convert)\b/i.test(
-    value || ''
+    prompt
   );
 }
 
