@@ -10,7 +10,7 @@ const DEFAULT_RENDERER_SNAPSHOT_ID =
   'snap_vwQhLmdtlIxq4OliWzLOjVlHEzuD';
 const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 const MAX_PREVIEW_PAGES = 40;
-const PREVIEW_DPI = 160;
+const PREVIEW_DPI = 120;
 
 function getExtension(filename: string): string {
   const clean = filename.trim().toLowerCase();
@@ -62,6 +62,35 @@ interface CachedPreviewMeta {
   totalPageCount: number | null;
   renderedPageCount: number;
   truncated: boolean;
+}
+
+async function loadExistingRenderedPages(
+  serviceSupabase: ReturnType<typeof createServiceClient>,
+  prefix: string
+): Promise<string[]> {
+  const { data, error } = await serviceSupabase.storage
+    .from(ATTACHMENT_STORAGE_BUCKET)
+    .list(prefix, {
+      limit: MAX_PREVIEW_PAGES,
+      sortBy: { column: 'name', order: 'asc' },
+    });
+
+  if (error || !Array.isArray(data)) {
+    if (error) {
+      console.warn('[Document Preview Pages] Existing render lookup failed', {
+        prefix,
+        error: error.message,
+      });
+    }
+    return [];
+  }
+
+  return data
+    .map((item) => item?.name || '')
+    .filter((name) => /^page-\d{3}-[a-f0-9]{16}\.png$/i.test(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .map((name) => `${prefix}/${name}`)
+    .slice(0, MAX_PREVIEW_PAGES);
 }
 
 async function loadCachedPreview(
@@ -277,6 +306,40 @@ export async function GET(
   const cachePrefix =
     `${user.id}/document-preview-pages/${sourceHash}`;
 
+  const existingRenderPrefix =
+    extension === 'docx'
+      ? `${user.id}/docx-pages/${sourceHash}`
+      : `${user.id}/pdf-pages/${sourceHash}`;
+
+  const existingPagePaths = await loadExistingRenderedPages(
+    serviceSupabase,
+    existingRenderPrefix
+  );
+
+  if (existingPagePaths.length > 0) {
+    return Response.json(
+      {
+        filename,
+        totalPageCount: existingPagePaths.length,
+        renderedPageCount: existingPagePaths.length,
+        truncated: false,
+        pages: existingPagePaths.map((pagePath, index) => ({
+          pageNumber: index + 1,
+          url: attachmentUrl(
+            pagePath,
+            `${filename} — page ${index + 1}.png`
+          ),
+        })),
+        reusedExistingRender: true,
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, no-store, max-age=0',
+        },
+      }
+    );
+  }
+
   const cached = await loadCachedPreview(serviceSupabase, cachePrefix);
   if (cached) {
     return Response.json(
@@ -314,27 +377,28 @@ export async function GET(
 
     const rendered = await renderPdfPages(pdfBytes, request.signal);
 
-    const pagePaths: string[] = [];
-    for (let index = 0; index < rendered.pages.length; index += 1) {
-      const storagePagePath =
-        `${cachePrefix}/page-${String(index + 1).padStart(3, '0')}.png`;
+    const pagePaths = await Promise.all(
+      rendered.pages.map(async (pageBuffer, index) => {
+        const storagePagePath =
+          `${cachePrefix}/page-${String(index + 1).padStart(3, '0')}.png`;
 
-      const { error: uploadError } = await serviceSupabase.storage
-        .from(ATTACHMENT_STORAGE_BUCKET)
-        .upload(storagePagePath, rendered.pages[index], {
-          contentType: 'image/png',
-          cacheControl: '31536000',
-          upsert: true,
-        });
+        const { error: uploadError } = await serviceSupabase.storage
+          .from(ATTACHMENT_STORAGE_BUCKET)
+          .upload(storagePagePath, pageBuffer, {
+            contentType: 'image/png',
+            cacheControl: '31536000',
+            upsert: true,
+          });
 
-      if (uploadError) {
-        throw new Error(
-          `Preview page upload failed: ${uploadError.message}`
-        );
-      }
+        if (uploadError) {
+          throw new Error(
+            `Preview page upload failed: ${uploadError.message}`
+          );
+        }
 
-      pagePaths.push(storagePagePath);
-    }
+        return storagePagePath;
+      })
+    );
 
     const meta: CachedPreviewMeta = {
       totalPageCount: rendered.totalPageCount,
