@@ -1018,12 +1018,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-full sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 shadow-sm relative min-w-0">
-                  <div className="flex items-center justify-between gap-4 mb-1.5 text-xs text-stone-500 min-w-0">
-                    <span className="font-semibold text-zinc-700 truncate">{message.authorName || 'You'}</span>
-                    <span className="text-[10px] font-mono text-stone-400 shrink-0">{message.timestamp}</span>
-                  </div>
-
+                <div className="max-w-full sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 relative min-w-0">
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
