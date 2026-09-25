@@ -134,9 +134,9 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Subtle, light gray grid pattern on pure white */
+/* Subtle grid pattern on a warm off-white conversation canvas */
 .bg-tech-grid {
-  background-color: #FFFFFF;
+  background-color: #FCFBFA;
   background-image: 
     linear-gradient(to right, #F4F4F5 1px, transparent 1px),
     linear-gradient(to bottom, #F4F4F5 1px, transparent 1px);
@@ -145,7 +145,7 @@ body {
 
 /* Fine micro grid for subtle density */
 .bg-tech-grid-fine {
-  background-color: #FFFFFF;
+  background-color: #FCFBFA;
   background-image: 
     linear-gradient(to right, #F4F4F5 1px, transparent 1px),
     linear-gradient(to bottom, #F4F4F5 1px, transparent 1px);
