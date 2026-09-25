@@ -1598,23 +1598,94 @@ export default function DashboardPage() {
                 // message body will then drain its presentation queue smoothly
                 // even after authoritative generation has completed.
                 window.setTimeout(() => {
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.modelId === seatId && m.isStreaming
-                        ? {
-                            ...m,
-                            isStreaming: false,
-                            content: completedContent,
-                            attachment_urls:
-                              Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
-                                ? data.attachment_urls
-                                    .map((url: string) => normalizeAttachmentUrlForUi(url))
-                                    .filter((url: string | null): url is string => Boolean(url))
-                                : m.attachment_urls,
-                          }
-                        : m
-                    )
-                  );
+                  setMessages((prev) => {
+                    const msgs = [...prev];
+                    const normalizedAttachments =
+                      Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
+                        ? data.attachment_urls
+                            .map((url: string) => normalizeAttachmentUrlForUi(url))
+                            .filter((url: string | null): url is string => Boolean(url))
+                        : null;
+
+                    const currentSeatIndex = msgs.findLastIndex(
+                      (m) =>
+                        m.modelId === seatId &&
+                        m.isStreaming &&
+                        currentAttemptModelMsgIds.has(m.id)
+                    );
+
+                    if (currentSeatIndex !== -1) {
+                      const current = msgs[currentSeatIndex];
+                      msgs[currentSeatIndex] = {
+                        ...current,
+                        isStreaming: false,
+                        content: completedContent,
+                        attachment_urls:
+                          normalizedAttachments && normalizedAttachments.length > 0
+                            ? normalizedAttachments
+                            : current.attachment_urls,
+                      };
+                      return msgs;
+                    }
+
+                    // Tool-backed document work can complete without emitting prose
+                    // chunks. If the optimistic/streaming placeholder was lost for
+                    // any reason, seat_done is still authoritative: render the
+                    // persisted result instead of making a successful seat appear
+                    // to have failed until the next page refresh.
+                    const persistedMessageId =
+                      typeof data.messageId === 'string' && data.messageId
+                        ? data.messageId
+                        : `msg-${seatId}-done-${Date.now()}`;
+                    const existingIndex = msgs.findIndex(
+                      (m) => m.id === persistedMessageId
+                    );
+                    if (existingIndex !== -1) {
+                      const existing = msgs[existingIndex];
+                      msgs[existingIndex] = {
+                        ...existing,
+                        isStreaming: false,
+                        content: completedContent || existing.content,
+                        attachment_urls:
+                          normalizedAttachments && normalizedAttachments.length > 0
+                            ? normalizedAttachments
+                            : existing.attachment_urls,
+                      };
+                      return msgs;
+                    }
+
+                    const completedAt =
+                      typeof data.createdAt === 'string' && data.createdAt
+                        ? data.createdAt
+                        : new Date().toISOString();
+                    console.warn('[Seat Done UI Recovery] Missing streaming placeholder; appending authoritative completed seat', {
+                      discussionId,
+                      seatId,
+                      messageId: persistedMessageId,
+                    });
+                    return [
+                      ...msgs,
+                      {
+                        id: persistedMessageId,
+                        discussionId: discussionId || undefined,
+                        role: 'model',
+                        modelId: seatId,
+                        authorName:
+                          COUNCIL_MEMBERS[seatId]?.name || data.name || 'AI',
+                        content: completedContent,
+                        timestamp: new Date(completedAt).toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        }),
+                        createdAt: completedAt,
+                        isStreaming: false,
+                        attachment_urls:
+                          normalizedAttachments && normalizedAttachments.length > 0
+                            ? normalizedAttachments
+                            : null,
+                      },
+                    ];
+                  });
                 }, 0);
               }
 
