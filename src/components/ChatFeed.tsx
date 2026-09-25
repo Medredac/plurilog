@@ -253,13 +253,14 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
   useEffect(() => {
     setNowMs(Date.now());
-    const timer = window.setInterval(() => setNowMs(Date.now()), 250);
+    const timer = window.setInterval(() => setNowMs(Date.now()), 200);
     return () => window.clearInterval(timer);
   }, [startMs]);
 
-  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+  const elapsedMs = Math.max(0, nowMs - startMs);
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
   const effectiveStatus: SeatStatus =
-    status === 'thinking' && elapsedSeconds >= 2 ? 'working' : status;
+    status === 'thinking' && elapsedMs >= 1800 ? 'working' : status;
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -1176,7 +1177,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   status={seatStatuses[modelKey] || 'thinking'}
                   startedAt={message.createdAt}
                   searchSources={seatSearchSources[modelKey] || []}
-                  reduceMotion={shouldReduceMotion}
+                  reduceMotion={Boolean(shouldReduceMotion)}
                 />
               ) : (
                 <>
