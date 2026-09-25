@@ -5,6 +5,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
+import { DocumentPreviewDrawer } from '../../components/DocumentPreviewDrawer';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { LowCreditModal } from '../../components/LowCreditModal';
@@ -195,6 +196,10 @@ export default function DashboardPage() {
   const isNewlyCreatedDiscussionRef = useRef(false);
   const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
   const [isTransientDrawerOpen, setIsTransientDrawerOpen] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<{
+    url: string;
+    filename: string;
+  } | null>(null);
   const [debates, setDebates] = useState<DebateTopic[]>([]);
   const [activeDebateId, setActiveDebateId] = useState<string | null>(null);
   const activeDebateIdRef = useRef<string | null>(null);
@@ -2463,6 +2468,7 @@ export default function DashboardPage() {
                   onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
                   newlySentUserMessageId={newlySentUserMessageId}
                   onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
+                  onPreviewDocument={setPreviewDocument}
                 />
               )}
             </div>
@@ -2499,6 +2505,13 @@ export default function DashboardPage() {
             />
           )}
         </main>
+
+        <DocumentPreviewDrawer
+          isOpen={!!previewDocument}
+          onClose={() => setPreviewDocument(null)}
+          documentUrl={previewDocument?.url || null}
+          filename={previewDocument?.filename || null}
+        />
 
         {/* Out of Credits Upgrade Modal */}
         <OutOfCreditsModal

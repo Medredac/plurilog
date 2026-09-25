@@ -9,6 +9,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import { ResponsiveDocumentViewer } from './ResponsiveDocumentViewer';
 
 interface DocumentPreviewDrawerProps {
   isOpen: boolean;
@@ -64,15 +65,70 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const [frameLoading, setFrameLoading] = useState(true);
   const [textLoading, setTextLoading] = useState(false);
   const [textContent, setTextContent] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [isDocked, setIsDocked] = useState(false);
+  const [dockedWidth, setDockedWidth] = useState(720);
+  const [isResizing, setIsResizing] = useState(false);
+  const hasCustomDockedWidthRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; width: number } | null>(null);
+
+  const getDockBounds = () => {
+    if (typeof window === 'undefined') {
+      return { min: 540, max: 960, preferred: 720 };
+    }
+
+    const min = 540;
+    const max = Math.max(
+      min,
+      Math.min(960, window.innerWidth - 288 - 420)
+    );
+    const preferred = Math.min(
+      max,
+      Math.max(min, window.innerWidth * 0.48)
+    );
+
+    return { min, max, preferred };
+  };
+
+  const clampDockedWidth = (width: number) => {
+    const { min, max } = getDockBounds();
+    return Math.min(max, Math.max(min, width));
+  };
 
   const extension = useMemo(() => getExtension(filename), [filename]);
   const isPdf = extension === 'pdf';
   const isDocx = extension === 'docx';
   const isText = TEXT_EXTENSIONS.has(extension);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mq = window.matchMedia('(min-width: 1280px)');
+    const updateLayout = () => {
+      const docked = mq.matches;
+      setIsDocked(docked);
+
+      if (docked) {
+        const { preferred } = getDockBounds();
+        setDockedWidth((current) =>
+          hasCustomDockedWidthRef.current
+            ? clampDockedWidth(current)
+            : preferred
+        );
+      }
+    };
+
+    updateLayout();
+    mq.addEventListener?.('change', updateLayout);
+    window.addEventListener('resize', updateLayout);
+
+    return () => {
+      mq.removeEventListener?.('change', updateLayout);
+      window.removeEventListener('resize', updateLayout);
+    };
+  }, []);
 
   const previewUrl = useMemo(() => {
     if (!documentUrl || typeof window === 'undefined') return null;
@@ -84,24 +140,74 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
     return null;
   }, [documentUrl, isDocx, isPdf, isText]);
 
+  const framePreviewUrl = useMemo(() => {
+    if (!previewUrl || !isPdf) return previewUrl;
+
+    const base = previewUrl.split('#')[0];
+    return `${base}#view=FitH`;
+  }, [previewUrl, isPdf]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const previousUserSelect = document.body.style.userSelect;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const start = dragStartRef.current;
+      if (!start) return;
+
+      const nextWidth = clampDockedWidth(
+        start.width + (start.x - event.clientX)
+      );
+      hasCustomDockedWidthRef.current = true;
+      setDockedWidth(nextWidth);
+    };
+
+    const stopResizing = () => {
+      dragStartRef.current = null;
+      setIsResizing(false);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResizing);
+    window.addEventListener('pointercancel', stopResizing);
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResizing);
+      window.removeEventListener('pointercancel', stopResizing);
+      document.body.style.userSelect = previousUserSelect;
+      document.body.style.cursor = previousCursor;
+    };
+  }, [isResizing]);
+
   useEffect(() => {
     if (!isOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+    if (!isDocked) {
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      requestAnimationFrame(() => closeButtonRef.current?.focus());
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = previousOverflow;
+      };
+    }
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, isDocked, onClose]);
 
   useEffect(() => {
     if (!isOpen || !isText || !previewUrl) {
@@ -142,16 +248,192 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setFrameLoading(!isText && Boolean(previewUrl));
     setPreviewError(null);
-  }, [isOpen, previewUrl, isText, documentUrl]);
+  }, [isOpen, previewUrl, documentUrl]);
 
   const badge = extension ? extension.toUpperCase() : 'FILE';
   const canPreview = Boolean(previewUrl) && (isPdf || isDocx || isText);
 
+  const panelContent = documentUrl && filename ? (
+    <>
+      <header className="flex min-h-16 items-center gap-3 border-b border-zinc-200/80 bg-white px-3.5 py-3 sm:px-5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
+          <FileText
+            className={`h-4.5 w-4.5 ${
+              isPdf
+                ? 'text-red-500'
+                : isDocx
+                  ? 'text-blue-600'
+                  : 'text-zinc-600'
+            }`}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-sm font-semibold text-zinc-900">
+              {filename}
+            </h2>
+            <span className="shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-zinc-500">
+              {badge}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-zinc-400">
+            Document preview
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <a
+            href={documentUrl}
+            download={filename}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
+            title="Download document"
+            aria-label="Download document"
+          >
+            <Download className="h-4 w-4" />
+          </a>
+          <a
+            href={documentUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="hidden h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 sm:inline-flex"
+            title="Open in new tab"
+            aria-label="Open document in new tab"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
+            title="Close preview"
+            aria-label="Close document preview"
+          >
+            <X className="h-4.5 w-4.5" />
+          </button>
+        </div>
+      </header>
+
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-zinc-100">
+        {canPreview ? (
+          isText ? (
+            <div className="h-full overflow-auto px-3 py-4 sm:px-6 sm:py-6">
+              <div className="mx-auto min-h-full max-w-4xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+                {textLoading ? (
+                  <div className="flex min-h-[50vh] items-center justify-center gap-2 text-sm text-zinc-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading preview…
+                  </div>
+                ) : previewError ? (
+                  <div className="flex min-h-[50vh] items-center justify-center px-6 text-center text-sm text-zinc-500">
+                    {previewError}
+                  </div>
+                ) : (
+                  <pre className="min-h-full whitespace-pre-wrap break-words p-5 font-mono text-xs leading-6 text-zinc-700 sm:p-7 sm:text-[13px]">
+                    {textContent}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : (
+            <ResponsiveDocumentViewer
+              documentUrl={documentUrl}
+              filename={filename}
+              fallbackPreviewUrl={framePreviewUrl}
+            />
+          )
+        ) : (
+          <div className="flex h-full items-center justify-center p-6">
+            <div className="max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-100">
+                <FileText className="h-5 w-5 text-zinc-500" />
+              </div>
+              <h3 className="text-sm font-semibold text-zinc-800">
+                Preview unavailable
+              </h3>
+              <p className="mt-1.5 text-xs leading-5 text-zinc-500">
+                This file type cannot be previewed here yet. You can still
+                download it or open it in a new tab.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  ) : null;
+
+  if (isDocked) {
+    return (
+      <AnimatePresence initial={false}>
+        {isOpen && panelContent && (
+          <motion.aside
+            key="document-preview-docked"
+            role="dialog"
+            aria-label={`Preview ${filename}`}
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: dockedWidth, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{
+              duration: shouldReduceMotion || isResizing ? 0 : 0.28,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            className="relative z-30 h-full shrink-0 overflow-hidden border-l border-zinc-200/80 bg-white shadow-[-12px_0_30px_-24px_rgba(0,0,0,0.35)]"
+          >
+            <div
+              role="separator"
+              aria-label="Resize document preview"
+              aria-orientation="vertical"
+              aria-valuemin={getDockBounds().min}
+              aria-valuemax={getDockBounds().max}
+              aria-valuenow={Math.round(dockedWidth)}
+              tabIndex={0}
+              title="Drag to resize document preview"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                dragStartRef.current = {
+                  x: event.clientX,
+                  width: dockedWidth,
+                };
+                setIsResizing(true);
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+              }}
+              onDoubleClick={() => {
+                const { preferred } = getDockBounds();
+                hasCustomDockedWidthRef.current = false;
+                setDockedWidth(preferred);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') {
+                  return;
+                }
+
+                event.preventDefault();
+                const direction = event.key === 'ArrowLeft' ? 1 : -1;
+                hasCustomDockedWidthRef.current = true;
+                setDockedWidth((current) =>
+                  clampDockedWidth(current + direction * 32)
+                );
+              }}
+              className="group absolute inset-y-0 left-0 z-50 w-3 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+            >
+              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-200 transition-all group-hover:w-0.5 group-hover:bg-zinc-400 group-focus-visible:w-0.5 group-focus-visible:bg-amber-500/70" />
+              <span className="absolute left-1/2 top-1/2 h-10 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-zinc-300 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+            </div>
+
+            <div className="flex h-full min-w-0 flex-col bg-white">
+              {panelContent}
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+    );
+  }
+
   return (
     <AnimatePresence>
-      {isOpen && documentUrl && filename && (
+      {isOpen && panelContent && (
         <div className="fixed inset-0 z-[90]" role="presentation">
           <motion.button
             type="button"
@@ -168,132 +450,22 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
             role="dialog"
             aria-modal="true"
             aria-label={`Preview ${filename}`}
-            initial={{ x: shouldReduceMotion ? 0 : '100%', opacity: shouldReduceMotion ? 1 : 0.96 }}
+            initial={{
+              x: shouldReduceMotion ? 0 : '100%',
+              opacity: shouldReduceMotion ? 1 : 0.96,
+            }}
             animate={{ x: 0, opacity: 1 }}
-            exit={{ x: shouldReduceMotion ? 0 : '100%', opacity: shouldReduceMotion ? 1 : 0.98 }}
+            exit={{
+              x: shouldReduceMotion ? 0 : '100%',
+              opacity: shouldReduceMotion ? 1 : 0.98,
+            }}
             transition={{
               duration: shouldReduceMotion ? 0 : 0.28,
               ease: [0.16, 1, 0.3, 1],
             }}
-            className="absolute inset-y-0 right-0 flex w-full flex-col bg-white shadow-2xl sm:w-[min(78vw,760px)] lg:w-[min(68vw,900px)] xl:w-[min(60vw,980px)]"
+            className="absolute inset-y-0 right-0 flex w-full flex-col bg-white shadow-2xl sm:w-[min(78vw,760px)] lg:w-[min(68vw,900px)]"
           >
-            <header className="flex min-h-16 items-center gap-3 border-b border-zinc-200/80 bg-white px-3.5 py-3 sm:px-5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50">
-                <FileText
-                  className={`h-4.5 w-4.5 ${
-                    isPdf
-                      ? 'text-red-500'
-                      : isDocx
-                        ? 'text-blue-600'
-                        : 'text-zinc-600'
-                  }`}
-                />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h2 className="truncate text-sm font-semibold text-zinc-900">
-                    {filename}
-                  </h2>
-                  <span className="shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-zinc-500">
-                    {badge}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[11px] text-zinc-400">
-                  Document preview
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-1">
-                <a
-                  href={documentUrl}
-                  download={filename}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
-                  title="Download document"
-                  aria-label="Download document"
-                >
-                  <Download className="h-4 w-4" />
-                </a>
-                <a
-                  href={documentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hidden h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 sm:inline-flex"
-                  title="Open in new tab"
-                  aria-label="Open document in new tab"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-                <button
-                  ref={closeButtonRef}
-                  type="button"
-                  onClick={onClose}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40"
-                  title="Close preview"
-                  aria-label="Close document preview"
-                >
-                  <X className="h-4.5 w-4.5" />
-                </button>
-              </div>
-            </header>
-
-            <div className="relative min-h-0 flex-1 overflow-hidden bg-zinc-100">
-              {canPreview ? (
-                isText ? (
-                  <div className="h-full overflow-auto px-3 py-4 sm:px-6 sm:py-6">
-                    <div className="mx-auto min-h-full max-w-4xl overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-                      {textLoading ? (
-                        <div className="flex min-h-[50vh] items-center justify-center gap-2 text-sm text-zinc-500">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Loading preview…
-                        </div>
-                      ) : previewError ? (
-                        <div className="flex min-h-[50vh] items-center justify-center px-6 text-center text-sm text-zinc-500">
-                          {previewError}
-                        </div>
-                      ) : (
-                        <pre className="min-h-full whitespace-pre-wrap break-words p-5 font-mono text-xs leading-6 text-zinc-700 sm:p-7 sm:text-[13px]">
-                          {textContent}
-                        </pre>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {frameLoading && (
-                      <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-100">
-                        <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3.5 py-2 text-xs text-zinc-500 shadow-sm">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Preparing preview…
-                        </div>
-                      </div>
-                    )}
-                    <iframe
-                      key={previewUrl}
-                      src={previewUrl || undefined}
-                      title={`Preview of ${filename}`}
-                      className="h-full w-full border-0 bg-white"
-                      onLoad={() => setFrameLoading(false)}
-                    />
-                  </>
-                )
-              ) : (
-                <div className="flex h-full items-center justify-center p-6">
-                  <div className="max-w-sm rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-sm">
-                    <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-zinc-100">
-                      <FileText className="h-5 w-5 text-zinc-500" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-zinc-800">
-                      Preview unavailable
-                    </h3>
-                    <p className="mt-1.5 text-xs leading-5 text-zinc-500">
-                      This file type cannot be previewed here yet. You can still
-                      download it or open it in a new tab.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
+            {panelContent}
           </motion.section>
         </div>
       )}

@@ -19,7 +19,6 @@ import {
 import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
-import { DocumentPreviewDrawer } from './DocumentPreviewDrawer';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
@@ -386,6 +385,7 @@ interface ChatFeedProps {
   onExportMessage?: (message: ChatMessage) => void;
   newlySentUserMessageId?: string | null;
   onNewlySentAnimationComplete?: () => void;
+  onPreviewDocument?: (document: { url: string; filename: string }) => void;
 }
 
 /**
@@ -562,6 +562,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onExportMessage,
   newlySentUserMessageId = null,
   onNewlySentAnimationComplete,
+  onPreviewDocument,
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -571,7 +572,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
-  const [previewDocument, setPreviewDocument] = useState<{ url: string; filename: string } | null>(null);
 
   // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
   useEffect(() => {
@@ -758,7 +758,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             {isPdf ? (
                               <button
                                 type="button"
-                                onClick={() => setPreviewDocument({ url, filename })}
+                                onClick={() => onPreviewDocument?.({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
@@ -770,7 +770,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : isDocx ? (
                               <button
                                 type="button"
-                                onClick={() => setPreviewDocument({ url, filename })}
+                                onClick={() => onPreviewDocument?.({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
@@ -782,7 +782,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : isText ? (
                               <button
                                 type="button"
-                                onClick={() => setPreviewDocument({ url, filename })}
+                                onClick={() => onPreviewDocument?.({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
@@ -807,7 +807,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => setPreviewDocument({ url, filename })}
+                                onClick={() => onPreviewDocument?.({ url, filename })}
                                 className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
@@ -1049,7 +1049,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                           <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             <button
                               type="button"
-                              onClick={() => setPreviewDocument({ url, filename })}
+                              onClick={() => onPreviewDocument?.({ url, filename })}
                               className="w-20 h-20 sm:w-28 sm:h-28 rounded-xl overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
                               title={`Preview ${filename}`}
                             >
@@ -1144,13 +1144,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         isOpen={!!lightboxImageUrl}
         onClose={() => setLightboxImageUrl(null)}
         imageUrl={lightboxImageUrl}
-      />
-
-      <DocumentPreviewDrawer
-        isOpen={!!previewDocument}
-        onClose={() => setPreviewDocument(null)}
-        documentUrl={previewDocument?.url || null}
-        filename={previewDocument?.filename || null}
       />
     </div>
   );
