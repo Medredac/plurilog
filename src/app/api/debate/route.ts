@@ -1633,33 +1633,6 @@ async function generateImageActionFollowUp(options: {
 
 
 
-function isFreshDocumentWebResearchRequest(value: string): boolean {
-  const prompt = (value || '').trim();
-  if (!prompt) return false;
-
-  const wantsDocument =
-    /\b(?:pdf|docx|word(?:\s+document)?|document|file)\b/i.test(prompt) &&
-    /\b(?:create|make|generate|produce|build|write|return|prepare|draft|design)\b/i.test(
-      prompt
-    );
-  if (!wantsDocument) return false;
-
-  const freshnessIntent =
-    /\b(?:what(?:'s| is)\s+(?:(?:currently|right\s+now)\s+)?happening(?:\s+(?:with|to|around))?|currently\s+happening|latest\s+(?:news|update|updates|developments?|status|on|about)|recent\s+(?:news|updates?|developments?|events?)|today(?:'s)?\s+(?:news|updates?|developments?|events?)|current\s+(?:news|situation|status|events?|developments?|updates?)|right\s+now)\b/i.test(
-      prompt
-    );
-
-  const explicitOnlineResearch =
-    /\b(?:search|browse|look\s*up|research|verify|check)\b[\s\S]{0,60}\b(?:web|online|internet|sources?)\b/i.test(
-      prompt
-    ) ||
-    /\b(?:web|online|internet)\b[\s\S]{0,60}\b(?:search|research|sources?)\b/i.test(
-      prompt
-    );
-
-  return freshnessIntent || explicitOnlineResearch;
-}
-
 function webSearchRequestCount(usage: any): number {
   const raw =
     usage?.server_tool_use_details?.web_search_requests ??
@@ -4013,10 +3986,6 @@ export async function POST(req: NextRequest) {
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
-            const freshDocumentWebSearchExpected =
-              isDocumentCreationEnabledForSeat &&
-              !isDocumentRevisionFollowUp &&
-              isFreshDocumentWebResearchRequest(prompt || '');
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -4226,15 +4195,6 @@ export async function POST(req: NextRequest) {
             const seatWebCitations: { url: string; title: string }[] = [];
             const seenCitationUrls = new Set<string>();
             let webSearchActivityStarted = false;
-            let documentActionBaseMessages = seatMessages;
-
-            if (freshDocumentWebSearchExpected) {
-              webSearchActivityStarted = true;
-              sendEvent('seat_activity', {
-                seatId: seat.seatId,
-                activity: 'searching_web',
-              });
-            }
 
             const addWebCitations = (raw: any) => {
               if (!raw) return;
@@ -4405,199 +4365,8 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
-              if (
-                freshDocumentWebSearchExpected &&
-                webSearchRequestCount(seatUsage) === 0
-              ) {
-                const firstPassCostUsd =
-                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-
-                console.warn(
-                  '[Fresh Document Search Guard] First pass skipped required web search; retrying with grounded research',
-                  {
-                    seatId: seat.seatId,
-                    firstPassToolCalls:
-                      accumulatedToolCalls.length > 0
-                        ? finalizeAllToolCalls(accumulatedToolCalls).map(
-                            (call) => call.name
-                          )
-                        : [],
-                  }
-                );
-
-                const researchMessages = [
-                  seatMessages[0],
-                  {
-                    role: 'system',
-                    content:
-                      'FRESH DOCUMENT RESEARCH RETRY: The user requested a document whose factual substance depends on current external information. Search the web now, ground the factual content in those results, preserve uncertainty where sources differ, and return concise research notes. Do not create the file in this retry stage.',
-                  } as any,
-                  ...seatMessages.slice(1),
-                ];
-
-                let researchText = '';
-                let researchUsage: any = null;
-                const researchStream =
-                  await (openai.chat.completions.create as any)({
-                    model: primaryModel,
-                    models,
-                    messages: researchMessages,
-                    stream: true,
-                    temperature: 0.2,
-                    signal: seatAbortController.signal,
-                    tools: [
-                      {
-                        type: 'openrouter:web_search',
-                        parameters: {
-                          max_results: 3,
-                          max_total_results: 6,
-                        },
-                      },
-                    ],
-                    tool_choice: 'required',
-                    ...(discussionId
-                      ? { session_id: `${discussionId}:${seat.seatId}` }
-                      : {}),
-                  });
-
-                for await (const chunk of researchStream) {
-                  if (req.signal.aborted) break;
-                  if (chunk.model) respondingModel = chunk.model;
-                  if ((chunk as any).usage) {
-                    researchUsage = (chunk as any).usage;
-                  }
-
-                  const retryAnnotations =
-                    (chunk.choices?.[0]?.delta as any)?.annotations;
-                  if (retryAnnotations) {
-                    addWebCitations(retryAnnotations);
-                  }
-
-                  const text = chunk.choices?.[0]?.delta?.content || '';
-                  if (text) researchText += text;
-                }
-
-                if (
-                  seatAbortController.signal.aborted &&
-                  !req.signal.aborted
-                ) {
-                  throw new Error(
-                    `${seat.name} exceeded its ${Math.round(
-                      seatTimeoutMs / 1000
-                    )}-second turn budget.`
-                  );
-                }
-                if (req.signal.aborted) {
-                  safeClose();
-                  return;
-                }
-
-                const retrySearchCount = webSearchRequestCount(researchUsage);
-                if (retrySearchCount === 0) {
-                  throw new Error(
-                    'Fresh document creation requires current web research, but the search retry did not execute.'
-                  );
-                }
-
-                const sourceContext = seatWebCitations.length
-                  ? `\n\nVerified web sources:\n${seatWebCitations
-                      .map(
-                        (citation, index) =>
-                          `${index + 1}. ${citation.title} — ${citation.url}`
-                      )
-                      .join('\n')}`
-                  : '';
-
-                documentActionBaseMessages = [
-                  ...seatMessages,
-                  {
-                    role: 'assistant',
-                    content:
-                      `WEB RESEARCH FOR THE REQUESTED DOCUMENT:\n${researchText.trim() ||
-                        'Use the completed web research for current factual grounding.'}${sourceContext}\n\nCreate the requested document from this research. Do not invent fresher facts beyond it.`,
-                  } as any,
-                ];
-
-                seatResponse = '';
-                accumulatedToolCalls = [];
-                bufferedSeatChunks.length = 0;
-
-                let planningUsage: any = null;
-                const planningStream =
-                  await (openai.chat.completions.create as any)({
-                    model: primaryModel,
-                    models,
-                    messages: documentActionBaseMessages,
-                    stream: true,
-                    temperature: 0.7,
-                    signal: seatAbortController.signal,
-                    tools: GPT_FILE_TOOLS,
-                    tool_choice: {
-                      type: 'function',
-                      function: { name: 'create_file' },
-                    },
-                    ...(discussionId
-                      ? { session_id: `${discussionId}:${seat.seatId}` }
-                      : {}),
-                  });
-
-                for await (const chunk of planningStream) {
-                  if (req.signal.aborted) break;
-                  if (chunk.model) respondingModel = chunk.model;
-                  if ((chunk as any).usage) {
-                    planningUsage = (chunk as any).usage;
-                  }
-
-                  const deltaToolCalls =
-                    (chunk.choices?.[0]?.delta as any)?.tool_calls;
-                  if (deltaToolCalls) {
-                    accumulatedToolCalls = mergeStreamingToolCalls(
-                      accumulatedToolCalls,
-                      deltaToolCalls
-                    );
-                  }
-
-                  const text = chunk.choices?.[0]?.delta?.content || '';
-                  if (text) {
-                    seatResponse += text;
-                    bufferedSeatChunks.push(text);
-                  }
-                }
-
-                if (
-                  seatAbortController.signal.aborted &&
-                  !req.signal.aborted
-                ) {
-                  throw new Error(
-                    `${seat.name} exceeded its ${Math.round(
-                      seatTimeoutMs / 1000
-                    )}-second turn budget.`
-                  );
-                }
-                if (req.signal.aborted) {
-                  safeClose();
-                  return;
-                }
-
-                seatUsage = {
-                  ...(planningUsage || {}),
-                  cost:
-                    firstPassCostUsd +
-                    (typeof researchUsage?.cost === 'number'
-                      ? researchUsage.cost
-                      : 0) +
-                    (typeof planningUsage?.cost === 'number'
-                      ? planningUsage.cost
-                      : 0),
-                  server_tool_use_details: {
-                    ...((planningUsage as any)?.server_tool_use_details || {}),
-                    web_search_requests: retrySearchCount,
-                  },
-                };
-              }
-
-              if (freshDocumentWebSearchExpected) {
-                console.log('[Fresh Document Web Search]', {
+              if (isDocumentCreationEnabledForSeat) {
+                console.log('[Document Web Search Usage]', {
                   seatId: seat.seatId,
                   searchCount: webSearchRequestCount(seatUsage),
                   citationCount: seatWebCitations.length,
@@ -5129,7 +4898,7 @@ export async function POST(req: NextRequest) {
                         openai,
                         primaryModel,
                         models,
-                        baseMessages: documentActionBaseMessages,
+                        baseMessages: seatMessages,
                         toolCall: firstCreated.fileCall,
                         priorToolText: seatResponse,
                         filename: firstCreated.result.filename,
