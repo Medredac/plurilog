@@ -2359,7 +2359,7 @@ export default function DashboardPage() {
             urlDiscussionId={urlDiscussionId}
           />
         </Suspense>
-        <div className="flex h-screen w-screen items-center justify-center bg-[#FCFBFA] text-zinc-900 font-sans">
+        <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
           <div className="flex flex-col items-center gap-3">
             <img
               src="/logo.svg"
@@ -2391,7 +2391,7 @@ export default function DashboardPage() {
         />
       </Suspense>
       <div 
-        className="flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-[#FCFBFA] text-zinc-900 font-sans print:hidden"
+        className="flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
       >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
@@ -2415,7 +2415,7 @@ export default function DashboardPage() {
         />
 
         {/* Main Chamber */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-dashboard-tech-grid min-w-0">
+        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
           {/* Simplified Header */}
           <CouncilHeader
             seatOrder={seatOrder}
