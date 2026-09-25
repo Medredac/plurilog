@@ -176,7 +176,7 @@ export const GPT_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). When you actually use web search to research facts for a document, include a final Sources section inside the document using the real source titles and URLs available from that search. Do not invent, generalize, or substitute source names or URLs; if a source URL is not actually available to you, do not fabricate one. This sourcing requirement changes only the document contents and must never cause you to perform a web search you would not otherwise have chosen. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -738,18 +738,89 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
       prompt
     );
 
+  const generatedAssetInsertion =
+    /(?:generate|create|make)[sS]{0,100}(?:image|photo|picture|illustration|graphic|chart)[sS]{0,120}(?:place|put|insert|embed|add|attach)[sS]{0,80}(?:document|file|pdf|docx|word|page|header|heading)/i.test(
+      prompt
+    );
+
   return (
     (revisionVerb.test(prompt) && artifactCue.test(prompt)) ||
     makeMutation ||
     comparativeMutation ||
+    preservationPhrase ||
+    generatedAssetInsertion
+  );
+}
+
+function isStrongDocumentMutationRequest(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt || !isDocumentRevisionFollowUpQuery(prompt)) return false;
+
+  const artifactCue =
+    /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  if (!artifactCue.test(prompt)) return false;
+
+  // Read-only questions about prior work must remain chronology/history requests.
+  const retrospectiveQuestion =
+    /\b(?:what|which|how|why|when|where)\b[\s\S]{0,120}\b(?:did|was|were|have|has|changed|edited|modified|created|made|generated|removed|added)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:tell|show|remind)\s+me\b[\s\S]{0,120}\b(?:last|previous|prior|earlier|changed|edited|modified|created|made|generated)\b/i.test(
+      prompt
+    );
+  if (retrospectiveQuestion) return false;
+
+  const actionVerb =
+    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|place|embed|attach|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
+  const softPrefix =
+    '(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\\s+you|now|then|also|and|go\\s+ahead)[,!.\\s-]*)*';
+
+  const politeAction = new RegExp(
+    `^${softPrefix}(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const imperativeAction = new RegExp(
+    `^${softPrefix}(?:please\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+  const requestedAction = new RegExp(
+    `\\b(?:i\\s+(?:want|need)|i['’]?d\\s+like)\\s+(?:you\\s+to\\s+)?${actionVerb}\\b`,
+    'i'
+  );
+
+  const preservationPhrase =
+    /\b(?:change|touch|alter)\s+nothing\s+else\b/i.test(prompt) ||
+    /\b(?:leave|keep)\s+(?:everything|the\s+rest)\s+(?:else\s+)?(?:unchanged|the\s+same|as\s+is)\b/i.test(
+      prompt
+    );
+
+  return (
+    politeAction.test(prompt) ||
+    imperativeAction.test(prompt) ||
+    requestedAction.test(prompt) ||
     preservationPhrase
   );
 }
 
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
   if (!isDocumentRevisionFollowUpQuery(value)) return false;
+  const prompt = value || '';
+
+  // Requests that explicitly ask to incorporate broader review/feedback are
+  // multi-part revisions, even when they also contain one localized visual edit.
+  // Treating them as "narrow" prevents legitimate block reordering/restructuring.
+  const broaderReviewRevision =
+    /\b(?:implement|incorporate|apply|address|use|take\s+on)\b[\s\S]{0,100}\b(?:insights?|feedback|suggestions?|recommendations?|comments?|review|changes?)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:claude|gemini|chatgpt|gpt)\b[\s\S]{0,80}\b(?:insights?|feedback|suggestions?|recommendations?|comments?)\b/i.test(
+      prompt
+    );
+
+  if (broaderReviewRevision) return false;
+
   return !/\b(?:redo|rework|reformat|restyle|redesign|rebuild|transform|convert)\b/i.test(
-    value || ''
+    prompt
   );
 }
 
@@ -2225,6 +2296,25 @@ export async function POST(req: NextRequest) {
     let discussionMemory: DiscussionMemoryResult | undefined;
     if (discussionId) {
       discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
+
+      if (
+        discussionMemory?.historyLookupIntent === true &&
+        isStrongDocumentMutationRequest(prompt || '')
+      ) {
+        console.log(
+          '[Memory History Override] Clear document mutation takes precedence over chronology lookup',
+          {
+            prompt: prompt || '',
+            priorChronologyLabel:
+              discussionMemory.chronologicalMemory?.label || null,
+          }
+        );
+        discussionMemory = {
+          ...discussionMemory,
+          historyLookupIntent: false,
+          chronologicalMemory: undefined,
+        };
+      }
     }
 
     const encoder = new TextEncoder();
@@ -3967,7 +4057,15 @@ export async function POST(req: NextRequest) {
               pdfCount: pdfAttachments.length,
             });
 
-            if (hasPdf && needsPdfPlugin) {
+            if (reviewScopedToGeneratedDocument) {
+              // Later seats are genuinely inspecting rendered pages of the document
+              // created earlier in this round. The PDF relay is intentionally suppressed
+              // here because the rendered pages are the authoritative visual evidence.
+              sendEvent('seat_activity', {
+                seatId: seat.seatId,
+                activity: 'checking_documents',
+              });
+            } else if (hasPdf && needsPdfPlugin) {
               sendEvent('seat_activity', {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
@@ -4005,10 +4103,29 @@ export async function POST(req: NextRequest) {
                 cleanUrl.endsWith('.docx')
               );
             }).length;
+            const hasCurrentUserDocumentUpload =
+              (currentRoundAttachments || []).some((attachment) => {
+                if (attachment.provenance !== 'current_user_upload') {
+                  return false;
+                }
+                const filename = (attachment.filename || '').toLowerCase();
+                const cleanUrl =
+                  attachment.url
+                    ?.split('?')[0]
+                    .split('#')[0]
+                    .toLowerCase() || '';
+                return (
+                  filename.endsWith('.pdf') ||
+                  filename.endsWith('.docx') ||
+                  cleanUrl.endsWith('.pdf') ||
+                  cleanUrl.endsWith('.docx')
+                );
+              });
+
             const sourceDocumentEditingForCurrentTurn =
               isDocumentCreationEnabledForSeat &&
               isDocumentRevisionFollowUp &&
-              currentDocumentAttachmentCount > 0 &&
+              hasCurrentUserDocumentUpload &&
               !isSimplePdfFormatConversionRequest(prompt || '');
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
@@ -4035,7 +4152,7 @@ export async function POST(req: NextRequest) {
                   !isHistoryLookupTurn &&
                   isDocumentRevisionFollowUp &&
                   hasKnownInspectableDocument &&
-                  currentDocumentAttachmentCount === 0)
+                  !hasCurrentUserDocumentUpload)
               );
 
             if (reviewScopedToGeneratedDocument) {
@@ -4056,6 +4173,8 @@ export async function POST(req: NextRequest) {
                 enabled: isEvidenceEnabledForSeat,
                 currentVisualAttachmentCount,
                 currentDocumentAttachmentCount,
+                hasCurrentUserDocumentUpload,
+                isDocumentRevisionFollowUp,
                 currentRoundAttachmentCount: currentRoundAttachments.length,
                 hasRetrievableHistoricalEvidence,
                 forceOnFirstPass: shouldForceEvidenceOnFirstPass,
@@ -4079,6 +4198,7 @@ export async function POST(req: NextRequest) {
 
             const seatWebCitations: { url: string; title: string }[] = [];
             const seenCitationUrls = new Set<string>();
+            let webSearchActivityStarted = false;
 
             const addWebCitations = (raw: any) => {
               if (!raw) return;
@@ -4116,6 +4236,21 @@ export async function POST(req: NextRequest) {
                       .replace(/\]/g, '\\]');
 
                     seatWebCitations.push({ url: safeUrl, title: safeTitle });
+
+                    if (!webSearchActivityStarted) {
+                      webSearchActivityStarted = true;
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: 'searching_web',
+                      });
+                    }
+
+                    sendEvent('seat_search_source', {
+                      seatId: seat.seatId,
+                      url: safeUrl,
+                      title: rawTitle || safeTitle,
+                      hostname: parsed.hostname.replace(/^www\./, ''),
+                    });
                   } catch {
                     // Ignore malformed or invalid URLs
                   }
@@ -4473,6 +4608,21 @@ export async function POST(req: NextRequest) {
                       (doc) => doc.storagePath === sourceStoragePath
                     ) || null;
 
+                  const sourceEditFilename =
+                    sourceAttachment.filename ||
+                    (sourceStoragePath.toLowerCase().endsWith('.pdf')
+                      ? 'document.pdf'
+                      : 'document.docx');
+                  const sourceEditLower = sourceEditFilename.toLowerCase();
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: sourceEditLower.endsWith('.pdf')
+                      ? 'editing_pdf'
+                      : sourceEditLower.endsWith('.docx')
+                        ? 'editing_word'
+                        : 'editing_file',
+                  });
+
                   const editResult = await executeSourcePreservingDocumentEdit({
                     supabase,
                     openai,
@@ -4480,11 +4630,7 @@ export async function POST(req: NextRequest) {
                     messageId,
                     seatId: seat.seatId,
                     sourceStoragePath,
-                    sourceFilename:
-                      sourceAttachment.filename ||
-                      (sourceStoragePath.toLowerCase().endsWith('.pdf')
-                        ? 'document.pdf'
-                        : 'document.docx'),
+                    sourceFilename: sourceEditFilename,
                     sourceDocumentId:
                       currentParentState?.documentId ||
                       knownSourceDocument?.id ||
@@ -4690,6 +4836,12 @@ export async function POST(req: NextRequest) {
                       onImageCost: (event) => {
                         incurredDocumentAssetCostUsd += event.costUsd;
                         documentImageModels.add(event.model);
+                      },
+                      onActivity: (activity) => {
+                        sendEvent('seat_activity', {
+                          seatId: seat.seatId,
+                          activity,
+                        });
                       },
                       reviewModel: primaryModel,
                       reviewModels: models,
@@ -6202,6 +6354,20 @@ export async function POST(req: NextRequest) {
                     const editArgs = (
                       evidenceSourceEditCalls[0].arguments || {}
                     ) as unknown as SourceDocumentEditArgs;
+                    const evidenceSourceFilename =
+                      sourceParentState?.filename ||
+                      resolvedEditableDocumentEvidence.filename;
+                    const evidenceSourceLower =
+                      evidenceSourceFilename.toLowerCase();
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity: evidenceSourceLower.endsWith('.pdf')
+                        ? 'editing_pdf'
+                        : evidenceSourceLower.endsWith('.docx')
+                          ? 'editing_word'
+                          : 'editing_file',
+                    });
+
                     const editResult =
                       await executeSourcePreservingDocumentEdit({
                         supabase,
@@ -6212,9 +6378,7 @@ export async function POST(req: NextRequest) {
                         sourceStoragePath:
                           sourceParentState?.storagePath ||
                           resolvedEditableDocumentEvidence.storagePath,
-                        sourceFilename:
-                          sourceParentState?.filename ||
-                          resolvedEditableDocumentEvidence.filename,
+                        sourceFilename: evidenceSourceFilename,
                         sourceDocumentId:
                           sourceParentState?.documentId ||
                           resolvedEditableDocumentEvidence.documentId ||
@@ -6578,6 +6742,12 @@ export async function POST(req: NextRequest) {
                         onImageCost: (event) => {
                           incurredDocumentAssetCostUsd += event.costUsd;
                           documentImageModels.add(event.model);
+                        },
+                        onActivity: (activity) => {
+                          sendEvent('seat_activity', {
+                            seatId: seat.seatId,
+                            activity,
+                          });
                         },
                         reviewModel: primaryModel,
                         reviewModels: models,

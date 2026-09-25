@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,9 +14,24 @@ import {
   ChevronDown, 
   ChevronUp,
   FileText,
-  Download
+  Download,
+  Brain,
+  Search,
+  FileSearch,
+  Image as ImageIcon,
+  Wand2,
+  FilePlus,
+  FileEdit,
+  Sparkles,
+  Globe2,
+  Clock3
 } from 'lucide-react';
-import { ChatMessage, ModelId, SeatStatus } from '../types/chat';
+import {
+  ChatMessage,
+  ModelId,
+  SeatStatus,
+  SeatSearchSource,
+} from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
@@ -173,20 +188,245 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
 
 function getSeatActivityLabel(status: SeatStatus): string {
   switch (status) {
+    case 'working':
+      return 'Working through it…';
     case 'checking_documents':
-      return 'Checking documents...';
+      return 'Checking documents…';
     case 'checking_images':
-      return 'Checking images...';
+      return 'Checking images…';
+    case 'searching_web':
+      return 'Searching the web…';
     case 'generating_image':
-      return 'Generating image...';
+      return 'Generating image…';
     case 'editing_image':
-      return 'Editing image...';
+      return 'Editing image…';
+    case 'generating_pdf':
+      return 'Generating PDF…';
+    case 'generating_word':
+      return 'Generating Word file…';
+    case 'generating_file':
     case 'creating_document':
-      return 'Creating document...';
+      return 'Generating file…';
+    case 'editing_pdf':
+      return 'Editing PDF…';
+    case 'editing_word':
+      return 'Editing Word file…';
+    case 'editing_file':
+      return 'Editing file…';
     default:
-      return 'Thinking...';
+      return 'Thinking…';
   }
 }
+
+function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
+  if (!source?.url) return null;
+  try {
+    const parsed = new URL(source.url);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return null;
+    }
+    return `${parsed.origin}/favicon.ico`;
+  } catch {
+    return null;
+  }
+}
+
+interface SeatActivityIndicatorProps {
+  status: SeatStatus;
+  startedAt?: string;
+  searchSources?: SeatSearchSource[];
+  reduceMotion?: boolean;
+}
+
+const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
+  status,
+  startedAt,
+  searchSources = [],
+  reduceMotion = false,
+}) => {
+  const startMs = React.useMemo(() => {
+    const parsed = startedAt ? new Date(startedAt).getTime() : Date.now();
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  }, [startedAt]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [siteIndex, setSiteIndex] = useState(0);
+
+  useEffect(() => {
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 200);
+    return () => window.clearInterval(timer);
+  }, [startMs]);
+
+  const elapsedMs = Math.max(0, nowMs - startMs);
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const effectiveStatus: SeatStatus =
+    status === 'thinking' && elapsedMs >= 1800 ? 'working' : status;
+
+  useEffect(() => {
+    if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
+      setSiteIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setSiteIndex((current) => (current + 1) % searchSources.length);
+    }, 900);
+
+    return () => window.clearInterval(timer);
+  }, [effectiveStatus, searchSources.length]);
+
+  const activeSource =
+    effectiveStatus === 'searching_web' && searchSources.length > 0
+      ? searchSources[Math.min(siteIndex, searchSources.length - 1)]
+      : null;
+  const faviconUrl = getSearchFaviconUrl(activeSource);
+
+  const iconClass =
+    'h-3.5 w-3.5 shrink-0 text-amber-500';
+  const iconMotion =
+    reduceMotion
+      ? {}
+      : effectiveStatus === 'searching_web'
+        ? { x: [0, 1.5, -1, 0] }
+        : effectiveStatus === 'generating_image' ||
+            effectiveStatus === 'editing_image'
+          ? { rotate: [0, -8, 8, 0], scale: [1, 1.08, 1] }
+          : effectiveStatus.startsWith('generating_') ||
+              effectiveStatus.startsWith('editing_')
+            ? { y: [0, -1.5, 0] }
+            : { opacity: [0.55, 1, 0.55] };
+
+  const ActivityIcon = (() => {
+    switch (effectiveStatus) {
+      case 'working':
+        return Sparkles;
+      case 'checking_documents':
+        return FileSearch;
+      case 'checking_images':
+        return ImageIcon;
+      case 'searching_web':
+        return Search;
+      case 'generating_image':
+        return ImageIcon;
+      case 'editing_image':
+        return Wand2;
+      case 'generating_pdf':
+      case 'generating_word':
+      case 'generating_file':
+      case 'creating_document':
+        return FilePlus;
+      case 'editing_pdf':
+      case 'editing_word':
+      case 'editing_file':
+        return FileEdit;
+      default:
+        return Brain;
+    }
+  })();
+
+  return (
+    <div className="py-0.5 flex min-w-0 items-center gap-2.5 animate-in fade-in duration-150">
+      <motion.div
+        key={effectiveStatus}
+        animate={iconMotion}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : {
+                duration: effectiveStatus === 'searching_web' ? 1.1 : 1.4,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }
+        }
+        className="flex h-4 w-4 shrink-0 items-center justify-center"
+        aria-hidden="true"
+      >
+        <ActivityIcon className={iconClass} />
+      </motion.div>
+
+      <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={effectiveStatus}
+            initial={
+              reduceMotion
+                ? false
+                : {
+                    opacity: 0,
+                    filter: 'blur(2px)',
+                    clipPath: 'inset(0 100% 0 0)',
+                    y: 1,
+                  }
+            }
+            animate={{
+              opacity: 1,
+              filter: 'blur(0px)',
+              clipPath: 'inset(0 0% 0 0)',
+              y: 0,
+            }}
+            exit={
+              reduceMotion
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    filter: 'blur(2px)',
+                    clipPath: 'inset(0 0% 0 4%)',
+                    y: -1,
+                  }
+            }
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : {
+                    opacity: { duration: 0.13 },
+                    filter: { duration: 0.13 },
+                    y: { duration: 0.13 },
+                    clipPath: {
+                      duration: 0.34,
+                      ease: [0.16, 1, 0.3, 1],
+                    },
+                  }
+            }
+            className="animate-text-shimmer whitespace-nowrap font-normal tracking-tight select-none"
+          >
+            {getSeatActivityLabel(effectiveStatus)}
+          </motion.span>
+        </AnimatePresence>
+
+        {activeSource && (
+          <motion.span
+            key={activeSource.url}
+            initial={reduceMotion ? false : { opacity: 0, x: 4 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
+            className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-500"
+            title={activeSource.title || activeSource.hostname}
+          >
+            <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
+              <Globe2 className="absolute h-3 w-3 text-zinc-400" />
+              {faviconUrl && (
+                <img
+                  src={faviconUrl}
+                  alt=""
+                  className="relative h-3 w-3 rounded-[2px] bg-white object-contain"
+                  onError={(event) => {
+                    event.currentTarget.style.display = 'none';
+                  }}
+                />
+              )}
+            </span>
+            <span className="truncate">{activeSource.hostname}</span>
+          </motion.span>
+        )}
+
+        <span className="ml-0.5 inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-zinc-400">
+          <Clock3 className="h-3 w-3" aria-hidden="true" />
+          {elapsedSeconds}s
+        </span>
+      </div>
+    </div>
+  );
+};
 
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
@@ -373,6 +613,7 @@ interface ChatFeedProps {
   onPromptClick: (prompt: string) => void;
   activeSpeaker?: ModelId | null;
   seatStatuses?: Record<ModelId, SeatStatus>;
+  seatSearchSources?: Record<ModelId, SeatSearchSource[]>;
   isDebating?: boolean;
   errorMessage?: string | null;
   canContinue?: boolean;
@@ -549,6 +790,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     'gemini': 'idle',
     'claude': 'idle',
     'chatgpt': 'idle',
+  },
+  seatSearchSources = {
+    gemini: [],
+    claude: [],
+    chatgpt: [],
   },
   isDebating = false,
   errorMessage = null,
@@ -919,9 +1165,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             : 'mt-3.5 sm:mt-4';
 
         const isThinking = message.isStreaming && !message.content.trim();
-        const pendingActivityLabel = getSeatActivityLabel(
-          seatStatuses[modelKey] || 'thinking'
-        );
         const attachments: string[] =
           message.attachment_urls && message.attachment_urls.length > 0
             ? message.attachment_urls
@@ -968,20 +1211,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               {/* Message Body */}
               {isThinking ? (
-                /* Thinking Indicator Placeholder */
-                <div className="py-0.5 flex items-center gap-2.5 animate-in fade-in duration-150">
-                  <div className="w-3.5 h-3.5 flex items-center justify-center text-amber-500 shrink-0 animate-pulse-spin">
-                    <svg viewBox="0 0 1391 1493" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5">
-                      <path d="M520.475 46.8916C628.765 -15.6299 762.185 -15.6309 870.476 46.8906L1215.95 246.351C1324.24 308.872 1390.95 424.417 1390.95 549.46V948.38C1390.95 1073.42 1324.24 1188.97 1215.95 1251.49L870.476 1450.95C839.295 1468.95 806.031 1481.77 771.884 1489.4V1267.46C771.884 1224.41 793.863 1184.33 830.168 1161.2L1094.26 992.901C1130.56 969.765 1152.54 929.694 1152.54 886.644V583.73C1152.54 538.272 1128.06 496.338 1088.47 473.997L756.024 286.395C716.572 264.132 668.204 264.761 629.344 288.043L319.853 473.464C281.861 496.225 258.609 537.262 258.609 581.55V1299.76L175 1251.49C66.7098 1188.97 0 1073.42 0 948.38V549.46C0.000106195 424.417 66.7099 308.873 175 246.352L520.475 46.8916Z" fill="currentColor"/>
-                      <path d="M376.402 536.352L673.55 680.923C691.417 689.616 712.339 689.37 729.998 680.259L1008.92 536.352L731.766 381.638C713.162 371.252 690.568 370.974 671.713 380.899L376.402 536.352Z" fill="currentColor"/>
-                      <path d="M766.066 812.685V1103.38L1024.9 937.777C1043 926.198 1053.95 906.195 1053.95 884.71V619.578L799.12 757.258C778.757 768.259 766.066 789.54 766.066 812.685Z" fill="currentColor"/>
-                      <path d="M393.853 1372.47L660.466 1492.74V824.821C660.466 801.177 647.227 779.524 626.183 768.747L356.758 630.766V1315.04C356.758 1339.81 371.273 1362.28 393.853 1372.47Z" fill="currentColor"/>
-                    </svg>
-                  </div>
-                  <span className="text-xs font-normal animate-text-shimmer tracking-tight select-none">
-                    {pendingActivityLabel}
-                  </span>
-                </div>
+                <SeatActivityIndicator
+                  status={seatStatuses[modelKey] || 'thinking'}
+                  startedAt={message.createdAt}
+                  searchSources={seatSearchSources[modelKey] || []}
+                  reduceMotion={Boolean(shouldReduceMotion)}
+                />
               ) : (
                 <>
                   <StreamingMessageBody

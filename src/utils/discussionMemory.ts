@@ -748,7 +748,8 @@ Definitions:
 - Only anchor to the immediately preceding user query itself when the current user explicitly means that query as the event.
 - anchor must be the user's natural-language topic/message description, not an answer you invent.
 - include_attachments=true when the user also asks what file/document/image was attached to the resolved user message.
-- A general request to continue an earlier task is NOT automatically a history lookup.
+- A general request to continue an earlier task is NOT a history lookup. This includes terse imperative continuations such as "go ahead", "do it", "continue", "make it", "generate it", "edit it", "you too", "Gemini, go ahead", "ChatGPT, do it", or an emphatic repetition of the requested action. Use recent exact context to understand what action is being continued; do not convert the continuation into a request to retrieve what that model said previously.
+- Merely naming a panelist in an imperative ("Gemini, go ahead") does NOT make the message a request for that panelist's historical response.
 - A request about what somebody literally said, which message came first/last/Nth, what came before/after something, or a correction like "that wasn't my first message, check again" IS a history lookup.
 - When the current message is an elliptical correction/follow-up to the immediately previous history request, inherit the previous retrieval intent instead of returning false.
 - If uncertain whether this is a history-navigation request, return is_history_lookup=false rather than guessing.`;
@@ -781,12 +782,44 @@ Definitions:
     const plan = validateConversationHistoryPlan(parsed);
     if (!plan) return null;
 
-    const refinedPlan = await refineConversationHistoryAnchor(
+    let refinedPlan = await refineConversationHistoryAnchor(
       plan,
       currentPrompt,
       allRounds,
       openai
     );
+
+    const imperativeContinuation =
+      /^\s*(?:(?:gemini|chatgpt|gpt|claude)[,:]?\s+)?(?:please[,.]?\s+)?(?:go\s+ahead|do\s+it|continue|carry\s+on|proceed|make\s+it|generate\s+(?:it|the\s+image|the\s+picture)|edit\s+(?:it|the\s+image|the\s+picture)|you\s+too)\s*[!.?]*\s*$/i.test(
+        currentPrompt.trim()
+      );
+
+    const explicitHistoryLanguage =
+      /\b(?:what|which|who|when|where|how)\b[\s\S]{0,80}\b(?:said|say|message|response|reply|first|last|previous|before|after|earlier|history)\b/i.test(
+        currentPrompt
+      ) ||
+      /\b(?:first|last|previous|prior|earlier|before|after|history)\b/i.test(
+        currentPrompt
+      );
+
+    if (
+      refinedPlan.is_history_lookup &&
+      imperativeContinuation &&
+      !explicitHistoryLanguage
+    ) {
+      refinedPlan = {
+        is_history_lookup: false,
+        target: null,
+        relation: null,
+        ordinal: null,
+        anchor: null,
+        anchor_target: null,
+        anchor_occurrence: null,
+        anchor_ordinal: null,
+        include_attachments: false,
+        confidence: Math.max(refinedPlan.confidence, 0.95),
+      };
+    }
 
     console.log('[Memory History Planner]', {
       prompt: currentPrompt.slice(0, 220),

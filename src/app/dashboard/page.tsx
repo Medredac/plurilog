@@ -13,7 +13,13 @@ import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { DeleteProfileModal } from '../../components/DeleteProfileModal';
 import { PrintableDiscussion } from '../../components/PrintableDiscussion';
 import { COUNCIL_MEMBERS } from '../../data/mockDebates';
-import { DebateTopic, ModelId, ChatMessage, SeatStatus } from '../../types/chat';
+import {
+  DebateTopic,
+  ModelId,
+  ChatMessage,
+  SeatStatus,
+  SeatSearchSource,
+} from '../../types/chat';
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
@@ -22,6 +28,12 @@ const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
   'claude': 'idle',
   'chatgpt': 'idle',
+};
+
+const EMPTY_SEAT_SEARCH_SOURCES: Record<ModelId, SeatSearchSource[]> = {
+  gemini: [],
+  claude: [],
+  chatgpt: [],
 };
 
 const SIGNUP_SOURCE_ROLLOUT_AT = new Date('2026-09-13T00:00:00.000Z').getTime();
@@ -155,6 +167,7 @@ interface ActiveDiscussionState {
   controller: AbortController;
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
+  seatSearchSources: Record<ModelId, SeatSearchSource[]>;
   activeSpeaker: ModelId | null;
 }
 
@@ -233,6 +246,9 @@ export default function DashboardPage() {
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
+  const [seatSearchSources, setSeatSearchSources] = useState<
+    Record<ModelId, SeatSearchSource[]>
+  >(EMPTY_SEAT_SEARCH_SOURCES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
   const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
@@ -544,6 +560,11 @@ export default function DashboardPage() {
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
         setSeatStatuses({ ...activeGen.seatStatuses });
+        setSeatSearchSources({
+          gemini: [...activeGen.seatSearchSources.gemini],
+          claude: [...activeGen.seatSearchSources.claude],
+          chatgpt: [...activeGen.seatSearchSources.chatgpt],
+        });
         setIsDebating(true);
         setActiveSpeaker(activeGen.activeSpeaker);
       } else {
@@ -553,6 +574,7 @@ export default function DashboardPage() {
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
         setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
         setIsDebating(false);
         setActiveSpeaker(null);
       }
@@ -1034,6 +1056,11 @@ export default function DashboardPage() {
         controller,
         liveSeatMessage: initialLiveSeatMsg,
         seatStatuses: initialStatuses,
+        seatSearchSources: {
+          gemini: [],
+          claude: [],
+          chatgpt: [],
+        },
         activeSpeaker: optimisticPlaceholder?.firstSeatId || null,
       });
     }
@@ -1228,6 +1255,10 @@ export default function DashboardPage() {
                     ...activeGen.seatStatuses,
                     [seatId]: 'thinking',
                   };
+                  activeGen.seatSearchSources = {
+                    ...activeGen.seatSearchSources,
+                    [seatId]: [],
+                  };
                   activeGen.activeSpeaker = seatId;
                 }
               }
@@ -1237,6 +1268,10 @@ export default function DashboardPage() {
                 setSeatStatuses((prev) => ({
                   ...prev,
                   [seatId]: 'thinking',
+                }));
+                setSeatSearchSources((prev) => ({
+                  ...prev,
+                  [seatId]: [],
                 }));
 
                 if (optimisticPlaceholder && optimisticPlaceholder.firstSeatId === seatId) {
@@ -1283,10 +1318,18 @@ export default function DashboardPage() {
               const seatId = data.seatId as ModelId;
               const activity = data.activity as SeatStatus;
               const allowedActivities: SeatStatus[] = [
+                'working',
                 'checking_documents',
                 'checking_images',
+                'searching_web',
                 'generating_image',
                 'editing_image',
+                'generating_file',
+                'generating_pdf',
+                'generating_word',
+                'editing_file',
+                'editing_pdf',
+                'editing_word',
                 'creating_document',
               ];
 
@@ -1305,6 +1348,53 @@ export default function DashboardPage() {
                   setSeatStatuses((prev) => ({
                     ...prev,
                     [seatId]: activity,
+                  }));
+                }
+              }
+            } else if (eventType === 'seat_search_source') {
+              const seatId = data.seatId as ModelId;
+              const rawUrl =
+                typeof data.url === 'string' ? data.url.trim() : '';
+              const hostname =
+                typeof data.hostname === 'string'
+                  ? data.hostname.trim().replace(/^www\./, '')
+                  : '';
+              const title =
+                typeof data.title === 'string' ? data.title.trim() : '';
+
+              if (rawUrl && hostname) {
+                const source: SeatSearchSource = {
+                  url: rawUrl,
+                  hostname,
+                  title: title || hostname,
+                };
+
+                const appendUniqueSource = (
+                  current: SeatSearchSource[]
+                ): SeatSearchSource[] => {
+                  if (current.some((item) => item.url === source.url)) {
+                    return current;
+                  }
+                  return [...current, source].slice(-6);
+                };
+
+                if (discussionId) {
+                  const activeGen =
+                    activeGenerationsRef.current.get(discussionId);
+                  if (activeGen) {
+                    activeGen.seatSearchSources = {
+                      ...activeGen.seatSearchSources,
+                      [seatId]: appendUniqueSource(
+                        activeGen.seatSearchSources[seatId] || []
+                      ),
+                    };
+                  }
+                }
+
+                if (isCurrentDiscussionActive) {
+                  setSeatSearchSources((prev) => ({
+                    ...prev,
+                    [seatId]: appendUniqueSource(prev[seatId] || []),
                   }));
                 }
               }
@@ -2456,6 +2546,7 @@ export default function DashboardPage() {
                   onPromptClick={handleSendMessage}
                   activeSpeaker={activeSpeaker}
                   seatStatuses={seatStatuses}
+                  seatSearchSources={seatSearchSources}
                   isDebating={isDebating}
                   errorMessage={errorMessage}
                   canContinue={canContinue}
