@@ -734,8 +734,12 @@ function useSmoothReveal(
 ): SmoothRevealResult {
   // Existing/history messages mount at their current length so opening a
   // discussion never replays old text from the beginning.
-  const [displayedLength, setDisplayedLength] = useState(() => targetText.length);
-  const [isDraining, setIsDraining] = useState(false);
+  const [displayedLength, setDisplayedLength] = useState(() =>
+    isStreaming && !reduceMotion ? 0 : targetText.length
+  );
+  const [isDraining, setIsDraining] = useState(
+    () => Boolean(isStreaming && !reduceMotion && targetText.length > 0)
+  );
 
   const targetTextRef = useRef(targetText);
   targetTextRef.current = targetText;
@@ -797,17 +801,17 @@ function useSmoothReveal(
       }
 
       const lag = currentTarget - current;
-      // Keep each paint small. A larger backlog increases the pace slightly,
-      // never the size enough to recreate the old paragraph-sized jumps.
-      const intervalMs = lag > 700 ? 22 : lag > 250 ? 27 : 34;
-      const unitsPerTick = lag > 900 ? 3 : lag > 360 ? 2 : 1;
+      // Reveal one natural word at a time. When a provider dumps a whole
+      // answer at once we may increase cadence, but never batch multiple Latin
+      // words into a single visible jump.
+      const intervalMs = lag > 1200 ? 20 : lag > 500 ? 24 : lag > 180 ? 28 : 34;
 
       if (now - lastTime >= intervalMs) {
         lastTime = now;
         let nextLength = nextStreamingRevealBoundary(
           targetTextRef.current,
           current,
-          unitsPerTick
+          1
         );
 
         // Extremely long unbroken strings should still make progress.
@@ -840,8 +844,9 @@ function useSmoothReveal(
 
 /**
  * During active reveal, split rendered Markdown text nodes into stable word
- * spans. React keeps the existing spans mounted, so only newly appended words
- * receive the soft opacity/blur entrance animation.
+ * spans. React keeps existing spans mounted, so newly appended words receive
+ * an actual soft fade/blur entrance instead of the whole paragraph changing at
+ * once.
  */
 function rehypeStreamingWordFade() {
   const skippedTags = new Set(['code', 'pre', 'script', 'style']);
