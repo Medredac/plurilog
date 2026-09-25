@@ -208,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Intermediate Persistent 56px Rail (Rendered between 680px and 1023px) */}
-      <aside className="hidden nav-rail:flex lg:hidden flex-col justify-between items-center w-14 h-full bg-white border-r border-zinc-100 py-3 shrink-0 z-20 select-none">
+      <aside className="hidden nav-rail:flex lg:hidden flex-col justify-between items-center w-14 h-full bg-[#FCFBFA] border-r border-zinc-100 py-3 shrink-0 z-20 select-none">
         {/* Top Navigation Actions */}
         <div className="flex flex-col items-center gap-3 w-full px-2">
           {/* Plurilog Logo */}
@@ -335,7 +335,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Desktop Collapsed Strip (Preserves existing desktop collapse UX on >= 1024px) */}
       {!desktopOpen && (
-        <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+        <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-[#FCFBFA] shrink-0">
           <button
             onClick={toggleDesktop}
             className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
@@ -349,7 +349,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Full Sidebar / Slide-Over Drawer */}
       <aside
-        className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
+        className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-[#FCFBFA] border-r border-zinc-100 transition-all duration-200 ease-in-out ${
           drawerOpen
             ? 'w-72 translate-x-0 shadow-xl'
             : 'w-72 -translate-x-full overflow-hidden'
