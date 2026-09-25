@@ -522,6 +522,196 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   );
 };
 
+const BLOCKED_SVG_TAGS = new Set([
+  'script',
+  'foreignobject',
+  'iframe',
+  'object',
+  'embed',
+  'audio',
+  'video',
+  'image',
+  'link',
+  'style',
+  'animate',
+  'animatemotion',
+  'animatetransform',
+  'set',
+]);
+
+function sanitizeStandaloneSvg(rawSvg: string): string | null {
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') return null;
+
+  const trimmed = rawSvg.trim();
+  if (!/^<svg(?:\\s|>)/i.test(trimmed) || !/<\\/svg>\\s*$/i.test(trimmed)) {
+    return null;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(trimmed, 'image/svg+xml');
+  if (doc.querySelector('parsererror')) return null;
+
+  const root = doc.documentElement;
+  if (!root || root.tagName.toLowerCase() !== 'svg') return null;
+
+  const elements = [root, ...Array.from(root.querySelectorAll('*'))];
+  for (const element of elements) {
+    const tagName = element.tagName.toLowerCase();
+    if (BLOCKED_SVG_TAGS.has(tagName)) {
+      element.remove();
+      continue;
+    }
+
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim();
+
+      if (
+        name.startsWith('on') ||
+        name === 'href' ||
+        name === 'xlink:href' ||
+        name === 'src'
+      ) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if (/javascript:/i.test(value) || /data:text\\/html/i.test(value)) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if (/url\\s*\\(/i.test(value) && !/url\\s*\\(\\s*#[-_a-z0-9]+\\s*\\)/i.test(value)) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  }
+
+  if (!root.getAttribute('xmlns')) {
+    root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  }
+
+  return new XMLSerializer().serializeToString(root);
+}
+
+const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
+  children,
+  className,
+}) => {
+  const codeContent = String(children || '').replace(/\\n$/, '');
+  const [safeSvg, setSafeSvg] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [showCode, setShowCode] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const sanitized = sanitizeStandaloneSvg(codeContent);
+    setSafeSvg(sanitized);
+
+    if (!sanitized) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const blobUrl = URL.createObjectURL(
+      new Blob([sanitized], { type: 'image/svg+xml;charset=utf-8' })
+    );
+    setPreviewUrl(blobUrl);
+
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [codeContent]);
+
+  if (!safeSvg || !previewUrl) {
+    return <CodeBlock className={className}>{children}</CodeBlock>;
+  }
+
+  const handleDownload = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const url = URL.createObjectURL(
+      new Blob([safeSvg], { type: 'image/svg+xml;charset=utf-8' })
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'vector-artwork.svg';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const handleCopy = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    await navigator.clipboard.writeText(codeContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="my-3 w-full max-w-full overflow-hidden rounded-xl border border-zinc-200/80 bg-white shadow-2xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/70 bg-[#f8f8f8] px-3.5 py-2">
+        <div className="flex items-center gap-2 text-zinc-600">
+          <ImageIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="text-xs font-semibold">SVG preview</span>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            title="Download SVG"
+          >
+            <Download className="h-3.5 w-3.5" aria-hidden="true" />
+            Download SVG
+          </button>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            title="Copy SVG code"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {copied ? 'Copied' : 'Copy SVG'}
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowCode((current) => !current);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            title={showCode ? 'Hide SVG code' : 'View SVG code'}
+          >
+            {showCode ? (
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {showCode ? 'Hide code' : 'View code'}
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-36 items-center justify-center bg-white p-5">
+        <img
+          src={previewUrl}
+          alt="AI-generated SVG preview"
+          className="max-h-64 max-w-full object-contain"
+        />
+      </div>
+
+      {showCode && (
+        <div className="border-t border-zinc-200/70">
+          <CodeBlock className={className || 'language-svg'}>{codeContent}</CodeBlock>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Custom Fenced Code Block Component: Beige header with copy button, neutral syntax-highlighted code area
 const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = ({
   children,
@@ -607,6 +797,16 @@ const markdownComponents: Components = {
           {children}
         </code>
       );
+    }
+
+    const codeContent = String(children || '').replace(/\\n$/, '');
+    const language = match ? match[1].toLowerCase() : '';
+    const looksLikeStandaloneSvg =
+      language === 'svg' ||
+      (/^<svg(?:\\s|>)/i.test(codeContent.trim()) && /<\\/svg>\\s*$/i.test(codeContent.trim()));
+
+    if (looksLikeStandaloneSvg) {
+      return <SvgCodeBlock className={className || 'language-svg'}>{children}</SvgCodeBlock>;
     }
 
     return <CodeBlock className={className}>{children}</CodeBlock>;
