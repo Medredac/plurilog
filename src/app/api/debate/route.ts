@@ -176,7 +176,7 @@ export const GPT_FILE_TOOLS = [
     function: {
       name: 'create_file',
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft, unless the user explicitly asks for faithful reproduction. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). When you actually use web search to research facts for a document, include a final Sources section inside the document using the real source titles and URLs available from that search. Do not invent, generalize, or substitute source names or URLs; if a source URL is not actually available to you, do not fabricate one. This sourcing requirement changes only the document contents and must never cause you to perform a web search you would not otherwise have chosen. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -1632,25 +1632,6 @@ async function generateImageActionFollowUp(options: {
 }
 
 
-
-function webSearchRequestCount(usage: any): number {
-  const raw =
-    usage?.server_tool_use_details?.web_search_requests ??
-    usage?.server_tool_use?.web_search_requests ??
-    0;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
-
-function buildWebSourcesBlock(
-  citations: Array<{ url: string; title: string }>
-): string {
-  if (!citations.length) return '';
-  return (
-    `\n\nSources:\n` +
-    citations.map((citation) => `- [${citation.title}](${citation.url})`).join('\n')
-  );
-}
 
 async function generateDocumentActionFollowUp(options: {
   openai: OpenAI;
@@ -4365,14 +4346,6 @@ export async function POST(req: NextRequest) {
                 return;
               }
 
-              if (isDocumentCreationEnabledForSeat) {
-                console.log('[Document Web Search Usage]', {
-                  seatId: seat.seatId,
-                  searchCount: webSearchRequestCount(seatUsage),
-                  citationCount: seatWebCitations.length,
-                });
-              }
-
               // Fail-safe: a seat must not finalize "I can't see/access the document"
               // when canonical evidence is known to be retrievable. Because evidence/document
               // responses are buffered, this provisional refusal has not been shown to the user.
@@ -4924,12 +4897,6 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  const documentSourcesBlock =
-                    buildWebSourcesBlock(seatWebCitations);
-                  if (documentSourcesBlock) {
-                    documentFinalContent += documentSourcesBlock;
-                  }
-
                   const { error: completionUpdateError } = await supabase
                     .from('messages')
                     .update({ content: documentFinalContent })
@@ -5000,8 +4967,6 @@ export async function POST(req: NextRequest) {
                           visualReviewCostUsd:
                             totalVisualReviewCostUsd,
                           designReferenceIds,
-                          webSearchRequests: webSearchRequestCount(seatUsage),
-                          webCitationCount: seatWebCitations.length,
                         },
                       }
                     );
@@ -6839,12 +6804,6 @@ export async function POST(req: NextRequest) {
                       }
                     }
 
-                    const documentSourcesBlock =
-                      buildWebSourcesBlock(seatWebCitations);
-                    if (documentSourcesBlock) {
-                      documentFinalContent += documentSourcesBlock;
-                    }
-
                     const { error: completionUpdateError } = await supabase
                       .from('messages')
                       .update({ content: documentFinalContent })
@@ -8139,7 +8098,9 @@ export async function POST(req: NextRequest) {
 
               // Append formatted Markdown sources list if web citations were returned
               if (seatWebCitations.length > 0) {
-                const sourcesBlock = buildWebSourcesBlock(seatWebCitations);
+                const sourcesBlock =
+                  `\n\nSources:\n` +
+                  seatWebCitations.map((c) => `- [${c.title}](${c.url})`).join('\n');
                 seatResponse += sourcesBlock;
                 sendEvent('seat_chunk', {
                   seatId: seat.seatId,
