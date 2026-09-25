@@ -1197,7 +1197,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 relative min-w-0">
+                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-2xl p-3.5 sm:p-4.5 relative min-w-0">
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
