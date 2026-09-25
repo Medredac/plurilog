@@ -8139,6 +8139,19 @@ export async function POST(req: NextRequest) {
                 throw new Error(`Received empty response from ${seat.name}.`);
               }
 
+              // The visible response is now complete. Tell the client which seat
+              // is next before persistence / billing so it can reserve that card
+              // immediately instead of leaving a dead-looking gap.
+              const nextSeat = configuredSeats[seatIndex + 1];
+              if (nextSeat) {
+                sendEvent('seat_handoff', {
+                  seatId: seat.seatId,
+                  nextSeatId: nextSeat.seatId,
+                  nextSeatName: nextSeat.name,
+                  placeholderId: `handoff-${turnId}-${seatIndex + 1}-${nextSeat.seatId}`,
+                });
+              }
+
               // Server-authoritative completed-message persistence
               let persistedMsg: { id: string; created_at: string } | null = null;
               if (discussionId) {
