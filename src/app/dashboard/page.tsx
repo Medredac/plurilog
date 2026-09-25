@@ -1024,6 +1024,7 @@ export default function DashboardPage() {
     let completedSeatsCount = 0;
     let adoptedFirstSeat = false;
     let documentIndexingStarted = false;
+    let uiReleasedForReady = false;
     const currentAttemptModelMsgIds = new Set<string>();
     const pendingSeatPlaceholders = new Map<ModelId, string>();
 
@@ -1182,6 +1183,54 @@ export default function DashboardPage() {
           })
           .finally(() => {
             clearTitlePending(discussionId);
+          });
+      };
+
+      const startDeferredPdfIndexing = () => {
+        const pdfAttachmentsForIndexing = (attachments || []).filter((att) => {
+          const cleanUrl = String(att?.url || '')
+            .split('?')[0]
+            .split('#')[0]
+            .toLowerCase();
+          const cleanName = String(att?.filename || '').toLowerCase();
+          return cleanUrl.endsWith('.pdf') || cleanName.endsWith('.pdf');
+        });
+
+        if (
+          documentIndexingStarted ||
+          !sourceUserMessageId ||
+          pdfAttachmentsForIndexing.length === 0
+        ) {
+          return;
+        }
+
+        documentIndexingStarted = true;
+
+        void fetch('/api/index-turn-documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            discussionId,
+            sourceUserMessageId,
+            attachments: pdfAttachmentsForIndexing,
+          }),
+        })
+          .then(async (indexResponse) => {
+            if (!indexResponse.ok) {
+              const body = await indexResponse.text().catch(() => '');
+              console.warn('[Doc Index] Deferred indexing request failed:', {
+                discussionId,
+                status: indexResponse.status,
+                body: body.slice(0, 500),
+              });
+            }
+          })
+          .catch((indexErr) => {
+            console.warn(
+              '[Doc Index] Deferred indexing request could not be started:',
+              indexErr
+            );
           });
       };
 
@@ -1564,63 +1613,61 @@ export default function DashboardPage() {
               if (completedSeatsCount === 1) {
                 triggerTitleGeneration(completedContent);
               }
-            } else if (eventType === 'council_done') {
-              const pdfAttachmentsForIndexing = (attachments || []).filter((att) => {
-                const cleanUrl = String(att?.url || '')
-                  .split('?')[0]
-                  .split('#')[0]
-                  .toLowerCase();
-                const cleanName = String(att?.filename || '').toLowerCase();
-                return cleanUrl.endsWith('.pdf') || cleanName.endsWith('.pdf');
-              });
+            } else if (eventType === 'turn_ready') {
+              startDeferredPdfIndexing();
+              uiReleasedForReady = true;
 
-              if (
-                !documentIndexingStarted &&
-                sourceUserMessageId &&
-                pdfAttachmentsForIndexing.length > 0
-              ) {
-                documentIndexingStarted = true;
+              const activeGen = discussionId
+                ? activeGenerationsRef.current.get(discussionId)
+                : undefined;
+              const ownsGeneration =
+                !discussionId || activeGen?.controller === controller;
 
-                void fetch('/api/index-turn-documents', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  keepalive: true,
-                  body: JSON.stringify({
-                    discussionId,
-                    sourceUserMessageId,
-                    attachments: pdfAttachmentsForIndexing,
-                  }),
-                })
-                  .then(async (indexResponse) => {
-                    if (!indexResponse.ok) {
-                      const body = await indexResponse.text().catch(() => '');
-                      console.warn('[Doc Index] Deferred indexing request failed:', {
-                        discussionId,
-                        status: indexResponse.status,
-                        body: body.slice(0, 500),
-                      });
-                    }
-                  })
-                  .catch((indexErr) => {
-                    console.warn(
-                      '[Doc Index] Deferred indexing request could not be started:',
-                      indexErr
-                    );
-                  });
-              }
-
-              if (discussionId) {
+              if (discussionId && ownsGeneration) {
                 activeGenerationsRef.current.delete(discussionId);
               }
-              if (isCurrentDiscussionActive) {
+              if (abortControllerRef.current === controller) {
+                abortControllerRef.current = null;
+              }
+              if (isCurrentDiscussionActive && ownsGeneration) {
                 setActiveSpeaker(null);
                 setIsDebating(false);
-                setCanContinue(true); // Allow continuous discussion round!
+                setCanContinue(true);
               }
 
-              // Touch discussion updated_at and move to top of sidebar
               if (discussionId) {
                 touchDiscussion(discussionId);
+              }
+
+              void refreshCreditStatus();
+            } else if (eventType === 'council_done') {
+              startDeferredPdfIndexing();
+
+              // Compatibility fallback if the server did not emit turn_ready.
+              // If a newer turn already owns this discussion, never let this
+              // older relay reset or delete the newer generation.
+              if (!uiReleasedForReady) {
+                const activeGen = discussionId
+                  ? activeGenerationsRef.current.get(discussionId)
+                  : undefined;
+                const ownsGeneration =
+                  !discussionId || activeGen?.controller === controller;
+
+                if (discussionId && ownsGeneration) {
+                  activeGenerationsRef.current.delete(discussionId);
+                }
+                if (abortControllerRef.current === controller) {
+                  abortControllerRef.current = null;
+                }
+                if (isCurrentDiscussionActive && ownsGeneration) {
+                  setActiveSpeaker(null);
+                  setIsDebating(false);
+                  setCanContinue(true);
+                }
+
+                if (discussionId) {
+                  touchDiscussion(discussionId);
+                }
               }
             } else if (eventType === 'seat_error') {
               const seatId = data.seatId as ModelId;
@@ -1777,13 +1824,19 @@ export default function DashboardPage() {
         }
       }
     } finally {
-      if (discussionId) {
+      const activeGen = discussionId
+        ? activeGenerationsRef.current.get(discussionId)
+        : undefined;
+      const ownsGeneration =
+        !discussionId || activeGen?.controller === controller;
+
+      if (discussionId && ownsGeneration) {
         activeGenerationsRef.current.delete(discussionId);
       }
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
       }
-      if (activeDebateIdRef.current === discussionId) {
+      if (activeDebateIdRef.current === discussionId && ownsGeneration) {
         setIsDebating(false);
         setActiveSpeaker(null);
       }
