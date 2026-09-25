@@ -4079,6 +4079,7 @@ export async function POST(req: NextRequest) {
 
             const seatWebCitations: { url: string; title: string }[] = [];
             const seenCitationUrls = new Set<string>();
+            let webSearchActivityStarted = false;
 
             const addWebCitations = (raw: any) => {
               if (!raw) return;
@@ -4116,6 +4117,21 @@ export async function POST(req: NextRequest) {
                       .replace(/\]/g, '\\]');
 
                     seatWebCitations.push({ url: safeUrl, title: safeTitle });
+
+                    if (!webSearchActivityStarted) {
+                      webSearchActivityStarted = true;
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: 'searching_web',
+                      });
+                    }
+
+                    sendEvent('seat_search_source', {
+                      seatId: seat.seatId,
+                      url: safeUrl,
+                      title: rawTitle || safeTitle,
+                      hostname: parsed.hostname.replace(/^www\./, ''),
+                    });
                   } catch {
                     // Ignore malformed or invalid URLs
                   }
