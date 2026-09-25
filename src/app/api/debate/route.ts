@@ -713,13 +713,16 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
   if (!prompt) return false;
 
   // Follow-up transformations of an existing artifact must be grounded in the
-  // canonical parent document. Keep "make" narrower than the other mutation
-  // verbs so generic creation requests such as "make a PDF" do not get
-  // misclassified as edits.
+  // canonical parent document. Generic pronouns such as "it" / "this" are not
+  // enough on their own for broad verbs like "put", "add", or "include":
+  // ordinary product/marketing language frequently uses those combinations.
   const revisionVerb =
     /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
-  const artifactCue =
-    /\b(?:it|this|that|document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  const explicitArtifactCue =
+    /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  const pronounMutationVerb =
+    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
+  const pronounArtifactCue = /\b(?:it|this|that)\b/i;
   const documentElementCue =
     /\b(?:title|heading|header|footer|font|photo|portrait|image|table|margin|spacing|colour|color|section|layout|style|page)\b/i;
   const makeMutation =
@@ -739,16 +742,34 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
     );
 
   const generatedAssetInsertion =
-    /(?:generate|create|make)[sS]{0,100}(?:image|photo|picture|illustration|graphic|chart)[sS]{0,120}(?:place|put|insert|embed|add|attach)[sS]{0,80}(?:document|file|pdf|docx|word|page|header|heading)/i.test(
+    /\b(?:generate|create|make)\b[\s\S]{0,100}\b(?:image|photo|picture|illustration|graphic|chart)\b[\s\S]{0,120}\b(?:place|put|insert|embed|add|attach)\b[\s\S]{0,80}\b(?:document|file|pdf|docx|word|page|header|heading)\b/i.test(
       prompt
     );
 
+  const explicitDocumentMutation =
+    revisionVerb.test(prompt) && explicitArtifactCue.test(prompt);
+  const narrowPronounMutation =
+    pronounMutationVerb.test(prompt) && pronounArtifactCue.test(prompt);
+
   return (
-    (revisionVerb.test(prompt) && artifactCue.test(prompt)) ||
+    explicitDocumentMutation ||
+    narrowPronounMutation ||
     makeMutation ||
     comparativeMutation ||
     preservationPhrase ||
     generatedAssetInsertion
+  );
+}
+
+function isRecoverableSourceEditExecutionError(error: any): boolean {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('target not found') ||
+    message.includes('pdf target not found') ||
+    message.includes('requested occurrence') ||
+    message.includes('did not modify the target') ||
+    message.includes('did not modify the target xml') ||
+    message.includes('replacement text did not fit target region')
   );
 }
 
@@ -8300,6 +8321,202 @@ export async function POST(req: NextRequest) {
               }
 
               const seatTimedOut = seatAbortController.signal.aborted;
+
+              // A source-preserving editor intentionally refuses to guess when
+              // the model names text that cannot be matched exactly. That is a
+              // safe edit refusal, not a reason to drop the entire model seat.
+              // Recover with a normal grounded response and preserve the exact-
+              // match safety invariant instead of weakening the editor.
+              if (
+                !seatTimedOut &&
+                seat.seatId === 'chatgpt' &&
+                isRecoverableSourceEditExecutionError(err)
+              ) {
+                try {
+                  console.warn('[Source Document Edit] Recovering from safe edit refusal', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    error: err?.message || String(err),
+                  });
+
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'thinking',
+                  });
+
+                  const fallbackMessages = [
+                    ...seatMessages,
+                    {
+                      role: 'system',
+                      content:
+                        'A source-document edit attempt was safely refused because an exact target could not be matched in the source. Do not call any document-editing or file-creation tools in this recovery response. Answer the user\'s original request directly using the conversation and evidence already available. If the original request genuinely required editing the document, briefly explain that the exact source text could not be matched and state what would be needed to retry safely. Do not claim that a file was edited.',
+                    },
+                  ];
+
+                  let fallbackResponse = '';
+                  let fallbackUsage: any = null;
+                  let fallbackRespondingModel = respondingModel;
+
+                  const fallbackStream = await (openai.chat.completions.create as any)({
+                    model: primaryModel,
+                    models,
+                    messages: fallbackMessages,
+                    stream: true,
+                    temperature: 0.7,
+                    signal: seatAbortController.signal,
+                    ...(discussionId
+                      ? { session_id: `${discussionId}:${seat.seatId}` }
+                      : {}),
+                  });
+
+                  for await (const chunk of fallbackStream) {
+                    if (req.signal.aborted) break;
+                    if (chunk.model) fallbackRespondingModel = chunk.model;
+                    if ((chunk as any).usage) {
+                      fallbackUsage = (chunk as any).usage;
+                    }
+                    const text = chunk.choices?.[0]?.delta?.content || '';
+                    if (text) {
+                      fallbackResponse += text;
+                      sendEvent('seat_chunk', {
+                        seatId: seat.seatId,
+                        text,
+                      });
+                    }
+                  }
+
+                  if (req.signal.aborted) {
+                    safeClose();
+                    return;
+                  }
+
+                  if (!fallbackResponse.trim()) {
+                    throw new Error('Source-edit recovery returned an empty response.');
+                  }
+
+                  let recoveredMsg: { id: string; created_at: string } | null = null;
+                  if (discussionId) {
+                    for (let attempt = 1; attempt <= 2; attempt += 1) {
+                      const { data, error } = await supabase
+                        .from('messages')
+                        .insert({
+                          id: messageId,
+                          discussion_id: discussionId,
+                          sender: seat.seatId,
+                          content: fallbackResponse,
+                        })
+                        .select('id, created_at, discussion_id, sender, content')
+                        .maybeSingle();
+
+                      if (!error && data) {
+                        recoveredMsg = {
+                          id: data.id,
+                          created_at: data.created_at,
+                        };
+                        break;
+                      }
+
+                      if (error?.code === '23505') {
+                        const { data: existing, error: fetchErr } = await supabase
+                          .from('messages')
+                          .select('id, created_at, discussion_id, sender')
+                          .eq('id', messageId)
+                          .maybeSingle();
+                        if (
+                          !fetchErr &&
+                          existing &&
+                          existing.discussion_id === discussionId &&
+                          existing.sender === seat.seatId
+                        ) {
+                          recoveredMsg = {
+                            id: existing.id,
+                            created_at: existing.created_at,
+                          };
+                          break;
+                        }
+                      }
+
+                      if (attempt < 2) {
+                        await new Promise((resolve) => setTimeout(resolve, 100));
+                      }
+                    }
+                  }
+
+                  if (discussionId && !recoveredMsg) {
+                    throw new Error('Failed to persist recovered ChatGPT response.');
+                  }
+
+                  const priorDocumentCostUsd =
+                    incurredDocumentCallCostUsd +
+                    incurredDocumentFollowUpCostUsd +
+                    incurredDocumentAssetCostUsd;
+                  const fallbackCostUsd =
+                    typeof fallbackUsage?.cost === 'number'
+                      ? fallbackUsage.cost
+                      : 0;
+                  const recoveredCostCents =
+                    (priorDocumentCostUsd + fallbackCostUsd) * 100;
+
+                  if (recoveredCostCents > 0) {
+                    const { error: spendError } = await supabase.rpc(
+                      'spend_credits',
+                      {
+                        p_cents: recoveredCostCents,
+                        p_model: fallbackRespondingModel,
+                        p_discussion_id: discussionId || null,
+                        p_meta: {
+                          seatId: seat.seatId,
+                          sourceEditRecovery: true,
+                          sourceEditError: err?.message || String(err),
+                          failedToolCostUsd: priorDocumentCostUsd,
+                          recoveryCostUsd: fallbackCostUsd,
+                        },
+                      }
+                    );
+                    if (spendError) {
+                      console.error(
+                        '[Spend Tracking] Failed to record recovered source-edit usage:',
+                        spendError
+                      );
+                    } else {
+                      spendRecorded = true;
+                    }
+                  }
+
+                  sendEvent('seat_done', {
+                    seatId: seat.seatId,
+                    modelId: fallbackRespondingModel,
+                    content: fallbackResponse,
+                    messageId: recoveredMsg?.id || messageId,
+                    createdAt:
+                      recoveredMsg?.created_at || new Date().toISOString(),
+                  });
+
+                  console.log('[Seat Recovered]', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    modelId: fallbackRespondingModel,
+                    reason: 'source_edit_safe_refusal',
+                    seatElapsedMs: Date.now() - seatStartedAt,
+                    elapsedTurnMs: Date.now() - turnStartedAt,
+                  });
+
+                  priorResponses.push({
+                    name: seat.name,
+                    response: fallbackResponse,
+                  });
+
+                  continue;
+                } catch (recoveryError) {
+                  console.error(
+                    '[Source Document Edit] Recovery response failed:',
+                    recoveryError
+                  );
+                }
+              }
+
               if (seatTimedOut) {
                 console.warn('[Seat Timeout]', {
                   turnId,
