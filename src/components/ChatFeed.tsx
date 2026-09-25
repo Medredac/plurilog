@@ -186,8 +186,20 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
   };
 }
 
-function getSeatActivityLabel(status: SeatStatus): string {
+type SeatIndicatorStatus =
+  | SeatStatus
+  | 'analyzing_input'
+  | 'thinking_again'
+  | 'considering_context';
+
+function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   switch (status) {
+    case 'analyzing_input':
+      return 'Analyzing input…';
+    case 'thinking_again':
+      return 'Thinking…';
+    case 'considering_context':
+      return 'Considering context…';
     case 'working':
       return 'Working through it…';
     case 'checking_documents':
@@ -259,8 +271,23 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
   const elapsedMs = Math.max(0, nowMs - startMs);
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
-  const effectiveStatus: SeatStatus =
-    status === 'thinking' && elapsedMs >= 1800 ? 'working' : status;
+
+  // UI-only fallback rhythm while the backend has not reported a concrete
+  // activity yet. Real activity events always replace this immediately.
+  const effectiveStatus: SeatIndicatorStatus = (() => {
+    if (status !== 'thinking') return status;
+
+    // Let the initial Thinking state breathe before rotating neutral labels.
+    if (elapsedMs < 3000) return 'thinking';
+
+    // After the first 3s, rotate every 3s so no generic fallback feels stuck.
+    // These are deliberately neutral reasoning labels, not claims about tools.
+    const phase = Math.floor((elapsedMs - 3000) / 3000) % 4;
+    if (phase === 0) return 'analyzing_input';
+    if (phase === 1) return 'working';
+    if (phase === 2) return 'thinking_again';
+    return 'considering_context';
+  })();
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -299,6 +326,12 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   const ActivityIcon = (() => {
     switch (effectiveStatus) {
       case 'working':
+        return Sparkles;
+      case 'analyzing_input':
+        return Brain;
+      case 'thinking_again':
+        return Brain;
+      case 'considering_context':
         return Sparkles;
       case 'checking_documents':
         return FileSearch;
