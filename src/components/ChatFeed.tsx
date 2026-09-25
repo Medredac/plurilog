@@ -764,6 +764,114 @@ function useSmoothReveal(targetText: string, isStreaming?: boolean): string {
   return targetText.slice(0, Math.min(displayedLength, targetText.length));
 }
 
+interface ModelResponseOrbProps {
+  active: boolean;
+  colorClass: string;
+  reduceMotion: boolean;
+}
+
+const ModelResponseOrb: React.FC<ModelResponseOrbProps> = ({
+  active,
+  colorClass,
+  reduceMotion,
+}) => {
+  const shouldAnimate = active && !reduceMotion;
+
+  return (
+    <span
+      className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      aria-hidden="true"
+    >
+      <motion.span
+        className={`absolute h-2 w-2 rounded-full ${colorClass}`}
+        animate={
+          shouldAnimate
+            ? {
+                x: [-1.5, 2.2, 0.5, -2.1, 1.2, -1.5],
+                y: [1.7, -0.8, -2.2, -0.4, 2.1, 1.7],
+                scale: [0.78, 0.96, 0.72, 0.9, 0.82, 0.78],
+                opacity: [0.82, 1, 0.76, 0.94, 0.84, 0.82],
+              }
+            : { x: 0, y: 0, scale: 1, opacity: 1 }
+        }
+        transition={
+          shouldAnimate
+            ? {
+                duration: 2.8,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }
+            : {
+                duration: reduceMotion ? 0 : 0.34,
+                ease: [0.16, 1, 0.3, 1],
+              }
+        }
+      />
+
+      <AnimatePresence initial={false}>
+        {shouldAnimate && (
+          <>
+            <motion.span
+              key="satellite-a"
+              className={`absolute h-2 w-2 rounded-full ${colorClass}`}
+              initial={{ x: 0, y: 0, scale: 0.15, opacity: 0 }}
+              animate={{
+                x: [-2.8, 0.8, 3, 1.4, -2.4, -2.8],
+                y: [-1.7, -3, 0.2, 2.8, 1.1, -1.7],
+                scale: [0.46, 0.72, 0.58, 0.42, 0.64, 0.46],
+                opacity: [0.46, 0.88, 0.66, 0.42, 0.72, 0.46],
+              }}
+              exit={{
+                x: 0,
+                y: 0,
+                scale: 0.12,
+                opacity: 0,
+                transition: {
+                  duration: 0.28,
+                  ease: [0.16, 1, 0.3, 1],
+                },
+              }}
+              transition={{
+                duration: 3.5,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            />
+
+            <motion.span
+              key="satellite-b"
+              className={`absolute h-2 w-2 rounded-full ${colorClass}`}
+              style={{ filter: 'blur(0.35px)' }}
+              initial={{ x: 0, y: 0, scale: 0.12, opacity: 0 }}
+              animate={{
+                x: [2.5, 3.1, -0.7, -3, 0.4, 2.5],
+                y: [1.9, -1.2, -3, 0.8, 2.7, 1.9],
+                scale: [0.35, 0.52, 0.78, 0.48, 0.4, 0.35],
+                opacity: [0.34, 0.58, 0.9, 0.52, 0.4, 0.34],
+              }}
+              exit={{
+                x: 0,
+                y: 0,
+                scale: 0.1,
+                opacity: 0,
+                transition: {
+                  duration: 0.32,
+                  ease: [0.16, 1, 0.3, 1],
+                },
+              }}
+              transition={{
+                duration: 4.2,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            />
+          </>
+        )}
+      </AnimatePresence>
+    </span>
+  );
+};
+
 interface StreamingMessageBodyProps {
   content: string;
   isStreaming?: boolean;
@@ -1231,7 +1339,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               {/* Header: Model name & timestamp only */}
               <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-full ${member.statusDotColor} shrink-0`} />
+                  <ModelResponseOrb
+                    active={Boolean(message.isStreaming)}
+                    colorClass={member.statusDotColor}
+                    reduceMotion={Boolean(shouldReduceMotion)}
+                  />
                   <span className="font-semibold text-xs text-zinc-700 truncate">
                     {member.name}
                   </span>
