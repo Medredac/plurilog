@@ -363,7 +363,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     <button
                       type="button"
                       onClick={() => window.open(item.previewUrl, '_blank')}
-                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
+                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
                       title={`Click to view ${item.file.name} in new tab`}
                     >
                       <FileText className="w-5 h-5 text-red-500" />
@@ -373,7 +373,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </button>
                   ) : isDocx ? (
                     <div
-                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
+                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
                       title={item.file.name}
                     >
                       <FileText className="w-5 h-5 text-blue-600" />
@@ -383,7 +383,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     </div>
                   ) : isTextFile ? (
                     <div
-                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
+                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1 p-1 select-none"
                       title={item.file.name}
                     >
                       <FileText className="w-5 h-5 text-emerald-600" />
@@ -395,7 +395,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                     <button
                       type="button"
                       onClick={() => setLightboxImageUrl(item.previewUrl)}
-                      className="w-16 h-16 rounded-xl border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
+                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity"
                       title={`Click to view ${item.file.name}`}
                     >
                       <img
