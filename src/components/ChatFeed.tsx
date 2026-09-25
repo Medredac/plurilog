@@ -439,7 +439,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       </motion.div>
 
       <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
-        <AnimatePresence mode="sync" initial={false}>
+        <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={effectiveStatus}
             initial={
@@ -472,11 +472,11 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
               reduceMotion
                 ? { duration: 0 }
                 : {
-                    opacity: { duration: 0.1 },
-                    filter: { duration: 0.1 },
-                    y: { duration: 0.1 },
+                    opacity: { duration: 0.13 },
+                    filter: { duration: 0.13 },
+                    y: { duration: 0.13 },
                     clipPath: {
-                      duration: 0.24,
+                      duration: 0.34,
                       ease: [0.16, 1, 0.3, 1],
                     },
                   }
