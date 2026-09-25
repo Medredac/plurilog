@@ -779,97 +779,86 @@ const ModelResponseOrb: React.FC<ModelResponseOrbProps> = ({
 
   return (
     <span
-      className="relative inline-flex h-2 w-2 shrink-0 items-center justify-center overflow-visible"
+      className="relative inline-flex h-3 w-3 shrink-0 items-center justify-center overflow-visible"
       aria-hidden="true"
     >
-      {/* Core particle: one of the three while active, then expands back
-          into the existing 8px status dot when the response completes. */}
-      <motion.span
-        className={`absolute h-2 w-2 rounded-full ${colorClass}`}
-        animate={
-          shouldAnimate
-            ? {
-                x: [-4, -1.5, 2.8, 4, 0.8, -3.2, -4],
-                y: [0.8, -3.8, -3, 0.4, 3.8, 2.8, 0.8],
-                scale: [0.62, 0.48, 0.68, 0.54, 0.72, 0.5, 0.62],
-                opacity: [0.96, 0.68, 0.9, 0.76, 1, 0.72, 0.96],
-              }
-            : { x: 0, y: 0, scale: 1, opacity: 1 }
-        }
-        transition={
-          shouldAnimate
-            ? {
-                duration: 3.8,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }
-            : {
-                duration: reduceMotion ? 0 : 0.34,
-                ease: [0.16, 1, 0.3, 1],
-              }
-        }
-        style={{ zIndex: 3 }}
-      />
-
-      <AnimatePresence initial={false}>
-        {shouldAnimate && (
-          <>
+      <AnimatePresence initial={false} mode="sync">
+        {shouldAnimate ? (
+          <motion.span
+            key="response-particles"
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 1 }}
+          >
             <motion.span
-              key="particle-two"
-              className={`absolute h-2 w-2 rounded-full ${colorClass}`}
-              initial={{ x: 0, y: 0, scale: 0.2, opacity: 0 }}
+              className={`absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${colorClass}`}
               animate={{
-                x: [3.2, 4.2, 1.2, -3.4, -4.1, -0.5, 3.2],
-                y: [-2.8, 1, 4, 2.7, -1.4, -4, -2.8],
-                scale: [0.48, 0.7, 0.52, 0.74, 0.46, 0.64, 0.48],
-                opacity: [0.7, 1, 0.76, 0.96, 0.62, 0.88, 0.7],
+                x: [-4, -2, 2, 4, 2, -2, -4],
+                y: [0, -3.5, -3.5, 0, 3.5, 3.5, 0],
               }}
               exit={{
                 x: 0,
                 y: 0,
-                scale: 0.18,
                 opacity: 0,
-                transition: {
-                  duration: 0.3,
-                  ease: [0.16, 1, 0.3, 1],
-                },
+                transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] },
               }}
               transition={{
-                duration: 4.4,
+                duration: 3.6,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }}
-              style={{ zIndex: 2 }}
             />
 
             <motion.span
-              key="particle-three"
-              className={`absolute h-2 w-2 rounded-full ${colorClass}`}
-              initial={{ x: 0, y: 0, scale: 0.18, opacity: 0 }}
+              className={`absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${colorClass}`}
               animate={{
-                x: [0.6, -3.3, -4.2, -1, 3.8, 4.1, 0.6],
-                y: [4, 3, -0.5, -4.1, -2.4, 1.5, 4],
-                scale: [0.72, 0.5, 0.66, 0.44, 0.62, 0.5, 0.72],
-                opacity: [1, 0.7, 0.9, 0.58, 0.84, 0.68, 1],
+                x: [2, 4, 2, -2, -4, -2, 2],
+                y: [-3.5, 0, 3.5, 3.5, 0, -3.5, -3.5],
               }}
               exit={{
                 x: 0,
                 y: 0,
-                scale: 0.16,
                 opacity: 0,
-                transition: {
-                  duration: 0.34,
-                  ease: [0.16, 1, 0.3, 1],
-                },
+                transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] },
               }}
               transition={{
-                duration: 5,
+                duration: 3.6,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }}
-              style={{ zIndex: 1 }}
             />
-          </>
+
+            <motion.span
+              className={`absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${colorClass}`}
+              animate={{
+                x: [2, -2, -4, -2, 2, 4, 2],
+                y: [3.5, 3.5, 0, -3.5, -3.5, 0, 3.5],
+              }}
+              exit={{
+                x: 0,
+                y: 0,
+                opacity: 0,
+                transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] },
+              }}
+              transition={{
+                duration: 3.6,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            />
+          </motion.span>
+        ) : (
+          <motion.span
+            key="static-dot"
+            className={`absolute h-2 w-2 rounded-full ${colorClass}`}
+            initial={reduceMotion ? false : { opacity: 0, scale: 0.75 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{
+              duration: reduceMotion ? 0 : 0.24,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+          />
         )}
       </AnimatePresence>
     </span>
