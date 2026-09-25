@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, useReducedMotion } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -345,15 +345,53 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       </motion.div>
 
       <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
-        <motion.span
-          key={effectiveStatus}
-          initial={reduceMotion ? false : { opacity: 0, y: 2 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reduceMotion ? 0 : 0.16 }}
-          className="whitespace-nowrap font-normal text-zinc-600"
-        >
-          {getSeatActivityLabel(effectiveStatus)}
-        </motion.span>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={effectiveStatus}
+            initial={
+              reduceMotion
+                ? false
+                : {
+                    opacity: 0,
+                    filter: 'blur(2px)',
+                    clipPath: 'inset(0 100% 0 0)',
+                    y: 1,
+                  }
+            }
+            animate={{
+              opacity: 1,
+              filter: 'blur(0px)',
+              clipPath: 'inset(0 0% 0 0)',
+              y: 0,
+            }}
+            exit={
+              reduceMotion
+                ? { opacity: 0 }
+                : {
+                    opacity: 0,
+                    filter: 'blur(2px)',
+                    clipPath: 'inset(0 0% 0 4%)',
+                    y: -1,
+                  }
+            }
+            transition={
+              reduceMotion
+                ? { duration: 0 }
+                : {
+                    opacity: { duration: 0.13 },
+                    filter: { duration: 0.13 },
+                    y: { duration: 0.13 },
+                    clipPath: {
+                      duration: 0.34,
+                      ease: [0.16, 1, 0.3, 1],
+                    },
+                  }
+            }
+            className="animate-text-shimmer whitespace-nowrap font-normal tracking-tight select-none"
+          >
+            {getSeatActivityLabel(effectiveStatus)}
+          </motion.span>
+        </AnimatePresence>
 
         {activeSource && (
           <motion.span
