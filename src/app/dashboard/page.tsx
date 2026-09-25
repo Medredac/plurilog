@@ -1590,23 +1590,32 @@ export default function DashboardPage() {
                   [seatId]: 'done',
                 }));
 
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.modelId === seatId && m.isStreaming
-                      ? {
-                          ...m,
-                          isStreaming: false,
-                          content: completedContent,
-                          attachment_urls:
-                            Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
-                              ? data.attachment_urls
-                                  .map((url: string) => normalizeAttachmentUrlForUi(url))
-                                  .filter((url: string | null): url is string => Boolean(url))
-                              : m.attachment_urls,
-                        }
-                      : m
-                  )
-                );
+                // Buffered provider/tool-safe responses can deliver every
+                // seat_chunk plus seat_done inside one browser task. If we
+                // finalize synchronously React may batch them into a single
+                // completed render, which bypasses the visual stream entirely.
+                // Give the accumulated streaming content one paint first; the
+                // message body will then drain its presentation queue smoothly
+                // even after authoritative generation has completed.
+                window.setTimeout(() => {
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.modelId === seatId && m.isStreaming
+                        ? {
+                            ...m,
+                            isStreaming: false,
+                            content: completedContent,
+                            attachment_urls:
+                              Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
+                                ? data.attachment_urls
+                                    .map((url: string) => normalizeAttachmentUrlForUi(url))
+                                    .filter((url: string | null): url is string => Boolean(url))
+                                : m.attachment_urls,
+                          }
+                        : m
+                    )
+                  );
+                }, 0);
               }
 
               // If Seat 1 completed and title generation hasn't started yet (e.g. short response < 300 chars), trigger fallback
