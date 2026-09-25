@@ -1633,6 +1633,38 @@ async function generateImageActionFollowUp(options: {
 
 
 
+function requiresFreshExternalResearchForDocument(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt) return false;
+
+  const explicitOnlineResearch =
+    /\b(?:search|browse|look\s*up|research|verify|check)\b[\s\S]{0,60}\b(?:web|online|internet|sources?)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:web|online|internet)\b[\s\S]{0,60}\b(?:search|research|sources?)\b/i.test(
+      prompt
+    );
+
+  const freshnessIntent =
+    /\b(?:what(?:'s| is)\s+(?:(?:currently|right\s+now)\s+)?happening(?:\s+(?:with|to))?|currently\s+happening|latest\s+(?:news|update|updates|developments?|status|on|about)|recent\s+(?:news|updates?|developments?|events?)|today(?:'s)?\s+(?:news|updates?|developments?|events?)|current\s+(?:news|situation|status|events?|developments?|updates?))\b/i.test(
+      prompt
+    );
+
+  return explicitOnlineResearch || freshnessIntent;
+}
+
+function buildWebSourcesBlock(
+  citations: Array<{ url: string; title: string }>
+): string {
+  if (!citations.length) return '';
+  return (
+    `\n\nSources:\n` +
+    citations
+      .map((citation) => `- [${citation.title}](${citation.url})`)
+      .join('\n')
+  );
+}
+
 async function generateDocumentActionFollowUp(options: {
   openai: OpenAI;
   primaryModel: string;
@@ -3967,6 +3999,10 @@ export async function POST(req: NextRequest) {
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
+            const freshDocumentResearchRequired =
+              isDocumentCreationEnabledForSeat &&
+              !isDocumentRevisionFollowUp &&
+              requiresFreshExternalResearchForDocument(prompt || '');
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -4235,11 +4271,137 @@ export async function POST(req: NextRequest) {
               }
             };
 
+            let documentActionBaseMessages = seatMessages;
+            let freshDocumentResearchCostUsd = 0;
+
             try {
+              if (freshDocumentResearchRequired) {
+                // This is a real research stage, not narrated progress. Current/fresh
+                // document requests must be grounded before the file-authoring call.
+                if (!webSearchActivityStarted) {
+                  webSearchActivityStarted = true;
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'searching_web',
+                  });
+                }
+
+                const researchMessages = [
+                  seatMessages[0],
+                  {
+                    role: 'system',
+                    content:
+                      'FRESH DOCUMENT RESEARCH STAGE: The user requested a document whose factual substance depends on current or recently changing external information. Use the web-search tool now. Ground the document in the search results, preserve uncertainty where sources differ, and return concise research notes only. Do not create or describe the file in this stage.',
+                  } as any,
+                  ...seatMessages.slice(1),
+                ];
+
+                const researchStream =
+                  await (openai.chat.completions.create as any)({
+                    model: primaryModel,
+                    models,
+                    messages: researchMessages,
+                    stream: true,
+                    temperature: 0.2,
+                    signal: seatAbortController.signal,
+                    tools: [
+                      {
+                        type: 'openrouter:web_search',
+                        parameters: {
+                          max_results: 3,
+                          max_total_results: 6,
+                        },
+                      },
+                    ],
+                    tool_choice: 'required',
+                    ...(discussionId
+                      ? { session_id: `${discussionId}:${seat.seatId}` }
+                      : {}),
+                  });
+
+                let researchText = '';
+                let researchUsage: any = null;
+
+                for await (const chunk of researchStream) {
+                  if (req.signal.aborted) break;
+                  if (chunk.model) respondingModel = chunk.model;
+                  if ((chunk as any).usage) {
+                    researchUsage = (chunk as any).usage;
+                  }
+
+                  const researchAnnotations =
+                    (chunk.choices?.[0]?.delta as any)?.annotations;
+                  if (researchAnnotations) {
+                    addWebCitations(researchAnnotations);
+                  }
+
+                  const text = chunk.choices?.[0]?.delta?.content || '';
+                  if (text) researchText += text;
+                }
+
+                if (
+                  seatAbortController.signal.aborted &&
+                  !req.signal.aborted
+                ) {
+                  throw new Error(
+                    `${seat.name} exceeded its ${Math.round(
+                      seatTimeoutMs / 1000
+                    )}-second turn budget.`
+                  );
+                }
+
+                if (req.signal.aborted) {
+                  safeClose();
+                  return;
+                }
+
+                freshDocumentResearchCostUsd =
+                  typeof researchUsage?.cost === 'number'
+                    ? researchUsage.cost
+                    : 0;
+                const researchSearchCount =
+                  Number(
+                    (researchUsage as any)?.server_tool_use_details
+                      ?.web_search_requests
+                  ) || 0;
+
+                if (researchSearchCount < 1 && seatWebCitations.length === 0) {
+                  throw new Error(
+                    'Fresh document research was required, but no web search completed.'
+                  );
+                }
+
+                const sourceContext = seatWebCitations.length
+                  ? `\n\nVerified web sources for attribution:\n${seatWebCitations
+                      .map(
+                        (citation, index) =>
+                          `${index + 1}. ${citation.title} — ${citation.url}`
+                      )
+                      .join('\n')}`
+                  : '';
+
+                documentActionBaseMessages = [
+                  ...seatMessages,
+                  {
+                    role: 'assistant',
+                    content:
+                      `WEB RESEARCH FOR THE REQUESTED DOCUMENT:\n${researchText.trim() ||
+                        'Use the verified web-search results supplied in this request.'}${sourceContext}\n\nAuthor the requested document from this grounded research. Do not invent fresher facts beyond the research above.`,
+                  } as any,
+                ];
+
+                console.log('[Fresh Document Research]', {
+                  seatId: seat.seatId,
+                  searchCount: researchSearchCount,
+                  citationCount: seatWebCitations.length,
+                  researchCostUsd: freshDocumentResearchCostUsd,
+                });
+              }
+
               const stream = await (openai.chat.completions.create as any)({
                 model: primaryModel,
                 models: models,
-                messages: seatMessages,
+                messages: documentActionBaseMessages,
                 stream: true,
                 temperature: 0.7,
                 signal: seatAbortController.signal,
@@ -4260,21 +4422,28 @@ export async function POST(req: NextRequest) {
                       : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                 ],
-                ...(shouldForceEvidenceOnFirstPass
+                ...(freshDocumentResearchRequired
                   ? {
                       tool_choice: {
                         type: 'function',
-                        function: { name: 'request_evidence' },
+                        function: { name: 'create_file' },
                       },
                     }
-                  : sourceDocumentEditingForCurrentTurn
+                  : shouldForceEvidenceOnFirstPass
                     ? {
                         tool_choice: {
                           type: 'function',
-                          function: { name: 'edit_source_document' },
+                          function: { name: 'request_evidence' },
                         },
                       }
-                    : {}),
+                    : sourceDocumentEditingForCurrentTurn
+                      ? {
+                          tool_choice: {
+                            type: 'function',
+                            function: { name: 'edit_source_document' },
+                          },
+                        }
+                      : {}),
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
@@ -4344,6 +4513,20 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted) {
                 safeClose();
                 return;
+              }
+
+              if (
+                freshDocumentResearchRequired &&
+                freshDocumentResearchCostUsd > 0
+              ) {
+                seatUsage = {
+                  ...(seatUsage || {}),
+                  cost:
+                    freshDocumentResearchCostUsd +
+                    (typeof seatUsage?.cost === 'number'
+                      ? seatUsage.cost
+                      : 0),
+                };
               }
 
               // Fail-safe: a seat must not finalize "I can't see/access the document"
@@ -4871,7 +5054,7 @@ export async function POST(req: NextRequest) {
                         openai,
                         primaryModel,
                         models,
-                        baseMessages: seatMessages,
+                        baseMessages: documentActionBaseMessages,
                         toolCall: firstCreated.fileCall,
                         priorToolText: seatResponse,
                         filename: firstCreated.result.filename,
@@ -4895,6 +5078,12 @@ export async function POST(req: NextRequest) {
                         documentFollowUpErr
                       );
                     }
+                  }
+
+                  const documentSourcesBlock =
+                    buildWebSourcesBlock(seatWebCitations);
+                  if (documentSourcesBlock) {
+                    documentFinalContent += documentSourcesBlock;
                   }
 
                   const { error: completionUpdateError } = await supabase
@@ -6804,6 +6993,12 @@ export async function POST(req: NextRequest) {
                       }
                     }
 
+                    const documentSourcesBlock =
+                      buildWebSourcesBlock(seatWebCitations);
+                    if (documentSourcesBlock) {
+                      documentFinalContent += documentSourcesBlock;
+                    }
+
                     const { error: completionUpdateError } = await supabase
                       .from('messages')
                       .update({ content: documentFinalContent })
@@ -8098,9 +8293,7 @@ export async function POST(req: NextRequest) {
 
               // Append formatted Markdown sources list if web citations were returned
               if (seatWebCitations.length > 0) {
-                const sourcesBlock =
-                  `\n\nSources:\n` +
-                  seatWebCitations.map((c) => `- [${c.title}](${c.url})`).join('\n');
+                const sourcesBlock = buildWebSourcesBlock(seatWebCitations);
                 seatResponse += sourcesBlock;
                 sendEvent('seat_chunk', {
                   seatId: seat.seatId,
