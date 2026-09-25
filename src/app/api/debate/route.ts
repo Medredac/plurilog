@@ -8781,6 +8781,20 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          // Everything the user needs for the completed turn is now durable.
+          // Release the UI before non-critical semantic memory indexing so the
+          // composer does not appear frozen after the final seat finishes.
+          console.log('[Turn Ready]', {
+            turnId,
+            discussionId: discussionId || null,
+            configuredSeats: configuredSeats.map((seat) => seat.seatId),
+            completedSeatCount: priorResponses.length,
+            elapsedTurnMs: Date.now() - turnStartedAt,
+          });
+          sendEvent('turn_ready', {
+            status: 'ready',
+          });
+
           // Index completed text discussion round in discussion_memory_chunks (non-critical)
           if (
             discussionId &&
