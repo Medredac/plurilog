@@ -145,15 +145,7 @@ const PAGE_COUNT_WORDS: Record<string, number> = {
   ten: 10,
 };
 
-function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | null {
-  if (
-    typeof args.design?.targetPageCount === 'number' &&
-    Number.isFinite(args.design.targetPageCount) &&
-    args.design.targetPageCount > 0
-  ) {
-    return Math.max(1, Math.min(30, Math.floor(args.design.targetPageCount)));
-  }
-
+function explicitlyRequestedPageCount(prompt?: string): number | null {
   const value = (prompt || '').toLowerCase();
   const numeric = value.match(/\b(\d{1,2})\s*[- ]?\s*pages?\b/i);
   if (numeric) {
@@ -165,6 +157,21 @@ function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | 
     /\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?\s*pages?\b/i
   );
   return word ? PAGE_COUNT_WORDS[word[1].toLowerCase()] || null : null;
+}
+
+function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | null {
+  const explicitPromptTarget = explicitlyRequestedPageCount(prompt);
+  if (explicitPromptTarget) return explicitPromptTarget;
+
+  if (
+    typeof args.design?.targetPageCount === 'number' &&
+    Number.isFinite(args.design.targetPageCount) &&
+    args.design.targetPageCount > 0
+  ) {
+    return Math.max(1, Math.min(30, Math.floor(args.design.targetPageCount)));
+  }
+
+  return null;
 }
 
 function normalizeRenderedComparisonText(value: string): string {
@@ -1349,7 +1356,8 @@ async function reviewRenderedDocxWithGpt(options: {
         'Compare the rendered pages against the source specification. Every non-empty table cell, factual name/date/status, and requested image must remain visibly present. Never solve overflow by hiding or dropping a table column.',
         'If Japanese characters are visible in the page images, do not claim they are missing/tofu. Only diagnose glyph corruption when the actual rendered glyphs are visibly boxes or replacement characters.',
         'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
-        'Preserve factual table content exactly. You may shorten or reflow ordinary prose modestly when needed for layout, but do not change names, dates, institutions, degree/completion status, employment status, or other source-grounded facts, and do not add unsupported claims.',
+        'This is a layout-only pass: preserve the number, order, and type of every substantive non-page-break block. You may add, remove, or move page_break blocks; adjust the design object; resize/reposition images; and adjust table width/column widths. Do not turn paragraphs into bullets, split/merge sections, reorder headings, or add/remove substantive blocks.',
+        'Preserve all factual text and table content exactly. Do not rewrite, shorten, paraphrase, or expand the document during this pass; the server will preserve source text and reject structural content changes.',
         'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
         target
           ? `HARD CONSTRAINT: the user requested exactly ${target} page${target === 1 ? '' : 's'}. The current Word render has ${totalPageCount || pages.length} page${(totalPageCount || pages.length) === 1 ? '' : 's'}. Revise the document so the finished Word render is exactly ${target} page${target === 1 ? '' : 's'} while keeping the pages visually balanced.`
@@ -1595,6 +1603,29 @@ export async function executeGptDocumentCreation(
   }
 
   const serviceClient = createServiceClient();
+
+  // A model-supplied page target is not a user requirement. For a fresh
+  // document, trust targetPageCount only when the user actually asked for an
+  // exact number of pages. Revisions/conversions may legitimately inherit a
+  // canonical page target from the source document.
+  const explicitPromptTarget = explicitlyRequestedPageCount(originalUserPrompt);
+  const isFreshCreation =
+    !revisionContext ||
+    revisionContext.generationKind === 'create';
+  if (
+    isFreshCreation &&
+    !explicitPromptTarget &&
+    args.design &&
+    typeof args.design.targetPageCount === 'number'
+  ) {
+    const { targetPageCount: _ignoredTargetPageCount, ...restDesign } = args.design;
+    args.design = restDesign;
+    console.log('[Document Layout] Ignored model-invented page target', {
+      format: args.format,
+      filename: args.filename,
+    });
+  }
+
   const inferredTarget = requestedPageCount(args, originalUserPrompt);
   if (args.format === 'docx') {
     args.blocks = applyDocxDocumentConventions(
