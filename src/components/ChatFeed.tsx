@@ -1197,7 +1197,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-full sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 relative min-w-0">
+                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-xl p-3.5 sm:p-4.5 relative min-w-0">
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
@@ -1321,6 +1321,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     </div>
                   ) : null}
                 </div>
+
+                {message.content?.trim() ? (
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(message.id, message.content)}
+                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-zinc-900 transition-colors cursor-pointer"
+                    aria-label={copiedId === message.id ? 'Copied' : 'Copy message'}
+                    title={copiedId === message.id ? 'Copied' : 'Copy'}
+                  >
+                    {copiedId === message.id ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
 
                 {/* Inline Failed Turn State: Active failure (with Try again button) */}
                 {failedTurn && failedTurn.uiMessageId === message.id ? (
