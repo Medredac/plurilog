@@ -230,10 +230,10 @@ function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   }
 }
 
-function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
-  if (!source?.url) return null;
+function getFaviconUrl(url?: string | null): string | null {
+  if (!url) return null;
   try {
-    const parsed = new URL(source.url);
+    const parsed = new URL(url);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       return null;
     }
@@ -241,6 +241,10 @@ function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
   } catch {
     return null;
   }
+}
+
+function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
+  return getFaviconUrl(source?.url);
 }
 
 interface SeatActivityIndicatorProps {
@@ -796,23 +800,39 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, is
             Sources
           </span>
           <div className="flex flex-wrap gap-1.5 sm:gap-2 max-w-full min-w-0">
-            {sources.map((source, i) => (
-              <a
-                key={`${source.url}-${i}`}
-                href={source.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
-                title={source.title}
-              >
-                <span className="truncate max-w-[170px] sm:max-w-[300px]">
-                  {source.title}
-                </span>
-                <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
-                  ↗
-                </span>
-              </a>
-            ))}
+            {sources.map((source, i) => {
+              const faviconUrl = getFaviconUrl(source.url);
+              return (
+                <a
+                  key={`${source.url}-${i}`}
+                  href={source.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
+                  title={source.title}
+                >
+                  <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                    <Globe2 className="absolute h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+                    {faviconUrl && (
+                      <img
+                        src={faviconUrl}
+                        alt=""
+                        className="relative h-3.5 w-3.5 rounded-[2px] bg-white object-contain"
+                        onError={(event) => {
+                          event.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+                  </span>
+                  <span className="truncate max-w-[170px] sm:max-w-[300px]">
+                    {source.title}
+                  </span>
+                  <span className="text-zinc-400 group-hover:text-zinc-600 shrink-0 text-[11px] select-none">
+                    ↗
+                  </span>
+                </a>
+              );
+            })}
           </div>
         </div>
       )}
