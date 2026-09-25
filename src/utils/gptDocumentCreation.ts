@@ -230,7 +230,19 @@ function renderedTableValuePresent(
     needle.match(/[a-z0-9][a-z0-9.+/#_-]*/gi)?.filter(
       (token) => token.length >= 2
     ) || [];
-  if (latinTokens.some((token) => !haystack.includes(token.toLowerCase()))) {
+  // PDF text extraction can insert discretionary hyphens inside words that
+  // are visibly intact in the rendered Word page (for example,
+  // "demonstra-tions"). Compare a punctuation-free Latin projection as a
+  // fallback so extraction artefacts do not masquerade as missing cells.
+  const latinHaystack = haystack.replace(/[^a-z0-9]+/g, '');
+  if (
+    latinTokens.some((token) => {
+      const literal = token.toLowerCase();
+      if (haystack.includes(literal)) return false;
+      const compactToken = literal.replace(/[^a-z0-9]+/g, '');
+      return compactToken.length >= 2 && !latinHaystack.includes(compactToken);
+    })
+  ) {
     return false;
   }
 
@@ -335,6 +347,60 @@ function compactDocxArgs(args: GptCreateFileArgs): GptCreateFileArgs {
       lineHeight: Math.max(1.08, (design.lineHeight || 1.32) - 0.08),
     },
     blocks,
+  };
+}
+
+function repairMissingDocxTableValues(
+  args: GptCreateFileArgs,
+  missingValues: string[]
+): GptCreateFileArgs {
+  const missing = new Set(
+    (missingValues || [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  );
+  if (missing.size === 0) return args;
+
+  const output: RichDocumentBlock[] = [];
+  let insertedBreak = false;
+
+  for (const block of args.blocks || []) {
+    if ((block as any)?.type !== 'table') {
+      output.push(block);
+      continue;
+    }
+
+    const headers = Array.isArray((block as any).headers)
+      ? (block as any).headers
+      : [];
+    const rows = Array.isArray((block as any).rows)
+      ? (block as any).rows
+      : [];
+    const tableValues = [...headers, ...rows.flat()].map((value) =>
+      String(value || '').trim().slice(0, 240)
+    );
+    const containsMissing = tableValues.some((value) => missing.has(value));
+
+    if (containsMissing) {
+      // A table that begins in the final sliver of a page can trigger
+      // LibreOffice pagination edge cases even when body rows are splittable.
+      // Give only the affected table a clean page boundary. This preserves all
+      // semantic blocks and table contents exactly.
+      const previous = output[output.length - 1] as any;
+      if (previous?.type !== 'page_break') {
+        output.push({ type: 'page_break' } as RichDocumentBlock);
+        insertedBreak = true;
+      }
+    }
+
+    output.push(block);
+  }
+
+  if (!insertedBreak) return args;
+
+  return {
+    ...args,
+    blocks: output,
   };
 }
 
@@ -2317,9 +2383,59 @@ export async function executeGptDocumentCreation(
       }
     }
 
-    const finalMissingTableValues = selectedRenderedText
+    let finalMissingTableValues = selectedRenderedText
       ? missingRenderedTableValues(selectedResolvedBlocks, selectedRenderedText)
       : [];
+
+    if (
+      finalMissingTableValues.length > 0 &&
+      !protectNarrowRevisionFromVisualMutation
+    ) {
+      const repairArgs = repairMissingDocxTableValues(
+        {
+          ...selectedArgsForState,
+          blocks: selectedResolvedBlocks,
+        },
+        finalMissingTableValues
+      );
+
+      if (repairArgs !== selectedArgsForState) {
+        const repairedDocument = renderDocx({
+          filename: repairArgs.filename,
+          title: repairArgs.title,
+          design: repairArgs.design,
+          blocks: repairArgs.blocks as DocxBlock[],
+        });
+        const repairedPages = await renderDocxPages(repairedDocument.buffer, {
+          signal,
+          timeoutMs: 45_000,
+        });
+        const repairedMissingTableValues = missingRenderedTableValues(
+          repairArgs.blocks || [],
+          repairedPages.renderedText
+        );
+
+        console.log('[Generated DOCX Table Repair]', {
+          beforeMissingTableValueCount: finalMissingTableValues.length,
+          afterMissingTableValueCount: repairedMissingTableValues.length,
+          repairedPageCount: repairedPages.totalPageCount,
+          missingTableValues: repairedMissingTableValues.slice(0, 8),
+        });
+
+        if (
+          repairedMissingTableValues.length < finalMissingTableValues.length
+        ) {
+          selectedDocument = repairedDocument;
+          selectedResolvedBlocks = repairArgs.blocks || [];
+          selectedArgsForState = repairArgs;
+          selectedPageCount = repairedPages.totalPageCount;
+          selectedRenderedText = repairedPages.renderedText;
+          finalDocxReviewPages = repairedPages.pages;
+          finalMissingTableValues = repairedMissingTableValues;
+          visualReviewApplied = true;
+        }
+      }
+    }
 
     if (finalMissingTableValues.length > 0) {
       console.error('[Generated DOCX Render Validation] Refusing visually incomplete Word file', {
