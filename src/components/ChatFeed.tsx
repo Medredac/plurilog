@@ -676,111 +676,237 @@ interface ChatFeedProps {
 }
 
 /**
- * Presentation-only hook that smoothly and progressively reveals newly arriving text chunks.
- * Throttles React re-renders to ~25-40ms (approx 25-40 FPS) with adaptive catch-up stepping.
- * Immediately returns full authoritative text when not streaming or when completed.
+ * Advance to a natural presentation boundary. Latin text is revealed by words;
+ * CJK text is allowed to progress character-by-character instead of waiting for
+ * whitespace that may never arrive.
  */
-function useSmoothReveal(targetText: string, isStreaming?: boolean): string {
-  // Initial state: If mounted with existing content (e.g. user navigating back to active generation),
-  // start directly at current targetText.length so we do NOT replay from 0!
-  const [displayedLength, setDisplayedLength] = useState(() => targetText.length);
+function nextStreamingRevealBoundary(
+  text: string,
+  start: number,
+  maxUnits: number
+): number {
+  let cursor = Math.max(0, Math.min(start, text.length));
+  let units = 0;
+  const isCjk = (char: string) =>
+    /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u.test(char);
 
-  const targetLengthRef = useRef(targetText.length);
-  targetLengthRef.current = targetText.length;
+  while (cursor < text.length && units < maxUnits) {
+    while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+    if (cursor >= text.length) break;
+
+    if (isCjk(text[cursor])) {
+      cursor += 1;
+      units += 1;
+    } else {
+      while (
+        cursor < text.length &&
+        !/\s/u.test(text[cursor]) &&
+        !isCjk(text[cursor])
+      ) {
+        cursor += 1;
+      }
+      units += 1;
+    }
+
+    while (cursor < text.length && /\s/u.test(text[cursor])) cursor += 1;
+  }
+
+  return cursor;
+}
+
+interface SmoothRevealResult {
+  text: string;
+  isRevealing: boolean;
+}
+
+/**
+ * Presentation-only smoothing for uneven provider/SSE chunks.
+ *
+ * The authoritative message still arrives and persists exactly as generated.
+ * This layer only meters the visible text into small word-sized increments.
+ * Crucially, when the backend finishes first, the visual queue drains instead
+ * of snapping the unrevealed tail onto screen in one block.
+ */
+function useSmoothReveal(
+  targetText: string,
+  isStreaming?: boolean,
+  reduceMotion?: boolean
+): SmoothRevealResult {
+  // Existing/history messages mount at their current length so opening a
+  // discussion never replays old text from the beginning.
+  const [displayedLength, setDisplayedLength] = useState(() => targetText.length);
+  const [isDraining, setIsDraining] = useState(false);
+
+  const targetTextRef = useRef(targetText);
+  targetTextRef.current = targetText;
 
   const displayedLengthRef = useRef(displayedLength);
   displayedLengthRef.current = displayedLength;
 
-  const isStreamingRef = useRef(isStreaming);
-  isStreamingRef.current = isStreaming;
+  const hasStreamedRef = useRef(Boolean(isStreaming));
+  if (isStreaming) hasStreamedRef.current = true;
 
   useEffect(() => {
-    // If target text shrunk (e.g. reset/retry), snap immediately
+    if (reduceMotion) {
+      displayedLengthRef.current = targetText.length;
+      setDisplayedLength(targetText.length);
+      setIsDraining(false);
+      return;
+    }
+
+    // Reset/retry can replace the in-flight text with a shorter value.
     if (displayedLengthRef.current > targetText.length) {
-      setDisplayedLength(targetText.length);
       displayedLengthRef.current = targetText.length;
+      setDisplayedLength(targetText.length);
+      setIsDraining(false);
       return;
     }
 
-    if (!isStreaming) {
-      setDisplayedLength(targetText.length);
-      displayedLengthRef.current = targetText.length;
+    const shouldDrainCompletedStream =
+      !isStreaming &&
+      hasStreamedRef.current &&
+      displayedLengthRef.current < targetText.length;
+    const shouldAnimate = Boolean(isStreaming) || shouldDrainCompletedStream;
+
+    if (!shouldAnimate) {
+      if (displayedLengthRef.current !== targetText.length) {
+        displayedLengthRef.current = targetText.length;
+        setDisplayedLength(targetText.length);
+      }
+      setIsDraining(false);
       return;
     }
 
+    if (displayedLengthRef.current >= targetText.length) {
+      setIsDraining(false);
+      return;
+    }
+
+    setIsDraining(true);
     let rafId: number | null = null;
     let lastTime = 0;
 
     const tick = (now: number) => {
-      if (!isStreamingRef.current) {
-        setDisplayedLength(targetLengthRef.current);
-        displayedLengthRef.current = targetLengthRef.current;
-        return;
-      }
-
       const current = displayedLengthRef.current;
-      const target = targetLengthRef.current;
+      const currentTarget = targetTextRef.current.length;
 
-      if (current >= target) {
-        // Up to date; wait for new text without scheduling unnecessary renders
+      if (current >= currentTarget) {
+        setIsDraining(false);
         rafId = null;
         return;
       }
 
-      // Throttle visible state updates to ~28ms (approx 35 FPS) to keep Markdown rendering smooth
-      if (now - lastTime >= 28) {
-        lastTime = now;
-        const lag = target - current;
+      const lag = currentTarget - current;
+      // Keep each paint small. A larger backlog increases the pace slightly,
+      // never the size enough to recreate the old paragraph-sized jumps.
+      const intervalMs = lag > 700 ? 22 : lag > 250 ? 27 : 34;
+      const unitsPerTick = lag > 900 ? 3 : lag > 360 ? 2 : 1;
 
-        let step = 1;
-        if (lag <= 8) {
-          step = 1; // silky smooth typing pace for small lag
-        } else if (lag <= 25) {
-          step = 2; // steady reading pace
-        } else if (lag <= 60) {
-          step = 4; // brisk catch-up
-        } else if (lag <= 120) {
-          step = 8; // aggressive catch-up
-        } else {
-          step = Math.ceil(lag / 4); // rapid catch-up for massive burst arrivals
+      if (now - lastTime >= intervalMs) {
+        lastTime = now;
+        let nextLength = nextStreamingRevealBoundary(
+          targetTextRef.current,
+          current,
+          unitsPerTick
+        );
+
+        // Extremely long unbroken strings should still make progress.
+        if (nextLength <= current) {
+          nextLength = Math.min(currentTarget, current + 1);
         }
 
-        const nextLen = Math.min(target, current + step);
-        displayedLengthRef.current = nextLen;
-        setDisplayedLength(nextLen);
+        displayedLengthRef.current = Math.min(nextLength, currentTarget);
+        setDisplayedLength(displayedLengthRef.current);
       }
 
       rafId = requestAnimationFrame(tick);
     };
 
-    // If there is lag to reveal, start or continue the RAF loop
-    if (displayedLengthRef.current < targetText.length) {
-      rafId = requestAnimationFrame(tick);
-    }
+    rafId = requestAnimationFrame(tick);
 
     return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [targetText.length, isStreaming]);
+  }, [targetText, isStreaming, reduceMotion]);
 
-  if (!isStreaming) {
-    return targetText;
-  }
+  const visibleLength = Math.min(displayedLength, targetText.length);
+  return {
+    text: targetText.slice(0, visibleLength),
+    isRevealing:
+      !reduceMotion &&
+      (Boolean(isStreaming) || isDraining || visibleLength < targetText.length),
+  };
+}
 
-  return targetText.slice(0, Math.min(displayedLength, targetText.length));
+/**
+ * During active reveal, split rendered Markdown text nodes into stable word
+ * spans. React keeps the existing spans mounted, so only newly appended words
+ * receive the soft opacity/blur entrance animation.
+ */
+function rehypeStreamingWordFade() {
+  const skippedTags = new Set(['code', 'pre', 'script', 'style']);
+
+  return (tree: any) => {
+    const walk = (node: any, insideSkippedTag = false) => {
+      if (!node || !Array.isArray(node.children)) return;
+
+      const skipChildren =
+        insideSkippedTag ||
+        (typeof node.tagName === 'string' && skippedTags.has(node.tagName));
+
+      const nextChildren: any[] = [];
+
+      for (const child of node.children) {
+        if (
+          !skipChildren &&
+          child?.type === 'text' &&
+          typeof child.value === 'string' &&
+          /\S/u.test(child.value)
+        ) {
+          const pieces = child.value.match(/\s+|\S+/gu) || [child.value];
+          for (const piece of pieces) {
+            if (/^\s+$/u.test(piece)) {
+              nextChildren.push({ type: 'text', value: piece });
+            } else {
+              nextChildren.push({
+                type: 'element',
+                tagName: 'span',
+                properties: { className: ['streaming-word-reveal'] },
+                children: [{ type: 'text', value: piece }],
+              });
+            }
+          }
+          continue;
+        }
+
+        walk(child, skipChildren);
+        nextChildren.push(child);
+      }
+
+      node.children = nextChildren;
+    };
+
+    walk(tree);
+  };
 }
 
 interface StreamingMessageBodyProps {
   content: string;
   isStreaming?: boolean;
+  reduceMotion?: boolean;
 }
 
-const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, isStreaming }) => {
+const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
+  content,
+  isStreaming,
+  reduceMotion,
+}) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
   const { mainContent, sources } = parseTrailingSources(content);
-  const displayedMainContent = useSmoothReveal(mainContent, isStreaming);
+  const {
+    text: displayedMainContent,
+    isRevealing,
+  } = useSmoothReveal(mainContent, isStreaming, reduceMotion);
 
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
@@ -788,17 +914,18 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({ content, is
       <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
+          rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
           components={markdownComponents}
         >
           {displayedMainContent}
         </ReactMarkdown>
-        {isStreaming && (
-          <span className="inline-block w-1.5 h-4 bg-amber-500 animate-pulse ml-0.5 align-middle" />
+        {isRevealing && (
+          <span className="streaming-caret" aria-hidden="true" />
         )}
       </div>
 
       {/* Sources Area */}
-      {sources && sources.length > 0 && (
+      {!isRevealing && sources && sources.length > 0 && (
         <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2 min-w-0 max-w-full">
           <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
             Sources
@@ -1305,6 +1432,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <StreamingMessageBody
                       content={message.content}
                       isStreaming={message.isStreaming}
+                      reduceMotion={Boolean(shouldReduceMotion)}
                     />
 
                   {/* Attached Images (if present) */}
