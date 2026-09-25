@@ -8464,7 +8464,7 @@ export async function POST(req: NextRequest) {
                     throw new Error('Failed to persist recovered ChatGPT response.');
                   }
 
-                  const priorDocumentCostUsd =
+                  const waivedFailedToolCostUsd =
                     incurredDocumentCallCostUsd +
                     incurredDocumentFollowUpCostUsd +
                     incurredDocumentAssetCostUsd;
@@ -8472,8 +8472,7 @@ export async function POST(req: NextRequest) {
                     typeof fallbackUsage?.cost === 'number'
                       ? fallbackUsage.cost
                       : 0;
-                  const recoveredCostCents =
-                    (priorDocumentCostUsd + fallbackCostUsd) * 100;
+                  const recoveredCostCents = fallbackCostUsd * 100;
 
                   if (recoveredCostCents > 0) {
                     const { error: spendError } = await supabase.rpc(
@@ -8486,7 +8485,7 @@ export async function POST(req: NextRequest) {
                           seatId: seat.seatId,
                           sourceEditRecovery: true,
                           sourceEditError: err?.message || String(err),
-                          failedToolCostUsd: priorDocumentCostUsd,
+                          waivedFailedToolCostUsd,
                           recoveryCostUsd: fallbackCostUsd,
                         },
                       }
