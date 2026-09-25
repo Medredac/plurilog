@@ -708,73 +708,138 @@ function isSimplePdfFormatConversionRequest(value: string): boolean {
   );
 }
 
-function isDocumentRevisionFollowUpQuery(value: string): boolean {
+function hasExplicitDocumentIdentityCue(value: string): boolean {
+  return /\b(?:document|file|pdf|docx|word(?:\s+document)?|resume|résumé|cv|rirekisho)\b/i.test(
+    value || ''
+  );
+}
+
+function hasWebOrCodeSurfaceCue(value: string): boolean {
+  return /\b(?:website|web\s*page|webpage|home\s*page|homepage|landing\s*page|web\s*site|site|claude\s+code|next\.?js|react|component|frontend|front-end|html|css|hero|cta|navbar|navigation|mock\s*up|mockup|saas)\b/i.test(
+    value || ''
+  );
+}
+
+function roundHasImmediateDocumentContext(
+  round:
+    | {
+        userPrompt?: string;
+        visualDocumentId?: string | null;
+        attachments?: Array<{
+          filename?: string;
+          storagePath?: string | null;
+          sender?: 'user' | 'assistant';
+        }>;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!round) return false;
+
+  const documentAttachments = (round.attachments || []).filter((attachment) => {
+    const filename = (attachment.filename || '').toLowerCase();
+    const path = (attachment.storagePath || '').toLowerCase();
+    return (
+      filename.endsWith('.pdf') ||
+      filename.endsWith('.docx') ||
+      path.endsWith('.pdf') ||
+      path.endsWith('.docx')
+    );
+  });
+
+  const hasUserDocumentAttachment = documentAttachments.some(
+    (attachment) => attachment.sender === 'user'
+  );
+  if (hasUserDocumentAttachment) return true;
+
+  const hasDocumentSurface =
+    documentAttachments.length > 0 || Boolean(round.visualDocumentId);
+  if (!hasDocumentSurface) return false;
+
+  const priorPrompt = round.userPrompt || '';
+  if (hasExplicitDocumentIdentityCue(priorPrompt)) return true;
+  if (hasWebOrCodeSurfaceCue(priorPrompt)) return false;
+
+  return true;
+}
+
+function isDocumentRevisionFollowUpQuery(
+  value: string,
+  options?: { hasImmediateDocumentContext?: boolean }
+): boolean {
   const prompt = (value || '').trim();
   if (!prompt) return false;
 
-  // Treat a turn as a document revision only when the language actually looks
-  // like an edit instruction. A long conversational prompt may naturally
-  // contain words such as "move", "put", "page", "image", or "it" without
-  // asking Plurilog to mutate a document.
-  const actionVerb =
-    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|place|embed|attach|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
-  const explicitArtifactCue =
-    /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
-  const softPrefix =
-    '(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\\s+you|now|then|also|and|go\\s+ahead)[,!.\\s-]*)*';
+  const hasImmediateDocumentContext =
+    options?.hasImmediateDocumentContext === true;
 
-  const politeAction = new RegExp(
-    `^${softPrefix}(?:can|could|would|will)\\s+you\\s+(?:please\\s+)?${actionVerb}\\b`,
-    'i'
-  );
-  const imperativeAction = new RegExp(
-    `^${softPrefix}(?:please\\s+)?${actionVerb}\\b`,
-    'i'
-  );
-  const requestedAction = new RegExp(
-    `\\b(?:i\\s+(?:want|need)|i['’]?d\\s+like)\\s+(?:you\\s+to\\s+)?${actionVerb}\\b`,
-    'i'
-  );
-
-  const startsLikeMutation =
-    politeAction.test(prompt) ||
-    imperativeAction.test(prompt) ||
-    requestedAction.test(prompt);
-
-  const shortPronounMutation =
-    prompt.length <= 220 &&
-    startsLikeMutation &&
-    /\b(?:it|this|that)\b/i.test(prompt);
+  const revisionVerb =
+    /\b(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|place|embed|attach|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour)\b/i;
+  const strongDocumentCue =
+    /\b(?:document|file|pdf|docx|word(?:\s+document)?|resume|résumé|cv|rirekisho)\b/i;
+  const documentElementCue =
+    /\b(?:template|layout|format|style|photo|portrait|image|picture|illustration|graphic|chart|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+  const pronounCue = /\b(?:it|this|that|these|those)\b/i;
+  const comparativeCue =
+    /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i;
+  const webOrCodeSurface = hasWebOrCodeSurfaceCue(prompt);
 
   const explicitDocumentMutation =
-    startsLikeMutation && explicitArtifactCue.test(prompt);
+    revisionVerb.test(prompt) && strongDocumentCue.test(prompt);
 
-  const documentElementCue =
-    /\b(?:title|heading|header|footer|font|photo|portrait|image|table|margin|spacing|colour|color|section|layout|style|page)\b/i;
-  const comparativeMutation =
-    /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i.test(
+  const explicitMakeMutation =
+    /\bmake\b/i.test(prompt) &&
+    strongDocumentCue.test(prompt) &&
+    !/\bmake\s+(?:me\s+)?(?:a\s+)?(?:new\s+)?(?:pdf|docx|word\s+document|document|file)\b/i.test(
       prompt
-    ) &&
-    (documentElementCue.test(prompt) ||
-      (prompt.length <= 220 && /\b(?:it|this|that)\b/i.test(prompt)));
+    );
 
+  const generatedAssetInsertionIntoNamedDocument =
+    /\b(?:generate|create|make)\b[\s\S]{0,100}\b(?:image|photo|picture|illustration|graphic|chart)\b[\s\S]{0,120}\b(?:place|put|insert|embed|add|attach)\b[\s\S]{0,80}\b(?:document|file|pdf|docx|word(?:\s+document)?)\b/i.test(
+      prompt
+    );
+
+  if (
+    explicitDocumentMutation ||
+    explicitMakeMutation ||
+    generatedAssetInsertionIntoNamedDocument
+  ) {
+    return true;
+  }
+
+  if (!hasImmediateDocumentContext || webOrCodeSurface) {
+    return false;
+  }
+
+  const contextualElementMutation =
+    revisionVerb.test(prompt) && documentElementCue.test(prompt);
+  const contextualPronounMutation =
+    revisionVerb.test(prompt) && pronounCue.test(prompt);
+  const contextualMakeAdjustment =
+    /\bmake\b/i.test(prompt) &&
+    (documentElementCue.test(prompt) ||
+      pronounCue.test(prompt) ||
+      comparativeCue.test(prompt));
+  const contextualComparativeMutation =
+    comparativeCue.test(prompt) &&
+    (documentElementCue.test(prompt) || pronounCue.test(prompt));
   const preservationPhrase =
     /\b(?:change|touch|alter)\s+nothing\s+else\b/i.test(prompt) ||
     /\b(?:leave|keep)\s+(?:everything|the\s+rest)\s+(?:else\s+)?(?:unchanged|the\s+same|as\s+is)\b/i.test(
       prompt
     );
-
-  const generatedAssetInsertion =
-    /\b(?:generate|create|make)\b[\s\S]{0,100}\b(?:image|photo|picture|illustration|graphic|chart)\b[\s\S]{0,120}\b(?:place|put|insert|embed|add|attach)\b[\s\S]{0,80}\b(?:document|file|pdf|docx|word|page|header|heading)\b/i.test(
+  const contextualGeneratedAssetInsertion =
+    /\b(?:generate|create|make)\b[\s\S]{0,100}\b(?:image|photo|picture|illustration|graphic|chart)\b[\s\S]{0,120}\b(?:place|put|insert|embed|add|attach)\b/i.test(
       prompt
     );
 
   return (
-    explicitDocumentMutation ||
-    shortPronounMutation ||
-    comparativeMutation ||
+    contextualElementMutation ||
+    contextualPronounMutation ||
+    contextualMakeAdjustment ||
+    contextualComparativeMutation ||
     preservationPhrase ||
-    generatedAssetInsertion
+    contextualGeneratedAssetInsertion
   );
 }
 
@@ -795,7 +860,7 @@ function isStrongDocumentMutationRequest(value: string): boolean {
   if (!prompt || !isDocumentRevisionFollowUpQuery(prompt)) return false;
 
   const artifactCue =
-    /\b(?:document|file|pdf|docx|word|resume|résumé|cv|rirekisho|template|layout|format|style|photo|portrait|image|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+    /\b(?:document|file|pdf|docx|word(?:\s+document)?|resume|résumé|cv|rirekisho)\b/i;
   if (!artifactCue.test(prompt)) return false;
 
   // Read-only questions about prior work must remain chronology/history requests.
@@ -841,7 +906,13 @@ function isStrongDocumentMutationRequest(value: string): boolean {
 }
 
 function isNarrowDocumentRevisionFollowUpQuery(value: string): boolean {
-  if (!isDocumentRevisionFollowUpQuery(value)) return false;
+  if (
+    !isDocumentRevisionFollowUpQuery(value, {
+      hasImmediateDocumentContext: true,
+    })
+  ) {
+    return false;
+  }
   const prompt = value || '';
 
   // Requests that explicitly ask to incorporate broader review/feedback are
@@ -1838,7 +1909,9 @@ export function buildPanelMessages(
 
   if (
     currentModelName === 'ChatGPT' &&
-    isDocumentRevisionFollowUpQuery(prompt) &&
+    isDocumentRevisionFollowUpQuery(prompt, {
+      hasImmediateDocumentContext: Boolean(currentTurnDocuments?.length),
+    }) &&
     currentTurnDocuments &&
     currentTurnDocuments.length > 0
   ) {
@@ -3046,13 +3119,37 @@ export async function POST(req: NextRequest) {
 
           const isVisualQuery = isVisualEvidenceQuery(prompt);
           const isVerificationFollowUp = isVerificationFollowUpQuery(prompt);
-          const isDocumentRevisionFollowUp =
-            isDocumentRevisionFollowUpQuery(prompt);
 
           const lastRound =
             discussionMemory?.recentRounds && discussionMemory.recentRounds.length > 0
               ? discussionMemory.recentRounds[discussionMemory.recentRounds.length - 1]
               : null;
+
+          const hasCurrentUserDocumentContext =
+            (currentRoundAttachments || []).some((attachment) => {
+              if (attachment.provenance !== 'current_user_upload') {
+                return false;
+              }
+              const filename = (attachment.filename || '').toLowerCase();
+              const cleanUrl =
+                attachment.url
+                  ?.split('?')[0]
+                  .split('#')[0]
+                  .toLowerCase() || '';
+              return (
+                filename.endsWith('.pdf') ||
+                filename.endsWith('.docx') ||
+                cleanUrl.endsWith('.pdf') ||
+                cleanUrl.endsWith('.docx')
+              );
+            });
+          const hasImmediateDocumentContext =
+            hasCurrentUserDocumentContext ||
+            roundHasImmediateDocumentContext(lastRound);
+          const isDocumentRevisionFollowUp =
+            isDocumentRevisionFollowUpQuery(prompt, {
+              hasImmediateDocumentContext,
+            });
 
           if (discussionId) {
             if (isVerificationFollowUp && lastRound) {
