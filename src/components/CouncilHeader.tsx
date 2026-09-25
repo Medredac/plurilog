@@ -133,7 +133,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
   return (
     <header
       data-council-meta={metaRequirement}
-      className="council-container sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-zinc-100 pl-[max(4.125rem,calc(env(safe-area-inset-left)+3.375rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2"
+      className="council-container sticky top-0 z-20 bg-[#FCFBFA]/90 backdrop-blur-md border-b border-zinc-100 pl-[max(4.125rem,calc(env(safe-area-inset-left)+3.375rem))] nav-rail:pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pr-[max(1.5rem,env(safe-area-inset-right))] py-1.5 lg:py-2"
     >
       <div className="flex items-center justify-between gap-1.5 sm:gap-3 flex-nowrap min-w-0">
         
