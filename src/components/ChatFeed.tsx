@@ -779,25 +779,27 @@ const ModelResponseOrb: React.FC<ModelResponseOrbProps> = ({
 
   return (
     <span
-      className="relative inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center"
+      className="relative inline-flex h-2 w-2 shrink-0 items-center justify-center overflow-visible"
       aria-hidden="true"
     >
+      {/* Core particle: one of the three while active, then expands back
+          into the existing 8px status dot when the response completes. */}
       <motion.span
         className={`absolute h-2 w-2 rounded-full ${colorClass}`}
         animate={
           shouldAnimate
             ? {
-                x: [-1.5, 2.2, 0.5, -2.1, 1.2, -1.5],
-                y: [1.7, -0.8, -2.2, -0.4, 2.1, 1.7],
-                scale: [0.78, 0.96, 0.72, 0.9, 0.82, 0.78],
-                opacity: [0.82, 1, 0.76, 0.94, 0.84, 0.82],
+                x: [-4, -1.5, 2.8, 4, 0.8, -3.2, -4],
+                y: [0.8, -3.8, -3, 0.4, 3.8, 2.8, 0.8],
+                scale: [0.62, 0.48, 0.68, 0.54, 0.72, 0.5, 0.62],
+                opacity: [0.96, 0.68, 0.9, 0.76, 1, 0.72, 0.96],
               }
             : { x: 0, y: 0, scale: 1, opacity: 1 }
         }
         transition={
           shouldAnimate
             ? {
-                duration: 2.8,
+                duration: 3.8,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }
@@ -806,64 +808,66 @@ const ModelResponseOrb: React.FC<ModelResponseOrbProps> = ({
                 ease: [0.16, 1, 0.3, 1],
               }
         }
+        style={{ zIndex: 3 }}
       />
 
       <AnimatePresence initial={false}>
         {shouldAnimate && (
           <>
             <motion.span
-              key="satellite-a"
+              key="particle-two"
               className={`absolute h-2 w-2 rounded-full ${colorClass}`}
-              initial={{ x: 0, y: 0, scale: 0.15, opacity: 0 }}
+              initial={{ x: 0, y: 0, scale: 0.2, opacity: 0 }}
               animate={{
-                x: [-2.8, 0.8, 3, 1.4, -2.4, -2.8],
-                y: [-1.7, -3, 0.2, 2.8, 1.1, -1.7],
-                scale: [0.46, 0.72, 0.58, 0.42, 0.64, 0.46],
-                opacity: [0.46, 0.88, 0.66, 0.42, 0.72, 0.46],
+                x: [3.2, 4.2, 1.2, -3.4, -4.1, -0.5, 3.2],
+                y: [-2.8, 1, 4, 2.7, -1.4, -4, -2.8],
+                scale: [0.48, 0.7, 0.52, 0.74, 0.46, 0.64, 0.48],
+                opacity: [0.7, 1, 0.76, 0.96, 0.62, 0.88, 0.7],
               }}
               exit={{
                 x: 0,
                 y: 0,
-                scale: 0.12,
+                scale: 0.18,
                 opacity: 0,
                 transition: {
-                  duration: 0.28,
+                  duration: 0.3,
                   ease: [0.16, 1, 0.3, 1],
                 },
               }}
               transition={{
-                duration: 3.5,
+                duration: 4.4,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }}
+              style={{ zIndex: 2 }}
             />
 
             <motion.span
-              key="satellite-b"
+              key="particle-three"
               className={`absolute h-2 w-2 rounded-full ${colorClass}`}
-              style={{ filter: 'blur(0.35px)' }}
-              initial={{ x: 0, y: 0, scale: 0.12, opacity: 0 }}
+              initial={{ x: 0, y: 0, scale: 0.18, opacity: 0 }}
               animate={{
-                x: [2.5, 3.1, -0.7, -3, 0.4, 2.5],
-                y: [1.9, -1.2, -3, 0.8, 2.7, 1.9],
-                scale: [0.35, 0.52, 0.78, 0.48, 0.4, 0.35],
-                opacity: [0.34, 0.58, 0.9, 0.52, 0.4, 0.34],
+                x: [0.6, -3.3, -4.2, -1, 3.8, 4.1, 0.6],
+                y: [4, 3, -0.5, -4.1, -2.4, 1.5, 4],
+                scale: [0.72, 0.5, 0.66, 0.44, 0.62, 0.5, 0.72],
+                opacity: [1, 0.7, 0.9, 0.58, 0.84, 0.68, 1],
               }}
               exit={{
                 x: 0,
                 y: 0,
-                scale: 0.1,
+                scale: 0.16,
                 opacity: 0,
                 transition: {
-                  duration: 0.32,
+                  duration: 0.34,
                   ease: [0.16, 1, 0.3, 1],
                 },
               }}
               transition={{
-                duration: 4.2,
+                duration: 5,
                 repeat: Infinity,
                 ease: 'easeInOut',
               }}
+              style={{ zIndex: 1 }}
             />
           </>
         )}
