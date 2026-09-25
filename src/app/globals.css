@@ -134,7 +134,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Shared subtle grid pattern */
+/* Subtle, light gray grid pattern on pure white */
 .bg-tech-grid {
   background-color: #FFFFFF;
   background-image: 
@@ -150,15 +150,6 @@ body {
     linear-gradient(to right, #F4F4F5 1px, transparent 1px),
     linear-gradient(to bottom, #F4F4F5 1px, transparent 1px);
   background-size: 20px 20px;
-}
-
-/* Dashboard-only warm canvas so public/landing surfaces keep their original white */
-.bg-dashboard-tech-grid {
-  background-color: #FCFBFA;
-  background-image:
-    linear-gradient(to right, #F4F4F5 1px, transparent 1px),
-    linear-gradient(to bottom, #F4F4F5 1px, transparent 1px);
-  background-size: 32px 32px;
 }
 
 /* Refined Faint Scrollbars */
