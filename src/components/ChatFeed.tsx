@@ -271,6 +271,14 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
   const elapsedMs = Math.max(0, nowMs - startMs);
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const elapsedLabel = (() => {
+    if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    return seconds === 0
+      ? `${minutes}m`
+      : `${minutes}m${String(seconds).padStart(2, '0')}`;
+  })();
 
   // UI-only fallback rhythm while the backend has not reported a concrete
   // activity yet. Real activity events always replace this immediately.
@@ -280,9 +288,9 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
     // One-way progression. Once the generic fallback reaches "working", it
     // stays there until content arrives or the backend reports a real activity.
     if (elapsedMs < 3000) return 'thinking';
-    if (elapsedMs < 7000) return 'analyzing_input';
-    if (elapsedMs < 9500) return 'thinking_again';
-    if (elapsedMs < 13500) return 'considering_context';
+    if (elapsedMs < 10000) return 'analyzing_input';
+    if (elapsedMs < 15000) return 'thinking_again';
+    if (elapsedMs < 22000) return 'considering_context';
     return 'working';
   })();
 
@@ -451,7 +459,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
         <span className="ml-0.5 inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-zinc-400">
           <Clock3 className="h-3 w-3" aria-hidden="true" />
-          {elapsedSeconds}s
+          {elapsedLabel}
         </span>
       </div>
     </div>
