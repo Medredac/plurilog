@@ -277,16 +277,13 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   const effectiveStatus: SeatIndicatorStatus = (() => {
     if (status !== 'thinking') return status;
 
-    // Let the initial Thinking state breathe before rotating neutral labels.
+    // One-way progression. Once the generic fallback reaches "working", it
+    // stays there until content arrives or the backend reports a real activity.
     if (elapsedMs < 3000) return 'thinking';
-
-    // After the first 3s, rotate every 3s so no generic fallback feels stuck.
-    // These are deliberately neutral reasoning labels, not claims about tools.
-    const phase = Math.floor((elapsedMs - 3000) / 3000) % 4;
-    if (phase === 0) return 'analyzing_input';
-    if (phase === 1) return 'working';
-    if (phase === 2) return 'thinking_again';
-    return 'considering_context';
+    if (elapsedMs < 7000) return 'analyzing_input';
+    if (elapsedMs < 9500) return 'thinking_again';
+    if (elapsedMs < 13500) return 'considering_context';
+    return 'working';
   })();
 
   useEffect(() => {
