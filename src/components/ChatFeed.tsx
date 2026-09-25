@@ -1430,7 +1430,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             )}
             <div
               id={message.id}
-              className={`rounded-xl border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
+              className={`rounded-[24px] border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
             >
               {/* Header: Model name & timestamp only */}
               <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
