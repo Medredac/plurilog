@@ -738,11 +738,17 @@ function isDocumentRevisionFollowUpQuery(value: string): boolean {
       prompt
     );
 
+  const generatedAssetInsertion =
+    /(?:generate|create|make)[sS]{0,100}(?:image|photo|picture|illustration|graphic|chart)[sS]{0,120}(?:place|put|insert|embed|add|attach)[sS]{0,80}(?:document|file|pdf|docx|word|page|header|heading)/i.test(
+      prompt
+    );
+
   return (
     (revisionVerb.test(prompt) && artifactCue.test(prompt)) ||
     makeMutation ||
     comparativeMutation ||
-    preservationPhrase
+    preservationPhrase ||
+    generatedAssetInsertion
   );
 }
 
@@ -765,7 +771,7 @@ function isStrongDocumentMutationRequest(value: string): boolean {
   if (retrospectiveQuestion) return false;
 
   const actionVerb =
-    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
+    '(?:redo|revise|rework|reformat|restyle|redesign|edit|modify|update|fix|adjust|change|rebuild|add|insert|restore|include|put|place|embed|attach|move|resize|shrink|enlarge|reduce|increase|decrease|rename|replace|remove|delete|align|centre|center|bold|italic(?:ize)?|recolor|recolour|make)';
   const softPrefix =
     '(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\\s+you|now|then|also|and|go\\s+ahead)[,!.\\s-]*)*';
 
@@ -4074,10 +4080,29 @@ export async function POST(req: NextRequest) {
                 cleanUrl.endsWith('.docx')
               );
             }).length;
+            const hasCurrentUserDocumentUpload =
+              (currentRoundAttachments || []).some((attachment) => {
+                if (attachment.provenance !== 'current_user_upload') {
+                  return false;
+                }
+                const filename = (attachment.filename || '').toLowerCase();
+                const cleanUrl =
+                  attachment.url
+                    ?.split('?')[0]
+                    .split('#')[0]
+                    .toLowerCase() || '';
+                return (
+                  filename.endsWith('.pdf') ||
+                  filename.endsWith('.docx') ||
+                  cleanUrl.endsWith('.pdf') ||
+                  cleanUrl.endsWith('.docx')
+                );
+              });
+
             const sourceDocumentEditingForCurrentTurn =
               isDocumentCreationEnabledForSeat &&
               isDocumentRevisionFollowUp &&
-              currentDocumentAttachmentCount > 0 &&
+              hasCurrentUserDocumentUpload &&
               !isSimplePdfFormatConversionRequest(prompt || '');
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
@@ -4104,7 +4129,7 @@ export async function POST(req: NextRequest) {
                   !isHistoryLookupTurn &&
                   isDocumentRevisionFollowUp &&
                   hasKnownInspectableDocument &&
-                  currentDocumentAttachmentCount === 0)
+                  !hasCurrentUserDocumentUpload)
               );
 
             if (reviewScopedToGeneratedDocument) {
@@ -4125,6 +4150,8 @@ export async function POST(req: NextRequest) {
                 enabled: isEvidenceEnabledForSeat,
                 currentVisualAttachmentCount,
                 currentDocumentAttachmentCount,
+                hasCurrentUserDocumentUpload,
+                isDocumentRevisionFollowUp,
                 currentRoundAttachmentCount: currentRoundAttachments.length,
                 hasRetrievableHistoricalEvidence,
                 forceOnFirstPass: shouldForceEvidenceOnFirstPass,
@@ -4734,16 +4761,6 @@ export async function POST(req: NextRequest) {
                     documentOutputFormat =
                       fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
-                    sendEvent('seat_activity', {
-                      seatId: seat.seatId,
-                      activity:
-                        fileArgs.format === 'pdf'
-                          ? 'generating_pdf'
-                          : fileArgs.format === 'docx'
-                            ? 'generating_word'
-                            : 'generating_file',
-                    });
-
                     const explicitSourceDocx =
                       fileArgs.format === 'pdf' &&
                       typeof fileArgs.source_docx_filename === 'string' &&
@@ -4796,6 +4813,12 @@ export async function POST(req: NextRequest) {
                       onImageCost: (event) => {
                         incurredDocumentAssetCostUsd += event.costUsd;
                         documentImageModels.add(event.model);
+                      },
+                      onActivity: (activity) => {
+                        sendEvent('seat_activity', {
+                          seatId: seat.seatId,
+                          activity,
+                        });
                       },
                       reviewModel: primaryModel,
                       reviewModels: models,
@@ -6638,23 +6661,6 @@ export async function POST(req: NextRequest) {
                       documentOutputFormat =
                         fileArgs.format === 'pdf' ? 'pdf' : 'docx';
 
-                      const isDocumentRevisionActivity =
-                        fileCall.name === 'revise_file';
-                      sendEvent('seat_activity', {
-                        seatId: seat.seatId,
-                        activity: isDocumentRevisionActivity
-                          ? fileArgs.format === 'pdf'
-                            ? 'editing_pdf'
-                            : fileArgs.format === 'docx'
-                              ? 'editing_word'
-                              : 'editing_file'
-                          : fileArgs.format === 'pdf'
-                            ? 'generating_pdf'
-                            : fileArgs.format === 'docx'
-                              ? 'generating_word'
-                              : 'generating_file',
-                      });
-
                       const explicitEvidenceSourceDocx =
                         fileArgs.format === 'pdf' &&
                         typeof fileArgs.source_docx_filename === 'string' &&
@@ -6713,6 +6719,12 @@ export async function POST(req: NextRequest) {
                         onImageCost: (event) => {
                           incurredDocumentAssetCostUsd += event.costUsd;
                           documentImageModels.add(event.model);
+                        },
+                        onActivity: (activity) => {
+                          sendEvent('seat_activity', {
+                            seatId: seat.seatId,
+                            activity,
+                          });
                         },
                         reviewModel: primaryModel,
                         reviewModels: models,
