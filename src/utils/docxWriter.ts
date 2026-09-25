@@ -335,7 +335,10 @@ function cellXml(
       bold: header,
       sizeHalfPoints: ptToHalfPoints(Math.max(9, design.bodySizePt - 0.5)),
       spacingAfter: 0,
-      keepLines: true,
+      // Body table cells must be allowed to flow across a page boundary.
+      // Keeping every wrapped line together can make an otherwise valid row
+      // disappear when it no longer fits in the remaining page space.
+      keepLines: header,
       lineHeight: 1.12,
       color,
       fontFamily: design.fontFamily,
@@ -374,7 +377,10 @@ function tableXml(
 
   const rowXml = (cells: string[], header: boolean) => {
     const padded = Array.from({ length: columnCount }, (_, i) => cells[i] || '');
-    return `<w:tr><w:trPr><w:cantSplit/></w:trPr>${padded
+    const rowProperties = header
+      ? '<w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>'
+      : '<w:trPr></w:trPr>';
+    return `<w:tr>${rowProperties}${padded
       .map((cell, index) => cellXml(cell, design, widths[index], header))
       .join('')}</w:tr>`;
   };

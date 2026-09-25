@@ -186,8 +186,20 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
   };
 }
 
-function getSeatActivityLabel(status: SeatStatus): string {
+type SeatIndicatorStatus =
+  | SeatStatus
+  | 'analyzing_input'
+  | 'thinking_again'
+  | 'considering_context';
+
+function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   switch (status) {
+    case 'analyzing_input':
+      return 'Analyzing input…';
+    case 'thinking_again':
+      return 'Thinking…';
+    case 'considering_context':
+      return 'Considering context…';
     case 'working':
       return 'Working through it…';
     case 'checking_documents':
@@ -259,8 +271,28 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
   const elapsedMs = Math.max(0, nowMs - startMs);
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
-  const effectiveStatus: SeatStatus =
-    status === 'thinking' && elapsedMs >= 1800 ? 'working' : status;
+  const elapsedLabel = (() => {
+    if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    return seconds === 0
+      ? `${minutes}m`
+      : `${minutes}m${String(seconds).padStart(2, '0')}`;
+  })();
+
+  // UI-only fallback rhythm while the backend has not reported a concrete
+  // activity yet. Real activity events always replace this immediately.
+  const effectiveStatus: SeatIndicatorStatus = (() => {
+    if (status !== 'thinking') return status;
+
+    // One-way progression. Once the generic fallback reaches "working", it
+    // stays there until content arrives or the backend reports a real activity.
+    if (elapsedMs < 3000) return 'thinking';
+    if (elapsedMs < 10000) return 'analyzing_input';
+    if (elapsedMs < 15000) return 'thinking_again';
+    if (elapsedMs < 22000) return 'considering_context';
+    return 'working';
+  })();
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -299,6 +331,12 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   const ActivityIcon = (() => {
     switch (effectiveStatus) {
       case 'working':
+        return Sparkles;
+      case 'analyzing_input':
+        return Brain;
+      case 'thinking_again':
+        return Brain;
+      case 'considering_context':
         return Sparkles;
       case 'checking_documents':
         return FileSearch;
@@ -421,7 +459,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
 
         <span className="ml-0.5 inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-zinc-400">
           <Clock3 className="h-3 w-3" aria-hidden="true" />
-          {elapsedSeconds}s
+          {elapsedLabel}
         </span>
       </div>
     </div>
