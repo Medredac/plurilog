@@ -319,12 +319,6 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             </div>
           )}
 
-          {isDebating && (
-            <div className="council-inline-only hidden items-center gap-1.5 text-xs font-medium text-amber-900 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200/70">
-              <Loader2 className="w-3 h-3 animate-spin text-amber-700" />
-              <span>Responding...</span>
-            </div>
-          )}
         </div>
       </div>
 
