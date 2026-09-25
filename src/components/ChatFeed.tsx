@@ -801,17 +801,32 @@ function useSmoothReveal(
       }
 
       const lag = currentTarget - current;
-      // Reveal one natural word at a time. When a provider dumps a whole
-      // answer at once we may increase cadence, but never batch multiple Latin
-      // words into a single visible jump.
-      const intervalMs = lag > 1200 ? 20 : lag > 500 ? 24 : lag > 180 ? 28 : 34;
+
+      // Keep the visual stream close to the real model. Small backlogs reveal
+      // in short phrase-like bursts; large provider dumps accelerate hard so
+      // presentation lag stays bounded and the next seat does not visually
+      // overtake the previous one.
+      const intervalMs =
+        lag > 1600 ? 16 :
+        lag > 900 ? 18 :
+        lag > 420 ? 20 :
+        lag > 180 ? 24 :
+        30;
+
+      const unitsPerTick =
+        lag > 1600 ? 18 :
+        lag > 900 ? 12 :
+        lag > 420 ? 8 :
+        lag > 180 ? 5 :
+        lag > 70 ? 3 :
+        2;
 
       if (now - lastTime >= intervalMs) {
         lastTime = now;
         let nextLength = nextStreamingRevealBoundary(
           targetTextRef.current,
           current,
-          1
+          unitsPerTick
         );
 
         // Extremely long unbroken strings should still make progress.
