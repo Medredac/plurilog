@@ -184,7 +184,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   );
 
   const speakerSupported =
-    Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.55;
+    Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.75;
   const temporalSupported =
     Boolean(temporalRelation && temporalRelation !== 'none') &&
     temporalConfidence >= 0.55;
