@@ -6,14 +6,14 @@ import { MotionReveal } from '@/components/MotionReveal';
 import { PlurilogMark } from '@/components/PlurilogMark';
 
 export const metadata: Metadata = {
-  title: 'Blog',
-  description: 'Insights, updates, and ideas from Plurilog.',
+  title: 'AI Guides: ChatGPT, Claude, Gemini & Multi-Model AI',
+  description: 'Guides to ChatGPT, Claude, Gemini, multi-model AI, AI hallucinations, image generation and shared AI workflows from Plurilog.',
   alternates: {
     canonical: 'https://plurilogai.com/blog',
   },
   openGraph: {
-    title: 'Blog | Plurilog',
-    description: 'Insights, updates, and ideas from Plurilog.',
+    title: 'AI Guides: ChatGPT, Claude, Gemini & Multi-Model AI | Plurilog',
+    description: 'Guides to ChatGPT, Claude, Gemini, multi-model AI, AI hallucinations, image generation and shared AI workflows from Plurilog.',
     url: 'https://plurilogai.com/blog',
     siteName: 'Plurilog',
     locale: 'en_US',
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'Blog | Plurilog',
-    description: 'Insights, updates, and ideas from Plurilog.',
+    description: 'Guides to ChatGPT, Claude, Gemini, multi-model AI, AI hallucinations, image generation and shared AI workflows from Plurilog.',
     images: ['https://plurilogai.com/twitter-image.png'],
   },
 };
@@ -46,10 +46,10 @@ export default function BlogPage() {
         <div className="max-w-3xl mx-auto w-full px-6 sm:px-8 py-12 sm:py-16">
           <MotionReveal className="mb-10">
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 mb-2">
-              Blog
+              AI Guides & Research
             </h1>
             <p className="text-sm sm:text-base text-zinc-500">
-              Insights, updates, and ideas from Plurilog.
+              Guides to ChatGPT, Claude, Gemini, multi-model AI, AI hallucinations, image generation and shared AI workflows from Plurilog.
             </p>
           </MotionReveal>
 
