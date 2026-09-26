@@ -2378,13 +2378,31 @@ export async function getScopedDiscussionMemory(
       'all three',
       'panel',
     ];
-    const isMultiResponseComparison =
+    const hasExplicitComparisonIntent =
       comparisonActions.some((term) =>
         normalizedComparisonPrompt.includes(term)
       ) &&
       comparisonObjects.some((term) =>
         normalizedComparisonPrompt.includes(term)
       );
+
+    const recentPriorPrompts = allRounds
+      .slice(-3)
+      .map((round) => (round.userPrompt || '').toLowerCase());
+
+    const recentComparisonIntent = recentPriorPrompts.some((priorPrompt) =>
+      comparisonActions.some((term) => priorPrompt.includes(term)) &&
+      comparisonObjects.some((term) => priorPrompt.includes(term))
+    );
+
+    const looksLikeComparisonFollowUp =
+      normalizedComparisonPrompt.length <= 180 &&
+      ['what about now','can you now','do you now','now claude','still','again','seriously','really','forreal','for real','wym']
+        .some((cue) => normalizedComparisonPrompt.includes(cue));
+
+    const isMultiResponseComparison =
+      hasExplicitComparisonIntent ||
+      (recentComparisonIntent && looksLikeComparisonFollowUp);
 
     if (isMultiResponseComparison) {
       const comparisonSplitIndex = getRecentRoundsSplitIndex(allRounds, 30000);
