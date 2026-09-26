@@ -53,6 +53,24 @@ export default function BlogPage() {
             </p>
           </MotionReveal>
 
+          <nav
+            aria-label="Plurilog feature guides"
+            className="mb-10 flex flex-wrap gap-2"
+          >
+            <Link href="/chatgpt-claude-gemini" className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 transition-colors">
+              ChatGPT + Claude + Gemini
+            </Link>
+            <Link href="/ai-pdf-editor" className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 transition-colors">
+              AI PDF editor
+            </Link>
+            <Link href="/ai-word-document-generator" className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 transition-colors">
+              Word document generator
+            </Link>
+            <Link href="/ai-document-editor" className="px-3 py-1.5 rounded-full border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:text-zinc-900 hover:border-zinc-300 transition-colors">
+              AI document editor
+            </Link>
+          </nav>
+
           <div className="space-y-8">
             <MotionReveal delay={0.04}>
               <Link
