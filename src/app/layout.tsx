@@ -49,7 +49,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Plurilog - Your Own AI Panel",
+    title: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
     description:
       "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
     images: ["https://plurilogai.com/twitter-image.png"],
