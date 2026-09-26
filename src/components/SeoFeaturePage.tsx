@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { SiteHeader } from '@/components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
+import { MotionReveal } from '@/components/MotionReveal';
 
 type FeatureSection = {
   heading: string;
@@ -96,14 +97,17 @@ export function SeoFeaturePage({
 
       <main className="flex-1 bg-tech-grid">
         <div className="max-w-4xl mx-auto px-6 sm:px-8 py-12 sm:py-16">
-          <Link
-            href="/#features"
-            className="text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors"
-          >
-            Plurilog features
-          </Link>
+          <MotionReveal>
+            <Link
+              href="/#features"
+              className="text-xs font-medium text-zinc-400 hover:text-zinc-700 transition-colors"
+            >
+              Plurilog features
+            </Link>
+          </MotionReveal>
 
-          <header className="mt-6 max-w-3xl">
+          <MotionReveal delay={0.05} className="mt-6 max-w-3xl">
+            <header>
             <p className="text-xs sm:text-sm font-medium text-[#4880E6] mb-3">
               {eyebrow}
             </p>
@@ -127,11 +131,17 @@ export function SeoFeaturePage({
                 View pricing
               </Link>
             </div>
-          </header>
+            </header>
+          </MotionReveal>
 
           <article className="mt-14 space-y-12">
-            {sections.map((section) => (
-              <section key={section.heading} className="max-w-3xl">
+            {sections.map((section, index) => (
+              <MotionReveal
+                key={section.heading}
+                as="section"
+                delay={Math.min(0.04 + index * 0.03, 0.13)}
+                className="max-w-3xl"
+              >
                 <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-900">
                   {section.heading}
                 </h2>
@@ -147,11 +157,11 @@ export function SeoFeaturePage({
                     </ul>
                   )}
                 </div>
-              </section>
+              </MotionReveal>
             ))}
           </article>
 
-          <section className="mt-14 border-t border-zinc-100 pt-12">
+          <MotionReveal as="section" delay={0.08} className="mt-14 border-t border-zinc-100 pt-12">
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-900">
               Related Plurilog features
             </h2>
@@ -167,9 +177,9 @@ export function SeoFeaturePage({
                 </Link>
               ))}
             </div>
-          </section>
+          </MotionReveal>
 
-          <section className="mt-14 border-t border-zinc-100 pt-12">
+          <MotionReveal as="section" delay={0.1} className="mt-14 border-t border-zinc-100 pt-12">
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-zinc-900">
               Frequently asked questions
             </h2>
@@ -185,7 +195,7 @@ export function SeoFeaturePage({
                 </div>
               ))}
             </div>
-          </section>
+          </MotionReveal>
         </div>
       </main>
 
