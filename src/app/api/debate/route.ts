@@ -45,6 +45,7 @@ import {
   isPersistentVisualContextWritesEnabled,
   isPersistentVisualContextReadsEnabled,
 } from '@/utils/discussionMemory';
+import { isJevMemoryPilotShadowEnabled, runJevMemoryPilotShadow } from '@/utils/jevMemoryPilot';
 import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { renderDocxPages } from '@/utils/docxPageRenderer';
@@ -2440,6 +2441,40 @@ export async function POST(req: NextRequest) {
           chronologicalMemory: undefined,
         };
       }
+    }
+
+    // Preview-only shadow pilot. It observes the same turn context and logs a
+    // structured memory plan, but it does not alter retrieval or panel context.
+    if (
+      isJevMemoryPilotShadowEnabled() &&
+      apiKey.trim() &&
+      prompt &&
+      prompt.trim() &&
+      !req.signal.aborted
+    ) {
+      void runJevMemoryPilotShadow({
+        apiKey,
+        prompt,
+        recentRounds: discussionMemory?.recentRounds,
+        knownDocuments: discussionMemory?.knownDocuments,
+        signal: req.signal,
+      })
+        .then((result) => {
+          console.log('[Jev Memory Pilot Shadow]', {
+            requestId: result.requestId,
+            model: result.model,
+            provider: result.provider,
+            latencyMs: result.latencyMs,
+            usage: result.usage,
+            answers: result.answers,
+          });
+        })
+        .catch((error: any) => {
+          if (req.signal.aborted) return;
+          console.warn('[Jev Memory Pilot Shadow] Non-critical failure', {
+            message: error?.message || String(error),
+          });
+        });
     }
 
     const encoder = new TextEncoder();
