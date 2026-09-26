@@ -2423,7 +2423,7 @@ export async function POST(req: NextRequest) {
     // Get hardcoded fallback arrays for each seat.
     // Preview experiment: users alternate Claude fallback chains based on
     // actual spend recorded after the experiment start. Existing historical
-    // spend is excluded, so every paid user begins in the normal Sonnet window.
+    // spend is excluded, so every user begins in the normal Sonnet window.
     const seatFallbacks = getCouncilSeatFallbacks();
     let claudeSpendSinceCycleStartCents = 0;
     let claudeCheapFallbackActive = false;
@@ -2434,11 +2434,11 @@ export async function POST(req: NextRequest) {
         error: routingUserError,
       } = await supabase.auth.getUser();
 
-        if (routingUserError) {
-          throw routingUserError;
-        }
+      if (routingUserError) {
+        throw routingUserError;
+      }
 
-        if (routingUser) {
+      if (routingUser) {
           const serviceClient = createServiceClient();
           const pageSize = 1000;
           let from = 0;
@@ -2481,14 +2481,14 @@ export async function POST(req: NextRequest) {
             seatFallbacks.claude = [...CLAUDE_CHEAP_FALLBACKS];
           }
 
-          console.log('[Claude Fallback Cycle]', {
-            userId: routingUser.id,
-            spendSinceStartCents: claudeSpendSinceCycleStartCents,
-            cyclePositionCents: cyclePosition,
-            chain: claudeCheapFallbackActive ? 'cheap' : 'normal',
-            models: seatFallbacks.claude,
-          });
-        }
+        console.log('[Claude Fallback Cycle]', {
+          userId: routingUser.id,
+          spendSinceStartCents: claudeSpendSinceCycleStartCents,
+          cyclePositionCents: cyclePosition,
+          chain: claudeCheapFallbackActive ? 'cheap' : 'normal',
+          models: seatFallbacks.claude,
+        });
+      }
     } catch (routingError) {
       // Cost-routing must never break a turn. Fall back to the normal chain.
       console.warn(
