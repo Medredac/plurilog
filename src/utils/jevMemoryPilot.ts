@@ -124,16 +124,35 @@ function getChoice(
     : null;
 }
 
+function getChoiceConfidence(
+  answers: Record<string, JevAnswer>,
+  key: string
+): number {
+  const answer = answers[key];
+  if (answer?.type !== 'choice') return 0;
+
+  if (typeof answer.confidence === 'number') {
+    return answer.confidence;
+  }
+
+  const selected = answer.choice;
+  const probability = answer.probabilities?.[selected];
+  return typeof probability === 'number' ? probability : 0;
+}
+
 function compileShadowPlan(answers: Record<string, JevAnswer>) {
-  const operations: string[] = [];
   const dependencies: Array<{ from: string; to: string; reason: string }> = [];
 
-  const recentNeeded = getNoul(answers, 'recent_context_dependency') >= 0.5;
-  const semanticNeeded = getNoul(answers, 'semantic_history_needed') >= 0.5;
-  const chronologyNeeded = getNoul(answers, 'chronology_needed') >= 0.5;
-  const summaryNeeded = getNoul(answers, 'rolling_summary_needed') >= 0.5;
-  const documentNeeded = getNoul(answers, 'document_search_needed') >= 0.5;
-  const visualNeeded = getNoul(answers, 'visual_evidence_needed') >= 0.5;
+  const historicalSignal = getNoul(
+    answers,
+    'historical_conversation_needed'
+  );
+  const recentSignal = getNoul(answers, 'recent_context_dependency');
+  const semanticSignal = getNoul(answers, 'semantic_history_needed');
+  const chronologySignal = getNoul(answers, 'chronology_needed');
+  const summarySignal = getNoul(answers, 'rolling_summary_needed');
+  const documentSignal = getNoul(answers, 'document_search_needed');
+  const visualSignal = getNoul(answers, 'visual_evidence_needed');
 
   const speaker = getChoice(answers, 'speaker_target');
   const temporalRelation = getChoice(answers, 'temporal_relation');
@@ -142,13 +161,109 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const topicSource = getChoice(answers, 'topic_source');
   const anchorSource = getChoice(answers, 'anchor_source');
 
+  const speakerConfidence = getChoiceConfidence(answers, 'speaker_target');
+  const temporalConfidence = getChoiceConfidence(
+    answers,
+    'temporal_relation'
+  );
+  const semanticRoleConfidence = getChoiceConfidence(
+    answers,
+    'semantic_role'
+  );
+  const chronologyRoleConfidence = getChoiceConfidence(
+    answers,
+    'chronology_role'
+  );
+  const topicSourceConfidence = getChoiceConfidence(
+    answers,
+    'topic_source'
+  );
+  const anchorSourceConfidence = getChoiceConfidence(
+    answers,
+    'anchor_source'
+  );
+
+  const speakerSupported =
+    Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.55;
+  const temporalSupported =
+    Boolean(temporalRelation && temporalRelation !== 'none') &&
+    temporalConfidence >= 0.55;
+  const semanticRoleSupported =
+    Boolean(semanticRole && semanticRole !== 'none') &&
+    semanticRoleConfidence >= 0.45;
+  const chronologyRoleSupported =
+    Boolean(chronologyRole && chronologyRole !== 'none') &&
+    chronologyRoleConfidence >= 0.45;
+  const recentTopicSource =
+    topicSource === 'recent_context' && topicSourceConfidence >= 0.55;
+  const recentAnchorSource =
+    anchorSource === 'recent_context' && anchorSourceConfidence >= 0.55;
+  const semanticAnchorSource =
+    anchorSource === 'semantic_result' && anchorSourceConfidence >= 0.55;
+
+  // Broad Jev scores are proposals, not independent booleans. Require
+  // compatible role/relation/source evidence before activating a retriever.
+  let recentNeeded =
+    recentSignal >= 0.7 ||
+    (recentSignal >= 0.55 && (recentTopicSource || recentAnchorSource));
+
+  let chronologyNeeded =
+    chronologySignal >= 0.55 &&
+    (temporalSupported || chronologyRoleSupported) &&
+    (historicalSignal >= 0.2 || recentSignal >= 0.65);
+
+  let semanticNeeded =
+    semanticSignal >= 0.55 &&
+    historicalSignal >= 0.4 &&
+    semanticRoleSupported;
+
+  // A chronological plan that explicitly says its anchor comes from semantic
+  // retrieval must include semantic retrieval even when its broad semantic
+  // score is only moderate.
+  if (
+    chronologyNeeded &&
+    semanticAnchorSource &&
+    semanticSignal >= 0.4 &&
+    (semanticRoleSupported || semanticRoleConfidence < 0.6)
+  ) {
+    semanticNeeded = true;
+  }
+
+  // If an active retrieval operation says recent context supplies its topic or
+  // anchor, recent_exact is a dependency rather than an optional extra.
+  if (
+    (semanticNeeded && recentTopicSource) ||
+    (chronologyNeeded && recentAnchorSource)
+  ) {
+    recentNeeded = true;
+  }
+
+  const summaryNeeded =
+    (summarySignal >= 0.6 && historicalSignal >= 0.55) ||
+    (summarySignal >= 0.75 && historicalSignal >= 0.35);
+
+  const visualNeeded = visualSignal >= 0.65;
+  const documentNeeded =
+    documentSignal >= 0.65 ||
+    (documentSignal >= 0.5 && visualNeeded);
+
+  const retrievalNeeded =
+    recentNeeded ||
+    semanticNeeded ||
+    chronologyNeeded ||
+    documentNeeded ||
+    visualNeeded;
+
+  const speakerFilterNeeded = speakerSupported && retrievalNeeded;
+
+  const operations: string[] = [];
   if (recentNeeded) operations.push('recent_exact');
   if (summaryNeeded) operations.push('rolling_summary');
   if (semanticNeeded) operations.push('semantic_history');
   if (chronologyNeeded) operations.push('chronology');
   if (documentNeeded) operations.push('document_search');
   if (visualNeeded) operations.push('visual_evidence');
-  if (speaker && speaker !== 'none') operations.push('speaker_filter');
+  if (speakerFilterNeeded) operations.push('speaker_filter');
 
   const addDependency = (from: string, to: string, reason: string) => {
     if (
@@ -160,7 +275,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     }
   };
 
-  if (semanticNeeded && topicSource === 'recent_context') {
+  if (semanticNeeded && recentTopicSource) {
     addDependency(
       'recent_exact',
       'semantic_history',
@@ -168,7 +283,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     );
   }
 
-  if (semanticNeeded && chronologyNeeded && anchorSource === 'semantic_result') {
+  if (semanticNeeded && chronologyNeeded && semanticAnchorSource) {
     addDependency(
       'semantic_history',
       'chronology',
@@ -176,7 +291,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     );
   }
 
-  if (chronologyNeeded && anchorSource === 'recent_context') {
+  if (chronologyNeeded && recentAnchorSource) {
     addDependency(
       'recent_exact',
       'chronology',
@@ -187,8 +302,9 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   if (
     semanticNeeded &&
     chronologyNeeded &&
-    anchorSource !== 'semantic_result' &&
-    chronologyRole === 'scope_for_semantic'
+    !semanticAnchorSource &&
+    chronologyRole === 'scope_for_semantic' &&
+    chronologyRoleSupported
   ) {
     addDependency(
       'chronology',
@@ -205,7 +321,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     );
   }
 
-  if (speaker && speaker !== 'none') {
+  if (speakerFilterNeeded) {
     if (chronologyNeeded) {
       addDependency(
         'chronology',
@@ -227,30 +343,40 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     }
   }
 
+  const memoryAmbiguitySignal =
+    retrievalNeeded ||
+    summaryNeeded ||
+    historicalSignal >= 0.4 ||
+    recentSignal >= 0.65 ||
+    (semanticSignal >= 0.45 && semanticRoleSupported) ||
+    (chronologySignal >= 0.45 &&
+      (temporalSupported || chronologyRoleSupported)) ||
+    documentSignal >= 0.5 ||
+    visualSignal >= 0.5;
+
   return {
     operations,
     dependencies,
     constraints: {
-      speaker: speaker && speaker !== 'none' ? speaker : null,
+      speaker: speakerFilterNeeded ? speaker : null,
       temporalRelation:
-        temporalRelation && temporalRelation !== 'none'
-          ? temporalRelation
-          : null,
+        chronologyNeeded && temporalSupported ? temporalRelation : null,
       semanticRole:
-        semanticNeeded && semanticRole && semanticRole !== 'none'
-          ? semanticRole
-          : null,
+        semanticNeeded && semanticRoleSupported ? semanticRole : null,
       chronologyRole:
-        chronologyNeeded && chronologyRole && chronologyRole !== 'none'
-          ? chronologyRole
-          : null,
+        chronologyNeeded && chronologyRoleSupported ? chronologyRole : null,
       topicSource:
-        topicSource && topicSource !== 'none' ? topicSource : null,
+        semanticNeeded && topicSource && topicSource !== 'none'
+          ? topicSource
+          : null,
       anchorSource:
-        anchorSource && anchorSource !== 'none' ? anchorSource : null,
+        chronologyNeeded && anchorSource && anchorSource !== 'none'
+          ? anchorSource
+          : null,
     },
     escalationSuggested:
-      getNoul(answers, 'flexible_resolver_needed') >= 0.5,
+      getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
+      memoryAmbiguitySignal,
   };
 }
 
