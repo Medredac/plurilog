@@ -2470,7 +2470,13 @@ export async function POST(req: NextRequest) {
             compiledPlan: result.compiledPlan,
           });
 
-          if (result.compiledPlan.escalationSuggested && !req.signal.aborted) {
+          if (
+            (result.compiledPlan.escalationSuggested ||
+              (result.compiledPlan.operations.includes('recent_exact') &&
+                result.compiledPlan.operations.includes('speaker_filter') &&
+                !result.compiledPlan.operations.includes('semantic_history'))) &&
+            !req.signal.aborted
+          ) {
             const resolverStartedAt = Date.now();
             try {
               const resolverModel =
