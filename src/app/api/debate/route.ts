@@ -2459,7 +2459,7 @@ export async function POST(req: NextRequest) {
         knownDocuments: discussionMemory?.knownDocuments,
         signal: req.signal,
       })
-        .then((result) => {
+        .then(async (result) => {
           console.log('[Jev Memory Pilot Shadow]', {
             requestId: result.requestId,
             model: result.model,
@@ -2469,6 +2469,60 @@ export async function POST(req: NextRequest) {
             answers: result.answers,
             compiledPlan: result.compiledPlan,
           });
+
+          if (result.compiledPlan.escalationSuggested && !req.signal.aborted) {
+            const resolverStartedAt = Date.now();
+            try {
+              const resolverModel =
+                process.env.JEV_MEMORY_RESOLVER_MODEL ||
+                'google/gemini-3.1-flash-lite';
+              const resolverResponse = await openai.chat.completions.create(
+                {
+                  model: resolverModel,
+                  temperature: 0,
+                  max_tokens: 300,
+                  response_format: { type: 'json_object' },
+                  messages: [
+                    {
+                      role: 'system',
+                      content:
+                        'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained.',
+                    },
+                    {
+                      role: 'user',
+                      content: JSON.stringify({
+                        prompt,
+                        recentRounds: discussionMemory?.recentRounds?.slice(-3),
+                        atomicAnswers: result.answers,
+                        proposedPlan: result.compiledPlan,
+                      }),
+                    },
+                  ],
+                },
+                { signal: req.signal }
+              );
+
+              const raw =
+                resolverResponse.choices?.[0]?.message?.content || '{}';
+              console.log('[Jev Memory Resolver Shadow]', {
+                model: resolverResponse.model || resolverModel,
+                latencyMs: Date.now() - resolverStartedAt,
+                usage: resolverResponse.usage || null,
+                resolution: JSON.parse(
+                  raw
+                    .trim()
+                    .replace(/^\`\`\`(?:json)?\\s*/i, '')
+                    .replace(/\\s*\`\`\`$/, '')
+                ),
+              });
+            } catch (resolverError: any) {
+              if (!req.signal.aborted) {
+                console.warn('[Jev Memory Resolver Shadow] Non-critical failure', {
+                  message: resolverError?.message || String(resolverError),
+                });
+              }
+            }
+          }
         })
         .catch((error: any) => {
           if (req.signal.aborted) return;
