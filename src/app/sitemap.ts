@@ -4,7 +4,23 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
       url: 'https://plurilogai.com/',
-      lastModified: new Date('2026-09-20T00:00:00.000Z'),
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/chatgpt-claude-gemini',
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/ai-pdf-editor',
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/ai-word-document-generator',
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/ai-document-editor',
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/privacy',
@@ -16,7 +32,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
     {
       url: 'https://plurilogai.com/blog',
-      lastModified: new Date('2026-09-20T00:00:00.000Z'),
+      lastModified: new Date('2026-09-25T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/blog/chatgpt-gemini-image-generation-editing',
