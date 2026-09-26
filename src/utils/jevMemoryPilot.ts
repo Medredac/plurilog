@@ -195,17 +195,16 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     Boolean(chronologyRole && chronologyRole !== 'none') &&
     chronologyRoleConfidence >= 0.45;
   const recentTopicSource =
-    topicSource === 'recent_context' && topicSourceConfidence >= 0.55;
+    topicSource === 'recent_context' && topicSourceConfidence >= 0.7;
   const recentAnchorSource =
-    anchorSource === 'recent_context' && anchorSourceConfidence >= 0.55;
+    anchorSource === 'recent_context' && anchorSourceConfidence >= 0.7;
   const semanticAnchorSource =
     anchorSource === 'semantic_result' && anchorSourceConfidence >= 0.55;
 
   // Broad Jev scores are proposals, not independent booleans. Require
   // compatible role/relation/source evidence before activating a retriever.
   let recentNeeded =
-    recentSignal >= 0.7 ||
-    (recentSignal >= 0.55 && (recentTopicSource || recentAnchorSource));
+    recentSignal >= 0.55 && (recentTopicSource || recentAnchorSource);
 
   let chronologyNeeded =
     chronologySignal >= 0.55 &&
