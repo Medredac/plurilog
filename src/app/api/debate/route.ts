@@ -2467,6 +2467,7 @@ export async function POST(req: NextRequest) {
             latencyMs: result.latencyMs,
             usage: result.usage,
             answers: result.answers,
+            compiledPlan: result.compiledPlan,
           });
         })
         .catch((error: any) => {
