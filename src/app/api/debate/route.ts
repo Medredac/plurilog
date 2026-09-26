@@ -2822,8 +2822,6 @@ export async function POST(req: NextRequest) {
                         validated?.source_user_message_id || null,
                       selectedSemanticSimilarity:
                         validated?.semantic_similarity ?? null,
-                      requestedSpeaker:
-                        discussionMemory.historyLookupIntent?.target || null,
                     });
                   }
                 }
