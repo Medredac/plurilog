@@ -73,7 +73,7 @@ function compactRecentRounds(rounds: Round[] | undefined): Array<{
     };
 
     for (const response of round.modelResponses || []) {
-      const sender = String(response.sender || '').toLowerCase();
+      const sender = String(response.name || '').toLowerCase();
       const content = clip(response.content || '', 2200);
       if (!content) continue;
 
