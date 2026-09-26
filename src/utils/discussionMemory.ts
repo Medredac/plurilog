@@ -2340,11 +2340,75 @@ export async function getScopedDiscussionMemory(
     // It understands paraphrases and elliptical follow-ups, then delegates the
     // factual answer to deterministic ordered-history execution. The legacy
     // parser remains only as a fail-safe if the planner is unavailable.
-    const historyPlan = await planConversationHistoryLookup(
+    let historyPlan = await planConversationHistoryLookup(
       currentPrompt,
       allRounds,
       openai
     );
+
+    // Comparisons and synthesis need multiple earlier panel answers in context,
+    // not one resolved historical event.
+    const normalizedComparisonPrompt = currentPrompt.toLowerCase();
+    const comparisonActions = [
+      'prefer',
+      'choose',
+      'compare',
+      'better',
+      'best',
+      'rank',
+      'critique',
+      'evaluate',
+      'combine',
+      'synthesize',
+      'synthesise',
+      'incorporate',
+    ];
+    const comparisonObjects = [
+      'essay',
+      'answer',
+      'response',
+      'reply',
+      'version',
+      'claude',
+      'gemini',
+      'chatgpt',
+      'gpt',
+      'each',
+      'both',
+      'all three',
+      'panel',
+    ];
+    const isMultiResponseComparison =
+      comparisonActions.some((term) =>
+        normalizedComparisonPrompt.includes(term)
+      ) &&
+      comparisonObjects.some((term) =>
+        normalizedComparisonPrompt.includes(term)
+      );
+
+    if (historyPlan?.is_history_lookup && isMultiResponseComparison) {
+      console.log(
+        '[Memory History Planner] Preserving multi-round context for comparison',
+        {
+          prompt: currentPrompt.slice(0, 220),
+          priorTarget: historyPlan.target,
+          priorRelation: historyPlan.relation,
+        }
+      );
+      historyPlan = {
+        ...historyPlan,
+        is_history_lookup: false,
+        target: null,
+        relation: null,
+        ordinal: null,
+        anchor: null,
+        anchor_target: null,
+        anchor_occurrence: null,
+        anchor_ordinal: null,
+        include_attachments: false,
+        confidence: Math.max(historyPlan.confidence, 0.99),
+      };
+    }
 
     const historyLookupIntent = Boolean(
       historyPlan?.is_history_lookup && historyPlan.confidence >= 0.55
@@ -2358,7 +2422,10 @@ export async function getScopedDiscussionMemory(
         })
       : null;
 
-    if (!chronologicalMemory) {
+    // The legacy deterministic parser is only a fail-safe when the planner
+    // is unavailable. A planner decision of "not a history lookup" must keep
+    // the normal multi-round memory path intact.
+    if (!historyPlan && !chronologicalMemory) {
       chronologicalMemory = await resolveDeterministicChronology(
         currentPrompt,
         allRounds,
