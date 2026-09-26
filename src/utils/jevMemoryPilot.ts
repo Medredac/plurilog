@@ -229,6 +229,19 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     semanticNeeded = true;
   }
 
+  const topicalOccurrenceNeedsSemantic =
+    chronologyNeeded &&
+    temporalSupported &&
+    ['first', 'last', 'ordinal'].includes(temporalRelation || '') &&
+    recentTopicSource &&
+    semanticRole === 'find_topic' &&
+    semanticRoleSupported &&
+    semanticSignal >= 0.3;
+
+  if (topicalOccurrenceNeedsSemantic) {
+    semanticNeeded = true;
+  }
+
   // If an active retrieval operation says recent context supplies its topic or
   // anchor, recent_exact is a dependency rather than an optional extra.
   if (
@@ -283,15 +296,25 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     );
   }
 
-  if (semanticNeeded && chronologyNeeded && semanticAnchorSource) {
+  if (
+    semanticNeeded &&
+    chronologyNeeded &&
+    (semanticAnchorSource || topicalOccurrenceNeedsSemantic)
+  ) {
     addDependency(
       'semantic_history',
       'chronology',
-      'Semantic retrieval locates the historical anchor/candidates before chronological navigation.'
+      topicalOccurrenceNeedsSemantic
+        ? 'Semantic retrieval finds historical topic candidates before chronological occurrence selection.'
+        : 'Semantic retrieval locates the historical anchor/candidates before chronological navigation.'
     );
   }
 
-  if (chronologyNeeded && recentAnchorSource) {
+  if (
+    chronologyNeeded &&
+    recentAnchorSource &&
+    !topicalOccurrenceNeedsSemantic
+  ) {
     addDependency(
       'recent_exact',
       'chronology',
@@ -370,8 +393,12 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
           ? topicSource
           : null,
       anchorSource:
-        chronologyNeeded && anchorSource && anchorSource !== 'none'
-          ? anchorSource
+        chronologyNeeded
+          ? topicalOccurrenceNeedsSemantic
+            ? 'semantic_result'
+            : anchorSource && anchorSource !== 'none'
+              ? anchorSource
+              : null
           : null,
     },
     escalationSuggested:
