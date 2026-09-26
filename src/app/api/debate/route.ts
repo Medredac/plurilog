@@ -1825,7 +1825,7 @@ async function generateDocumentActionFollowUp(options: {
         message:
           'The requested document was created successfully in the requested format and will be attached to your response.',
         response_guidance:
-          'Respond naturally and briefly in the context of the user request and the panel discussion. You may mention relevant aspects of what you completed when useful. Do not use a generic stock confirmation, do not repeat the full document contents, and do not mention internal tool mechanics.',
+          'Respond naturally and briefly in the context of the user request and the panel discussion. You may mention relevant aspects of what you completed when useful. Do not use a generic stock confirmation, do not repeat the full document contents, and do not mention internal tool mechanics. The Plurilog UI attaches the real generated file separately. Never invent or include a download URL, Markdown download link, dashboard link, signed storage URL, or any other file link in this text. Refer to the filename only if useful.',
       }),
     } as any,
   ];
@@ -1855,8 +1855,15 @@ async function generateDocumentActionFollowUp(options: {
     if (text) content += text;
   }
 
+  const cleanedContent = content
+    .trim()
+    .replace(
+      /\[([^\]]+)\]\(https?:\/\/[^)\s]+\)/g,
+      '$1'
+    );
+
   return {
-    content: content.trim(),
+    content: cleanedContent,
     costUsd,
     respondingModel,
   };
