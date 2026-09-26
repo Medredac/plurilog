@@ -2823,6 +2823,17 @@ export async function POST(req: NextRequest) {
                       selectedSemanticSimilarity:
                         validated?.semantic_similarity ?? null,
                     });
+
+                    retrievedMemory = [validated];
+                    discussionMemory = {
+                      ...discussionMemory,
+                      chronologicalMemory: undefined,
+                    };
+                    console.log('[Jev Validated Evidence Preview]', {
+                      sourceUserMessageId:
+                        validated?.source_user_message_id || null,
+                      mode: 'validated-semantic-over-chronology',
+                    });
                   }
                 }
               }
