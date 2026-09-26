@@ -2796,6 +2796,34 @@ export async function POST(req: NextRequest) {
                       semantic_similarity: row?.semantic_similarity,
                     })),
                   });
+
+                  if (
+                    isJevMemoryPilotShadowEnabled() &&
+                    discussionMemory?.historyLookupIntent &&
+                    retrievedMemory.length > 1
+                  ) {
+                    const validated = retrievedMemory.find((row: any) => {
+                      const text =
+                        typeof row?.content === 'string'
+                          ? row.content.slice(0, 900).toLowerCase()
+                          : '';
+                      return !(
+                        text.includes('what did ') ||
+                        text.includes('remind me') ||
+                        text.includes('remember ') ||
+                        text.includes('not that one') ||
+                        text.includes('other contrast')
+                      );
+                    }) || retrievedMemory[0];
+
+                    console.log('[Jev Evidence Validator Shadow]', {
+                      strategy: 'prefer-original-over-recap',
+                      selectedSourceUserMessageId:
+                        validated?.source_user_message_id || null,
+                      selectedSemanticSimilarity:
+                        validated?.semantic_similarity ?? null,
+                    });
+                  }
                 }
               }
             } catch (retrievalErr: any) {
