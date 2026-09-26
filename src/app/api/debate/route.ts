@@ -2618,7 +2618,8 @@ export async function POST(req: NextRequest) {
             prompt &&
             prompt.trim() &&
             !req.signal.aborted &&
-            !discussionMemory?.chronologicalMemory
+            (!discussionMemory?.chronologicalMemory ||
+              isJevMemoryPilotShadowEnabled())
           ) {
             // 1. Attempt deterministic structured section resolution first (does NOT require embedding)
             try {
