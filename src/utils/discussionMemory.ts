@@ -2285,7 +2285,7 @@ export async function getScopedDiscussionMemory(
 
     // Token-budgeted sliding window: walk backwards from newest completed round
     const splitIndex = getRecentRoundsSplitIndex(allRounds, RECENT_MEMORY_TOKEN_BUDGET);
-    const recentRounds = allRounds.slice(splitIndex);
+    let recentRounds = allRounds.slice(splitIndex);
     const olderRounds = allRounds.slice(0, splitIndex);
     const rawStoredSummary = discussion?.summary || '';
     let parsedSummary = parseDiscussionSummary(rawStoredSummary);
@@ -2385,6 +2385,16 @@ export async function getScopedDiscussionMemory(
       comparisonObjects.some((term) =>
         normalizedComparisonPrompt.includes(term)
       );
+
+    if (isMultiResponseComparison) {
+      const comparisonSplitIndex = getRecentRoundsSplitIndex(allRounds, 30000);
+      recentRounds = allRounds.slice(comparisonSplitIndex);
+      console.log('[Memory Comparison Context] Expanded exact-round window', {
+        prompt: currentPrompt.slice(0, 220),
+        recentRoundCount: recentRounds.length,
+        comparisonTokenBudget: 30000,
+      });
+    }
 
     if (historyPlan?.is_history_lookup && isMultiResponseComparison) {
       console.log(
