@@ -515,7 +515,7 @@ export default function LandingPage() {
               Or cross-check it with another AI to be sure?
             </h2>
             <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
-              Plurilog is the first platform to put Gemini, Claude, and ChatGPT in the same discussion.
+              Plurilog puts Gemini, Claude and ChatGPT in the same discussion.
             </p>
           </motion.div>
           <motion.div {...scrollRevealProps(0.38)} className="bg-amber-50 rounded-3xl p-3 mt-8">
@@ -649,6 +649,12 @@ export default function LandingPage() {
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Ask once and let multiple leading AI models respond to you and to each other. They share the discussion context, so one model can challenge, refine or build on what another has already said.
               </p>
+              <Link
+                href="/chatgpt-claude-gemini"
+                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+              >
+                See how the shared AI conversation works →
+              </Link>
             </motion.div>
 
             <motion.div
@@ -664,6 +670,12 @@ export default function LandingPage() {
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Turn a conversation into a polished downloadable DOCX or PDF with structured text, tables, layouts and images.
               </p>
+              <Link
+                href="/ai-word-document-generator"
+                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+              >
+                Explore AI document creation →
+              </Link>
             </motion.div>
 
             <motion.div
@@ -679,6 +691,12 @@ export default function LandingPage() {
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Upload a Word document or PDF, ask for changes in plain English, and keep refining the result without starting from scratch.
               </p>
+              <Link
+                href="/ai-document-editor"
+                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+              >
+                Explore AI document editing →
+              </Link>
             </motion.div>
 
             <motion.div
@@ -694,6 +712,12 @@ export default function LandingPage() {
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Create new images or edit existing ones inside the discussion. Preview and download SVG artwork, then let the other AIs inspect the visual and continue working from it.
               </p>
+              <Link
+                href="/blog/chatgpt-gemini-image-generation-editing"
+                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+              >
+                See the image workflow →
+              </Link>
             </motion.div>
 
             <motion.div
@@ -709,7 +733,13 @@ export default function LandingPage() {
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Work with PDFs, Word files, images and text files without repeatedly moving the same material between separate AI apps.
               </p>
-              <p className="mt-auto pt-5 text-xs text-zinc-400">
+              <Link
+                href="/ai-pdf-editor"
+                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
+              >
+                Explore AI PDF workflows →
+              </Link>
+              <p className="mt-2 text-[11px] text-zinc-400">
                 PDF · DOCX · images · text
               </p>
             </motion.div>
