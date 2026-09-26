@@ -2492,7 +2492,7 @@ export async function POST(req: NextRequest) {
                     {
                       role: 'system',
                       content:
-                        'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained.',
+                        'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved.',
                     },
                     {
                       role: 'user',
