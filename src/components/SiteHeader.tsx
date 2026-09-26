@@ -72,6 +72,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
   const shouldReduceMotion = useReducedMotion();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
+  const pendingSectionScrollRef = useRef<string | null>(null);
 
   // Close mobile menu on Escape key press
   useEffect(() => {
@@ -117,26 +118,47 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
     }
   };
 
-  const handleAboutClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    setIsMobileMenuOpen(false);
-    if (pathname === '/') {
-      e.preventDefault();
-      const aboutEl = document.getElementById('about');
-      if (aboutEl) {
-        aboutEl.scrollIntoView({ behavior: 'smooth' });
-      }
+  const scrollToSection = (sectionId: string) => {
+    const sectionEl = document.getElementById(sectionId);
+    if (sectionEl) {
+      sectionEl.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
-  const handlePricingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    setIsMobileMenuOpen(false);
-    if (pathname === '/') {
-      e.preventDefault();
-      const pricingEl = document.getElementById('pricing');
-      if (pricingEl) {
-        pricingEl.scrollIntoView({ behavior: 'smooth' });
-      }
+  const handleSectionClick = (
+    e: React.MouseEvent<HTMLAnchorElement>,
+    sectionId: string
+  ) => {
+    if (pathname !== '/') {
+      setIsMobileMenuOpen(false);
+      return;
     }
+
+    e.preventDefault();
+
+    if (isMobileMenuOpen) {
+      pendingSectionScrollRef.current = sectionId;
+      setIsMobileMenuOpen(false);
+      return;
+    }
+
+    scrollToSection(sectionId);
+  };
+
+  const handleAboutClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    handleSectionClick(e, 'about');
+  };
+
+  const handlePricingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    handleSectionClick(e, 'pricing');
+  };
+
+  const handleMobileMenuExitComplete = () => {
+    const pendingSection = pendingSectionScrollRef.current;
+    if (!pendingSection) return;
+
+    pendingSectionScrollRef.current = null;
+    scrollToSection(pendingSection);
   };
 
   return (
@@ -253,7 +275,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
       </div>
 
       {/* Mobile Navigation Drawer */}
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} onExitComplete={handleMobileMenuExitComplete}>
         {isMobileMenuOpen && (
           <motion.div
             custom={shouldReduceMotion}
