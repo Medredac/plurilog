@@ -22,28 +22,37 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL("https://plurilogai.com"),
   title: {
-    default: "Plurilog - Your Own AI Panel",
+    default: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
     template: "%s | Plurilog",
   },
   description:
-    "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+    "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Plurilog - Your Own AI Panel",
+    title: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
     description:
-      "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+      "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
     url: "https://plurilogai.com/",
     siteName: "Plurilog",
     locale: "en_US",
     type: "website",
+    images: [
+      {
+        url: "https://plurilogai.com/opengraph-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Plurilog — ChatGPT, Claude and Gemini in one conversation",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Plurilog - Your Own AI Panel",
     description:
-      "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+      "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
+    images: ["https://plurilogai.com/twitter-image.png"],
   },
 };
 
@@ -57,7 +66,7 @@ const jsonLd = {
       alternateName: "Plurilog AI",
       url: "https://plurilogai.com/",
       description:
-        "Bring ChatGPT, Claude and Gemini into one ongoing AI discussion with shared context and documents. Challenge AI errors and hallucinations with multiple perspectives.",
+        "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
       publisher: {
         "@id": "https://plurilogai.com/#organization",
       },
@@ -82,11 +91,11 @@ const jsonLd = {
       name: "Plurilog",
       alternateName: "Plurilog AI",
       url: "https://plurilogai.com/",
-      applicationCategory: "ProductivityApplication",
+      applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       browserRequirements: "Requires JavaScript and a modern web browser.",
       description:
-        "A multi-AI panel that brings ChatGPT, Claude and Gemini into one shared conversation with persistent context, document and image analysis, and supported image generation and editing.",
+        "A multi-AI workspace that brings ChatGPT, Claude and Gemini into one shared conversation with persistent context, file and image analysis, Word and PDF creation and editing, image generation and editing, SVG output, web search and voice dictation.",
       image: "https://plurilogai.com/opengraph-image.png",
       publisher: {
         "@id": "https://plurilogai.com/#organization",
@@ -96,7 +105,10 @@ const jsonLd = {
         "Cross-model comparison and discussion",
         "Persistent shared conversation context",
         "PDF, DOCX, image and text-file analysis",
+        "Creation of downloadable Word documents and PDFs",
+        "Editing of existing Word documents and PDFs",
         "ChatGPT and Gemini image generation and editing",
+        "Preview and download of SVG artwork",
         "Web search for current information",
         "Voice dictation",
       ],
