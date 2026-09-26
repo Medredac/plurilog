@@ -76,6 +76,13 @@ const faqItems = [
     ]
   },
   {
+    question: "Can Plurilog create and edit Word documents and PDFs?",
+    answer: [
+      "Yes. Plurilog can create downloadable Word documents and PDFs from a discussion, and it supports revision workflows for existing Word documents and PDFs.",
+      "You can develop the content with the AI panel, ask for a file, then continue with follow-up changes without moving the work into a separate chat. PDF editing can be more constrained than Word editing when exact fonts or complex fixed layouts need to be preserved."
+    ]
+  },
+  {
     question: "Does Plurilog support voice conversations?",
     answer: [
       "Plurilog does not currently offer live two-way voice conversations with the AI models.",
