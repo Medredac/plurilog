@@ -1,12 +1,16 @@
 # Plurilog
 
-> Plurilog is a web-based multi-AI panel that brings ChatGPT, Claude and Gemini into one shared conversation.
+> Plurilog is a web-based multi-AI workspace that brings ChatGPT, Claude and Gemini into one shared conversation.
 
-Plurilog lets users ask multiple leading AI models to work in the same ongoing discussion instead of using separate chatbot threads. Later panel responses can see earlier contributions, allowing the models to compare reasoning, disagree, add missing context and build on the same conversation.
+Plurilog lets users work with multiple leading AI models in the same ongoing discussion instead of moving prompts, files and answers between separate chatbot threads. Later panel responses can see earlier contributions in the discussion, allowing models to compare reasoning, disagree, add missing context and build on previous answers.
 
 ## Product
 
 - [Plurilog home](https://plurilogai.com/): Product overview, current features and pricing.
+- [ChatGPT, Claude and Gemini in one conversation](https://plurilogai.com/chatgpt-claude-gemini): How the shared multi-model discussion works.
+- [AI PDF editor](https://plurilogai.com/ai-pdf-editor): Work with and revise supported PDF documents using AI.
+- [AI Word document generator](https://plurilogai.com/ai-word-document-generator): Create downloadable DOCX documents from a conversation.
+- [AI document editor](https://plurilogai.com/ai-document-editor): Revise supported Word documents and PDFs in an ongoing discussion.
 - [Blog](https://plurilogai.com/blog): Guides, comparisons and product explanations.
 - [Privacy policy](https://plurilogai.com/privacy): Data handling and service-provider information.
 - [Terms of service](https://plurilogai.com/terms): Account, subscription and usage terms.
@@ -14,22 +18,26 @@ Plurilog lets users ask multiple leading AI models to work in the same ongoing d
 ## Current capabilities
 
 - Shared multi-model conversations with ChatGPT, Claude and Gemini.
-- Users can choose which AI seats participate and change their order.
+- Users can choose which AI seats participate and change their response order.
 - Shared discussion context across participating AI seats.
 - Web search for current information when needed.
 - Analysis of images and supported documents, including PDF, DOCX and common text-based formats.
+- Creation of downloadable Word documents and PDFs from a discussion.
+- Revision of supported existing Word documents and PDFs using natural-language instructions.
 - ChatGPT and Gemini can generate and edit images in Plurilog when their image tools are available.
-- Claude can inspect, compare and critique images and help improve image prompts, but does not generate or edit images in Plurilog.
+- Claude can inspect, compare and critique images and help improve image prompts, but does not generate or edit raster images in Plurilog.
+- Standalone SVG artwork can be previewed and downloaded when a model returns supported SVG output.
 - Voice dictation converts speech into a text prompt.
 - Existing discussions can be exported as PDF.
 
 ## Current limitations
 
-- No native Android or iOS application; Plurilog is currently a web application.
-- No Gmail, Outlook, one.com mail, calendar, Google Drive, Dropbox or similar personal-service connectors.
-- No background or proactive assistant operation after the user leaves the app.
-- No arbitrary AI-generated downloadable Word, PDF, spreadsheet or presentation files yet.
-- No video upload or video analysis yet.
+- Plurilog is currently a web application; there is no native Android or iOS app.
+- There are no Gmail, Outlook, one.com mail, calendar, Google Drive, Dropbox or similar personal-service connectors.
+- Plurilog does not continue working proactively in the background after the user leaves the app.
+- Spreadsheet and presentation creation or editing are not currently supported.
+- Complex PDF formatting, font preservation and precise layout changes can be more constrained than editable Word-document workflows.
+- Video upload and video analysis are not currently supported.
 
 ## Plans
 
