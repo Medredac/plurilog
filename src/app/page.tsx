@@ -668,9 +668,9 @@ export default function LandingPage() {
 
             <motion.div
               {...scrollRevealProps(0.12)}
-              className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-[#FFFCF8] p-6 sm:p-7 shadow-2xs flex flex-col"
+              className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-[#D94726] mb-5">
+              <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 mb-5">
                 Editing
               </p>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
