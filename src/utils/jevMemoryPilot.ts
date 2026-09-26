@@ -38,6 +38,19 @@ export type JevMemoryPilotShadowResult = {
     cost?: number;
   } | null;
   answers: Record<string, JevAnswer>;
+  compiledPlan: {
+    operations: string[];
+    dependencies: Array<{ from: string; to: string; reason: string }>;
+    constraints: {
+      speaker: string | null;
+      temporalRelation: string | null;
+      semanticRole: string | null;
+      chronologyRole: string | null;
+      topicSource: string | null;
+      anchorSource: string | null;
+    };
+    escalationSuggested: boolean;
+  };
 };
 
 export function isJevMemoryPilotShadowEnabled(): boolean {
@@ -88,6 +101,157 @@ function compactRecentRounds(rounds: Round[] | undefined): Array<{
 
     return compact;
   });
+}
+
+
+function getNoul(
+  answers: Record<string, JevAnswer>,
+  key: string
+): number {
+  const answer = answers[key];
+  return answer?.type === 'noul' && typeof answer.noul === 'number'
+    ? answer.noul
+    : 0;
+}
+
+function getChoice(
+  answers: Record<string, JevAnswer>,
+  key: string
+): string | null {
+  const answer = answers[key];
+  return answer?.type === 'choice' && typeof answer.choice === 'string'
+    ? answer.choice
+    : null;
+}
+
+function compileShadowPlan(answers: Record<string, JevAnswer>) {
+  const operations: string[] = [];
+  const dependencies: Array<{ from: string; to: string; reason: string }> = [];
+
+  const recentNeeded = getNoul(answers, 'recent_context_dependency') >= 0.5;
+  const semanticNeeded = getNoul(answers, 'semantic_history_needed') >= 0.5;
+  const chronologyNeeded = getNoul(answers, 'chronology_needed') >= 0.5;
+  const summaryNeeded = getNoul(answers, 'rolling_summary_needed') >= 0.5;
+  const documentNeeded = getNoul(answers, 'document_search_needed') >= 0.5;
+  const visualNeeded = getNoul(answers, 'visual_evidence_needed') >= 0.5;
+
+  const speaker = getChoice(answers, 'speaker_target');
+  const temporalRelation = getChoice(answers, 'temporal_relation');
+  const semanticRole = getChoice(answers, 'semantic_role');
+  const chronologyRole = getChoice(answers, 'chronology_role');
+  const topicSource = getChoice(answers, 'topic_source');
+  const anchorSource = getChoice(answers, 'anchor_source');
+
+  if (recentNeeded) operations.push('recent_exact');
+  if (summaryNeeded) operations.push('rolling_summary');
+  if (semanticNeeded) operations.push('semantic_history');
+  if (chronologyNeeded) operations.push('chronology');
+  if (documentNeeded) operations.push('document_search');
+  if (visualNeeded) operations.push('visual_evidence');
+  if (speaker && speaker !== 'none') operations.push('speaker_filter');
+
+  const addDependency = (from: string, to: string, reason: string) => {
+    if (
+      operations.includes(from) &&
+      operations.includes(to) &&
+      !dependencies.some((d) => d.from === from && d.to === to)
+    ) {
+      dependencies.push({ from, to, reason });
+    }
+  };
+
+  if (semanticNeeded && topicSource === 'recent_context') {
+    addDependency(
+      'recent_exact',
+      'semantic_history',
+      'Recent context supplies the topic/referent for semantic retrieval.'
+    );
+  }
+
+  if (semanticNeeded && chronologyNeeded && anchorSource === 'semantic_result') {
+    addDependency(
+      'semantic_history',
+      'chronology',
+      'Semantic retrieval locates the historical anchor/candidates before chronological navigation.'
+    );
+  }
+
+  if (chronologyNeeded && anchorSource === 'recent_context') {
+    addDependency(
+      'recent_exact',
+      'chronology',
+      'Recent context resolves the historical anchor before chronological navigation.'
+    );
+  }
+
+  if (
+    semanticNeeded &&
+    chronologyNeeded &&
+    anchorSource !== 'semantic_result' &&
+    chronologyRole === 'scope_for_semantic'
+  ) {
+    addDependency(
+      'chronology',
+      'semantic_history',
+      'Chronology establishes the historical scope before topical retrieval.'
+    );
+  }
+
+  if (documentNeeded && visualNeeded) {
+    addDependency(
+      'document_search',
+      'visual_evidence',
+      'The document must be identified before canonical visual inspection.'
+    );
+  }
+
+  if (speaker && speaker !== 'none') {
+    if (chronologyNeeded) {
+      addDependency(
+        'chronology',
+        'speaker_filter',
+        'Apply the requested speaker constraint to chronologically selected evidence.'
+      );
+    } else if (semanticNeeded) {
+      addDependency(
+        'semantic_history',
+        'speaker_filter',
+        'Extract the requested speaker from semantically selected historical rounds.'
+      );
+    } else if (recentNeeded) {
+      addDependency(
+        'recent_exact',
+        'speaker_filter',
+        'Extract the requested speaker from recent exact context.'
+      );
+    }
+  }
+
+  return {
+    operations,
+    dependencies,
+    constraints: {
+      speaker: speaker && speaker !== 'none' ? speaker : null,
+      temporalRelation:
+        temporalRelation && temporalRelation !== 'none'
+          ? temporalRelation
+          : null,
+      semanticRole:
+        semanticNeeded && semanticRole && semanticRole !== 'none'
+          ? semanticRole
+          : null,
+      chronologyRole:
+        chronologyNeeded && chronologyRole && chronologyRole !== 'none'
+          ? chronologyRole
+          : null,
+      topicSource:
+        topicSource && topicSource !== 'none' ? topicSource : null,
+      anchorSource:
+        anchorSource && anchorSource !== 'none' ? anchorSource : null,
+    },
+    escalationSuggested:
+      getNoul(answers, 'flexible_resolver_needed') >= 0.5,
+  };
 }
 
 export async function runJevMemoryPilotShadow(options: {
@@ -183,38 +347,68 @@ export async function runJevMemoryPilotShadow(options: {
         ordinal: 'A numbered occurrence such as second or third is requested.',
       },
     },
-    composition_pattern: {
+    semantic_role: {
       type: 'choice',
       instructions:
-        'Choose the best dependency pattern for obtaining the evidence required by current_user_message. This is about retrieval order, not about answering the user.',
+        'If semantic history is useful, what job should it perform? Choose none when semantic history is not needed.',
       criteria: {
-        direct_no_memory:
-          'No historical memory retrieval is needed; current input is sufficient.',
-        recent_only:
-          'Recent exact context is sufficient to interpret and answer the request.',
-        semantic_only:
-          'Meaning-based historical conversation search is sufficient.',
-        chronology_only:
-          'Chronological navigation alone is sufficient.',
-        recent_then_semantic:
-          'Recent context must first resolve the user\'s referent or topic, then semantic history should search for older matching rounds.',
-        semantic_then_chronology:
-          'Semantic history should first locate a topical historical anchor or candidate set, then chronology should navigate or enforce ordering.',
-        chronology_then_semantic:
-          'Chronology should first establish a historical range/event scope, then semantic search should find topical evidence within that scope.',
-        document_only:
-          'Document text retrieval is the main operation and no visual inspection is required.',
-        recent_then_document:
-          'Recent context must first identify which document or document topic the user means, then document retrieval should run.',
-        document_then_visual:
-          'A document must first be identified, then its canonical visual evidence should be inspected.',
-        semantic_and_document:
-          'Conversation semantic history and document retrieval provide complementary evidence and both are needed.',
-        parallel_complementary:
-          'Two or more memory systems should retrieve independent complementary evidence before synthesis.',
-        other_complex:
-          'The required dependency pattern is not adequately represented by the other choices.',
+        none: 'Semantic history is not needed.',
+        find_topic:
+          'Find older rounds about the topic or concept the user is referring to.',
+        find_anchor:
+          'Locate a historical event/round that chronology should navigate relative to.',
+        broaden_candidates:
+          'Broaden or recover candidates when a deterministic lookup may be too narrow or ambiguous.',
       },
+    },
+    chronology_role: {
+      type: 'choice',
+      instructions:
+        'If chronology is useful, what job should it perform? Choose none when chronological navigation is not needed.',
+      criteria: {
+        none: 'Chronology is not needed.',
+        direct_position:
+          'Directly select a first, last, previous, or ordinal historical message/response without needing a topical anchor first.',
+        navigate_from_anchor:
+          'Navigate before/after/immediately around a resolved historical anchor.',
+        select_anchor_occurrence:
+          'Choose the first, last, or numbered occurrence of a repeated historical anchor/topic.',
+        scope_for_semantic:
+          'Establish a historical range or event scope first, then semantic search should operate within that scope.',
+      },
+    },
+    topic_source: {
+      type: 'choice',
+      instructions:
+        'Where should the topical meaning used for memory retrieval come from?',
+      criteria: {
+        none: 'No topical historical retrieval is required.',
+        current_prompt:
+          'The current user message itself states the topic clearly enough.',
+        recent_context:
+          'Recent context is needed to resolve a pronoun, ellipsis, callback, or implicit topic before retrieval.',
+        semantic_result:
+          'The topic should be established from an initial semantic historical result rather than directly from the current/recent text.',
+      },
+    },
+    anchor_source: {
+      type: 'choice',
+      instructions:
+        'If chronological navigation needs a historical anchor, where should that anchor come from?',
+      criteria: {
+        none: 'No anchor is needed.',
+        current_prompt:
+          'The current message explicitly identifies the historical anchor.',
+        recent_context:
+          'Recent context must resolve what historical event/topic the user means.',
+        semantic_result:
+          'Semantic history should first locate the relevant historical anchor/candidate round.',
+      },
+    },
+    flexible_resolver_needed: {
+      type: 'noul',
+      instructions:
+        'Is the request too ambiguous, novel, or difficult to express with the structured memory decisions above such that a flexible language-model resolver would likely be useful before executing retrieval?',
     },
   };
 
@@ -275,6 +469,11 @@ export async function runJevMemoryPilotShadow(options: {
         payload?.answers && typeof payload.answers === 'object'
           ? payload.answers
           : {},
+      compiledPlan: compileShadowPlan(
+        payload?.answers && typeof payload.answers === 'object'
+          ? payload.answers
+          : {}
+      ),
     };
   } finally {
     clearTimeout(timeout);
