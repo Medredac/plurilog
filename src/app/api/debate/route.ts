@@ -2421,19 +2421,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Get hardcoded fallback arrays for each seat.
-    // Preview experiment: paid users alternate Claude fallback chains based on
+    // Preview experiment: users alternate Claude fallback chains based on
     // actual spend recorded after the experiment start. Existing historical
     // spend is excluded, so every paid user begins in the normal Sonnet window.
     const seatFallbacks = getCouncilSeatFallbacks();
     let claudeSpendSinceCycleStartCents = 0;
     let claudeCheapFallbackActive = false;
 
-    if (balance.plan === 'paid') {
-      try {
-        const {
-          data: { user: routingUser },
-          error: routingUserError,
-        } = await supabase.auth.getUser();
+    try {
+      const {
+        data: { user: routingUser },
+        error: routingUserError,
+      } = await supabase.auth.getUser();
 
         if (routingUserError) {
           throw routingUserError;
@@ -2490,13 +2489,12 @@ export async function POST(req: NextRequest) {
             models: seatFallbacks.claude,
           });
         }
-      } catch (routingError) {
-        // Cost-routing must never break a turn. Fall back to the normal chain.
-        console.warn(
-          '[Claude Fallback Cycle] Failed to calculate routing spend; using normal chain.',
-          routingError
-        );
-      }
+    } catch (routingError) {
+      // Cost-routing must never break a turn. Fall back to the normal chain.
+      console.warn(
+        '[Claude Fallback Cycle] Failed to calculate routing spend; using normal chain.',
+        routingError
+      );
     }
 
     const openai = new OpenAI({
