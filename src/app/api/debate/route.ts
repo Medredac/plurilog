@@ -2332,6 +2332,21 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
   chatgpt: { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
 };
 
+// Preview experiment: every paid user starts on the normal Claude chain from
+// the moment this experiment was enabled. Spend before this timestamp is
+// intentionally ignored so existing paid users do not enter mid-cycle.
+const CLAUDE_CHEAP_FALLBACK_START_AT = '2026-09-26T15:14:33.256Z';
+const CLAUDE_NORMAL_WINDOW_CENTS = 25;
+const CLAUDE_CHEAP_WINDOW_CENTS = 50;
+const CLAUDE_FALLBACK_CYCLE_CENTS =
+  CLAUDE_NORMAL_WINDOW_CENTS + CLAUDE_CHEAP_WINDOW_CENTS;
+
+const CLAUDE_CHEAP_FALLBACKS = [
+  '~anthropic/claude-haiku-latest',
+  '~anthropic/claude-sonnet-latest',
+  '~anthropic/claude-opus-latest',
+];
+
 export async function POST(req: NextRequest) {
   try {
     const { prompt, discussionId, seatOrder, isContinueRound, attachments, sourceUserMessageId } = await req.json();
@@ -2405,8 +2420,84 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get hardcoded fallback arrays for each seat
+    // Get hardcoded fallback arrays for each seat.
+    // Preview experiment: paid users alternate Claude fallback chains based on
+    // actual spend recorded after the experiment start. Existing historical
+    // spend is excluded, so every paid user begins in the normal Sonnet window.
     const seatFallbacks = getCouncilSeatFallbacks();
+    let claudeSpendSinceCycleStartCents = 0;
+    let claudeCheapFallbackActive = false;
+
+    if (balance.plan === 'paid') {
+      try {
+        const {
+          data: { user: routingUser },
+          error: routingUserError,
+        } = await supabase.auth.getUser();
+
+        if (routingUserError) {
+          throw routingUserError;
+        }
+
+        if (routingUser) {
+          const serviceClient = createServiceClient();
+          const pageSize = 1000;
+          let from = 0;
+
+          while (true) {
+            const { data: spendRows, error: spendRowsError } = await serviceClient
+              .from('spend_events')
+              .select('cents')
+              .eq('user_id', routingUser.id)
+              .gte('created_at', CLAUDE_CHEAP_FALLBACK_START_AT)
+              .order('id', { ascending: true })
+              .range(from, from + pageSize - 1);
+
+            if (spendRowsError) {
+              throw spendRowsError;
+            }
+
+            const rows = Array.isArray(spendRows) ? spendRows : [];
+            claudeSpendSinceCycleStartCents += rows.reduce(
+              (sum, row: any) => sum + Number(row?.cents || 0),
+              0
+            );
+
+            if (rows.length < pageSize) {
+              break;
+            }
+
+            from += pageSize;
+          }
+
+          const cyclePosition =
+            ((claudeSpendSinceCycleStartCents % CLAUDE_FALLBACK_CYCLE_CENTS) +
+              CLAUDE_FALLBACK_CYCLE_CENTS) %
+            CLAUDE_FALLBACK_CYCLE_CENTS;
+
+          claudeCheapFallbackActive =
+            cyclePosition >= CLAUDE_NORMAL_WINDOW_CENTS;
+
+          if (claudeCheapFallbackActive) {
+            seatFallbacks.claude = [...CLAUDE_CHEAP_FALLBACKS];
+          }
+
+          console.log('[Claude Fallback Cycle]', {
+            userId: routingUser.id,
+            spendSinceStartCents: claudeSpendSinceCycleStartCents,
+            cyclePositionCents: cyclePosition,
+            chain: claudeCheapFallbackActive ? 'cheap' : 'normal',
+            models: seatFallbacks.claude,
+          });
+        }
+      } catch (routingError) {
+        // Cost-routing must never break a turn. Fall back to the normal chain.
+        console.warn(
+          '[Claude Fallback Cycle] Failed to calculate routing spend; using normal chain.',
+          routingError
+        );
+      }
+    }
 
     const openai = new OpenAI({
       apiKey: apiKey.trim(),
