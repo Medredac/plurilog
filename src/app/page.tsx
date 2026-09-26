@@ -6,12 +6,12 @@ import Link from 'next/link';
 import { 
   ArrowRight, 
   Sparkles, 
-  MessageCircle, 
-  MessagesSquare, 
-  ArrowUpDown, 
-  RefreshCw, 
-  Trophy, 
-  Eye, 
+  MessagesSquare,
+  FileText,
+  Edit3,
+  Image as ImageIcon,
+  Search,
+  Globe2,
   AlertCircle, 
   X, 
   Check, 
@@ -624,83 +624,266 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* 6-Column Value Props */}
-        <section className="px-6 sm:px-12 py-12 max-w-6xl mx-auto w-full border-t border-zinc-100">
-          <motion.h2
-            {...scrollRevealProps(0)}
-            className="text-xl sm:text-2xl font-bold tracking-tight text-zinc-900 text-center mb-8"
-          >
-            Made to Get You the Best Answer
-          </motion.h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-left">
-            <motion.div {...scrollRevealProps(0.04)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
-                <MessageCircle className="w-4 h-4" />
+        {/* Product Capabilities */}
+        <section
+          id="features"
+          className="px-6 sm:px-12 py-16 max-w-6xl mx-auto w-full border-t border-zinc-100 scroll-mt-16"
+        >
+          <motion.div {...scrollRevealProps(0)} className="text-center max-w-3xl mx-auto">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50/80 border border-blue-100 text-[#4880E6] text-xs font-medium mb-4 shadow-2xs">
+              <Sparkles className="w-3 h-3" />
+              <span>More than a multi-AI chat</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight">
+              What Can You Do With Plurilog?
+            </h2>
+            <p className="mt-3 text-sm sm:text-base text-zinc-500 font-normal leading-relaxed">
+              Work with ChatGPT, Claude and Gemini in one shared conversation, then move from answers to actual work: analyse files and images, create and edit documents, generate visuals, and research without breaking the thread.
+            </p>
+          </motion.div>
+
+          <div className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Multi-AI */}
+            <motion.div
+              {...scrollRevealProps(0.04)}
+              className="lg:col-span-2 rounded-3xl border border-zinc-200/80 bg-white overflow-hidden shadow-2xs"
+            >
+              <div className="relative min-h-[210px] sm:min-h-[230px] bg-gradient-to-br from-amber-50 via-white to-blue-50/80 p-6 sm:p-8 overflow-hidden">
+                <div className="absolute -top-10 -right-8 w-36 h-36 rounded-full bg-blue-100/50 blur-2xl" />
+                <div className="absolute -bottom-14 left-16 w-40 h-40 rounded-full bg-amber-100/60 blur-2xl" />
+                <div className="relative max-w-xl mx-auto">
+                  <div className="rounded-2xl border border-zinc-200/80 bg-white/90 shadow-sm p-3.5 sm:p-4">
+                    <div className="flex items-center gap-2 pb-3 border-b border-zinc-100">
+                      <div className="w-2 h-2 rounded-full bg-zinc-300" />
+                      <div className="w-2 h-2 rounded-full bg-zinc-300" />
+                      <div className="w-2 h-2 rounded-full bg-zinc-300" />
+                      <div className="ml-2 h-2.5 w-28 rounded-full bg-zinc-100" />
+                    </div>
+                    <div className="mt-4 space-y-2.5">
+                      <div className="flex items-center gap-3 rounded-xl bg-amber-50/80 border border-amber-100 px-3 py-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0">
+                          <span className="text-[10px] font-bold">C</span>
+                        </div>
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-2 w-4/5 rounded-full bg-amber-200/80" />
+                          <div className="h-2 w-2/3 rounded-full bg-amber-100" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-xl bg-blue-50/80 border border-blue-100 px-3 py-2.5 sm:ml-8">
+                        <div className="w-7 h-7 rounded-lg bg-blue-100 border border-blue-200/80 flex items-center justify-center text-[#4880E6] shrink-0">
+                          <span className="text-[10px] font-bold">G</span>
+                        </div>
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-2 w-11/12 rounded-full bg-blue-200/80" />
+                          <div className="h-2 w-3/5 rounded-full bg-blue-100" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 rounded-xl bg-zinc-50 border border-zinc-200/70 px-3 py-2.5 sm:ml-16">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-900 flex items-center justify-center text-white shrink-0">
+                          <span className="text-[10px] font-bold">GPT</span>
+                        </div>
+                        <div className="space-y-1.5 flex-1">
+                          <div className="h-2 w-3/4 rounded-full bg-zinc-300" />
+                          <div className="h-2 w-1/2 rounded-full bg-zinc-200" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">They Answer You</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Every model responds directly to what you actually asked — no dodging, no filler.
-              </p>
+              <div className="p-6 sm:p-7">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-4 shadow-2xs">
+                  <MessagesSquare className="w-4.5 h-4.5" />
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-zinc-900">
+                  ChatGPT, Claude and Gemini in One Conversation
+                </h3>
+                <p className="mt-2 text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                  Ask once and let multiple leading AI models respond to you and to each other. They share the discussion context, so one model can challenge, refine or build on what another has already said.
+                </p>
+              </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.08)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
-                <MessagesSquare className="w-4 h-4" />
+            {/* Create documents */}
+            <motion.div
+              {...scrollRevealProps(0.08)}
+              className="rounded-3xl border border-zinc-200/80 bg-white overflow-hidden shadow-2xs"
+            >
+              <div className="relative min-h-[210px] sm:min-h-[230px] bg-zinc-50/80 p-6 flex items-center justify-center overflow-hidden">
+                <div className="absolute top-6 left-5 w-24 h-24 rounded-full bg-amber-100/50 blur-2xl" />
+                <div className="relative w-44 h-36">
+                  <div className="absolute inset-x-5 top-1 h-32 rounded-xl border border-zinc-200 bg-white shadow-sm rotate-[-5deg] p-3">
+                    <div className="flex justify-between items-center">
+                      <div className="h-2.5 w-16 rounded-full bg-zinc-800" />
+                      <span className="text-[8px] font-bold text-[#4880E6]">DOCX</span>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <div className="h-1.5 rounded-full bg-zinc-200" />
+                      <div className="h-1.5 w-5/6 rounded-full bg-zinc-200" />
+                      <div className="h-1.5 w-3/4 rounded-full bg-zinc-200" />
+                    </div>
+                  </div>
+                  <div className="absolute inset-x-5 top-3 h-32 rounded-xl border border-blue-100 bg-white shadow-md rotate-[5deg] p-3">
+                    <div className="flex justify-between items-center">
+                      <div className="h-2.5 w-14 rounded-full bg-zinc-800" />
+                      <span className="text-[8px] font-bold text-[#D94726]">PDF</span>
+                    </div>
+                    <div className="mt-3 h-12 rounded-lg bg-blue-50 border border-blue-100" />
+                    <div className="mt-2 space-y-1.5">
+                      <div className="h-1.5 rounded-full bg-zinc-200" />
+                      <div className="h-1.5 w-2/3 rounded-full bg-zinc-200" />
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">They Answer Each Other</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Models read one another&apos;s responses live and react — agreeing, correcting, or pushing back.
-              </p>
+              <div className="p-6">
+                <div className="w-9 h-9 rounded-xl bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-4 shadow-2xs">
+                  <FileText className="w-4.5 h-4.5" />
+                </div>
+                <h3 className="text-base font-semibold text-zinc-900">
+                  Create Word Documents and PDFs
+                </h3>
+                <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
+                  Turn a conversation into a polished downloadable DOCX or PDF with structured text, tables, layouts and images.
+                </p>
+              </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.12)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
-                <ArrowUpDown className="w-4 h-4" />
+            {/* Edit documents */}
+            <motion.div
+              {...scrollRevealProps(0.12)}
+              className="rounded-3xl border border-zinc-200/80 bg-white overflow-hidden shadow-2xs"
+            >
+              <div className="min-h-[185px] bg-amber-50/50 p-6 flex items-center justify-center">
+                <div className="relative w-full max-w-[220px] rounded-2xl border border-zinc-200 bg-white shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="h-2.5 w-20 rounded-full bg-zinc-800" />
+                    <Edit3 className="w-4 h-4 text-[#D94726]" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-2 rounded-full bg-zinc-200" />
+                    <div className="h-2 w-5/6 rounded-full bg-zinc-200" />
+                    <div className="relative h-7 rounded-md bg-amber-50 border border-amber-200/80">
+                      <div className="absolute left-2 top-2 h-2 w-3/5 rounded-full bg-amber-300" />
+                    </div>
+                    <div className="h-2 w-3/4 rounded-full bg-zinc-200" />
+                  </div>
+                </div>
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">You Set the Order</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Choose who goes first, second, and third. Reorder the discussion however you want.
-              </p>
+              <div className="p-6">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-4 shadow-2xs">
+                  <Edit3 className="w-4.5 h-4.5" />
+                </div>
+                <h3 className="text-base font-semibold text-zinc-900">
+                  Edit Existing Documents
+                </h3>
+                <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
+                  Upload a Word document or PDF, ask for changes in plain English, and keep refining the result without starting from scratch.
+                </p>
+              </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.16)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-3 shadow-2xs">
-                <RefreshCw className="w-4 h-4" />
+            {/* Images */}
+            <motion.div
+              {...scrollRevealProps(0.16)}
+              className="lg:col-span-2 rounded-3xl border border-zinc-200/80 bg-white overflow-hidden shadow-2xs"
+            >
+              <div className="relative min-h-[185px] bg-gradient-to-r from-blue-50/80 via-white to-indigo-50/70 p-6 overflow-hidden">
+                <div className="absolute -top-12 right-12 w-36 h-36 rounded-full bg-blue-200/40 blur-3xl" />
+                <div className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-3 max-w-xl mx-auto">
+                  <div className="rounded-2xl border border-zinc-200 bg-white shadow-sm p-2.5">
+                    <div className="aspect-[4/3] rounded-xl bg-gradient-to-br from-zinc-100 to-blue-100 flex items-center justify-center">
+                      <ImageIcon className="w-8 h-8 text-zinc-400" />
+                    </div>
+                    <div className="mt-2 h-2 w-2/3 rounded-full bg-zinc-200" />
+                  </div>
+                  <div className="w-9 h-9 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-sm">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="rounded-2xl border border-blue-200 bg-white shadow-sm p-2.5">
+                    <div className="aspect-[4/3] rounded-xl bg-gradient-to-br from-[#4880E6]/20 to-cyan-100 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-xl bg-white/80 border border-white shadow-sm flex items-center justify-center">
+                        <Sparkles className="w-5 h-5 text-[#4880E6]" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <div className="h-2 w-1/2 rounded-full bg-blue-200" />
+                      <span className="text-[8px] font-semibold text-[#4880E6]">SVG</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Swap Anyone, Anytime</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Not vibing with a model&apos;s take? Remove it or bring in a different one mid-discussion.
-              </p>
+              <div className="p-6 sm:p-7">
+                <div className="w-9 h-9 rounded-xl bg-[#4880E6]/10 border border-[#4880E6]/20 flex items-center justify-center text-[#4880E6] mb-4 shadow-2xs">
+                  <ImageIcon className="w-4.5 h-4.5" />
+                </div>
+                <h3 className="text-base sm:text-lg font-semibold text-zinc-900">
+                  Generate and Edit Images
+                </h3>
+                <p className="mt-2 text-sm text-zinc-500 leading-relaxed max-w-2xl">
+                  Create new images or edit existing ones inside the discussion. Preview and download SVG artwork, then let the other AIs inspect the visual and continue working from it.
+                </p>
+              </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.20)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-[#D64A2A]/10 border border-[#D64A2A]/20 flex items-center justify-center text-[#D64A2A] mb-3 shadow-2xs">
-                <Trophy className="w-4 h-4" />
+            {/* Analyse */}
+            <motion.div
+              {...scrollRevealProps(0.20)}
+              className="rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xs"
+            >
+              <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#4880E6] mb-4 shadow-2xs">
+                <Search className="w-4.5 h-4.5" />
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">The Best of All Three</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                Walk away with the strongest answer — not just one model&apos;s opinion.
+              <h3 className="text-base font-semibold text-zinc-900">
+                Analyse Files and Images Together
+              </h3>
+              <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
+                Work with PDFs, Word files, images and text files without repeatedly moving the same material between separate AI apps.
               </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {['PDF', 'DOCX', 'Images', 'Text'].map((label) => (
+                  <span
+                    key={label}
+                    className="px-2.5 py-1 rounded-full bg-zinc-50 border border-zinc-200/80 text-[10px] font-medium text-zinc-500"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
             </motion.div>
 
-            <motion.div {...scrollRevealProps(0.24)} className="p-4 rounded-xl bg-white border border-zinc-100 shadow-2xs">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-3 shadow-2xs">
-                <Eye className="w-4 h-4" />
+            {/* Research */}
+            <motion.div
+              {...scrollRevealProps(0.24)}
+              className="rounded-3xl border border-zinc-200/80 bg-white p-6 shadow-2xs"
+            >
+              <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-900 mb-4 shadow-2xs">
+                <Globe2 className="w-4.5 h-4.5" />
               </div>
-              <h3 className="font-semibold text-sm text-zinc-900 mb-1">Watch It Unfold Live</h3>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                See the full reasoning and back-and-forth in real time, not just a final answer.
+              <h3 className="text-base font-semibold text-zinc-900">
+                Research and Build on Shared Context
+              </h3>
+              <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
+                Search the web when needed, revisit earlier material, compare perspectives and keep the work moving inside one ongoing discussion.
               </p>
+              <div className="mt-5 rounded-xl bg-zinc-50 border border-zinc-200/70 p-3">
+                <div className="flex items-center gap-2 text-[10px] font-medium text-zinc-500">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                  Shared discussion context
+                </div>
+              </div>
             </motion.div>
           </div>
 
-          <motion.div {...scrollRevealProps(0.28)} className="flex justify-center mt-10">
+          <motion.div {...scrollRevealProps(0.28)} className="mt-10 flex flex-col items-center gap-3">
             <button
               onClick={() => handleOpenAuth('signup')}
-              className="px-10 py-3 rounded-full bg-[#4880E6] hover:bg-[#3a6fd0] text-white font-medium text-sm shadow-sm transition-colors cursor-pointer"
+              className="flex items-center gap-2 px-7 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
             >
-              Try it now for free
+              <span>Start your AI panel for free</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
+            <p className="text-[11px] text-zinc-400">No card required.</p>
           </motion.div>
         </section>
 
