@@ -52,6 +52,95 @@ jevSource = replaceOnce(
   'Jev control context state'
 );
 
+
+jevSource = replaceOnce(
+  jevSource,
+  `  const questions = {
+    historical_conversation_needed: {`,
+  `  const questions = {
+    conversation_memory_evidence_needed: {
+      type: 'noul',
+      instructions:
+        'Does answering current_user_message actually require using prior conversation content as evidence or context? This includes recalling, locating, comparing, verifying, continuing, or resolving an underspecified reference from prior turns. A self-contained substantive statement or opinion about the same topic should be near 0 even if recent_context is related.',
+    },
+    historical_conversation_needed: {`,
+  'Jev conversation-memory evidence question'
+);
+
+jevSource = replaceOnce(
+  jevSource,
+  `  const historicalSignal = getNoul(
+    answers,
+    'historical_conversation_needed'
+  );`,
+  `  const memoryEvidenceSignal = getNoul(
+    answers,
+    'conversation_memory_evidence_needed'
+  );
+  const historicalSignal = getNoul(
+    answers,
+    'historical_conversation_needed'
+  );`,
+  'Jev conversation-memory evidence signal'
+);
+
+jevSource = replaceOnce(
+  jevSource,
+  `  const summaryNeeded =
+    (summarySignal >= 0.6 && historicalSignal >= 0.55) ||
+    (summarySignal >= 0.75 && historicalSignal >= 0.35);`,
+  `  const conversationMemoryAllowed =
+    memoryEvidenceSignal >= 0.5;
+
+  if (!conversationMemoryAllowed) {
+    recentNeeded = false;
+    semanticNeeded = false;
+    chronologyNeeded = false;
+  }
+
+  const summaryNeeded =
+    conversationMemoryAllowed &&
+    (
+      (summarySignal >= 0.6 && historicalSignal >= 0.55) ||
+      (summarySignal >= 0.75 && historicalSignal >= 0.35)
+    );`,
+  'Jev conversation-memory retrieval gate'
+);
+
+jevSource = replaceOnce(
+  jevSource,
+  `    escalationSuggested:
+      incompleteEmptyHistoricalCallback ||
+      (!recentOnlyPlanIsComplete &&
+        getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
+        memoryAmbiguitySignal),`,
+  `    escalationSuggested:
+      (
+        memoryEvidenceSignal >= 0.35 &&
+        incompleteEmptyHistoricalCallback
+      ) ||
+      (
+        memoryEvidenceSignal >= 0.35 &&
+        !recentOnlyPlanIsComplete &&
+        getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
+        memoryAmbiguitySignal
+      ),`,
+  'Jev memory escalation gate'
+);
+
+jevSource = replaceOnce(
+  jevSource,
+  `  const state = {
+    current_user_message: memoryControlContext.currentRequest,
+    recent_context: memoryControlContext.recentRounds,`,
+  `  const state = {
+    current_user_message: memoryControlContext.currentRequest,
+    immediate_prior_user_message:
+      memoryControlContext.immediatePriorUserMessage,
+    recent_context: memoryControlContext.recentRounds,`,
+  'Jev immediate prior user focus'
+);
+
 fs.writeFileSync(jevPath, jevSource);
 
 // 2) Build one packet once in the debate route and reuse it everywhere.
@@ -210,6 +299,17 @@ routeSource = replaceOnce(
                               ambiguityReason: reason,
                               selectionRole,`,
   'Ambiguity resolver shared context'
+);
+
+
+routeSource = routeSource.replace(
+  'from controlContext.recentRounds before writing the topic query.',
+  'First inspect controlContext.immediatePriorUserMessage. If it states a clear topic, preserve that user-stated semantic scope as the primary referent; use controlContext.recentRounds only to disambiguate it, not to replace or broaden it with panel elaborations. Never include a speaker identity in the topic query unless that speaker is intrinsically part of the topic itself.'
+);
+
+routeSource = routeSource.replace(
+  'If the described anchor depends on pronouns, ellipsis, or an implicit referent, resolve it from controlContext.recentRounds. Return JSON only:',
+  'If the described anchor depends on pronouns, ellipsis, or an implicit referent, first inspect controlContext.immediatePriorUserMessage and preserve its semantic scope when it clearly supplies the referent; use controlContext.recentRounds only for disambiguation. Return JSON only:'
 );
 
 fs.writeFileSync(routePath, routeSource);
