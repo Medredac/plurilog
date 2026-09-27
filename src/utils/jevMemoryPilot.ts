@@ -1,4 +1,5 @@
 import type { Round } from '@/utils/discussionMemory';
+// Vercel preview redeploy trigger; no runtime behavior change.
 
 const DEFAULT_JEV_MODEL = '~typesafe/jev-latest';
 const DECISIONS_URL = 'https://openrouter.ai/api/alpha/decisions';
