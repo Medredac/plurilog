@@ -5641,33 +5641,39 @@ export async function POST(req: NextRequest) {
                     typeof createServiceClient
                   > | null = null;
 
-                  if (discussionId) {
+                  if (
+                    discussionId &&
+                    (jevAllowsDocumentSearch ||
+                      jevAllowsHistoricalVisualEvidence)
+                  ) {
                     const isOwner = await verifyDiscussionOwnership(
                       supabase,
                       discussionId
                     );
                     if (isOwner) {
                       serviceClientForEvidence = createServiceClient();
-                      latestKnownSources = await fetchKnownImageSources(
-                        serviceClientForEvidence,
-                        discussionId
-                      );
-                      if (lastRound?.userMessageId) {
-                        lastRoundEvidenceForBroker =
-                          await fetchMessageVisualEvidence(
-                            serviceClientForEvidence,
-                            discussionId,
-                            lastRound.userMessageId
-                          );
+                      if (jevAllowsHistoricalVisualEvidence) {
+                        latestKnownSources = await fetchKnownImageSources(
+                          serviceClientForEvidence,
+                          discussionId
+                        );
+                        if (lastRound?.userMessageId) {
+                          lastRoundEvidenceForBroker =
+                            await fetchMessageVisualEvidence(
+                              serviceClientForEvidence,
+                              discussionId,
+                              lastRound.userMessageId
+                            );
+                        }
                       }
                     }
                   }
 
-                  // Keep the broker inventory authoritative even if the first seat sees a
-                  // momentarily stale memory snapshot.
-                  const brokerKnownDocuments = [
-                    ...(discussionMemory?.knownDocuments || []),
-                  ];
+                  // Keep historical broker inventory behind the controller plan.
+                  // Current-round attachments are appended below regardless.
+                  const brokerKnownDocuments = jevAllowsDocumentSearch
+                    ? [...(discussionMemory?.knownDocuments || [])]
+                    : [];
                   const seenBrokerDocuments = new Set(
                     brokerKnownDocuments.map(
                       (doc) =>
@@ -5706,7 +5712,9 @@ export async function POST(req: NextRequest) {
                     seenBrokerDocuments.add(identity);
                   }
 
-                  for (const round of discussionMemory?.recentRounds || []) {
+                  for (const round of jevAllowsDocumentSearch
+                    ? discussionMemory?.recentRounds || []
+                    : []) {
                     for (const attachment of round.attachments || []) {
                       const filename = attachment.filename || '';
                       const storagePath = attachment.storagePath || null;
@@ -5778,7 +5786,8 @@ export async function POST(req: NextRequest) {
                   if (
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
-                    serviceClientForEvidence
+                    serviceClientForEvidence &&
+                    jevAllowsDocumentSearch
                   ) {
                     if (userRequestedUserUploadedDocument) {
                       const userUploads =
@@ -6043,22 +6052,40 @@ export async function POST(req: NextRequest) {
                             },
                             {
                               knownDocuments: brokerKnownDocuments,
-                              retrievedDocuments,
+                              retrievedDocuments:
+                                jevAllowsDocumentSearch
+                                  ? retrievedDocuments
+                                  : [],
                               recentRounds:
-                                discussionMemory?.recentRounds,
-                              knownImageSources: latestKnownSources,
+                                jevAllowsDocumentSearch ||
+                                jevAllowsHistoricalVisualEvidence
+                                  ? discussionMemory?.recentRounds
+                                  : [],
+                              knownImageSources:
+                                jevAllowsHistoricalVisualEvidence
+                                  ? latestKnownSources
+                                  : [],
                               lastRoundEvidence:
-                                lastRoundEvidenceForBroker,
+                                jevAllowsHistoricalVisualEvidence
+                                  ? lastRoundEvidenceForBroker
+                                  : [],
                               recentEvidenceSets: [],
                               visualContext:
+                                jevAllowsHistoricalVisualEvidence &&
                                 isPersistentVisualContextReadsEnabled()
                                   ? visualContextState
                                   : null,
                               previousUserPrompt:
-                                lastRound?.userPrompt,
+                                jevAllowsDocumentSearch ||
+                                jevAllowsHistoricalVisualEvidence
+                                  ? lastRound?.userPrompt
+                                  : undefined,
                               currentUserPrompt: prompt,
                               allUserMessageIds:
-                                discussionMemory?.allUserMessageIds,
+                                jevAllowsDocumentSearch ||
+                                jevAllowsHistoricalVisualEvidence
+                                  ? discussionMemory?.allUserMessageIds
+                                  : [],
                             }
                           );
 
