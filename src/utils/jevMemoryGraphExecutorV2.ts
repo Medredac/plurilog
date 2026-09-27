@@ -68,6 +68,24 @@ function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
 }
 
+function executableTemporalRelation(
+  constraints: JevMemoryPlanConstraints
+): string | null {
+  const relation = constraints.temporalRelation;
+  if (
+    relation === 'previous' &&
+    constraints.chronologyRole !== 'direct_position' &&
+    (
+      (constraints.anchorSource && constraints.anchorSource !== 'none') ||
+      (constraints.anchorOccurrence &&
+        constraints.anchorOccurrence !== 'none')
+    )
+  ) {
+    return 'before';
+  }
+  return relation;
+}
+
 function topoSort(
   operations: ConversationMemoryOperation[],
   dependencies: MemoryGraphDependency[]
@@ -200,7 +218,7 @@ function selectOccurrence(
     };
   }
 
-  const relation = constraints.temporalRelation;
+  const relation = executableTemporalRelation(constraints);
   if (relation === 'first') {
     return { selectedIds: [ordered[0]], needsResolver: false, reason: null };
   }
@@ -327,7 +345,7 @@ function directSpeakerChronology(
 
   if (evidence.length === 0) return [];
 
-  const relation = constraints.temporalRelation;
+  const relation = executableTemporalRelation(constraints);
   if (relation === 'first') return [evidence[0]];
   if (relation === 'last' || relation === 'previous') {
     return [evidence[evidence.length - 1]];
@@ -527,6 +545,10 @@ export async function executeConversationMemoryGraph(
         continue;
       }
 
+      const temporalRelation = executableTemporalRelation(
+        options.constraints
+      );
+
       if (options.constraints.chronologyRole === 'direct_position') {
         finalEvidence = directSpeakerChronology(
           options.allRounds,
@@ -534,15 +556,15 @@ export async function executeConversationMemoryGraph(
           options.constraints
         );
       } else if (
-        (options.constraints.temporalRelation === 'before' ||
-          options.constraints.temporalRelation === 'after') &&
+        (temporalRelation === 'before' ||
+          temporalRelation === 'after') &&
         selectedRoundUserMessageIds.length === 1
       ) {
         const item = relativeSpeakerEvidence(
           options.allRounds,
           selectedRoundUserMessageIds[0],
           target,
-          options.constraints.temporalRelation
+          temporalRelation
         );
         finalEvidence = item ? [item] : [];
       } else {
@@ -599,15 +621,18 @@ export async function executeConversationMemoryGraph(
 
       const target = speakerName(options.constraints.speaker);
       if (target) {
+        const temporalRelation = executableTemporalRelation(
+          options.constraints
+        );
         if (
-          options.constraints.temporalRelation === 'before' ||
-          options.constraints.temporalRelation === 'after'
+          temporalRelation === 'before' ||
+          temporalRelation === 'after'
         ) {
           const item = relativeSpeakerEvidence(
             options.allRounds,
             resolverSelectedId,
             target,
-            options.constraints.temporalRelation
+            temporalRelation
           );
           finalEvidence = item ? [item] : [];
         } else {
