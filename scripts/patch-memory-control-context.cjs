@@ -119,6 +119,11 @@ jevSource = replaceOnce(
   `    escalationSuggested:
       (
         memoryEvidenceSignal >= 0.35 &&
+        memoryEvidenceSignal < 0.7 &&
+        memoryAmbiguitySignal
+      ) ||
+      (
+        memoryEvidenceSignal >= 0.35 &&
         incompleteEmptyHistoricalCallback
       ) ||
       (
