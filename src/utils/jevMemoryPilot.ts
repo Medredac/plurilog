@@ -222,6 +222,18 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     (primarySourceSignal >= 0.55 &&
       (historicalSignal >= 0.1 || recentSignal >= 0.5));
 
+  const speakerTopicCallbackNeedsSemantic =
+    speakerSupported &&
+    semanticRole === 'find_topic' &&
+    semanticRoleSupported &&
+    recentSignal >= 0.8 &&
+    semanticSignal >= 0.3 &&
+    chronologyRole !== 'direct_position';
+
+  if (speakerTopicCallbackNeedsSemantic) {
+    semanticNeeded = true;
+  }
+
   // A chronological plan that explicitly says its anchor comes from semantic
   // retrieval must include semantic retrieval even when its broad semantic
   // score is only moderate.
