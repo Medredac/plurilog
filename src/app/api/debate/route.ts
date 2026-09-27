@@ -47,6 +47,7 @@ import {
 } from '@/utils/discussionMemory';
 import {
   buildJevMemoryDependencies,
+  closeJevMemoryOperationsUnderConstraints,
   isJevMemoryPilotShadowEnabled,
   runJevMemoryPilotShadow,
 } from '@/utils/jevMemoryPilot';
@@ -2644,7 +2645,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan; omit any proposed operation that should not execute. When overrideNeeded is false, operations may be empty because the proposed plan will be kept unchanged. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, use semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence. Distinguish provenance/original-source requests from actual before/after chronological navigation: do not include chronology merely because words like earlier, original, or first refer to provenance when semantic retrieval can identify the requested source directly.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan; omit any proposed operation that should not execute. When overrideNeeded is false, operations may be empty because the proposed plan will be kept unchanged. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, use semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence. Distinguish provenance/original-source requests from actual before/after chronological navigation: do not include chronology merely because words like earlier or original refer only to provenance. But if the user explicitly asks for a temporal selection such as first, last, previous, before, after, or a numbered occurrence, the final plan must retain chronology. If the user asks for a specific historical speaker, the final plan must retain speaker_filter. If the topic/referent depends on recent_context, retain recent_exact when semantic_history or chronology still needs that referent.',
                   },
                   {
                     role: 'user',
@@ -2687,16 +2688,21 @@ export async function POST(req: NextRequest) {
         // Resolver overrides are complete final plans, not additive patches.
         // This allows System 2 to remove a mistakenly proposed operator such
         // as chronology when provenance validation should select the source.
-        const requestedOperations =
+        const resolverRequestedOperations =
           resolverResolution?.overrideNeeded &&
           Array.isArray(resolverResolution?.operations)
-            ? new Set<string>(
-                resolverResolution.operations.filter(
-                  (operation: unknown): operation is string =>
-                    typeof operation === 'string'
-                )
+            ? resolverResolution.operations.filter(
+                (operation: unknown): operation is string =>
+                  typeof operation === 'string'
               )
-            : new Set<string>(result.compiledPlan.operations);
+            : result.compiledPlan.operations;
+
+        const closedOperations = closeJevMemoryOperationsUnderConstraints(
+          resolverRequestedOperations,
+          result.compiledPlan.operations,
+          result.compiledPlan.constraints
+        );
+        const requestedOperations = new Set<string>(closedOperations);
 
         const operationOrder = [
           'recent_exact',
