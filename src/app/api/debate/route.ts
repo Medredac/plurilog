@@ -5213,12 +5213,13 @@ export async function POST(req: NextRequest) {
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
                   const serviceClientForDocument = createServiceClient();
-                  const knownDocumentImages = discussionId
-                    ? await fetchKnownImageSources(
-                        serviceClientForDocument,
-                        discussionId
-                      )
-                    : [];
+                  const knownDocumentImages =
+                    discussionId && jevAllowsHistoricalVisualEvidence
+                      ? await fetchKnownImageSources(
+                          serviceClientForDocument,
+                          discussionId
+                        )
+                      : [];
                   const currentMessageEvidence =
                     discussionId && sourceUserMessageId
                       ? await fetchMessageVisualEvidence(
@@ -5285,7 +5286,9 @@ export async function POST(req: NextRequest) {
                       fileArgs.source_docx_filename.trim()
                         ? latestDocxSourceFromContext({
                             currentRoundAttachments,
-                            knownDocuments: discussionMemory?.knownDocuments || [],
+                            knownDocuments: jevAllowsDocumentSearch
+                              ? discussionMemory?.knownDocuments || []
+                              : [],
                             preferredFilename: fileArgs.source_docx_filename.trim(),
                           })
                         : null;
@@ -5296,7 +5299,9 @@ export async function POST(req: NextRequest) {
                       isSimplePdfFormatConversionRequest(prompt || '')
                         ? latestDocxSourceFromContext({
                             currentRoundAttachments,
-                            knownDocuments: discussionMemory?.knownDocuments || [],
+                            knownDocuments: jevAllowsDocumentSearch
+                              ? discussionMemory?.knownDocuments || []
+                              : [],
                           })
                         : null);
 
@@ -5319,13 +5324,26 @@ export async function POST(req: NextRequest) {
                       sourceDocx,
                       availableImages: availableDocumentImages,
                       resourceContext: {
-                        knownDocuments:
-                          discussionMemory?.knownDocuments || [],
-                        retrievedDocuments,
-                        recentRounds: discussionMemory?.recentRounds || [],
-                        knownImageSources: knownDocumentImages || [],
+                        knownDocuments: jevAllowsDocumentSearch
+                          ? discussionMemory?.knownDocuments || []
+                          : [],
+                        retrievedDocuments: jevAllowsDocumentSearch
+                          ? retrievedDocuments
+                          : [],
+                        recentRounds:
+                          jevAllowsDocumentSearch ||
+                          jevAllowsHistoricalVisualEvidence
+                            ? discussionMemory?.recentRounds || []
+                            : [],
+                        knownImageSources:
+                          jevAllowsHistoricalVisualEvidence
+                            ? knownDocumentImages || []
+                            : [],
                         lastRoundEvidence: currentMessageEvidence,
-                        visualContext: visualContextState,
+                        visualContext:
+                          jevAllowsHistoricalVisualEvidence
+                            ? visualContextState
+                            : null,
                         currentUserPrompt: prompt,
                       },
                       onImageCost: (event) => {
