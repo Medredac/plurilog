@@ -27,14 +27,20 @@ if (!source.includes('topicScopedSummaryNeedsAdjudication')) {
           typeof rollingSummaryAnswer.noul === 'number'
             ? rollingSummaryAnswer.noul
             : 0;
+        const conversationMemoryEvidenceAnswer =
+          result.answers?.conversation_memory_evidence_needed;
+        const conversationMemoryEvidenceSignal =
+          conversationMemoryEvidenceAnswer?.type === 'noul' &&
+          typeof conversationMemoryEvidenceAnswer.noul === 'number'
+            ? conversationMemoryEvidenceAnswer.noul
+            : 0;
         const semanticRoleAnswer =
           result.answers?.semantic_role;
         const topicSourceAnswer =
           result.answers?.topic_source;
 
         const topicScopedSummaryNeedsAdjudication =
-          result.compiledPlan.operations.includes('rolling_summary') &&
-          !result.compiledPlan.operations.includes('semantic_history') &&
+          conversationMemoryEvidenceSignal >= 0.7 &&
           rollingSummarySignal >= 0.7 &&
           semanticHistorySignal >= 0.3 &&
           semanticRoleAnswer?.type === 'choice' &&
