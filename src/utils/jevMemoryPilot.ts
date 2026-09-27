@@ -68,6 +68,115 @@ export type JevMemoryPilotShadowResult = {
   };
 };
 
+export type JevMemoryOperation =
+  | 'recent_exact'
+  | 'semantic_history'
+  | 'chronology'
+  | 'rolling_summary'
+  | 'document_search'
+  | 'visual_evidence'
+  | 'speaker_filter';
+
+export type JevMemoryPlanConstraints =
+  JevMemoryPilotShadowResult['compiledPlan']['constraints'];
+
+export function buildJevMemoryDependencies(
+  operations: string[],
+  constraints: JevMemoryPlanConstraints
+): Array<{ from: string; to: string; reason: string }> {
+  const active = new Set(operations);
+  const dependencies: Array<{ from: string; to: string; reason: string }> = [];
+  const add = (from: JevMemoryOperation, to: JevMemoryOperation, reason: string) => {
+    if (
+      active.has(from) &&
+      active.has(to) &&
+      !dependencies.some((item) => item.from === from && item.to === to)
+    ) {
+      dependencies.push({ from, to, reason });
+    }
+  };
+
+  if (
+    constraints.chronologyRole === 'scope_for_semantic' &&
+    active.has('chronology') &&
+    active.has('semantic_history')
+  ) {
+    add(
+      'chronology',
+      'semantic_history',
+      'Chronology establishes the historical scope before semantic retrieval.'
+    );
+  } else if (
+    active.has('semantic_history') &&
+    active.has('chronology') &&
+    (
+      constraints.anchorSource === 'semantic_result' ||
+      constraints.chronologyRole === 'select_anchor_occurrence' ||
+      constraints.chronologyRole === 'navigate_from_anchor'
+    )
+  ) {
+    add(
+      'semantic_history',
+      'chronology',
+      'Semantic retrieval supplies the historical candidates or anchor consumed by chronology.'
+    );
+  }
+
+  if (
+    constraints.topicSource === 'recent_context' &&
+    active.has('recent_exact') &&
+    active.has('semantic_history')
+  ) {
+    add(
+      'recent_exact',
+      'semantic_history',
+      'Recent context supplies the topic or referent for semantic retrieval.'
+    );
+  }
+
+  if (
+    constraints.anchorSource === 'recent_context' &&
+    active.has('recent_exact') &&
+    active.has('chronology')
+  ) {
+    add(
+      'recent_exact',
+      'chronology',
+      'Recent context supplies the anchor for chronological navigation.'
+    );
+  }
+
+  add(
+    'document_search',
+    'visual_evidence',
+    'Document identity must be resolved before canonical visual inspection.'
+  );
+
+  if (active.has('speaker_filter')) {
+    if (active.has('chronology')) {
+      add(
+        'chronology',
+        'speaker_filter',
+        'Speaker filtering consumes chronologically selected evidence.'
+      );
+    } else if (active.has('semantic_history')) {
+      add(
+        'semantic_history',
+        'speaker_filter',
+        'Speaker filtering consumes semantically selected historical evidence.'
+      );
+    } else if (active.has('recent_exact')) {
+      add(
+        'recent_exact',
+        'speaker_filter',
+        'Speaker filtering consumes recent exact evidence.'
+      );
+    }
+  }
+
+  return dependencies;
+}
+
 export function isJevMemoryPilotShadowEnabled(): boolean {
   const configured = process.env.JEV_MEMORY_PILOT_SHADOW;
   if (configured === 'true') return true;
