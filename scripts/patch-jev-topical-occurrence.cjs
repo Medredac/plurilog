@@ -211,7 +211,88 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                           selected = selected.filter((row: any) =>
                             allowedIds.has(row?.source_user_message_id)
                           );
-                          console.log(
+                          
+const oldTopicQueryInstruction = `                                  'Formulate a semantic retrieval query for the HISTORICAL TOPIC only. Do not answer the user. Remove meta-language about which speaker said something and about first, last, previous, before, after, or ordinal position. Return JSON only: {"topicQuery":string}. Preserve the topic meaning and distinctive concepts needed to retrieve every historical round about that topic.',`;
+
+const newTopicQueryInstruction = `                                  'Formulate a semantic retrieval query for the HISTORICAL TOPIC only. Do not answer the user. Remove meta-language about which speaker said something and about first, last, previous, before, after, or ordinal position. If topicSource is recent_context, resolve pronouns or underspecified references such as that, it, this, or the issue from the supplied recentContext before writing the topic query. Return JSON only: {"topicQuery":string}. Preserve the resolved topic meaning and distinctive concepts needed to retrieve every historical round about that topic.',`;
+
+const oldTopicQueryPayload = `                                content: JSON.stringify({
+                                  currentRequest: prompt,
+                                  constraints: jevEffectiveConstraints,
+                                }),`;
+
+const newTopicQueryPayload = `                                content: JSON.stringify({
+                                  currentRequest: prompt,
+                                  constraints: jevEffectiveConstraints,
+                                  recentContext:
+                                    jevEffectiveConstraints?.topicSource ===
+                                    'recent_context'
+                                      ? (
+                                          discussionMemory?.recentRounds || []
+                                        )
+                                          .slice(-3)
+                                          .map((round) => ({
+                                            userPrompt: (
+                                              round.userPrompt || ''
+                                            ).slice(0, 1000),
+                                            modelResponses: (
+                                              round.modelResponses || []
+                                            ).map((response) => ({
+                                              name: response.name,
+                                              content: (
+                                                response.content || ''
+                                              ).slice(0, 500),
+                                            })),
+                                          }))
+                                      : [],
+                                  composedSemanticQuery: semanticQuery,
+                                }),`;
+
+const topicQueryContextAlreadyPatched =
+  routeSource.includes('composedSemanticQuery: semanticQuery');
+
+if (
+  !routeSource.includes(oldTopicQueryInstruction) &&
+  !topicQueryContextAlreadyPatched
+) {
+  throw new Error('Topic-query instruction target not found');
+}
+
+if (
+  !routeSource.includes(oldTopicQueryPayload) &&
+  !topicQueryContextAlreadyPatched
+) {
+  throw new Error('Topic-query payload target not found');
+}
+
+if (!topicQueryContextAlreadyPatched) {
+  routeSource = routeSource.replace(
+    oldTopicQueryInstruction,
+    newTopicQueryInstruction
+  );
+
+  const topicQueryInstructionIndex =
+    routeSource.indexOf(newTopicQueryInstruction);
+  const payloadIndex = routeSource.indexOf(
+    oldTopicQueryPayload,
+    topicQueryInstructionIndex
+  );
+
+  if (payloadIndex === -1) {
+    throw new Error('Topic-query payload not found after instruction');
+  }
+
+  routeSource =
+    routeSource.slice(0, payloadIndex) +
+    newTopicQueryPayload +
+    routeSource.slice(
+      payloadIndex + oldTopicQueryPayload.length
+    );
+
+  fs.writeFileSync(routePath, routeSource);
+}
+
+console.log(
                             '[Jev Topical Occurrence Filter]',
                             {
                               model:
