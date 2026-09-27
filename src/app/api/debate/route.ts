@@ -2759,6 +2759,13 @@ export async function POST(req: NextRequest) {
         const jevControllerOwnsConversationMemory = Boolean(
           isJevMemoryPilotShadowEnabled() && jevControllerState
         );
+        const jevEffectiveDependencies = Array.isArray(
+          jevControllerState?.effectiveDependencies
+        )
+          ? jevControllerState.effectiveDependencies
+          : [];
+        const jevEffectiveConstraints =
+          jevControllerState?.effectiveConstraints || null;
         const jevAllowsSemanticConversationMemory =
           !jevControllerOwnsConversationMemory ||
           jevEffectiveOperations.includes('semantic_history');
@@ -2795,7 +2802,7 @@ export async function POST(req: NextRequest) {
         // Keep the richer discussionMemory object available to internal
         // document/visual resolvers, but expose conversation memory to panel
         // models only when the effective controller plan authorizes it.
-        const panelDiscussionMemory: DiscussionMemoryResult | undefined =
+        let panelDiscussionMemory: DiscussionMemoryResult | undefined =
           discussionMemory
             ? {
                 ...discussionMemory,
@@ -2908,6 +2915,186 @@ export async function POST(req: NextRequest) {
           // Attempt hybrid discussion-memory retrieval (non-critical)
           let retrievedMemory: any[] = [];
           let retrievedDocuments: RetrievedDocumentExcerpt[] = [];
+          let composedConversationGraph: ConversationMemoryGraphResult | null = null;
+
+          const conversationGraphOperations = jevEffectiveOperations.filter(
+            (operation) =>
+              [
+                'recent_exact',
+                'rolling_summary',
+                'semantic_history',
+                'chronology',
+                'speaker_filter',
+              ].includes(operation)
+          );
+
+          if (
+            jevControllerOwnsConversationMemory &&
+            jevEffectiveConstraints &&
+            discussionId &&
+            prompt?.trim() &&
+            Array.isArray(discussionMemory?.allRounds) &&
+            discussionMemory!.allRounds!.length > 0 &&
+            conversationGraphOperations.length > 0 &&
+            !req.signal.aborted
+          ) {
+            try {
+              composedConversationGraph = await executeConversationMemoryGraph({
+                prompt,
+                operations: jevEffectiveOperations,
+                dependencies: jevEffectiveDependencies,
+                constraints: jevEffectiveConstraints,
+                allRounds: discussionMemory!.allRounds!,
+                recentRounds: discussionMemory?.recentRounds,
+                summary: discussionMemory?.summary,
+                runSemanticHistory: async (semanticQuery) => {
+                  const embeddingResult = await (openai.embeddings.create as any)(
+                    {
+                      model: 'google/gemini-embedding-2',
+                      dimensions: 1536,
+                      input: semanticQuery,
+                      encoding_format: 'float',
+                    },
+                    {
+                      timeout: 10000,
+                      signal: req.signal,
+                    }
+                  );
+
+                  const queryEmbedding = embeddingResult?.data?.[0]?.embedding;
+                  if (
+                    !Array.isArray(queryEmbedding) ||
+                    queryEmbedding.length !== 1536
+                  ) {
+                    return [];
+                  }
+
+                  const { data: hybridRows, error: searchErr } = await supabase.rpc(
+                    'search_discussion_memory_hybrid',
+                    {
+                      p_discussion_id: discussionId,
+                      p_query_text: semanticQuery,
+                      p_query_embedding: queryEmbedding,
+                      p_match_count: 10,
+                    }
+                  );
+
+                  if (searchErr || !Array.isArray(hybridRows)) {
+                    if (searchErr) {
+                      console.error(
+                        '[Jev Memory Graph] Semantic retrieval failed',
+                        searchErr
+                      );
+                    }
+                    return [];
+                  }
+
+                  const excludedIds = new Set<string>();
+                  for (const round of discussionMemory?.recentRounds || []) {
+                    if (round.userMessageId) excludedIds.add(round.userMessageId);
+                  }
+                  if (sourceUserMessageId) excludedIds.add(sourceUserMessageId);
+
+                  const qualifying = hybridRows.filter((row: any) => {
+                    if (
+                      row?.source_user_message_id &&
+                      excludedIds.has(row.source_user_message_id)
+                    ) {
+                      return false;
+                    }
+                    const semanticMatch =
+                      typeof row?.semantic_similarity === 'number' &&
+                      row.semantic_similarity >= 0.62;
+                    const keywordMatch =
+                      row?.keyword_rank !== null &&
+                      row?.keyword_rank !== undefined;
+                    return semanticMatch || keywordMatch;
+                  });
+
+                  const selected: any[] = [];
+                  let tokenCount = 0;
+                  for (const candidate of qualifying) {
+                    if (selected.length >= 3) break;
+                    const contentText =
+                      typeof candidate?.content === 'string'
+                        ? candidate.content.trim()
+                        : '';
+                    if (!contentText) continue;
+                    const candidateTokens = estimateTokens(contentText);
+                    if (
+                      selected.length === 0 ||
+                      tokenCount + candidateTokens <=
+                        RETRIEVED_MEMORY_TOKEN_BUDGET
+                    ) {
+                      selected.push(candidate);
+                      tokenCount += candidateTokens;
+                    }
+                  }
+
+                  console.log('[Jev Memory Graph] Semantic node complete', {
+                    candidateCount: hybridRows.length,
+                    validatedCount: qualifying.length,
+                    selectedCount: selected.length,
+                    tokenCount,
+                  });
+
+                  return selected;
+                },
+              });
+
+              console.log('[Jev Memory Graph Execution]', {
+                executionOrder: composedConversationGraph.executionOrder,
+                steps: composedConversationGraph.steps,
+                selectedRoundUserMessageIds:
+                  composedConversationGraph.selectedRoundUserMessageIds,
+                finalEvidenceCount:
+                  composedConversationGraph.finalEvidence.length,
+                needsResolver: composedConversationGraph.needsResolver,
+                resolverReason: composedConversationGraph.resolverReason,
+              });
+
+              if (composedConversationGraph.finalEvidence.length === 1) {
+                const exactEvidence =
+                  composedConversationGraph.finalEvidence[0];
+                discussionMemory = {
+                  ...discussionMemory,
+                  chronologicalMemory: exactEvidence,
+                };
+                panelDiscussionMemory = panelDiscussionMemory
+                  ? {
+                      ...panelDiscussionMemory,
+                      chronologicalMemory: exactEvidence,
+                    }
+                  : panelDiscussionMemory;
+              } else if (
+                composedConversationGraph.finalEvidence.length > 1
+              ) {
+                retrievedMemory =
+                  composedConversationGraph.finalEvidence.map((item) => ({
+                    source_user_message_id:
+                      item.roundUserMessageId || null,
+                    content: `${item.speaker || 'Historical speaker'}: ${item.content}`,
+                    graph_evidence: true,
+                  }));
+              } else if (
+                composedConversationGraph.semanticRows.length > 0
+              ) {
+                retrievedMemory = composedConversationGraph.semanticRows;
+              }
+            } catch (graphErr: any) {
+              console.error('[Jev Memory Graph Execution] Non-critical failure', {
+                message: graphErr?.message || String(graphErr),
+              });
+            }
+          }
+
+          const graphExecutedSemanticHistory = Boolean(
+            composedConversationGraph &&
+              composedConversationGraph.executionOrder.includes(
+                'semantic_history'
+              )
+          );
+
           const shouldRunHistoricalRetrieval =
             !jevControllerOwnsConversationMemory
               ? !discussionMemory?.chronologicalMemory
@@ -3010,7 +3197,10 @@ export async function POST(req: NextRequest) {
                   }
                 }
 
-                if (jevAllowsSemanticConversationMemory) {
+                if (
+                  jevAllowsSemanticConversationMemory &&
+                  !graphExecutedSemanticHistory
+                ) {
                   const { data: hybridRows, error: searchErr } = await supabase.rpc(
                     'search_discussion_memory_hybrid',
                     {
@@ -3153,6 +3343,14 @@ export async function POST(req: NextRequest) {
                     }
                   }
   
+                } else if (graphExecutedSemanticHistory) {
+                  console.log(
+                    '[Jev Memory Graph] Legacy semantic retrieval suppressed because the graph already executed semantic_history',
+                    {
+                      discussionId,
+                      effectiveOperations: jevEffectiveOperations,
+                    }
+                  );
                 } else {
                   console.log(
                     '[Jev Retrieval Gate] Skipped semantic conversation retrieval',
