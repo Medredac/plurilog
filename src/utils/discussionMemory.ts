@@ -34,7 +34,7 @@ export interface Round {
   userPrompt: string;
   attachments?: RoundAttachment[];
   visualDocumentId?: string | null;
-  modelResponses: { name: string; content: string }[];
+  modelResponses: { id?: string; name: string; content: string }[];
 }
 
 export interface DiscussionStructuredMemory {
@@ -64,6 +64,7 @@ export interface ChronologicalMemoryResult {
 export interface DiscussionMemoryResult {
   summary?: string;
   recentRounds: Round[];
+  allRounds?: Round[];
   allUserMessageIds?: string[];
   chronologicalMemory?: ChronologicalMemoryResult;
   knownDocuments?: KnownDiscussionDocument[];
@@ -481,6 +482,7 @@ export function groupMessagesIntoRounds(
       else if (lower.includes('chatgpt') || lower.includes('gpt') || lower.includes('openai')) modelName = 'ChatGPT';
 
       currentRound.modelResponses.push({
+        id: msg.id,
         name: modelName,
         content: msg.content || '',
       });
@@ -2406,6 +2408,7 @@ export async function getScopedDiscussionMemory(
     return {
       summary: formattedSummary || undefined,
       recentRounds,
+      allRounds,
       allUserMessageIds,
       chronologicalMemory: chronologicalMemory || undefined,
       knownDocuments: knownDocuments.length > 0 ? knownDocuments : undefined,
@@ -5464,6 +5467,7 @@ export interface ResolveImageEvidenceOptions {
   lastRoundEvidence?: MessageVisualEvidenceItem[];
   recentEvidenceSets?: MessageVisualEvidenceItem[][];
   previousUserPrompt?: string;
+  historicalRounds?: Round[];
   allUserMessageIds?: string[];
   visualContext?: DiscussionVisualContextState | null;
 }
@@ -5483,6 +5487,7 @@ export interface ResolvedImageEvidenceResult {
     | 'singleton_inheritance'
     | 'generated_artifact_sender_reference'
     | 'generated_artifact_recent'
+    | 'descriptive_edit_round'
     | 'scoped_ordinal'
     | 'discussion_ordinal'
     | 'ordinal_scope_inheritance'
@@ -6216,7 +6221,7 @@ export function resolveImageEvidence(
         }
       : promptOrOptions;
 
-  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, allUserMessageIds, visualContext } = options;
+  const { prompt, knownSources, lastRoundEvidence, recentEvidenceSets, previousUserPrompt, historicalRounds, allUserMessageIds, visualContext } = options;
   if (!prompt || typeof prompt !== 'string') return null;
   const p = prompt.trim();
   if (!p) return null; // Continue / empty prompt
@@ -7009,6 +7014,113 @@ export function resolveImageEvidence(
         };
       }
       return null;
+    }
+  }
+
+  // 2d. Descriptive Historical Edit References
+  // Resolves phrases such as "the warm edited version" by linking the
+  // description back to the earlier user edit request and then selecting the
+  // canonical image artifact produced by an assistant in that exact round.
+  //
+  // This is deliberately deterministic: no embeddings/model calls here, and
+  // if the matching round produced multiple distinct images we fail safely.
+  if (Array.isArray(historicalRounds) && historicalRounds.length > 0) {
+    const descriptiveVersionMatch = pLower.match(
+      /\b(?:go\s+back\s+to|return\s+to|use|take|select|reopen|open)?\s*(?:the\s+)?([a-z][a-z0-9\s-]{0,60}?)\s+(?:edited|modified|transformed|generated)\s+(?:version|image|picture|photo|graphic|one)\b/i
+    );
+
+    if (descriptiveVersionMatch?.[1]) {
+      const rawDescriptor = descriptiveVersionMatch[1]
+        .replace(/\b(?:go\s+back\s+to|return\s+to|use|take|select|reopen|open|the|that|this|my|your|our|an?|please)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const descriptorStopwords = new Set([
+        'edited', 'modified', 'transformed', 'generated', 'version', 'image',
+        'picture', 'photo', 'graphic', 'one', 'original', 'latest', 'last',
+        'previous', 'earlier', 'current', 'same', 'exact',
+      ]);
+
+      const normalizeDescriptorToken = (token: string): string => {
+        let t = token.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (t.length > 5 && t.endsWith('ier')) t = t.slice(0, -3) + 'y';
+        else if (t.length > 4 && t.endsWith('er')) t = t.slice(0, -2);
+        else if (t.length > 5 && t.endsWith('est')) t = t.slice(0, -3);
+        return t;
+      };
+
+      const descriptorTokens = rawDescriptor
+        .split(/\s+/)
+        .map(normalizeDescriptorToken)
+        .filter((token) => token.length >= 3 && !descriptorStopwords.has(token));
+
+      if (descriptorTokens.length > 0) {
+        const matchingRounds = historicalRounds
+          .map((round, roundIndex) => {
+            const normalizedPromptTokens = new Set(
+              (round.userPrompt || '')
+                .toLowerCase()
+                .split(/[^a-z0-9]+/)
+                .map(normalizeDescriptorToken)
+                .filter(Boolean)
+            );
+            const matchedTokenCount = descriptorTokens.filter((token) =>
+              normalizedPromptTokens.has(token)
+            ).length;
+            return { round, roundIndex, matchedTokenCount };
+          })
+          .filter((candidate) => candidate.matchedTokenCount > 0)
+          .sort((a, b) => {
+            if (a.matchedTokenCount !== b.matchedTokenCount) {
+              return b.matchedTokenCount - a.matchedTokenCount;
+            }
+            return b.roundIndex - a.roundIndex;
+          });
+
+        if (matchingRounds.length > 0) {
+          const bestScore = matchingRounds[0].matchedTokenCount;
+          const bestRounds = matchingRounds.filter(
+            (candidate) => candidate.matchedTokenCount === bestScore
+          );
+
+          // Only resolve when the descriptive match identifies one round.
+          if (bestRounds.length === 1) {
+            const responseMessageIds = new Set(
+              (bestRounds[0].round.modelResponses || [])
+                .map((response) => response.id)
+                .filter((id): id is string => Boolean(id))
+            );
+
+            if (responseMessageIds.size > 0) {
+              const producedSources = discussionSources.filter(
+                (source) =>
+                  Boolean(source.sourceMessageId) &&
+                  responseMessageIds.has(source.sourceMessageId as string) &&
+                  isAssistantSource(source)
+              );
+
+              const distinctArtifacts = Array.from(
+                new Map(
+                  producedSources.map((source) => [source.artifactId, source])
+                ).values()
+              );
+
+              if (distinctArtifacts.length === 1) {
+                return {
+                  sources: [distinctArtifacts[0]],
+                  reason: 'descriptive_edit_round',
+                };
+              }
+
+              // Multiple images were produced in the same matching round.
+              // Do not guess which one the descriptive phrase means.
+              if (distinctArtifacts.length > 1) {
+                return null;
+              }
+            }
+          }
+        }
+      }
     }
   }
 
