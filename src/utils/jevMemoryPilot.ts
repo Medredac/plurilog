@@ -537,6 +537,24 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     (primarySourceSignal >= 0.55 &&
       (historicalSignal >= 0.1 || recentSignal >= 0.5));
 
+  // A speaker-targeted historical topical callback can be coherent even when
+  // Jev is uncertain about the auxiliary semantic_role label. Combine the
+  // independent historical + semantic + speaker signals rather than requiring
+  // one low-confidence role field to veto the whole retrieval graph.
+  const speakerHistoricalSemanticLookup =
+    speakerSupported &&
+    historicalSignal >= 0.55 &&
+    semanticSignal >= 0.55 &&
+    chronologySignal < 0.55 &&
+    (!temporalRelation ||
+      temporalRelation === 'none' ||
+      temporalConfidence < 0.55) &&
+    chronologyRole !== 'direct_position';
+
+  if (speakerHistoricalSemanticLookup) {
+    semanticNeeded = true;
+  }
+
   const speakerTopicCallbackNeedsSemantic =
     speakerSupported &&
     semanticRole === 'find_topic' &&
