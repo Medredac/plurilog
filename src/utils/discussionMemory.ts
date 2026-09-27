@@ -7067,9 +7067,44 @@ export function resolveImageEvidence(
             const matchedTokenCount = descriptorTokens.filter((token) =>
               normalizedPromptTokens.has(token)
             ).length;
-            return { round, roundIndex, matchedTokenCount };
+
+            const responseMessageIds = new Set(
+              (round.modelResponses || [])
+                .map((response) => response.id)
+                .filter((id): id is string => Boolean(id))
+            );
+
+            const producedSources =
+              responseMessageIds.size > 0
+                ? discussionSources.filter(
+                    (source) =>
+                      Boolean(source.sourceMessageId) &&
+                      responseMessageIds.has(source.sourceMessageId as string) &&
+                      isAssistantSource(source)
+                  )
+                : [];
+
+            const distinctArtifacts = Array.from(
+              new Map(
+                producedSources.map((source) => [source.artifactId, source])
+              ).values()
+            );
+
+            return {
+              round,
+              roundIndex,
+              matchedTokenCount,
+              distinctArtifacts,
+            };
           })
-          .filter((candidate) => candidate.matchedTokenCount > 0)
+          // A descriptive historical image version must come from a round that
+          // actually produced an image. Text-only failed retries such as
+          // "the warm edited version" must not become competing referents.
+          .filter(
+            (candidate) =>
+              candidate.matchedTokenCount > 0 &&
+              candidate.distinctArtifacts.length > 0
+          )
           .sort((a, b) => {
             if (a.matchedTokenCount !== b.matchedTokenCount) {
               return b.matchedTokenCount - a.matchedTokenCount;
@@ -7083,40 +7118,23 @@ export function resolveImageEvidence(
             (candidate) => candidate.matchedTokenCount === bestScore
           );
 
-          // Only resolve when the descriptive match identifies one round.
+          // Only resolve when the descriptive match identifies one
+          // artifact-producing round. If multiple real image-producing rounds
+          // match equally well, fail safely rather than guessing.
           if (bestRounds.length === 1) {
-            const responseMessageIds = new Set(
-              (bestRounds[0].round.modelResponses || [])
-                .map((response) => response.id)
-                .filter((id): id is string => Boolean(id))
-            );
+            const distinctArtifacts = bestRounds[0].distinctArtifacts;
 
-            if (responseMessageIds.size > 0) {
-              const producedSources = discussionSources.filter(
-                (source) =>
-                  Boolean(source.sourceMessageId) &&
-                  responseMessageIds.has(source.sourceMessageId as string) &&
-                  isAssistantSource(source)
-              );
+            if (distinctArtifacts.length === 1) {
+              return {
+                sources: [distinctArtifacts[0]],
+                reason: 'descriptive_edit_round',
+              };
+            }
 
-              const distinctArtifacts = Array.from(
-                new Map(
-                  producedSources.map((source) => [source.artifactId, source])
-                ).values()
-              );
-
-              if (distinctArtifacts.length === 1) {
-                return {
-                  sources: [distinctArtifacts[0]],
-                  reason: 'descriptive_edit_round',
-                };
-              }
-
-              // Multiple images were produced in the same matching round.
-              // Do not guess which one the descriptive phrase means.
-              if (distinctArtifacts.length > 1) {
-                return null;
-              }
+            // Multiple images were produced in the same matching round.
+            // Do not guess which one the descriptive phrase means.
+            if (distinctArtifacts.length > 1) {
+              return null;
             }
           }
         }
