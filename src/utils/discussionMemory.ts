@@ -4671,12 +4671,55 @@ export async function retrieveDiscussionDocuments(
       return [];
     }
 
-    // Filter, deduplicate, and enforce DOCUMENT_RETRIEVAL_TOKEN_BUDGET (max 2 chunks)
+    // Filter, deduplicate, and enforce DOCUMENT_RETRIEVAL_TOKEN_BUDGET (max 2 chunks).
+    // Before applying the semantic threshold, derive a few meaningful lexical
+    // anchors from the user's query. Exact anchor presence is a conservative
+    // rescue signal for cases where an embedding ranks a tiny unrelated chunk
+    // above the chunk that actually contains the referenced term.
+    const lexicalStopwords = new Set([
+      'about', 'again', 'after', 'before', 'could', 'document', 'earlier',
+      'from', 'have', 'please', 'previous', 'should', 'their', 'there',
+      'these', 'those', 'what', 'when', 'where', 'which', 'would', 'your',
+    ]);
+    const queryAnchorTokens = Array.from(
+      new Set(
+        queryText
+          .toLowerCase()
+          .replace(/[’']s\b/g, '')
+          .replace(/[^a-z0-9]+/g, ' ')
+          .split(/\s+/)
+          .filter(
+            (token) =>
+              token.length >= 5 &&
+              !lexicalStopwords.has(token)
+          )
+      )
+    ).slice(0, 4);
+
+    const rankedRows = rows
+      .map((row: any, originalIndex: number) => {
+        const content =
+          typeof row?.content === 'string' ? row.content.trim() : '';
+        const lowerContent = content.toLowerCase();
+        const lexicalAnchorMatch = queryAnchorTokens.some((token) =>
+          lowerContent.includes(token)
+        );
+        return { row, originalIndex, lexicalAnchorMatch };
+      })
+      .sort(
+        (a, b) =>
+          Number(b.lexicalAnchorMatch) -
+            Number(a.lexicalAnchorMatch) ||
+          a.originalIndex - b.originalIndex
+      );
+
     const qualifying: RetrievedDocumentExcerpt[] = [];
     const seenChunkKeys = new Set<string>();
     let accumulatedTokens = 0;
 
-    for (const row of rows) {
+    for (const ranked of rankedRows) {
+      const row = ranked.row;
+      const lexicalAnchorMatch = ranked.lexicalAnchorMatch;
       if (qualifying.length >= 2) break;
 
       const chunkId = String(row?.chunk_id || '');
@@ -4702,9 +4745,27 @@ export async function retrieveDiscussionDocuments(
       if (
         semanticSimilarity < DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD &&
         keywordRank === null &&
-        !filenameMatch
+        !filenameMatch &&
+        !lexicalAnchorMatch
       ) {
         continue;
+      }
+
+      if (
+        process.env.VERCEL_ENV === 'preview' &&
+        lexicalAnchorMatch &&
+        semanticSimilarity < DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD &&
+        keywordRank === null &&
+        !filenameMatch
+      ) {
+        console.log('[Jev Document Lexical Rescue]', {
+          discussionId,
+          chunkId,
+          documentId,
+          chunkIndex,
+          queryAnchorTokens,
+          semanticSimilarity,
+        });
       }
 
       const chunkTokens = estimateTokens(content);
