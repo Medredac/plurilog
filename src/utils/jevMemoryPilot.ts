@@ -48,6 +48,7 @@ export type JevMemoryPilotShadowResult = {
       chronologyRole: string | null;
       topicSource: string | null;
       anchorSource: string | null;
+      ordinalPosition: number | null;
     };
     candidateBudgets: {
       semanticHistory: {
@@ -178,6 +179,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const chronologyRole = getChoice(answers, 'chronology_role');
   const topicSource = getChoice(answers, 'topic_source');
   const anchorSource = getChoice(answers, 'anchor_source');
+  const ordinalPositionChoice = getChoice(answers, 'ordinal_position');
 
   const speakerConfidence = getChoiceConfidence(answers, 'speaker_target');
   const temporalConfidence = getChoiceConfidence(
@@ -200,6 +202,17 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     answers,
     'anchor_source'
   );
+  const ordinalPositionConfidence = getChoiceConfidence(
+    answers,
+    'ordinal_position'
+  );
+  const ordinalPosition =
+    temporalRelation === 'ordinal' &&
+    ordinalPositionChoice &&
+    ordinalPositionChoice !== 'none' &&
+    ordinalPositionConfidence >= 0.55
+      ? Number.parseInt(ordinalPositionChoice, 10)
+      : null;
 
   const speakerSupported =
     Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.75;
@@ -473,6 +486,13 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
               ? anchorSource
               : null
           : null,
+      ordinalPosition:
+        chronologyNeeded &&
+        temporalRelation === 'ordinal' &&
+        Number.isInteger(ordinalPosition) &&
+        (ordinalPosition as number) >= 1
+          ? ordinalPosition
+          : null,
     },
     candidateBudgets: {
       semanticHistory: semanticNeeded
@@ -596,6 +616,24 @@ export async function runJevMemoryPilotShadow(options: {
         before: 'Evidence before an anchor or topic is requested.',
         after: 'Evidence after an anchor or topic is requested.',
         ordinal: 'A numbered occurrence such as second or third is requested.',
+      },
+    },
+    ordinal_position: {
+      type: 'choice',
+      instructions:
+        'When temporal_relation is ordinal, which numbered matching occurrence is requested? Choose none when no ordinal position is requested.',
+      criteria: {
+        none: 'No numbered occurrence is requested.',
+        '1': 'The first occurrence is requested.',
+        '2': 'The second occurrence is requested.',
+        '3': 'The third occurrence is requested.',
+        '4': 'The fourth occurrence is requested.',
+        '5': 'The fifth occurrence is requested.',
+        '6': 'The sixth occurrence is requested.',
+        '7': 'The seventh occurrence is requested.',
+        '8': 'The eighth occurrence is requested.',
+        '9': 'The ninth occurrence is requested.',
+        '10': 'The tenth occurrence is requested.',
       },
     },
     semantic_role: {
