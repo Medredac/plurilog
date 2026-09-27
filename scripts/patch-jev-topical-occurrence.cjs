@@ -70,6 +70,45 @@ if (!constraintsAlreadyPatched) {
 }
 
 fs.writeFileSync(path, source);
+const routePath = 'src/app/api/debate/route.ts';
+let routeSource = fs.readFileSync(routePath, 'utf8');
+
+const oldRecentExclusion = `                  const excludedIds = new Set<string>();
+                  for (const round of discussionMemory?.recentRounds || []) {
+                    if (round.userMessageId) excludedIds.add(round.userMessageId);
+                  }
+                  if (sourceUserMessageId) excludedIds.add(sourceUserMessageId);`;
+
+const newRecentExclusion = `                  const excludedIds = new Set<string>();
+                  if (!topicalOccurrenceLookup) {
+                    for (const round of discussionMemory?.recentRounds || []) {
+                      if (round.userMessageId) {
+                        excludedIds.add(round.userMessageId);
+                      }
+                    }
+                  }
+                  if (sourceUserMessageId) {
+                    excludedIds.add(sourceUserMessageId);
+                  }`;
+
+const recentExclusionAlreadyPatched =
+  routeSource.includes(newRecentExclusion);
+
+if (
+  !routeSource.includes(oldRecentExclusion) &&
+  !recentExclusionAlreadyPatched
+) {
+  throw new Error('Recent-round semantic exclusion target not found');
+}
+
+if (!recentExclusionAlreadyPatched) {
+  routeSource = routeSource.replace(
+    oldRecentExclusion,
+    newRecentExclusion
+  );
+  fs.writeFileSync(routePath, routeSource);
+}
+
 console.log(
   topicalAlreadyPatched && constraintsAlreadyPatched
     ? 'Preview topical-occurrence memory patch already applied'
