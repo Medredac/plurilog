@@ -3951,6 +3951,24 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
+                  if (!resolvedImage && knownSources.length > 1) {
+                    const system2Source =
+                      await resolveHistoricalImageReferentWithSystem2({
+                        openai,
+                        prompt,
+                        knownSources,
+                        historicalRounds: discussionMemory?.allRounds,
+                        signal: req.signal,
+                      });
+
+                    if (system2Source) {
+                      resolvedImage = {
+                        sources: [system2Source],
+                        reason: 'semantic_candidate_resolver',
+                      } as any;
+                    }
+                  }
+
                   if (resolvedImage && resolvedImage.sources.length > 0) {
                     const successfulImageAttachments: RouteAttachment[] = [];
                     const successfulResolvedSources: typeof resolvedImage.sources = [];
@@ -8004,12 +8022,30 @@ export async function POST(req: NextRequest) {
                         }
                       );
 
+                      let system2SelectedSource: KnownImageSource | null = null;
                       if (
-                        brokerResult.status === 'resolved' &&
-                        brokerResult.evidence?.kind === 'image' &&
-                        brokerResult.evidence.sources?.length === 1
+                        brokerResult.status !== 'resolved' &&
+                        latestKnownSources.length > 1
                       ) {
-                        const source = brokerResult.evidence.sources[0];
+                        system2SelectedSource =
+                          await resolveHistoricalImageReferentWithSystem2({
+                            openai,
+                            prompt: referenceText || prompt,
+                            knownSources: latestKnownSources,
+                            historicalRounds: discussionMemory?.allRounds,
+                            signal: seatAbortController.signal,
+                          });
+                      }
+
+                      if (
+                        (brokerResult.status === 'resolved' &&
+                          brokerResult.evidence?.kind === 'image' &&
+                          brokerResult.evidence.sources?.length === 1) ||
+                        Boolean(system2SelectedSource)
+                      ) {
+                        const source =
+                          system2SelectedSource ||
+                          brokerResult.evidence!.sources![0];
                         const { data: signedData, error: signErr } =
                           await serviceClientForEdit.storage
                             .from('message-images')
@@ -8042,10 +8078,15 @@ export async function POST(req: NextRequest) {
 
                       console.log('[Image Editing Resolver] Reference resolution', {
                         discussionId,
-                        status: brokerResult.status,
-                        reason: brokerResult.evidence?.reason,
-                        sourceCount:
-                          brokerResult.evidence?.sources?.length || 0,
+                        status: system2SelectedSource
+                          ? 'resolved'
+                          : brokerResult.status,
+                        reason: system2SelectedSource
+                          ? 'semantic_candidate_resolver'
+                          : brokerResult.evidence?.reason,
+                        sourceCount: system2SelectedSource
+                          ? 1
+                          : brokerResult.evidence?.sources?.length || 0,
                       });
                     }
                   } else if (!referenceImageUrl) {
