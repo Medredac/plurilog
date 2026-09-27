@@ -4440,6 +4440,7 @@ export async function POST(req: NextRequest) {
             });
 
             const isHistoryLookupTurn =
+              !jevControllerOwnsConversationMemory &&
               discussionMemory?.historyLookupIntent === true;
             const isGeminiImageEnabled =
               seat.seatId === 'gemini' && getSeatCapabilities('gemini').imageGeneration === true;
