@@ -3160,11 +3160,17 @@ export async function POST(req: NextRequest) {
                     graph_evidence: true,
                   }));
               } else if (
-                composedConversationGraph.semanticRows.length > 0
+                composedConversationGraph.semanticRows.length > 0 &&
+                !composedConversationGraph.needsResolver &&
+                !composedConversationGraph.executionOrder.some(
+                  (operation) =>
+                    operation === 'chronology' ||
+                    operation === 'speaker_filter'
+                )
               ) {
-                // Only apply the panel context budget if semantic_history is a
-                // terminal evidence source. Upstream graph candidates remain
-                // unbudgeted until downstream operators finish narrowing.
+                // semantic_history is terminal evidence only when no
+                // downstream selector/filter remains. Never promote upstream
+                // candidates after an unresolved composed graph.
                 const terminalSemanticRows: any[] = [];
                 let terminalSemanticTokens = 0;
 
@@ -3187,6 +3193,22 @@ export async function POST(req: NextRequest) {
                 }
 
                 retrievedMemory = terminalSemanticRows;
+              } else if (
+                composedConversationGraph.semanticRows.length > 0
+              ) {
+                console.log(
+                  '[Jev Memory Graph] Suppressed unresolved semantic candidates',
+                  {
+                    semanticCandidateCount:
+                      composedConversationGraph.semanticRows.length,
+                    executionOrder:
+                      composedConversationGraph.executionOrder,
+                    needsResolver:
+                      composedConversationGraph.needsResolver,
+                    resolverReason:
+                      composedConversationGraph.resolverReason,
+                  }
+                );
               }
             } catch (graphErr: any) {
               console.error('[Jev Memory Graph Execution] Non-critical failure', {
