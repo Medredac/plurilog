@@ -3801,6 +3801,7 @@ export async function POST(req: NextRequest) {
                     lastRoundEvidence,
                     recentEvidenceSets: [],
                     previousUserPrompt: lastRound?.userPrompt,
+                    historicalRounds: discussionMemory?.allRounds,
                     allUserMessageIds: discussionMemory?.allUserMessageIds,
                     visualContext: activeVisualContext,
                   });
@@ -3821,6 +3822,7 @@ export async function POST(req: NextRequest) {
                         lastRoundEvidence,
                         recentEvidenceSets: allEvidenceSets,
                         previousUserPrompt: lastRound?.userPrompt,
+                        historicalRounds: discussionMemory?.allRounds,
                         allUserMessageIds: discussionMemory?.allUserMessageIds,
                         visualContext: activeVisualContext,
                       });
@@ -8527,6 +8529,7 @@ export async function POST(req: NextRequest) {
                               knownSources: latestKnownSources,
                               visualContext: visualContextState,
                               previousUserPrompt: lastRound?.userPrompt,
+                              historicalRounds: discussionMemory?.allRounds,
                               allUserMessageIds: discussionMemory?.allUserMessageIds,
                             });
                             if (shadowResolved && shadowResolved.sources.length > 0) {
@@ -9489,6 +9492,7 @@ export async function POST(req: NextRequest) {
                         knownSources: latestKnownSources,
                         visualContext: visualContextState,
                         previousUserPrompt: lastRound?.userPrompt,
+                        historicalRounds: discussionMemory?.allRounds,
                         allUserMessageIds: discussionMemory?.allUserMessageIds,
                       });
                       if (shadowResolved && shadowResolved.sources.length > 0) {
