@@ -2824,16 +2824,22 @@ export async function POST(req: NextRequest) {
                         validated?.semantic_similarity ?? null,
                     });
 
-                    retrievedMemory = [validated];
-                    discussionMemory = {
-                      ...discussionMemory,
-                      chronologicalMemory: undefined,
-                    };
-                    console.log('[Jev Validated Evidence Preview]', {
-                      sourceUserMessageId:
-                        validated?.source_user_message_id || null,
-                      mode: 'validated-semantic-over-chronology',
-                    });
+                    if (
+                      validated?.source_user_message_id &&
+                      validated?.source_user_message_id !==
+                        retrievedMemory[0]?.source_user_message_id
+                    ) {
+                      retrievedMemory = [validated];
+                      discussionMemory = {
+                        ...discussionMemory,
+                        chronologicalMemory: undefined,
+                      };
+                      console.log('[Jev Validated Evidence Preview]', {
+                        sourceUserMessageId:
+                          validated?.source_user_message_id || null,
+                        mode: 'validated-semantic-over-chronology',
+                      });
+                    }
                   }
                 }
               }
