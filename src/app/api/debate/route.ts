@@ -2626,6 +2626,12 @@ export async function POST(req: NextRequest) {
         const jevAllowsSemanticConversationMemory =
           !jevControllerOwnsConversationMemory ||
           jevEffectiveOperations.includes('semantic_history');
+        const jevAllowsDocumentSearch =
+          !jevControllerOwnsConversationMemory ||
+          jevEffectiveOperations.includes('document_search');
+        const jevAllowsHistoricalVisualEvidence =
+          !jevControllerOwnsConversationMemory ||
+          jevEffectiveOperations.includes('visual_evidence');
 
         // In controller preview mode, legacy chronology may still be computed
         // upstream for compatibility, but it must not become evidence unless
@@ -2672,6 +2678,12 @@ export async function POST(req: NextRequest) {
                   jevEffectiveOperations.includes('chronology')
                     ? discussionMemory.chronologicalMemory
                     : undefined,
+                knownDocuments:
+                  !jevControllerOwnsConversationMemory ||
+                  jevEffectiveOperations.includes('document_search') ||
+                  jevEffectiveOperations.includes('visual_evidence')
+                    ? discussionMemory.knownDocuments
+                    : undefined,
               }
             : undefined;
 
@@ -2684,6 +2696,9 @@ export async function POST(req: NextRequest) {
             rollingSummaryIncluded: Boolean(panelDiscussionMemory?.summary),
             chronologyIncluded: Boolean(
               panelDiscussionMemory?.chronologicalMemory
+            ),
+            documentRegistryIncluded: Boolean(
+              panelDiscussionMemory?.knownDocuments?.length
             ),
           });
         }
@@ -2757,49 +2772,62 @@ export async function POST(req: NextRequest) {
           // Attempt hybrid discussion-memory retrieval (non-critical)
           let retrievedMemory: any[] = [];
           let retrievedDocuments: RetrievedDocumentExcerpt[] = [];
+          const shouldRunHistoricalRetrieval =
+            !jevControllerOwnsConversationMemory
+              ? !discussionMemory?.chronologicalMemory
+              : jevAllowsSemanticConversationMemory ||
+                jevAllowsDocumentSearch;
+
           if (
             discussionId &&
             prompt &&
             prompt.trim() &&
             !req.signal.aborted &&
-            (!discussionMemory?.chronologicalMemory ||
-              jevEffectiveOperations.includes('semantic_history'))
+            shouldRunHistoricalRetrieval
           ) {
-            // 1. Attempt deterministic structured section resolution first (does NOT require embedding)
-            try {
-              const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
-              if (isOwner) {
-                const serviceClient = createServiceClient();
-                const resolvedSection = await resolveDocumentSection({
-                  serviceSupabase: serviceClient,
-                  discussionId,
-                  prompt,
-                  knownDocuments: discussionMemory?.knownDocuments,
-                  recentRounds: discussionMemory?.recentRounds,
-                  signal: req.signal,
-                });
+            // 1. Attempt deterministic structured section resolution first
+            // only when the effective controller plan authorizes document search.
+            if (jevAllowsDocumentSearch) {
+              try {
+                const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+                if (isOwner) {
+                  const serviceClient = createServiceClient();
+                  const resolvedSection = await resolveDocumentSection({
+                    serviceSupabase: serviceClient,
+                    discussionId,
+                    prompt,
+                    knownDocuments: discussionMemory?.knownDocuments,
+                    recentRounds: discussionMemory?.recentRounds,
+                    signal: req.signal,
+                  });
 
-                if (resolvedSection) {
-                  retrievedDocuments = [
-                    {
-                      chunkId: `section-${resolvedSection.documentId}`,
-                      documentId: resolvedSection.documentId,
-                      filename: resolvedSection.filename,
-                      chunkIndex: 0,
-                      content: resolvedSection.content,
-                      semanticSimilarity: 1.0,
-                      keywordRank: 1,
-                      filenameMatch: true,
-                      hybridScore: 1.0,
-                    },
-                  ];
+                  if (resolvedSection) {
+                    retrievedDocuments = [
+                      {
+                        chunkId: `section-${resolvedSection.documentId}`,
+                        documentId: resolvedSection.documentId,
+                        filename: resolvedSection.filename,
+                        chunkIndex: 0,
+                        content: resolvedSection.content,
+                        semanticSimilarity: 1.0,
+                        keywordRank: 1,
+                        filenameMatch: true,
+                        hybridScore: 1.0,
+                      },
+                    ];
+                  }
                 }
+              } catch (sectionErr: any) {
+                console.error(
+                  '[Document Section Retrieval] Non-critical retrieval failure:',
+                  sectionErr
+                );
               }
-            } catch (sectionErr: any) {
-              console.error(
-                '[Document Section Retrieval] Non-critical retrieval failure:',
-                sectionErr
-              );
+            } else if (jevControllerOwnsConversationMemory) {
+              console.log('[Jev Retrieval Gate] Skipped historical document section resolution', {
+                discussionId,
+                effectiveOperations: jevEffectiveOperations,
+              });
             }
 
             // 2. Query embedding for semantic document search (if section not resolved) and conversation memory
@@ -2824,7 +2852,8 @@ export async function POST(req: NextRequest) {
                 );
               } else {
                 // If section was not resolved, attempt semantic document hybrid search
-                if (retrievedDocuments.length === 0) {
+                // only when document_search is part of the effective plan.
+                if (jevAllowsDocumentSearch && retrievedDocuments.length === 0) {
                   try {
                     const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                     if (isOwner) {
@@ -3004,6 +3033,19 @@ export async function POST(req: NextRequest) {
                 retrievalErr
               );
             }
+          }
+
+          if (
+            jevControllerOwnsConversationMemory &&
+            discussionId &&
+            prompt &&
+            prompt.trim() &&
+            !shouldRunHistoricalRetrieval
+          ) {
+            console.log('[Jev Retrieval Gate] Skipped historical semantic/document retrieval', {
+              discussionId,
+              effectiveOperations: jevEffectiveOperations,
+            });
           }
 
           if (discussionMemory?.chronologicalMemory) {
@@ -3459,7 +3501,7 @@ export async function POST(req: NextRequest) {
               hasImmediateDocumentContext,
             });
 
-          if (discussionId) {
+          if (discussionId && jevAllowsHistoricalVisualEvidence) {
             if (isVerificationFollowUp && lastRound) {
               const inheritedDocId = lastRound.visualDocumentId;
               if (inheritedDocId) {
@@ -3713,6 +3755,7 @@ export async function POST(req: NextRequest) {
             // Do not let a separately resolved document visual (PDF or rendered DOCX pages)
             // get overwritten by standalone-image recovery later in the same turn.
             if (
+              jevAllowsHistoricalVisualEvidence &&
               !hasCurrentImages &&
               (!visualAttachments || visualAttachments.length === 0) &&
               prompt &&
@@ -4029,6 +4072,7 @@ export async function POST(req: NextRequest) {
             // actual pixels and return a user-grounded reference_index. This preserves the
             // conservative semantic thresholds and does not alter persistent memory.
             if (
+              jevAllowsHistoricalVisualEvidence &&
               !hasCurrentImages &&
               !hadSuccessfulHistoricalImageDelivery &&
               (!visualAttachments || visualAttachments.length === 0) &&
@@ -4132,6 +4176,7 @@ export async function POST(req: NextRequest) {
 
             // Standalone Image Semantic Historical Retrieval (Phase 3B - ADDITIVE)
             if (
+              jevAllowsHistoricalVisualEvidence &&
               !hasCurrentImages &&
               !hadSuccessfulHistoricalImageDelivery &&
               (!visualAttachments || visualAttachments.length === 0) &&
@@ -4420,7 +4465,13 @@ export async function POST(req: NextRequest) {
               (isGeminiImageEditingEnabledForSeat ||
                 isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat =
-              isSeatEligibleForEvidenceRequest(seat.seatId);
+              isSeatEligibleForEvidenceRequest(seat.seatId) &&
+              (
+                !jevControllerOwnsConversationMemory ||
+                jevAllowsDocumentSearch ||
+                jevAllowsHistoricalVisualEvidence ||
+                currentRoundAttachments.length > 0
+              );
             const isDocumentCreationEnabledForSeat =
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
@@ -4584,7 +4635,8 @@ export async function POST(req: NextRequest) {
             const hasKnownInspectableImage =
               Boolean(visualContextState?.active_session_source_ids?.length);
             const hasRetrievableHistoricalEvidence =
-              hasKnownInspectableDocument || hasKnownInspectableImage;
+              (jevAllowsDocumentSearch && hasKnownInspectableDocument) ||
+              (jevAllowsHistoricalVisualEvidence && hasKnownInspectableImage);
             const shouldForceEvidenceOnFirstPass =
               isEvidenceEnabledForSeat &&
               hasRetrievableHistoricalEvidence &&
