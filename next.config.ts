@@ -1,3 +1,4 @@
+// Trigger atomic synthesis rebuild
 // Preview-only memory architecture patches
 import "./scripts/patch-jev-topical-occurrence.cjs";
 import "./scripts/patch-memory-control-context.cjs";
