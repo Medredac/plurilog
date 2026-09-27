@@ -2861,9 +2861,9 @@ export async function POST(req: NextRequest) {
                     isJevMemoryPilotShadowEnabled() &&
                     jevEffectiveOperations.includes('semantic_history') &&
                     discussionMemory?.historyLookupIntent &&
-                    retrievedMemory.length > 1
+                    qualifyingCandidates.length > 1
                   ) {
-                    const validated = retrievedMemory.find((row: any) => {
+                    const validated = qualifyingCandidates.find((row: any) => {
                       const text =
                         typeof row?.content === 'string'
                           ? row.content.slice(0, 900).toLowerCase()
