@@ -2473,8 +2473,16 @@ export async function POST(req: NextRequest) {
         });
 
         let resolverResolution: any = null;
+        const relativeChronologyNeedsAdjudication =
+          result.compiledPlan.operations.includes('chronology') &&
+          result.compiledPlan.operations.includes('speaker_filter') &&
+          !result.compiledPlan.operations.includes('semantic_history') &&
+          ['before', 'after'].includes(
+            result.compiledPlan.constraints.temporalRelation || ''
+          );
         const needsResolver =
           result.compiledPlan.escalationSuggested ||
+          relativeChronologyNeedsAdjudication ||
           (result.compiledPlan.operations.includes('recent_exact') &&
             result.compiledPlan.operations.includes('speaker_filter') &&
             !result.compiledPlan.operations.includes('semantic_history'));
@@ -2495,7 +2503,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence; recommend semantic_history when needed to recover the original source before applying chronology or speaker filtering.',
                   },
                   {
                     role: 'user',
