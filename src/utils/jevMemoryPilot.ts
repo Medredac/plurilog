@@ -80,6 +80,50 @@ export type JevMemoryOperation =
 export type JevMemoryPlanConstraints =
   JevMemoryPilotShadowResult['compiledPlan']['constraints'];
 
+export function closeJevMemoryOperationsUnderConstraints(
+  requestedOperations: string[],
+  baseOperations: string[],
+  constraints: JevMemoryPlanConstraints
+): string[] {
+  const active = new Set(requestedOperations);
+  const base = new Set(baseOperations);
+
+  // A planner override may remove an unnecessary operator, but it may not
+  // erase an explicit user constraint that another operator must enforce.
+  if (
+    constraints.temporalRelation &&
+    constraints.temporalRelation !== 'none'
+  ) {
+    active.add('chronology');
+  }
+
+  if (
+    constraints.speaker &&
+    constraints.speaker !== 'none'
+  ) {
+    active.add('speaker_filter');
+  }
+
+  // If the original structured plan identified recent context as the source
+  // of a topical/chronological referent, preserve that dependency whenever a
+  // downstream historical operator still needs it.
+  const historicalOperatorActive =
+    active.has('semantic_history') || active.has('chronology');
+
+  if (
+    historicalOperatorActive &&
+    base.has('recent_exact') &&
+    (
+      constraints.topicSource === 'recent_context' ||
+      constraints.anchorSource === 'recent_context'
+    )
+  ) {
+    active.add('recent_exact');
+  }
+
+  return Array.from(active);
+}
+
 export function buildJevMemoryDependencies(
   operations: string[],
   constraints: JevMemoryPlanConstraints
