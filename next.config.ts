@@ -1,3 +1,4 @@
+import "./scripts/patch-jev-topical-occurrence.cjs";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
