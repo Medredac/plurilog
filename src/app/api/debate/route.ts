@@ -2633,6 +2633,44 @@ export async function POST(req: NextRequest) {
           };
         }
 
+        // Keep the richer discussionMemory object available to internal
+        // document/visual resolvers, but expose conversation memory to panel
+        // models only when the effective controller plan authorizes it.
+        const panelDiscussionMemory: DiscussionMemoryResult | undefined =
+          discussionMemory
+            ? {
+                ...discussionMemory,
+                summary:
+                  !jevControllerOwnsConversationMemory ||
+                  jevEffectiveOperations.includes('rolling_summary')
+                    ? discussionMemory.summary
+                    : undefined,
+                recentRounds:
+                  !jevControllerOwnsConversationMemory ||
+                  jevEffectiveOperations.includes('recent_exact')
+                    ? discussionMemory.recentRounds
+                    : [],
+                chronologicalMemory:
+                  !jevControllerOwnsConversationMemory ||
+                  jevEffectiveOperations.includes('chronology')
+                    ? discussionMemory.chronologicalMemory
+                    : undefined,
+              }
+            : undefined;
+
+        if (jevControllerOwnsConversationMemory) {
+          console.log('[Jev Panel Memory Gate]', {
+            effectiveOperations: jevEffectiveOperations,
+            recentExactIncluded: Boolean(
+              panelDiscussionMemory?.recentRounds?.length
+            ),
+            rollingSummaryIncluded: Boolean(panelDiscussionMemory?.summary),
+            chronologyIncluded: Boolean(
+              panelDiscussionMemory?.chronologicalMemory
+            ),
+          });
+        }
+
         const sendEvent = (event: string, data: any) => {
           if (isClosed) return;
           try {
@@ -4573,7 +4611,7 @@ export async function POST(req: NextRequest) {
               seat.name,
               prompt,
               priorResponses,
-              discussionMemory,
+              panelDiscussionMemory,
               seatAttachments,
               isReusingAnnotations ? roundFileAnnotations : null,
               retrievedMemory,
@@ -6428,7 +6466,7 @@ export async function POST(req: NextRequest) {
                     seat.name,
                     prompt,
                     priorResponses,
-                    discussionMemory,
+                    panelDiscussionMemory,
                     evidenceSeatAttachments,
                     null,
                     retrievedMemory,
