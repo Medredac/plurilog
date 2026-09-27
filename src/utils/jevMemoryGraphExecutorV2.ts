@@ -528,6 +528,24 @@ export async function executeConversationMemoryGraph(
     }
 
     if (operation === 'speaker_filter') {
+      // Speaker filtering is downstream of chronological selection. If
+      // chronology still has multiple validated anchor candidates, defer this
+      // node until the cheap resolver has selected one anchor.
+      if (
+        needsResolver &&
+        selectedRoundUserMessageIds.length > 1
+      ) {
+        steps.push({
+          operation,
+          inputFrom: incoming(operation),
+          outputCount: 0,
+          status: 'skipped',
+          reason:
+            'Speaker filtering deferred until the ambiguous chronological anchor is resolved.',
+        });
+        continue;
+      }
+
       const target = speakerName(options.constraints.speaker);
       if (!target) {
         needsResolver = true;
@@ -619,6 +637,14 @@ export async function executeConversationMemoryGraph(
       needsResolver = false;
       resolverReason = null;
 
+      steps.push({
+        operation: 'chronology',
+        inputFrom: ['resolver'],
+        outputCount: selectedRoundUserMessageIds.length,
+        status: 'executed',
+        reason: 'Cheap resolver disambiguated validated graph candidates.',
+      });
+
       const target = speakerName(options.constraints.speaker);
       if (target) {
         const temporalRelation = executableTemporalRelation(
@@ -645,15 +671,28 @@ export async function executeConversationMemoryGraph(
               : null;
           finalEvidence = item ? [item] : [];
         }
-      }
 
-      steps.push({
-        operation: 'chronology',
-        inputFrom: ['resolver'],
-        outputCount: selectedRoundUserMessageIds.length,
-        status: 'executed',
-        reason: 'Cheap resolver disambiguated validated graph candidates.',
-      });
+        steps.push({
+          operation: 'speaker_filter',
+          inputFrom: ['chronology', 'resolver'],
+          outputCount: finalEvidence.length,
+          status: finalEvidence.length > 0 ? 'executed' : 'insufficient',
+          reason:
+            finalEvidence.length > 0
+              ? 'Speaker filtering executed after anchor disambiguation.'
+              : 'No exact speaker evidence survived the resolved anchor.',
+        });
+
+        if (finalEvidence.length === 0) {
+          needsResolver = true;
+          resolverReason =
+            'The resolved chronological anchor produced no exact speaker evidence.';
+        }
+      } else {
+        needsResolver = true;
+        resolverReason =
+          'The resolved chronological anchor had no executable speaker target.';
+      }
     }
   }
 
