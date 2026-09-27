@@ -2887,8 +2887,7 @@ export async function POST(req: NextRequest) {
 
                     if (
                       validated?.source_user_message_id &&
-                      validated?.source_user_message_id !==
-                        retrievedMemory[0]?.source_user_message_id
+                      !jevEffectiveOperations.includes('chronology')
                     ) {
                       retrievedMemory = [validated];
                       discussionMemory = {
@@ -2898,7 +2897,7 @@ export async function POST(req: NextRequest) {
                       console.log('[Jev Validated Evidence Preview]', {
                         sourceUserMessageId:
                           validated?.source_user_message_id || null,
-                        mode: 'validated-semantic-over-chronology',
+                        mode: 'validated-semantic-without-chronology',
                       });
                     }
                   }
