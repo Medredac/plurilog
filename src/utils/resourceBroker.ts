@@ -52,6 +52,7 @@ export interface ResourceBrokerContext {
   knownDocuments?: KnownDiscussionDocument[];
   retrievedDocuments?: RetrievedDocumentExcerpt[];
   recentRounds?: Round[];
+  historicalRounds?: Round[];
 
   // Image context
   knownImageSources?: KnownImageSource[];
@@ -299,6 +300,7 @@ function isStrongImageResolution(
     'comparative_contextual_set',
     'generated_artifact_sender_reference',
     'generated_artifact_recent',
+    'descriptive_edit_round',
   ]);
   return strongReasons.has(resolvedImg.reason);
 }
@@ -430,6 +432,7 @@ function resolveImageVisual(
     recentEvidenceSets: context.recentEvidenceSets,
     visualContext: context.visualContext,
     previousUserPrompt: context.previousUserPrompt,
+    historicalRounds: context.historicalRounds,
     allUserMessageIds: context.allUserMessageIds,
   });
 
