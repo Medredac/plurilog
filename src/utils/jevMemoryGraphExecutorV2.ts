@@ -221,6 +221,39 @@ function selectOccurrence(
     };
   }
 
+  if (relation === 'before' || relation === 'after') {
+    if (constraints.anchorOccurrence === 'first') {
+      return { selectedIds: [ordered[0]], needsResolver: false, reason: null };
+    }
+    if (constraints.anchorOccurrence === 'last') {
+      return {
+        selectedIds: [ordered[ordered.length - 1]],
+        needsResolver: false,
+        reason: null,
+      };
+    }
+    if (constraints.anchorOccurrence === 'ordinal') {
+      const anchorOrdinal = constraints.anchorOrdinalPosition;
+      if (
+        !anchorOrdinal ||
+        anchorOrdinal < 1 ||
+        anchorOrdinal > ordered.length
+      ) {
+        return {
+          selectedIds: [],
+          needsResolver: true,
+          reason:
+            'The requested anchor occurrence could not be satisfied by the validated candidates.',
+        };
+      }
+      return {
+        selectedIds: [ordered[anchorOrdinal - 1]],
+        needsResolver: false,
+        reason: null,
+      };
+    }
+  }
+
   if (ordered.length === 1) {
     return { selectedIds: [ordered[0]], needsResolver: false, reason: null };
   }
@@ -495,7 +528,6 @@ export async function executeConversationMemoryGraph(
           options.constraints
         );
       } else if (
-        options.constraints.chronologyRole === 'navigate_from_anchor' &&
         (options.constraints.temporalRelation === 'before' ||
           options.constraints.temporalRelation === 'after') &&
         selectedRoundUserMessageIds.length === 1
