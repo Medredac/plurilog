@@ -54,7 +54,7 @@ import {
 import {
   executeConversationMemoryGraph,
   type ConversationMemoryGraphResult,
-} from '@/utils/jevMemoryGraphExecutor';
+} from '@/utils/jevMemoryGraphExecutorV2';
 import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { renderDocxPages } from '@/utils/docxPageRenderer';
