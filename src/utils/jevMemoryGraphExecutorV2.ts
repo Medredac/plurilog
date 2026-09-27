@@ -613,6 +613,13 @@ export async function executeConversationMemoryGraph(
         needsResolver = true;
         resolverReason =
           'The composed graph could not resolve exact speaker evidence.';
+      } else if (
+        finalEvidence.length > 1 &&
+        !options.operations.includes('chronology')
+      ) {
+        needsResolver = true;
+        resolverReason =
+          'Multiple exact speaker evidence candidates remain after semantic retrieval.';
       }
     }
   }
@@ -637,12 +644,19 @@ export async function executeConversationMemoryGraph(
       needsResolver = false;
       resolverReason = null;
 
+      const resolverSourceOperation =
+        options.operations.includes('chronology')
+          ? 'chronology'
+          : 'semantic_history';
+
       steps.push({
-        operation: 'chronology',
+        operation: resolverSourceOperation,
         inputFrom: ['resolver'],
         outputCount: selectedRoundUserMessageIds.length,
         status: 'executed',
-        reason: 'Cheap resolver disambiguated validated graph candidates.',
+        reason: options.operations.includes('chronology')
+          ? 'Cheap resolver disambiguated validated graph candidates.'
+          : 'Cheap resolver disambiguated validated semantic candidates.',
       });
 
       const target = speakerName(options.constraints.speaker);
