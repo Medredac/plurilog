@@ -7057,9 +7057,9 @@ export function resolveImageEvidence(
       if (descriptorTokens.length > 0) {
         const matchingRounds = historicalRounds
           .map((round, roundIndex) => {
+            const candidatePromptLower = (round.userPrompt || '').toLowerCase();
             const normalizedPromptTokens = new Set(
-              (round.userPrompt || '')
-                .toLowerCase()
+              candidatePromptLower
                 .split(/[^a-z0-9]+/)
                 .map(normalizeDescriptorToken)
                 .filter(Boolean)
@@ -7067,6 +7067,24 @@ export function resolveImageEvidence(
             const matchedTokenCount = descriptorTokens.filter((token) =>
               normalizedPromptTokens.has(token)
             ).length;
+
+            // Prefer rounds where the descriptor was the transformation being
+            // requested ("make it warmer") over later rounds that merely refer
+            // to that version ("use the warm edited version, then saturate it").
+            const actionMatch = candidatePromptLower.match(
+              /\b(?:make|turn|change|adjust|edit|modify|transform|darken|lighten|warm|cool|saturate|desaturate|increase|decrease|boost|reduce)\b[\s\S]{0,100}/i
+            );
+            const normalizedActionTokens = new Set(
+              (actionMatch?.[0] || '')
+                .split(/[^a-z0-9]+/)
+                .map(normalizeDescriptorToken)
+                .filter(Boolean)
+            );
+            const actionMatchedTokenCount = descriptorTokens.filter((token) =>
+              normalizedActionTokens.has(token)
+            ).length;
+            const selectionScore =
+              matchedTokenCount + actionMatchedTokenCount * 10;
 
             const responseMessageIds = new Set(
               (round.modelResponses || [])
@@ -7094,6 +7112,8 @@ export function resolveImageEvidence(
               round,
               roundIndex,
               matchedTokenCount,
+              actionMatchedTokenCount,
+              selectionScore,
               distinctArtifacts,
             };
           })
@@ -7106,16 +7126,16 @@ export function resolveImageEvidence(
               candidate.distinctArtifacts.length > 0
           )
           .sort((a, b) => {
-            if (a.matchedTokenCount !== b.matchedTokenCount) {
-              return b.matchedTokenCount - a.matchedTokenCount;
+            if (a.selectionScore !== b.selectionScore) {
+              return b.selectionScore - a.selectionScore;
             }
             return b.roundIndex - a.roundIndex;
           });
 
         if (matchingRounds.length > 0) {
-          const bestScore = matchingRounds[0].matchedTokenCount;
+          const bestScore = matchingRounds[0].selectionScore;
           const bestRounds = matchingRounds.filter(
-            (candidate) => candidate.matchedTokenCount === bestScore
+            (candidate) => candidate.selectionScore === bestScore
           );
 
           // Only resolve when the descriptive match identifies one
