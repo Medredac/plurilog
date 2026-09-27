@@ -420,6 +420,21 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     visualSignal < 0.5 &&
     primarySourceSignal < 0.5;
 
+  // An empty plan is not necessarily evidence that no memory is needed.
+  // The fresh financing regression produced exactly this joint signature:
+  // strong speaker + recent dependency + chronology, with a supported topical
+  // semantic role, while individual operator gates narrowly missed. Escalate
+  // that structurally incomplete historical callback to System 2.
+  const incompleteEmptyHistoricalCallback =
+    operations.length === 0 &&
+    speakerSupported &&
+    historicalSignal >= 0.2 &&
+    recentSignal >= 0.8 &&
+    semanticSignal >= 0.3 &&
+    chronologySignal >= 0.7 &&
+    semanticRole === 'find_topic' &&
+    semanticRoleConfidence >= 0.4;
+
   return {
     operations,
     dependencies,
@@ -446,9 +461,10 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
           : null,
     },
     escalationSuggested:
-      !recentOnlyPlanIsComplete &&
-      getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
-      memoryAmbiguitySignal,
+      incompleteEmptyHistoricalCallback ||
+      (!recentOnlyPlanIsComplete &&
+        getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
+        memoryAmbiguitySignal),
   };
 }
 
