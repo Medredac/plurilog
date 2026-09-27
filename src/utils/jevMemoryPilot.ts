@@ -164,6 +164,35 @@ export function closeJevMemoryOperationsUnderConstraints(
   return Array.from(active);
 }
 
+export function normalizeJevMemoryConstraintsForExecution(
+  operations: string[],
+  constraints: JevMemoryPlanConstraints
+): JevMemoryPlanConstraints {
+  const active = new Set(operations);
+
+  // At this boundary we know the executable graph, so we can distinguish a
+  // true direct "previous speaker event" lookup from anchored relative
+  // navigation without re-reading natural-language prompt text.
+  //
+  // If semantic_history is feeding chronology, "previous" is navigation from
+  // a historical anchor candidate. Canonicalise it to "before", and make the
+  // semantic result—not recent context—the executable anchor source.
+  if (
+    constraints.temporalRelation === 'previous' &&
+    constraints.chronologyRole !== 'direct_position' &&
+    active.has('semantic_history') &&
+    active.has('chronology')
+  ) {
+    return {
+      ...constraints,
+      temporalRelation: 'before',
+      anchorSource: 'semantic_result',
+    };
+  }
+
+  return constraints;
+}
+
 export function buildJevMemoryDependencies(
   operations: string[],
   constraints: JevMemoryPlanConstraints
