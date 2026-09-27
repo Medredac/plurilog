@@ -56,6 +56,12 @@ export interface ExecuteConversationMemoryGraphOptions {
   recentRounds?: Round[];
   summary?: string;
   runSemanticHistory: (query: string) => Promise<SemanticMemoryRow[]>;
+  resolveAmbiguity?: (input: {
+    prompt: string;
+    reason: string;
+    constraints: JevMemoryPlanConstraints;
+    candidateRoundUserMessageIds: string[];
+  }) => Promise<string | null>;
 }
 
 function unique<T>(values: T[]): T[] {
@@ -568,6 +574,61 @@ export async function executeConversationMemoryGraph(
         resolverReason =
           'The composed graph could not resolve exact speaker evidence.';
       }
+    }
+  }
+
+  if (
+    needsResolver &&
+    options.resolveAmbiguity &&
+    selectedRoundUserMessageIds.length > 1
+  ) {
+    const resolverSelectedId = await options.resolveAmbiguity({
+      prompt: options.prompt,
+      reason: resolverReason || 'Multiple validated historical candidates remain.',
+      constraints: options.constraints,
+      candidateRoundUserMessageIds: selectedRoundUserMessageIds,
+    });
+
+    if (
+      resolverSelectedId &&
+      selectedRoundUserMessageIds.includes(resolverSelectedId)
+    ) {
+      selectedRoundUserMessageIds = [resolverSelectedId];
+      needsResolver = false;
+      resolverReason = null;
+
+      const target = speakerName(options.constraints.speaker);
+      if (target) {
+        if (
+          options.constraints.temporalRelation === 'before' ||
+          options.constraints.temporalRelation === 'after'
+        ) {
+          const item = relativeSpeakerEvidence(
+            options.allRounds,
+            resolverSelectedId,
+            target,
+            options.constraints.temporalRelation
+          );
+          finalEvidence = item ? [item] : [];
+        } else {
+          const index = options.allRounds.findIndex(
+            (round) => round.userMessageId === resolverSelectedId
+          );
+          const item =
+            index >= 0
+              ? evidenceFromRound(options.allRounds[index], index, target)
+              : null;
+          finalEvidence = item ? [item] : [];
+        }
+      }
+
+      steps.push({
+        operation: 'chronology',
+        inputFrom: ['resolver'],
+        outputCount: selectedRoundUserMessageIds.length,
+        status: 'executed',
+        reason: 'Cheap resolver disambiguated validated graph candidates.',
+      });
     }
   }
 
