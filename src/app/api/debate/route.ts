@@ -3060,6 +3060,11 @@ export async function POST(req: NextRequest) {
                     const resolverModel =
                       process.env.JEV_MEMORY_RESOLVER_MODEL ||
                       'google/gemini-3.1-flash-lite';
+                    const selectionRole =
+                      constraints.temporalRelation === 'before' ||
+                      constraints.temporalRelation === 'after'
+                        ? 'anchor'
+                        : 'evidence';
                     const resolverResponse = await openai.chat.completions.create(
                       {
                         model: resolverModel,
@@ -3070,13 +3075,16 @@ export async function POST(req: NextRequest) {
                           {
                             role: 'system',
                             content:
-                              'You resolve ambiguity only among already validated historical conversation candidates. Do not answer the user. Select exactly one candidate only when the user request and structured constraints make one candidate the best historical anchor/evidence source. Return JSON only: {"selectedRoundUserMessageId":string|null,"confidence":number,"reason":string}. Never invent an id and never select outside the supplied candidates.',
+                              selectionRole === 'anchor'
+                                ? 'You resolve ambiguity only among already validated historical conversation candidates. Do not answer the user. Your job is to select the candidate round that CONTAINS THE HISTORICAL ANCHOR EVENT. Do not select the earlier/later answer the user ultimately wants; deterministic chronology will navigate before/after the anchor after you select it. Return JSON only: {"selectedRoundUserMessageId":string|null,"confidence":number,"reason":string}. Never invent an id and never select outside the supplied candidates.'
+                                : 'You resolve ambiguity only among already validated historical conversation candidates. Do not answer the user. Your job is to select the candidate round that is the best final evidence source under the structured constraints. Return JSON only: {"selectedRoundUserMessageId":string|null,"confidence":number,"reason":string}. Never invent an id and never select outside the supplied candidates.',
                           },
                           {
                             role: 'user',
                             content: JSON.stringify({
                               prompt: graphPrompt,
                               ambiguityReason: reason,
+                              selectionRole,
                               constraints,
                               candidates,
                             }),
@@ -3106,6 +3114,7 @@ export async function POST(req: NextRequest) {
                     console.log('[Jev Memory Graph Resolver]', {
                       model: resolverResponse.model || resolverModel,
                       candidateCount: candidates.length,
+                      selectionRole,
                       selectedRoundUserMessageId: selectedId,
                       confidence,
                       reason: parsed?.reason || null,
