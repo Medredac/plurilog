@@ -306,6 +306,12 @@ routeSource = routeSource.replace(
   'If the described anchor depends on pronouns, ellipsis, or an implicit referent, first inspect controlContext.immediatePriorUserMessage and preserve its semantic scope when it clearly supplies the referent; use controlContext.recentRounds only for disambiguation. Return JSON only:'
 );
 
+
+routeSource = routeSource.replace(
+  'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed.',
+  'You are a shadow memory-plan adjudicator. Do not answer the user. IMPORTANT: decide whether conversation memory is needed from controlContext.currentRequest alone. Do not infer a memory request merely because recentRounds contain earlier recall questions or related history. A self-contained declarative statement, opinion, or continuation must not trigger conversation-memory retrieval. Only after memory intent is established may recentRounds be used to resolve pronouns, ellipsis, or implicit referents. Decide whether the proposed memory operations are actually needed.'
+);
+
 fs.writeFileSync(routePath, routeSource);
 
 console.log('Applied shared bounded MemoryControlContext preview patch');
