@@ -82,6 +82,30 @@ export type JevMemoryOperation =
 export type JevMemoryPlanConstraints =
   JevMemoryPilotShadowResult['compiledPlan']['constraints'];
 
+function executableTemporalRelation(
+  constraints: JevMemoryPlanConstraints
+): string | null {
+  const relation = constraints.temporalRelation;
+
+  // "previous" has two structurally different meanings:
+  // direct_position => previous event from the target speaker;
+  // anchored chronology => relative navigation immediately before an anchor.
+  // Keep the distinction in structured state rather than re-reading prompt text.
+  if (
+    relation === 'previous' &&
+    constraints.chronologyRole !== 'direct_position' &&
+    (
+      (constraints.anchorSource && constraints.anchorSource !== 'none') ||
+      (constraints.anchorOccurrence &&
+        constraints.anchorOccurrence !== 'none')
+    )
+  ) {
+    return 'before';
+  }
+
+  return relation;
+}
+
 export function closeJevMemoryOperationsUnderConstraints(
   requestedOperations: string[],
   baseOperations: string[],
@@ -89,6 +113,7 @@ export function closeJevMemoryOperationsUnderConstraints(
 ): string[] {
   const active = new Set(requestedOperations);
   const base = new Set(baseOperations);
+  const temporalRelation = executableTemporalRelation(constraints);
 
   // A planner override may remove an unnecessary operator, but it may not
   // erase an explicit user constraint that another operator must enforce.
@@ -111,8 +136,8 @@ export function closeJevMemoryOperationsUnderConstraints(
   // composed system that supplies candidate historical anchors.
   if (
     active.has('chronology') &&
-    (constraints.temporalRelation === 'before' ||
-      constraints.temporalRelation === 'after') &&
+    (temporalRelation === 'before' ||
+      temporalRelation === 'after') &&
     !active.has('semantic_history') &&
     !active.has('recent_exact')
   ) {
@@ -144,6 +169,7 @@ export function buildJevMemoryDependencies(
   constraints: JevMemoryPlanConstraints
 ): Array<{ from: string; to: string; reason: string }> {
   const active = new Set(operations);
+  const temporalRelation = executableTemporalRelation(constraints);
   const dependencies: Array<{ from: string; to: string; reason: string }> = [];
   const add = (from: JevMemoryOperation, to: JevMemoryOperation, reason: string) => {
     if (
@@ -172,8 +198,8 @@ export function buildJevMemoryDependencies(
       constraints.anchorSource === 'semantic_result' ||
       constraints.chronologyRole === 'select_anchor_occurrence' ||
       constraints.chronologyRole === 'navigate_from_anchor' ||
-      constraints.temporalRelation === 'before' ||
-      constraints.temporalRelation === 'after'
+      temporalRelation === 'before' ||
+      temporalRelation === 'after'
     )
   ) {
     add(
@@ -389,8 +415,21 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     answers,
     'anchor_ordinal_position'
   );
+
+  const previousIsRelativeNavigation =
+    temporalRelation === 'previous' &&
+    chronologyRole !== 'direct_position' &&
+    (
+      (chronologyRole && chronologyRole !== 'none') ||
+      (anchorSource && anchorSource !== 'none') ||
+      (anchorOccurrence && anchorOccurrence !== 'none')
+    );
+  const executableRelation = previousIsRelativeNavigation
+    ? 'before'
+    : temporalRelation;
+
   const ordinalPosition =
-    temporalRelation === 'ordinal' &&
+    executableRelation === 'ordinal' &&
     ordinalPositionChoice &&
     ordinalPositionChoice !== 'none' &&
     ordinalPositionConfidence >= 0.55
@@ -472,7 +511,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const topicalOccurrenceNeedsSemantic =
     chronologyNeeded &&
     temporalSupported &&
-    ['first', 'last', 'ordinal'].includes(temporalRelation || '') &&
+    ['first', 'last', 'ordinal'].includes(executableRelation || '') &&
     recentTopicSource &&
     semanticRole === 'find_topic' &&
     semanticRoleSupported &&
@@ -481,7 +520,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const relativeTopicNavigationNeedsSemantic =
     chronologyNeeded &&
     temporalSupported &&
-    ['before', 'after'].includes(temporalRelation || '') &&
+    ['before', 'after'].includes(executableRelation || '') &&
     semanticRole === 'find_topic' &&
     semanticSignal >= 0.3;
 
@@ -664,7 +703,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     constraints: {
       speaker: speakerFilterNeeded ? speaker : null,
       temporalRelation:
-        chronologyNeeded && temporalSupported ? temporalRelation : null,
+        chronologyNeeded && temporalSupported ? executableRelation : null,
       semanticRole:
         semanticNeeded && semanticRoleSupported ? semanticRole : null,
       chronologyRole:
@@ -684,7 +723,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
           : null,
       ordinalPosition:
         chronologyNeeded &&
-        temporalRelation === 'ordinal' &&
+        executableRelation === 'ordinal' &&
         Number.isInteger(ordinalPosition) &&
         (ordinalPosition as number) >= 1
           ? ordinalPosition
