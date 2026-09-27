@@ -11,14 +11,26 @@ const oldTopical = `  const topicalOccurrenceNeedsSemantic =
     semanticRoleSupported &&
     semanticSignal >= 0.3;`;
 
-const newTopical = `  const structuredTopicalOccurrenceIntent =
+const newTopical = `  const recentContextTopicalOccurrenceIntent =
+    chronologyNeeded &&
+    temporalSupported &&
+    ['first', 'last', 'ordinal'].includes(executableRelation || '') &&
+    speakerSupported &&
+    recentTopicSource &&
+    recentSignal >= 0.75 &&
+    semanticSignal >= 0.2;
+
+  const structuredTopicalOccurrenceIntent =
     chronologyNeeded &&
     temporalSupported &&
     ['first', 'last', 'ordinal'].includes(executableRelation || '') &&
     speakerSupported &&
     chronologySignal >= 0.75 &&
     semanticSignal >= 0.3 &&
-    chronologyRole !== 'direct_position' &&
+    (
+      chronologyRole !== 'direct_position' ||
+      chronologyRoleConfidence < 0.55
+    ) &&
     (
       chronologyRole === 'select_anchor_occurrence' ||
       ['first', 'last', 'ordinal'].includes(anchorOccurrence || '')
@@ -28,10 +40,11 @@ const newTopical = `  const structuredTopicalOccurrenceIntent =
     chronologyNeeded &&
     temporalSupported &&
     ['first', 'last', 'ordinal'].includes(executableRelation || '') &&
-    semanticSignal >= 0.3 &&
+    semanticSignal >= 0.2 &&
     (
       (semanticRole === 'find_topic' && semanticRoleSupported) ||
-      structuredTopicalOccurrenceIntent
+      structuredTopicalOccurrenceIntent ||
+      recentContextTopicalOccurrenceIntent
     );`;
 
 const oldConstraints = `      semanticRole:
