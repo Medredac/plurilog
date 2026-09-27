@@ -3027,6 +3027,77 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
+                  const topicalOccurrenceLookup =
+                    jevEffectiveConstraints?.semanticRole === 'find_topic' &&
+                    ['first', 'last', 'ordinal'].includes(
+                      jevEffectiveConstraints?.temporalRelation || ''
+                    );
+
+                  if (
+                    topicalOccurrenceLookup &&
+                    retrievalQuery === semanticQuery
+                  ) {
+                    try {
+                      const topicQueryModel =
+                        process.env.JEV_MEMORY_RESOLVER_MODEL ||
+                        'google/gemini-3.1-flash-lite';
+                      const topicQueryResponse =
+                        await openai.chat.completions.create(
+                          {
+                            model: topicQueryModel,
+                            temperature: 0,
+                            max_tokens: 100,
+                            response_format: { type: 'json_object' },
+                            messages: [
+                              {
+                                role: 'system',
+                                content:
+                                  'Formulate a semantic retrieval query for the HISTORICAL TOPIC only. Do not answer the user. Remove meta-language about which speaker said something and about first, last, previous, before, after, or ordinal position. Return JSON only: {"topicQuery":string}. Preserve the topic meaning and distinctive concepts needed to retrieve every historical round about that topic.',
+                              },
+                              {
+                                role: 'user',
+                                content: JSON.stringify({
+                                  currentRequest: prompt,
+                                  constraints: jevEffectiveConstraints,
+                                }),
+                              },
+                            ],
+                          },
+                          { signal: req.signal }
+                        );
+
+                      const topicRaw =
+                        topicQueryResponse.choices?.[0]?.message?.content ||
+                        '{}';
+                      const topicParsed = JSON.parse(
+                        topicRaw
+                          .trim()
+                          .replace(/^```(?:json)?\s*/i, '')
+                          .replace(/\s*```$/, '')
+                      );
+                      if (
+                        typeof topicParsed?.topicQuery === 'string' &&
+                        topicParsed.topicQuery.trim()
+                      ) {
+                        retrievalQuery = topicParsed.topicQuery.trim();
+                        console.log('[Jev Topic Query]', {
+                          model:
+                            topicQueryResponse.model || topicQueryModel,
+                          query: retrievalQuery.slice(0, 500),
+                        });
+                      }
+                    } catch (topicQueryErr: any) {
+                      console.warn(
+                        '[Jev Topic Query] Non-critical formulation failure',
+                        {
+                          message:
+                            topicQueryErr?.message ||
+                            String(topicQueryErr),
+                        }
+                      );
+                    }
+                  }
+
                   const embeddingResult = await (openai.embeddings.create as any)(
                     {
                       model: 'google/gemini-embedding-2',
@@ -3048,13 +3119,24 @@ export async function POST(req: NextRequest) {
                     return [];
                   }
 
+                  const semanticCandidateLimit =
+                    topicalOccurrenceLookup
+                      ? Math.max(
+                          10,
+                          Math.min(
+                            discussionMemory!.allRounds!.length,
+                            250
+                          )
+                        )
+                      : 10;
+
                   const { data: hybridRows, error: searchErr } = await supabase.rpc(
                     'search_discussion_memory_hybrid',
                     {
                       p_discussion_id: discussionId,
                       p_query_text: retrievalQuery,
                       p_query_embedding: queryEmbedding,
-                      p_match_count: 10,
+                      p_match_count: semanticCandidateLimit,
                     }
                   );
 
@@ -3094,12 +3176,17 @@ export async function POST(req: NextRequest) {
                   // identities first. Do not spend the final evidence token
                   // budget before downstream chronology/speaker operators have
                   // had a chance to narrow the candidate set.
-                  const selected = qualifying.slice(0, 10);
+                  const selected = qualifying.slice(
+                    0,
+                    semanticCandidateLimit
+                  );
 
                   console.log('[Jev Memory Graph] Semantic node complete', {
                     candidateCount: hybridRows.length,
                     validatedCount: qualifying.length,
                     selectedCount: selected.length,
+                    candidateLimit: semanticCandidateLimit,
+                    topicalOccurrenceLookup,
                     mode: 'candidate-first',
                   });
 
