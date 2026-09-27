@@ -409,6 +409,17 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     visualSignal >= 0.5 ||
     primarySourceSignal >= 0.5;
 
+  const recentOnlyPlanIsComplete =
+    operations.length === 1 &&
+    operations[0] === 'recent_exact' &&
+    recentSignal >= 0.8 &&
+    historicalSignal < 0.4 &&
+    semanticSignal < 0.65 &&
+    chronologySignal < 0.4 &&
+    documentSignal < 0.5 &&
+    visualSignal < 0.5 &&
+    primarySourceSignal < 0.5;
+
   return {
     operations,
     dependencies,
@@ -435,6 +446,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
           : null,
     },
     escalationSuggested:
+      !recentOnlyPlanIsComplete &&
       getNoul(answers, 'flexible_resolver_needed') >= 0.5 &&
       memoryAmbiguitySignal,
   };
