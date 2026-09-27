@@ -13,6 +13,7 @@ export interface MemoryControlRound {
 
 export interface MemoryControlContext {
   currentRequest: string;
+  immediatePriorUserMessage: string | null;
   recentRounds: MemoryControlRound[];
   policy: {
     maxRecentRounds: number;
@@ -72,11 +73,17 @@ export function buildMemoryControlContext(
     return compact;
   });
 
+  const immediatePriorUserMessage =
+    recentRounds.length > 0
+      ? recentRounds[recentRounds.length - 1].user || null
+      : null;
+
   return {
     currentRequest: clip(
       prompt || '',
       MEMORY_CONTROL_REQUEST_CHAR_LIMIT
     ),
+    immediatePriorUserMessage,
     recentRounds,
     policy: {
       maxRecentRounds: MEMORY_CONTROL_MAX_RECENT_ROUNDS,
