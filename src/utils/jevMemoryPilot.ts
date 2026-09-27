@@ -153,6 +153,10 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const summarySignal = getNoul(answers, 'rolling_summary_needed');
   const documentSignal = getNoul(answers, 'document_search_needed');
   const visualSignal = getNoul(answers, 'visual_evidence_needed');
+  const primarySourceSignal = getNoul(
+    answers,
+    'primary_source_needed'
+  );
 
   const speaker = getChoice(answers, 'speaker_target');
   const temporalRelation = getChoice(answers, 'temporal_relation');
@@ -212,9 +216,11 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     (historicalSignal >= 0.2 || recentSignal >= 0.65);
 
   let semanticNeeded =
-    semanticSignal >= 0.55 &&
-    historicalSignal >= 0.4 &&
-    semanticRoleSupported;
+    (semanticSignal >= 0.55 &&
+      historicalSignal >= 0.4 &&
+      semanticRoleSupported) ||
+    (primarySourceSignal >= 0.55 &&
+      (historicalSignal >= 0.1 || recentSignal >= 0.5));
 
   // A chronological plan that explicitly says its anchor comes from semantic
   // retrieval must include semantic retrieval even when its broad semantic
@@ -388,7 +394,8 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     (chronologySignal >= 0.45 &&
       (temporalSupported || chronologyRoleSupported)) ||
     documentSignal >= 0.5 ||
-    visualSignal >= 0.5;
+    visualSignal >= 0.5 ||
+    primarySourceSignal >= 0.5;
 
   return {
     operations,
@@ -486,6 +493,11 @@ export async function runJevMemoryPilotShadow(options: {
       type: 'noul',
       instructions:
         'Does current_user_message require the actual visual appearance of an image, PDF, or Word document, such as layout, photo placement, colours, signatures, or rendered pages?',
+    },
+    primary_source_needed: {
+      type: 'noul',
+      instructions:
+        'Does current_user_message explicitly require the original, primary, first-hand historical source rather than a later recap, paraphrase, quote, or reference to it?',
     },
     speaker_target: {
       type: 'choice',
