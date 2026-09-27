@@ -49,6 +49,8 @@ export type JevMemoryPilotShadowResult = {
       topicSource: string | null;
       anchorSource: string | null;
       ordinalPosition: number | null;
+      anchorOccurrence: string | null;
+      anchorOrdinalPosition: number | null;
     };
     candidateBudgets: {
       semanticHistory: {
@@ -333,6 +335,11 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const topicSource = getChoice(answers, 'topic_source');
   const anchorSource = getChoice(answers, 'anchor_source');
   const ordinalPositionChoice = getChoice(answers, 'ordinal_position');
+  const anchorOccurrence = getChoice(answers, 'anchor_occurrence');
+  const anchorOrdinalPositionChoice = getChoice(
+    answers,
+    'anchor_ordinal_position'
+  );
 
   const speakerConfidence = getChoiceConfidence(answers, 'speaker_target');
   const temporalConfidence = getChoiceConfidence(
@@ -359,12 +366,33 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     answers,
     'ordinal_position'
   );
+  const anchorOccurrenceConfidence = getChoiceConfidence(
+    answers,
+    'anchor_occurrence'
+  );
+  const anchorOrdinalPositionConfidence = getChoiceConfidence(
+    answers,
+    'anchor_ordinal_position'
+  );
   const ordinalPosition =
     temporalRelation === 'ordinal' &&
     ordinalPositionChoice &&
     ordinalPositionChoice !== 'none' &&
     ordinalPositionConfidence >= 0.55
       ? Number.parseInt(ordinalPositionChoice, 10)
+      : null;
+  const supportedAnchorOccurrence =
+    anchorOccurrence &&
+    anchorOccurrence !== 'none' &&
+    anchorOccurrenceConfidence >= 0.55
+      ? anchorOccurrence
+      : null;
+  const anchorOrdinalPosition =
+    supportedAnchorOccurrence === 'ordinal' &&
+    anchorOrdinalPositionChoice &&
+    anchorOrdinalPositionChoice !== 'none' &&
+    anchorOrdinalPositionConfidence >= 0.55
+      ? Number.parseInt(anchorOrdinalPositionChoice, 10)
       : null;
 
   const speakerSupported =
@@ -646,6 +674,15 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
         (ordinalPosition as number) >= 1
           ? ordinalPosition
           : null,
+      anchorOccurrence:
+        chronologyNeeded ? supportedAnchorOccurrence : null,
+      anchorOrdinalPosition:
+        chronologyNeeded &&
+        supportedAnchorOccurrence === 'ordinal' &&
+        Number.isInteger(anchorOrdinalPosition) &&
+        (anchorOrdinalPosition as number) >= 1
+          ? anchorOrdinalPosition
+          : null,
     },
     candidateBudgets: {
       semanticHistory: semanticNeeded
@@ -787,6 +824,35 @@ export async function runJevMemoryPilotShadow(options: {
         '8': 'The eighth occurrence is requested.',
         '9': 'The ninth occurrence is requested.',
         '10': 'The tenth occurrence is requested.',
+      },
+    },
+    anchor_occurrence: {
+      type: 'choice',
+      instructions:
+        'When before/after navigation is relative to a repeated historical topic or anchor, which occurrence of that anchor should chronology use? Choose none when the request does not specify an anchor occurrence.',
+      criteria: {
+        none: 'No particular anchor occurrence is specified.',
+        first: 'Use the first occurrence of the anchor/topic.',
+        last: 'Use the last or most recent occurrence of the anchor/topic.',
+        ordinal: 'Use a numbered occurrence of the anchor/topic.',
+      },
+    },
+    anchor_ordinal_position: {
+      type: 'choice',
+      instructions:
+        'When anchor_occurrence is ordinal, which numbered anchor occurrence is requested? Choose none otherwise.',
+      criteria: {
+        none: 'No numbered anchor occurrence is requested.',
+        '1': 'Use the first anchor occurrence.',
+        '2': 'Use the second anchor occurrence.',
+        '3': 'Use the third anchor occurrence.',
+        '4': 'Use the fourth anchor occurrence.',
+        '5': 'Use the fifth anchor occurrence.',
+        '6': 'Use the sixth anchor occurrence.',
+        '7': 'Use the seventh anchor occurrence.',
+        '8': 'Use the eighth anchor occurrence.',
+        '9': 'Use the ninth anchor occurrence.',
+        '10': 'Use the tenth anchor occurrence.',
       },
     },
     semantic_role: {
