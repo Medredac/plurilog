@@ -49,6 +49,20 @@ export type JevMemoryPilotShadowResult = {
       topicSource: string | null;
       anchorSource: string | null;
     };
+    candidateBudgets: {
+      semanticHistory: {
+        candidateLimit: number;
+        maxSelected: number;
+        tokenBudget: number;
+        metadataFirst: boolean;
+      } | null;
+      documentSearch: {
+        candidateLimit: number;
+        maxSelected: number;
+        tokenBudget: number;
+        metadataFirst: boolean;
+      } | null;
+    };
     escalationSuggested: boolean;
   };
 };
@@ -459,6 +473,24 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
               ? anchorSource
               : null
           : null,
+    },
+    candidateBudgets: {
+      semanticHistory: semanticNeeded
+        ? {
+            candidateLimit: 10,
+            maxSelected: 3,
+            tokenBudget: 2500,
+            metadataFirst: true,
+          }
+        : null,
+      documentSearch: documentNeeded
+        ? {
+            candidateLimit: 5,
+            maxSelected: 2,
+            tokenBudget: 1500,
+            metadataFirst: true,
+          }
+        : null,
     },
     escalationSuggested:
       incompleteEmptyHistoricalCallback ||
