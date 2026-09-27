@@ -60,5 +60,63 @@ source = source.replace(
   'If the topic/referent depends on recent_context, retain recent_exact when semantic_history or chronology still needs that referent. For a request to synthesize how a specific named topic developed across the conversation, rolling_summary and semantic_history should normally compose: the rolling summary supplies broad continuity while semantic_history scopes evidence to that topic. Do not add chronology unless the user actually asks for temporal occurrence selection.'
 );
 
+
+// Enforce topic-scoped synthesis at the effective-plan boundary. This is a
+// structural invariant: rolling summary supplies global continuity while
+// semantic history supplies evidence scoped to the named topic.
+source = source.replace(
+  `        const closedOperations = closeJevMemoryOperationsUnderConstraints(
+          resolverRequestedOperations,
+          result.compiledPlan.operations,
+          result.compiledPlan.constraints
+        );`,
+  `        const topicScopedSynthesisEffectiveConstraints =
+          topicScopedSummaryNeedsAdjudication
+            ? {
+                ...result.compiledPlan.constraints,
+                semanticRole: 'find_topic',
+                topicSource: 'current_prompt',
+              }
+            : result.compiledPlan.constraints;
+
+        const topicScopedSynthesisRequestedOperations =
+          topicScopedSummaryNeedsAdjudication
+            ? Array.from(
+                new Set([
+                  ...resolverRequestedOperations,
+                  'rolling_summary',
+                  'semantic_history',
+                ])
+              )
+            : resolverRequestedOperations;
+
+        const closedOperations = closeJevMemoryOperationsUnderConstraints(
+          topicScopedSynthesisRequestedOperations,
+          result.compiledPlan.operations,
+          topicScopedSynthesisEffectiveConstraints
+        );`
+);
+
+source = source.replace(
+  `        const effectiveDependencies = buildJevMemoryDependencies(
+          effectiveOperations,
+          result.compiledPlan.constraints
+        );`,
+  `        const effectiveDependencies = buildJevMemoryDependencies(
+          effectiveOperations,
+          topicScopedSynthesisEffectiveConstraints
+        );`
+);
+
+source = source.replace(
+  `          constraints: result.compiledPlan.constraints,`,
+  `          constraints: topicScopedSynthesisEffectiveConstraints,`
+);
+
+source = source.replace(
+  `          effectiveConstraints: result.compiledPlan.constraints,`,
+  `          effectiveConstraints: topicScopedSynthesisEffectiveConstraints,`
+);
+
 fs.writeFileSync(path, source);
 console.log('Applied topic-scoped synthesis adjudication patch');
