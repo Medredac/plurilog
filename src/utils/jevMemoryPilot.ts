@@ -283,11 +283,9 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     (summarySignal >= 0.75 && historicalSignal >= 0.35);
 
   const visualNeeded = visualSignal >= 0.65;
-
-  // document_search means textual/chunk retrieval. Visual PDF/DOCX reopening
-  // is independently owned by visual_evidence, so a moderate document signal
-  // must not be promoted merely because visual evidence is also needed.
-  const documentNeeded = documentSignal >= 0.65;
+  const documentNeeded =
+    documentSignal >= 0.65 ||
+    (documentSignal >= 0.5 && visualNeeded);
 
   const retrievalNeeded =
     recentNeeded ||
