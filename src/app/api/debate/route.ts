@@ -2587,6 +2587,14 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         let isClosed = false;
+        const jevControllerState = jevControllerPromise
+          ? await jevControllerPromise
+          : null;
+        const jevEffectiveOperations: string[] = Array.isArray(
+          jevControllerState?.effectiveOperations
+        )
+          ? jevControllerState.effectiveOperations
+          : [];
 
         const sendEvent = (event: string, data: any) => {
           if (isClosed) return;
@@ -2663,7 +2671,7 @@ export async function POST(req: NextRequest) {
             prompt.trim() &&
             !req.signal.aborted &&
             (!discussionMemory?.chronologicalMemory ||
-              isJevMemoryPilotShadowEnabled())
+              jevEffectiveOperations.includes('semantic_history'))
           ) {
             // 1. Attempt deterministic structured section resolution first (does NOT require embedding)
             try {
@@ -2843,6 +2851,7 @@ export async function POST(req: NextRequest) {
 
                   if (
                     isJevMemoryPilotShadowEnabled() &&
+                    jevEffectiveOperations.includes('semantic_history') &&
                     discussionMemory?.historyLookupIntent &&
                     retrievedMemory.length > 1
                   ) {
