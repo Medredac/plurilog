@@ -92,7 +92,7 @@ jevSource = replaceOnce(
     (summarySignal >= 0.6 && historicalSignal >= 0.55) ||
     (summarySignal >= 0.75 && historicalSignal >= 0.35);`,
   `  const conversationMemoryAllowed =
-    memoryEvidenceSignal >= 0.5;
+    memoryEvidenceSignal >= 0.7;
 
   if (!conversationMemoryAllowed) {
     recentNeeded = false;
