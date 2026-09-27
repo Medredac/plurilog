@@ -45,7 +45,15 @@ import {
   isPersistentVisualContextWritesEnabled,
   isPersistentVisualContextReadsEnabled,
 } from '@/utils/discussionMemory';
-import { isJevMemoryPilotShadowEnabled, runJevMemoryPilotShadow } from '@/utils/jevMemoryPilot';
+import {
+  buildJevMemoryDependencies,
+  isJevMemoryPilotShadowEnabled,
+  runJevMemoryPilotShadow,
+} from '@/utils/jevMemoryPilot';
+import {
+  executeConversationMemoryGraph,
+  type ConversationMemoryGraphResult,
+} from '@/utils/jevMemoryGraphExecutor';
 import { parseDocx } from '@/utils/docxParser';
 import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
 import { renderDocxPages } from '@/utils/docxPageRenderer';
@@ -2703,8 +2711,15 @@ export async function POST(req: NextRequest) {
           requestedOperations.has(operation)
         );
 
+        const effectiveDependencies = buildJevMemoryDependencies(
+          effectiveOperations,
+          result.compiledPlan.constraints
+        );
+
         console.log('[Jev Effective Plan Preview]', {
           operations: effectiveOperations,
+          dependencies: effectiveDependencies,
+          constraints: result.compiledPlan.constraints,
           resolverApplied: Boolean(resolverResolution?.overrideNeeded),
           resolverMode: resolverResolution?.overrideNeeded
             ? 'complete-plan-override'
@@ -2715,6 +2730,8 @@ export async function POST(req: NextRequest) {
           result,
           resolverResolution,
           effectiveOperations,
+          effectiveDependencies,
+          effectiveConstraints: result.compiledPlan.constraints,
         };
       })().catch((error: any) => {
         if (!req.signal.aborted) {
