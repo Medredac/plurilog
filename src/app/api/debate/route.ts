@@ -3031,6 +3031,98 @@ export async function POST(req: NextRequest) {
 
                   return selected;
                 },
+                resolveAmbiguity: async ({
+                  prompt: graphPrompt,
+                  reason,
+                  constraints,
+                  candidateRoundUserMessageIds,
+                }) => {
+                  const candidateSet = new Set(candidateRoundUserMessageIds);
+                  const candidates = (discussionMemory?.allRounds || [])
+                    .map((round, roundIndex) => ({
+                      roundUserMessageId: round.userMessageId || null,
+                      roundIndex,
+                      userPrompt: (round.userPrompt || '').slice(0, 1200),
+                      modelResponses: (round.modelResponses || []).map((response) => ({
+                        name: response.name,
+                        content: (response.content || '').slice(0, 900),
+                      })),
+                    }))
+                    .filter(
+                      (candidate) =>
+                        candidate.roundUserMessageId &&
+                        candidateSet.has(candidate.roundUserMessageId)
+                    );
+
+                  if (candidates.length < 2) return null;
+
+                  try {
+                    const resolverModel =
+                      process.env.JEV_MEMORY_RESOLVER_MODEL ||
+                      'google/gemini-3.1-flash-lite';
+                    const resolverResponse = await openai.chat.completions.create(
+                      {
+                        model: resolverModel,
+                        temperature: 0,
+                        max_tokens: 180,
+                        response_format: { type: 'json_object' },
+                        messages: [
+                          {
+                            role: 'system',
+                            content:
+                              'You resolve ambiguity only among already validated historical conversation candidates. Do not answer the user. Select exactly one candidate only when the user request and structured constraints make one candidate the best historical anchor/evidence source. Return JSON only: {"selectedRoundUserMessageId":string|null,"confidence":number,"reason":string}. Never invent an id and never select outside the supplied candidates.',
+                          },
+                          {
+                            role: 'user',
+                            content: JSON.stringify({
+                              prompt: graphPrompt,
+                              ambiguityReason: reason,
+                              constraints,
+                              candidates,
+                            }),
+                          },
+                        ],
+                      },
+                      { signal: req.signal }
+                    );
+
+                    const raw =
+                      resolverResponse.choices?.[0]?.message?.content || '{}';
+                    const parsed = JSON.parse(
+                      raw
+                        .trim()
+                        .replace(/^\`\`\`(?:json)?\\s*/i, '')
+                        .replace(/\\s*\`\`\`$/, '')
+                    );
+                    const selectedId =
+                      typeof parsed?.selectedRoundUserMessageId === 'string'
+                        ? parsed.selectedRoundUserMessageId
+                        : null;
+                    const confidence =
+                      typeof parsed?.confidence === 'number'
+                        ? parsed.confidence
+                        : 0;
+
+                    console.log('[Jev Memory Graph Resolver]', {
+                      model: resolverResponse.model || resolverModel,
+                      candidateCount: candidates.length,
+                      selectedRoundUserMessageId: selectedId,
+                      confidence,
+                      reason: parsed?.reason || null,
+                    });
+
+                    return selectedId &&
+                      candidateSet.has(selectedId) &&
+                      confidence >= 0.6
+                      ? selectedId
+                      : null;
+                  } catch (resolverErr: any) {
+                    console.warn('[Jev Memory Graph Resolver] Non-critical failure', {
+                      message: resolverErr?.message || String(resolverErr),
+                    });
+                    return null;
+                  }
+                },
               });
 
               console.log('[Jev Memory Graph Execution]', {
