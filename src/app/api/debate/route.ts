@@ -2603,6 +2603,35 @@ export async function POST(req: NextRequest) {
         )
           ? jevControllerState.effectiveOperations
           : [];
+        const jevControllerOwnsConversationMemory = Boolean(
+          isJevMemoryPilotShadowEnabled() && jevControllerState
+        );
+        const jevAllowsSemanticConversationMemory =
+          !jevControllerOwnsConversationMemory ||
+          jevEffectiveOperations.includes('semantic_history');
+
+        // In controller preview mode, legacy chronology may still be computed
+        // upstream for compatibility, but it must not become evidence unless
+        // the effective Jev/System-2 plan actually requested chronology.
+        if (
+          jevControllerOwnsConversationMemory &&
+          discussionMemory?.chronologicalMemory &&
+          !jevEffectiveOperations.includes('chronology')
+        ) {
+          console.log(
+            '[Jev Retrieval Gate] Dropped legacy chronology not requested by effective plan',
+            {
+              label: discussionMemory.chronologicalMemory.label,
+              roundUserMessageId:
+                discussionMemory.chronologicalMemory.roundUserMessageId || null,
+              effectiveOperations: jevEffectiveOperations,
+            }
+          );
+          discussionMemory = {
+            ...discussionMemory,
+            chronologicalMemory: undefined,
+          };
+        }
 
         const sendEvent = (event: string, data: any) => {
           if (isClosed) return;
@@ -2761,146 +2790,157 @@ export async function POST(req: NextRequest) {
                   }
                 }
 
-                const { data: hybridRows, error: searchErr } = await supabase.rpc(
-                  'search_discussion_memory_hybrid',
-                  {
-                    p_discussion_id: discussionId,
-                    p_query_text: prompt,
-                    p_query_embedding: queryEmbedding,
-                    p_match_count: 10,
-                  }
-                );
-
-                if (searchErr) {
-                  console.error(
-                    '[Memory Retrieval] Error calling search_discussion_memory_hybrid:',
-                    searchErr
+                if (jevAllowsSemanticConversationMemory) {
+                  const { data: hybridRows, error: searchErr } = await supabase.rpc(
+                    'search_discussion_memory_hybrid',
+                    {
+                      p_discussion_id: discussionId,
+                      p_query_text: prompt,
+                      p_query_embedding: queryEmbedding,
+                      p_match_count: 10,
+                    }
                   );
-                } else {
-                  const recentUserMessageIds = new Set<string>();
-                  if (discussionMemory?.recentRounds) {
-                    for (const r of discussionMemory.recentRounds) {
-                      if (r.userMessageId) {
-                        recentUserMessageIds.add(r.userMessageId);
+  
+                  if (searchErr) {
+                    console.error(
+                      '[Memory Retrieval] Error calling search_discussion_memory_hybrid:',
+                      searchErr
+                    );
+                  } else {
+                    const recentUserMessageIds = new Set<string>();
+                    if (discussionMemory?.recentRounds) {
+                      for (const r of discussionMemory.recentRounds) {
+                        if (r.userMessageId) {
+                          recentUserMessageIds.add(r.userMessageId);
+                        }
+                      }
+                    }
+                    if (discussionMemory?.chronologicalMemory?.roundUserMessageId) {
+                      recentUserMessageIds.add(discussionMemory.chronologicalMemory.roundUserMessageId);
+                    }
+                    if (sourceUserMessageId) {
+                      recentUserMessageIds.add(sourceUserMessageId);
+                    }
+  
+                    const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
+                    const qualifyingCandidates = rawCandidates.filter((row: any) => {
+                      if (
+                        row?.source_user_message_id &&
+                        recentUserMessageIds.has(row.source_user_message_id)
+                      ) {
+                        return false;
+                      }
+                      const hasSemanticMatch =
+                        typeof row?.semantic_similarity === 'number' &&
+                        row.semantic_similarity >= 0.62;
+                      const hasKeywordMatch =
+                        row?.keyword_rank !== null && row?.keyword_rank !== undefined;
+                      return hasSemanticMatch || hasKeywordMatch;
+                    });
+  
+                    // Select up to 3 retrieved rounds within RETRIEVED_MEMORY_TOKEN_BUDGET.
+                    // Note: The 2500-token budget is a target, not an absolute maximum,
+                    // because the highest-ranked usable result is always retained even if it alone exceeds the budget.
+                    const budgetedRetrievedMemory: any[] = [];
+                    let retrievedEstimatedTokens = 0;
+  
+                    for (const candidate of qualifyingCandidates) {
+                      if (budgetedRetrievedMemory.length >= 3) break;
+  
+                      const contentText =
+                        typeof candidate?.content === 'string' ? candidate.content.trim() : '';
+                      if (!contentText) continue;
+  
+                      const candidateTokens = estimateTokens(contentText);
+  
+                      if (budgetedRetrievedMemory.length === 0) {
+                        // Always include the first usable/highest-ranked qualifying retrieved round
+                        budgetedRetrievedMemory.push(candidate);
+                        retrievedEstimatedTokens += candidateTokens;
+                      } else if (
+                        retrievedEstimatedTokens + candidateTokens <=
+                        RETRIEVED_MEMORY_TOKEN_BUDGET
+                      ) {
+                        budgetedRetrievedMemory.push(candidate);
+                        retrievedEstimatedTokens += candidateTokens;
+                      } else {
+                        // Lower-ranked candidate does not fit; continue to inspect later candidates
+                        continue;
+                      }
+                    }
+  
+                    retrievedMemory = budgetedRetrievedMemory;
+  
+                    console.log('[Memory Retrieval] Hybrid search completed', {
+                      discussionId,
+                      candidateCount: rawCandidates.length,
+                      resultCount: retrievedMemory.length,
+                      retrievedEstimatedTokens,
+                      retrievedTokenBudget: RETRIEVED_MEMORY_TOKEN_BUDGET,
+                      results: retrievedMemory.map((row: any) => ({
+                        id: row?.id,
+                        source_user_message_id: row?.source_user_message_id,
+                        semantic_rank: row?.semantic_rank,
+                        keyword_rank: row?.keyword_rank,
+                        hybrid_score: row?.hybrid_score,
+                        semantic_similarity: row?.semantic_similarity,
+                      })),
+                    });
+  
+                    if (
+                      isJevMemoryPilotShadowEnabled() &&
+                      jevEffectiveOperations.includes('semantic_history') &&
+                      discussionMemory?.historyLookupIntent &&
+                      qualifyingCandidates.length > 1
+                    ) {
+                      const validated = qualifyingCandidates.find((row: any) => {
+                        const text =
+                          typeof row?.content === 'string'
+                            ? row.content.slice(0, 900).toLowerCase()
+                            : '';
+                        return !(
+                          text.includes('what did ') ||
+                          text.includes('remind me') ||
+                          text.includes('remember ') ||
+                          text.includes('not that one') ||
+                          text.includes('other contrast')
+                        );
+                      }) || retrievedMemory[0];
+  
+                      console.log('[Jev Evidence Validator Shadow]', {
+                        strategy: 'prefer-original-over-recap',
+                        selectedSourceUserMessageId:
+                          validated?.source_user_message_id || null,
+                        selectedSemanticSimilarity:
+                          validated?.semantic_similarity ?? null,
+                      });
+  
+                      if (
+                        validated?.source_user_message_id &&
+                        !jevEffectiveOperations.includes('chronology')
+                      ) {
+                        retrievedMemory = [validated];
+                        discussionMemory = {
+                          ...discussionMemory,
+                          chronologicalMemory: undefined,
+                        };
+                        console.log('[Jev Validated Evidence Preview]', {
+                          sourceUserMessageId:
+                            validated?.source_user_message_id || null,
+                          mode: 'validated-semantic-without-chronology',
+                        });
                       }
                     }
                   }
-                  if (discussionMemory?.chronologicalMemory?.roundUserMessageId) {
-                    recentUserMessageIds.add(discussionMemory.chronologicalMemory.roundUserMessageId);
-                  }
-                  if (sourceUserMessageId) {
-                    recentUserMessageIds.add(sourceUserMessageId);
-                  }
-
-                  const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
-                  const qualifyingCandidates = rawCandidates.filter((row: any) => {
-                    if (
-                      row?.source_user_message_id &&
-                      recentUserMessageIds.has(row.source_user_message_id)
-                    ) {
-                      return false;
+  
+                } else {
+                  console.log(
+                    '[Jev Retrieval Gate] Skipped semantic conversation retrieval',
+                    {
+                      discussionId,
+                      effectiveOperations: jevEffectiveOperations,
                     }
-                    const hasSemanticMatch =
-                      typeof row?.semantic_similarity === 'number' &&
-                      row.semantic_similarity >= 0.62;
-                    const hasKeywordMatch =
-                      row?.keyword_rank !== null && row?.keyword_rank !== undefined;
-                    return hasSemanticMatch || hasKeywordMatch;
-                  });
-
-                  // Select up to 3 retrieved rounds within RETRIEVED_MEMORY_TOKEN_BUDGET.
-                  // Note: The 2500-token budget is a target, not an absolute maximum,
-                  // because the highest-ranked usable result is always retained even if it alone exceeds the budget.
-                  const budgetedRetrievedMemory: any[] = [];
-                  let retrievedEstimatedTokens = 0;
-
-                  for (const candidate of qualifyingCandidates) {
-                    if (budgetedRetrievedMemory.length >= 3) break;
-
-                    const contentText =
-                      typeof candidate?.content === 'string' ? candidate.content.trim() : '';
-                    if (!contentText) continue;
-
-                    const candidateTokens = estimateTokens(contentText);
-
-                    if (budgetedRetrievedMemory.length === 0) {
-                      // Always include the first usable/highest-ranked qualifying retrieved round
-                      budgetedRetrievedMemory.push(candidate);
-                      retrievedEstimatedTokens += candidateTokens;
-                    } else if (
-                      retrievedEstimatedTokens + candidateTokens <=
-                      RETRIEVED_MEMORY_TOKEN_BUDGET
-                    ) {
-                      budgetedRetrievedMemory.push(candidate);
-                      retrievedEstimatedTokens += candidateTokens;
-                    } else {
-                      // Lower-ranked candidate does not fit; continue to inspect later candidates
-                      continue;
-                    }
-                  }
-
-                  retrievedMemory = budgetedRetrievedMemory;
-
-                  console.log('[Memory Retrieval] Hybrid search completed', {
-                    discussionId,
-                    candidateCount: rawCandidates.length,
-                    resultCount: retrievedMemory.length,
-                    retrievedEstimatedTokens,
-                    retrievedTokenBudget: RETRIEVED_MEMORY_TOKEN_BUDGET,
-                    results: retrievedMemory.map((row: any) => ({
-                      id: row?.id,
-                      source_user_message_id: row?.source_user_message_id,
-                      semantic_rank: row?.semantic_rank,
-                      keyword_rank: row?.keyword_rank,
-                      hybrid_score: row?.hybrid_score,
-                      semantic_similarity: row?.semantic_similarity,
-                    })),
-                  });
-
-                  if (
-                    isJevMemoryPilotShadowEnabled() &&
-                    jevEffectiveOperations.includes('semantic_history') &&
-                    discussionMemory?.historyLookupIntent &&
-                    qualifyingCandidates.length > 1
-                  ) {
-                    const validated = qualifyingCandidates.find((row: any) => {
-                      const text =
-                        typeof row?.content === 'string'
-                          ? row.content.slice(0, 900).toLowerCase()
-                          : '';
-                      return !(
-                        text.includes('what did ') ||
-                        text.includes('remind me') ||
-                        text.includes('remember ') ||
-                        text.includes('not that one') ||
-                        text.includes('other contrast')
-                      );
-                    }) || retrievedMemory[0];
-
-                    console.log('[Jev Evidence Validator Shadow]', {
-                      strategy: 'prefer-original-over-recap',
-                      selectedSourceUserMessageId:
-                        validated?.source_user_message_id || null,
-                      selectedSemanticSimilarity:
-                        validated?.semantic_similarity ?? null,
-                    });
-
-                    if (
-                      validated?.source_user_message_id &&
-                      !jevEffectiveOperations.includes('chronology')
-                    ) {
-                      retrievedMemory = [validated];
-                      discussionMemory = {
-                        ...discussionMemory,
-                        chronologicalMemory: undefined,
-                      };
-                      console.log('[Jev Validated Evidence Preview]', {
-                        sourceUserMessageId:
-                          validated?.source_user_message_id || null,
-                        mode: 'validated-semantic-without-chronology',
-                      });
-                    }
-                  }
+                  );
                 }
               }
             } catch (retrievalErr: any) {
