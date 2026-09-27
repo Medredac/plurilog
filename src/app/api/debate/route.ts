@@ -3016,31 +3016,17 @@ export async function POST(req: NextRequest) {
                     return semanticMatch || keywordMatch;
                   });
 
-                  const selected: any[] = [];
-                  let tokenCount = 0;
-                  for (const candidate of qualifying) {
-                    if (selected.length >= 3) break;
-                    const contentText =
-                      typeof candidate?.content === 'string'
-                        ? candidate.content.trim()
-                        : '';
-                    if (!contentText) continue;
-                    const candidateTokens = estimateTokens(contentText);
-                    if (
-                      selected.length === 0 ||
-                      tokenCount + candidateTokens <=
-                        RETRIEVED_MEMORY_TOKEN_BUDGET
-                    ) {
-                      selected.push(candidate);
-                      tokenCount += candidateTokens;
-                    }
-                  }
+                  // Graph-internal semantic retrieval returns candidate
+                  // identities first. Do not spend the final evidence token
+                  // budget before downstream chronology/speaker operators have
+                  // had a chance to narrow the candidate set.
+                  const selected = qualifying.slice(0, 10);
 
                   console.log('[Jev Memory Graph] Semantic node complete', {
                     candidateCount: hybridRows.length,
                     validatedCount: qualifying.length,
                     selectedCount: selected.length,
-                    tokenCount,
+                    mode: 'candidate-first',
                   });
 
                   return selected;
@@ -3084,7 +3070,31 @@ export async function POST(req: NextRequest) {
               } else if (
                 composedConversationGraph.semanticRows.length > 0
               ) {
-                retrievedMemory = composedConversationGraph.semanticRows;
+                // Only apply the panel context budget if semantic_history is a
+                // terminal evidence source. Upstream graph candidates remain
+                // unbudgeted until downstream operators finish narrowing.
+                const terminalSemanticRows: any[] = [];
+                let terminalSemanticTokens = 0;
+
+                for (const candidate of composedConversationGraph.semanticRows) {
+                  if (terminalSemanticRows.length >= 3) break;
+                  const contentText =
+                    typeof candidate?.content === 'string'
+                      ? candidate.content.trim()
+                      : '';
+                  if (!contentText) continue;
+                  const candidateTokens = estimateTokens(contentText);
+                  if (
+                    terminalSemanticRows.length === 0 ||
+                    terminalSemanticTokens + candidateTokens <=
+                      RETRIEVED_MEMORY_TOKEN_BUDGET
+                  ) {
+                    terminalSemanticRows.push(candidate);
+                    terminalSemanticTokens += candidateTokens;
+                  }
+                }
+
+                retrievedMemory = terminalSemanticRows;
               }
             } catch (graphErr: any) {
               console.error('[Jev Memory Graph Execution] Non-critical failure', {
