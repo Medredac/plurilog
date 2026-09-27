@@ -106,6 +106,19 @@ export function closeJevMemoryOperationsUnderConstraints(
     active.add('speaker_filter');
   }
 
+  // Relative chronology cannot execute without a historical anchor source.
+  // When no exact upstream anchor operator is active, semantic_history is the
+  // composed system that supplies candidate historical anchors.
+  if (
+    active.has('chronology') &&
+    (constraints.temporalRelation === 'before' ||
+      constraints.temporalRelation === 'after') &&
+    !active.has('semantic_history') &&
+    !active.has('recent_exact')
+  ) {
+    active.add('semantic_history');
+  }
+
   // If the original structured plan identified recent context as the source
   // of a topical/chronological referent, preserve that dependency whenever a
   // downstream historical operator still needs it.
@@ -158,7 +171,9 @@ export function buildJevMemoryDependencies(
     (
       constraints.anchorSource === 'semantic_result' ||
       constraints.chronologyRole === 'select_anchor_occurrence' ||
-      constraints.chronologyRole === 'navigate_from_anchor'
+      constraints.chronologyRole === 'navigate_from_anchor' ||
+      constraints.temporalRelation === 'before' ||
+      constraints.temporalRelation === 'after'
     )
   ) {
     add(
