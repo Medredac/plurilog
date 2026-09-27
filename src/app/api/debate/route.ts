@@ -3432,6 +3432,22 @@ export async function POST(req: NextRequest) {
           let visualDeliveryMismatch: { requestedCount: number; deliveredCount: number } | null = null;
           let hadGeneratedImageInTurn = false;
           let documentCreatedThisTurn = false;
+          const explicitlyRequestsMultipleImageArtifacts =
+            /\b(?:two|2|multiple|several|separate|different|alternative|alternate)\s+(?:\w+\s+){0,4}(?:versions?|variants?|images?|edits?|renders?)\b/i.test(
+              prompt || ''
+            ) ||
+            /\b(?:both\s+of\s+you|each\s+of\s+you)\b[\s\S]{0,100}\b(?:generate|create|edit|make|render|image|version|variant)\b/i.test(
+              prompt || ''
+            ) ||
+            /\b(?:chatgpt|gpt)\b[\s\S]{0,100}\bgemini\b[\s\S]{0,120}\b(?:each|both|separately|generate|create|edit|make|render|versions?|variants?)\b/i.test(
+              prompt || ''
+            ) ||
+            /\bgemini\b[\s\S]{0,100}\b(?:chatgpt|gpt)\b[\s\S]{0,120}\b(?:each|both|separately|generate|create|edit|make|render|versions?|variants?)\b/i.test(
+              prompt || ''
+            ) ||
+            /\b(?:generate|create|make)\b[\s\S]{0,100}\b(?:then|and\s+then)\b[\s\S]{0,100}\b(?:edit|modify|transform)\b/i.test(
+              prompt || ''
+            );
           // Track independent image outputs created by multiple seats for this one user turn.
           // These must remain a shared visual working set after the round completes.
           let sameRoundGeneratedSourceIds: string[] = [];
@@ -4450,9 +4466,13 @@ export async function POST(req: NextRequest) {
               seat.seatId === 'chatgpt' &&
               getSeatCapabilities('chatgpt').imageGeneration === true &&
               isChatGPTImageGenerationEnabled();
+            const canCreateAnotherImageArtifactThisTurn =
+              !hadGeneratedImageInTurn ||
+              explicitlyRequestsMultipleImageArtifacts;
             const isImageGenerationEnabledForSeat =
               !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
+              canCreateAnotherImageArtifactThisTurn &&
               (isGeminiImageEnabled || isChatGPTImageEnabled);
             const isGeminiImageEditingEnabledForSeat =
               seat.seatId === 'gemini' &&
@@ -4465,6 +4485,7 @@ export async function POST(req: NextRequest) {
             const isImageEditingEnabledForSeat =
               !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
+              canCreateAnotherImageArtifactThisTurn &&
               (isGeminiImageEditingEnabledForSeat ||
                 isChatGPTImageEditingEnabledForSeat);
             const isEvidenceEnabledForSeat =
