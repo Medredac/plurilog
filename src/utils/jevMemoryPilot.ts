@@ -177,9 +177,22 @@ export function normalizeJevMemoryConstraintsForExecution(
   // If semantic_history is feeding chronology, "previous" is navigation from
   // a historical anchor candidate. Canonicalise it to "before", and make the
   // semantic result—not recent context—the executable anchor source.
+  const hasAnchorSemantics =
+    Boolean(
+      constraints.anchorSource &&
+      constraints.anchorSource !== 'none'
+    ) ||
+    Boolean(
+      constraints.anchorOccurrence &&
+      constraints.anchorOccurrence !== 'none'
+    ) ||
+    constraints.chronologyRole === 'navigate_from_anchor' ||
+    constraints.chronologyRole === 'select_anchor_occurrence';
+
   if (
     constraints.temporalRelation === 'previous' &&
     constraints.chronologyRole !== 'direct_position' &&
+    hasAnchorSemantics &&
     active.has('semantic_history') &&
     active.has('chronology')
   ) {
@@ -198,6 +211,17 @@ export function buildJevMemoryDependencies(
   constraints: JevMemoryPlanConstraints
 ): Array<{ from: string; to: string; reason: string }> {
   const active = new Set(operations);
+
+  // This function is called at the effective-plan boundary, immediately before
+  // the route logs and executes the graph. Keep one canonical structured
+  // constraint object for dependency compilation, semantic query construction,
+  // ambiguity resolution, and execution.
+  const normalizedConstraints =
+    normalizeJevMemoryConstraintsForExecution(operations, constraints);
+  if (normalizedConstraints !== constraints) {
+    Object.assign(constraints, normalizedConstraints);
+  }
+
   const temporalRelation = executableTemporalRelation(constraints);
   const dependencies: Array<{ from: string; to: string; reason: string }> = [];
   const add = (from: JevMemoryOperation, to: JevMemoryOperation, reason: string) => {
