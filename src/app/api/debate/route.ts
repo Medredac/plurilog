@@ -6082,6 +6082,10 @@ export async function POST(req: NextRequest) {
                                 jevAllowsHistoricalVisualEvidence
                                   ? discussionMemory?.recentRounds
                                   : [],
+                              historicalRounds:
+                                jevAllowsHistoricalVisualEvidence
+                                  ? discussionMemory?.allRounds
+                                  : [],
                               knownImageSources:
                                 jevAllowsHistoricalVisualEvidence
                                   ? latestKnownSources
@@ -7868,6 +7872,7 @@ export async function POST(req: NextRequest) {
                           knownDocuments: discussionMemory?.knownDocuments,
                           retrievedDocuments,
                           recentRounds: discussionMemory?.recentRounds,
+                          historicalRounds: discussionMemory?.allRounds,
                           knownImageSources: latestKnownSources,
                           lastRoundEvidence: lastRoundEvidenceForEdit,
                           recentEvidenceSets: [],
