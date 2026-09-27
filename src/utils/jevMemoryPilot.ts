@@ -584,7 +584,6 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     chronologyNeeded &&
     temporalSupported &&
     ['first', 'last', 'ordinal'].includes(executableRelation || '') &&
-    recentTopicSource &&
     semanticRole === 'find_topic' &&
     semanticRoleSupported &&
     semanticSignal >= 0.3;
