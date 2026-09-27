@@ -2953,11 +2953,85 @@ export async function POST(req: NextRequest) {
                 recentRounds: discussionMemory?.recentRounds,
                 summary: discussionMemory?.summary,
                 runSemanticHistory: async (semanticQuery) => {
+                  let retrievalQuery = semanticQuery;
+
+                  // Relative chronology needs candidates for the historical
+                  // anchor itself, not candidates for the final answer. Use a
+                  // cheap language model to formulate an anchor-only retrieval
+                  // query from the structured plan before hybrid search.
+                  if (
+                    jevEffectiveConstraints?.anchorSource === 'semantic_result' &&
+                    (
+                      jevEffectiveConstraints?.temporalRelation === 'before' ||
+                      jevEffectiveConstraints?.temporalRelation === 'after'
+                    )
+                  ) {
+                    try {
+                      const anchorQueryModel =
+                        process.env.JEV_MEMORY_RESOLVER_MODEL ||
+                        'google/gemini-3.1-flash-lite';
+                      const anchorQueryResponse =
+                        await openai.chat.completions.create(
+                          {
+                            model: anchorQueryModel,
+                            temperature: 0,
+                            max_tokens: 100,
+                            response_format: { type: 'json_object' },
+                            messages: [
+                              {
+                                role: 'system',
+                                content:
+                                  'Formulate a semantic retrieval query for the HISTORICAL ANCHOR EVENT only. Do not answer the user and do not include the earlier/later evidence they are asking to retrieve. Return JSON only: {"anchorQuery":string}. Preserve names and distinctive wording from the described anchor.',
+                              },
+                              {
+                                role: 'user',
+                                content: JSON.stringify({
+                                  currentRequest: prompt,
+                                  constraints: jevEffectiveConstraints,
+                                }),
+                              },
+                            ],
+                          },
+                          { signal: req.signal }
+                        );
+
+                      const anchorRaw =
+                        anchorQueryResponse.choices?.[0]?.message?.content ||
+                        '{}';
+                      const anchorParsed = JSON.parse(
+                        anchorRaw
+                          .trim()
+                          .replace(/^\`\`\`(?:json)?\\s*/i, '')
+                          .replace(/\\s*\`\`\`$/, '')
+                      );
+                      if (
+                        typeof anchorParsed?.anchorQuery === 'string' &&
+                        anchorParsed.anchorQuery.trim()
+                      ) {
+                        retrievalQuery = anchorParsed.anchorQuery.trim();
+                        console.log('[Jev Anchor Query]', {
+                          model:
+                            anchorQueryResponse.model || anchorQueryModel,
+                          query: retrievalQuery.slice(0, 500),
+                        });
+                      }
+                    } catch (anchorQueryErr: any) {
+                      console.warn(
+                        '[Jev Anchor Query] Non-critical formulation failure',
+                        {
+                          message:
+                            anchorQueryErr?.message ||
+                            String(anchorQueryErr),
+                        }
+                      );
+                    }
+                  }
+
                   const embeddingResult = await (openai.embeddings.create as any)(
                     {
                       model: 'google/gemini-embedding-2',
                       dimensions: 1536,
-                      input: semanticQuery,
+                      input: retrievalQuery,
                       encoding_format: 'float',
                     },
                     {
@@ -2978,7 +3052,7 @@ export async function POST(req: NextRequest) {
                     'search_discussion_memory_hybrid',
                     {
                       p_discussion_id: discussionId,
-                      p_query_text: semanticQuery,
+                      p_query_text: retrievalQuery,
                       p_query_embedding: queryEmbedding,
                       p_match_count: 10,
                     }
