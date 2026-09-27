@@ -52,15 +52,26 @@ const newConstraints = `      semanticRole:
             ? 'select_anchor_occurrence'
             : null,`;
 
-if (!source.includes(oldTopical)) {
+const topicalAlreadyPatched = source.includes(newTopical);
+const constraintsAlreadyPatched = source.includes(newConstraints);
+
+if (!source.includes(oldTopical) && !topicalAlreadyPatched) {
   throw new Error('Topical occurrence compiler target not found');
 }
-if (!source.includes(oldConstraints)) {
+if (!source.includes(oldConstraints) && !constraintsAlreadyPatched) {
   throw new Error('Constraint canonicalization target not found');
 }
 
-source = source.replace(oldTopical, newTopical);
-source = source.replace(oldConstraints, newConstraints);
-fs.writeFileSync(path, source);
+if (!topicalAlreadyPatched) {
+  source = source.replace(oldTopical, newTopical);
+}
+if (!constraintsAlreadyPatched) {
+  source = source.replace(oldConstraints, newConstraints);
+}
 
-console.log('Applied preview topical-occurrence memory patch');
+fs.writeFileSync(path, source);
+console.log(
+  topicalAlreadyPatched && constraintsAlreadyPatched
+    ? 'Preview topical-occurrence memory patch already applied'
+    : 'Applied preview topical-occurrence memory patch'
+);
