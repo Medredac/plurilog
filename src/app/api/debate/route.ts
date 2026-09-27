@@ -2443,8 +2443,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Preview-only shadow pilot. It observes the same turn context and logs a
-    // structured memory plan, but it does not alter retrieval or panel context.
+    // Preview controller pilot. Jev and its optional resolver now finish before
+    // retrieval begins so the effective plan can gate preview-only retrieval.
+    let jevControllerPromise: Promise<any> | null = null;
     if (
       isJevMemoryPilotShadowEnabled() &&
       apiKey.trim() &&
@@ -2452,90 +2453,133 @@ export async function POST(req: NextRequest) {
       prompt.trim() &&
       !req.signal.aborted
     ) {
-      void runJevMemoryPilotShadow({
-        apiKey,
-        prompt,
-        recentRounds: discussionMemory?.recentRounds,
-        knownDocuments: discussionMemory?.knownDocuments,
-        signal: req.signal,
-      })
-        .then(async (result) => {
-          console.log('[Jev Memory Pilot Shadow]', {
-            requestId: result.requestId,
-            model: result.model,
-            provider: result.provider,
-            latencyMs: result.latencyMs,
-            usage: result.usage,
-            answers: result.answers,
-            compiledPlan: result.compiledPlan,
-          });
+      jevControllerPromise = (async () => {
+        const result = await runJevMemoryPilotShadow({
+          apiKey,
+          prompt,
+          recentRounds: discussionMemory?.recentRounds,
+          knownDocuments: discussionMemory?.knownDocuments,
+          signal: req.signal,
+        });
 
-          if (
-            (result.compiledPlan.escalationSuggested ||
-              (result.compiledPlan.operations.includes('recent_exact') &&
-                result.compiledPlan.operations.includes('speaker_filter') &&
-                !result.compiledPlan.operations.includes('semantic_history'))) &&
-            !req.signal.aborted
-          ) {
-            const resolverStartedAt = Date.now();
-            try {
-              const resolverModel =
-                process.env.JEV_MEMORY_RESOLVER_MODEL ||
-                'google/gemini-3.1-flash-lite';
-              const resolverResponse = await openai.chat.completions.create(
-                {
-                  model: resolverModel,
-                  temperature: 0,
-                  max_tokens: 300,
-                  response_format: { type: 'json_object' },
-                  messages: [
-                    {
-                      role: 'system',
-                      content:
-                        'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved.',
-                    },
-                    {
-                      role: 'user',
-                      content: JSON.stringify({
-                        prompt,
-                        recentRounds: discussionMemory?.recentRounds?.slice(-3),
-                        atomicAnswers: result.answers,
-                        proposedPlan: result.compiledPlan,
-                      }),
-                    },
-                  ],
-                },
-                { signal: req.signal }
-              );
+        console.log('[Jev Memory Pilot Shadow]', {
+          requestId: result.requestId,
+          model: result.model,
+          provider: result.provider,
+          latencyMs: result.latencyMs,
+          usage: result.usage,
+          answers: result.answers,
+          compiledPlan: result.compiledPlan,
+        });
 
-              const raw =
-                resolverResponse.choices?.[0]?.message?.content || '{}';
-              console.log('[Jev Memory Resolver Shadow]', {
-                model: resolverResponse.model || resolverModel,
-                latencyMs: Date.now() - resolverStartedAt,
-                usage: resolverResponse.usage || null,
-                resolution: JSON.parse(
-                  raw
-                    .trim()
-                    .replace(/^\`\`\`(?:json)?\\s*/i, '')
-                    .replace(/\\s*\`\`\`$/, '')
-                ),
+        let resolverResolution: any = null;
+        const needsResolver =
+          result.compiledPlan.escalationSuggested ||
+          (result.compiledPlan.operations.includes('recent_exact') &&
+            result.compiledPlan.operations.includes('speaker_filter') &&
+            !result.compiledPlan.operations.includes('semantic_history'));
+
+        if (needsResolver && !req.signal.aborted) {
+          const resolverStartedAt = Date.now();
+          try {
+            const resolverModel =
+              process.env.JEV_MEMORY_RESOLVER_MODEL ||
+              'google/gemini-3.1-flash-lite';
+            const resolverResponse = await openai.chat.completions.create(
+              {
+                model: resolverModel,
+                temperature: 0,
+                max_tokens: 300,
+                response_format: { type: 'json_object' },
+                messages: [
+                  {
+                    role: 'system',
+                    content:
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved.',
+                  },
+                  {
+                    role: 'user',
+                    content: JSON.stringify({
+                      prompt,
+                      recentRounds: discussionMemory?.recentRounds?.slice(-3),
+                      atomicAnswers: result.answers,
+                      proposedPlan: result.compiledPlan,
+                    }),
+                  },
+                ],
+              },
+              { signal: req.signal }
+            );
+
+            const raw =
+              resolverResponse.choices?.[0]?.message?.content || '{}';
+            resolverResolution = JSON.parse(
+              raw
+                .trim()
+                .replace(/^\`\`\`(?:json)?\\s*/i, '')
+                .replace(/\\s*\`\`\`$/, '')
+            );
+
+            console.log('[Jev Memory Resolver Shadow]', {
+              model: resolverResponse.model || resolverModel,
+              latencyMs: Date.now() - resolverStartedAt,
+              usage: resolverResponse.usage || null,
+              resolution: resolverResolution,
+            });
+          } catch (resolverError: any) {
+            if (!req.signal.aborted) {
+              console.warn('[Jev Memory Resolver Shadow] Non-critical failure', {
+                message: resolverError?.message || String(resolverError),
               });
-            } catch (resolverError: any) {
-              if (!req.signal.aborted) {
-                console.warn('[Jev Memory Resolver Shadow] Non-critical failure', {
-                  message: resolverError?.message || String(resolverError),
-                });
-              }
             }
           }
-        })
-        .catch((error: any) => {
-          if (req.signal.aborted) return;
-          console.warn('[Jev Memory Pilot Shadow] Non-critical failure', {
+        }
+
+        const requestedOperations = new Set<string>(
+          result.compiledPlan.operations
+        );
+        if (
+          resolverResolution?.overrideNeeded &&
+          Array.isArray(resolverResolution?.operations)
+        ) {
+          for (const operation of resolverResolution.operations) {
+            if (typeof operation === 'string') {
+              requestedOperations.add(operation);
+            }
+          }
+        }
+
+        const operationOrder = [
+          'recent_exact',
+          'rolling_summary',
+          'semantic_history',
+          'chronology',
+          'document_search',
+          'visual_evidence',
+          'speaker_filter',
+        ];
+        const effectiveOperations = operationOrder.filter((operation) =>
+          requestedOperations.has(operation)
+        );
+
+        console.log('[Jev Effective Plan Preview]', {
+          operations: effectiveOperations,
+          resolverApplied: Boolean(resolverResolution?.overrideNeeded),
+        });
+
+        return {
+          result,
+          resolverResolution,
+          effectiveOperations,
+        };
+      })().catch((error: any) => {
+        if (!req.signal.aborted) {
+          console.warn('[Jev Memory Controller Preview] Non-critical failure', {
             message: error?.message || String(error),
           });
-        });
+        }
+        return null;
+      });
     }
 
     const encoder = new TextEncoder();
