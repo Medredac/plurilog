@@ -122,7 +122,10 @@ function composeSemanticQuery(
   constraints: JevMemoryPlanConstraints
 ): string {
   if (
-    constraints.topicSource !== 'recent_context' ||
+    (
+      constraints.topicSource !== 'recent_context' &&
+      constraints.anchorSource !== 'recent_context'
+    ) ||
     !Array.isArray(recentRounds) ||
     recentRounds.length === 0
   ) {
@@ -533,32 +536,6 @@ export async function executeConversationMemoryGraph(
         resolverReason =
           'The composed graph could not resolve exact speaker evidence.';
       }
-    }
-  }
-
-  // If the graph intentionally stops at semantic retrieval, preserve those
-  // candidates as the evidence output rather than manufacturing exact evidence.
-  if (
-    finalEvidence.length === 0 &&
-    !conversationOperations.includes('speaker_filter') &&
-    selectedRoundUserMessageIds.length === 1
-  ) {
-    const id = selectedRoundUserMessageIds[0];
-    const index = options.allRounds.findIndex(
-      (round) => round.userMessageId === id
-    );
-    if (index >= 0) {
-      const round = options.allRounds[index];
-      finalEvidence = [
-        {
-          roundUserMessageId: id,
-          kind: 'user_prompt',
-          speaker: 'User',
-          content: round.userPrompt,
-          label: `Validated historical round ${index + 1}`,
-          roundIndex: index,
-        },
-      ];
     }
   }
 
