@@ -165,6 +165,11 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                         .map((round) => ({
                           roundUserMessageId: round.userMessageId,
                           userPrompt: (round.userPrompt || '').slice(0, 600),
+                          modelResponses: (round.modelResponses || [])
+                            .map((response) => ({
+                              name: response.name,
+                              content: (response.content || '').slice(0, 700),
+                            })),
                         }));
 
                       if (occurrenceCandidates.length > 1) {
@@ -182,7 +187,7 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                                 {
                                   role: 'system',
                                   content:
-                                    'Classify historical conversation candidates for topical occurrence chronology. Keep rounds whose primary purpose is to substantively introduce, continue, expand, debate, compare, analyze, or return to the historical topic. Exclude meta-memory/retrieval rounds whose primary purpose is to ask what someone said earlier, recap prior answers, verify memory, or test retrieval. A turn may mention prior context and still be substantive if it actually continues the topic. Do not answer the user. Return JSON only: {"substantiveRoundUserMessageIds":string[]}. Select only IDs from the supplied candidates.',
+                                    'Classify historical conversation candidates for topical occurrence chronology. Keep only rounds whose user prompt or panel responses materially discuss the RESOLVED TOPIC represented by topicQuery. Do not keep a round merely because it discusses a broader parent topic or adjacent concept. Exclude meta-memory/retrieval rounds whose primary purpose is to ask what someone said earlier, recap prior answers, verify memory, or test retrieval. A turn may mention prior context and still be substantive if it materially continues the resolved topic. Do not answer the user. Return JSON only: {"substantiveRoundUserMessageIds":string[]}. Select only IDs from the supplied candidates.',
                                 },
                                 {
                                   role: 'user',
