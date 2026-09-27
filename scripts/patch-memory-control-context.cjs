@@ -48,6 +48,8 @@ jevSource = replaceOnce(
 
   const state = {
     current_user_message: memoryControlContext.currentRequest,
+    immediate_prior_user_message:
+      memoryControlContext.immediatePriorUserMessage,
     recent_context: memoryControlContext.recentRounds,`,
   'Jev control context state'
 );
@@ -126,19 +128,6 @@ jevSource = replaceOnce(
         memoryAmbiguitySignal
       ),`,
   'Jev memory escalation gate'
-);
-
-jevSource = replaceOnce(
-  jevSource,
-  `  const state = {
-    current_user_message: memoryControlContext.currentRequest,
-    recent_context: memoryControlContext.recentRounds,`,
-  `  const state = {
-    current_user_message: memoryControlContext.currentRequest,
-    immediate_prior_user_message:
-      memoryControlContext.immediatePriorUserMessage,
-    recent_context: memoryControlContext.recentRounds,`,
-  'Jev immediate prior user focus'
 );
 
 fs.writeFileSync(jevPath, jevSource);
