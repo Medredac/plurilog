@@ -2334,6 +2334,124 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
   chatgpt: { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
 };
 
+async function resolveHistoricalImageReferentWithSystem2(options: {
+  openai: OpenAI;
+  prompt: string;
+  knownSources: KnownImageSource[];
+  historicalRounds?: DiscussionMemoryResult['allRounds'];
+  signal?: AbortSignal;
+}): Promise<KnownImageSource | null> {
+  const { openai, prompt, knownSources, historicalRounds, signal } = options;
+  if (!prompt?.trim() || !Array.isArray(knownSources) || knownSources.length < 2) {
+    return null;
+  }
+
+  const rounds = Array.isArray(historicalRounds) ? historicalRounds : [];
+  const candidates = knownSources
+    .filter((source) => Boolean(source.sourceId) && Boolean(source.storagePath))
+    .map((source) => {
+      let originatingUserPrompt: string | null = null;
+      let assistantResponse: string | null = null;
+
+      for (const round of rounds) {
+        if (round.userMessageId && round.userMessageId === source.sourceMessageId) {
+          originatingUserPrompt = round.userPrompt || null;
+          break;
+        }
+
+        const response = (round.modelResponses || []).find(
+          (item) => item.id && item.id === source.sourceMessageId
+        );
+        if (response) {
+          originatingUserPrompt = round.userPrompt || null;
+          assistantResponse = response.content || null;
+          break;
+        }
+      }
+
+      return {
+        sourceId: source.sourceId,
+        filename: source.filename,
+        sender: source.sender || null,
+        createdAt: source.createdAt,
+        originatingUserPrompt,
+        assistantResponse,
+      };
+    });
+
+  if (candidates.length < 2) return null;
+
+  try {
+    const model =
+      process.env.JEV_MEMORY_RESOLVER_MODEL ||
+      'google/gemini-3.1-flash-lite';
+    const startedAt = Date.now();
+    const response = await openai.chat.completions.create(
+      {
+        model,
+        temperature: 0,
+        max_tokens: 300,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are a visual-referent resolver. Do not answer the user and do not propose edits. Select the ONE historical image source the user is referring to from the supplied candidates, using the semantic meaning and provenance of the conversation. Natural references such as "the warm edited version", "the one before the darker edit", or "Gemini\'s earlier version" must be resolved from each candidate\'s originating user request and assistant response, not by crude keyword overlap. Return JSON only: {"selectedSourceId":string|null,"confidence":number,"reason":string}. Select null when the candidates do not uniquely support one referent. Never invent a source ID. Filenames and timestamps are weak metadata; conversation provenance is primary.',
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              currentPrompt: prompt,
+              candidates,
+            }),
+          },
+        ],
+      },
+      signal ? { signal } : undefined
+    );
+
+    const raw = response.choices?.[0]?.message?.content || '{}';
+    const parsed = JSON.parse(
+      raw
+        .trim()
+        .replace(/^\`\`\`(?:json)?\\s*/i, '')
+        .replace(/\\s*\`\`\`$/, '')
+    );
+    const selectedSourceId =
+      typeof parsed?.selectedSourceId === 'string'
+        ? parsed.selectedSourceId
+        : null;
+    const confidence =
+      typeof parsed?.confidence === 'number' ? parsed.confidence : 0;
+
+    const selected =
+      selectedSourceId && confidence >= 0.6
+        ? knownSources.find((source) => source.sourceId === selectedSourceId) || null
+        : null;
+
+    console.log('[Visual Referent System 2]', {
+      model: response.model || model,
+      latencyMs: Date.now() - startedAt,
+      candidateCount: candidates.length,
+      selectedSourceId: selected?.sourceId || null,
+      confidence,
+      reason:
+        typeof parsed?.reason === 'string'
+          ? parsed.reason
+          : null,
+    });
+
+    return selected;
+  } catch (error: any) {
+    if (!signal?.aborted) {
+      console.warn('[Visual Referent System 2] Non-critical failure', {
+        message: error?.message || String(error),
+      });
+    }
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { prompt, discussionId, seatOrder, isContinueRound, attachments, sourceUserMessageId } = await req.json();
