@@ -237,7 +237,17 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     semanticRoleSupported &&
     semanticSignal >= 0.3;
 
-  if (topicalOccurrenceNeedsSemantic) {
+  const relativeTopicNavigationNeedsSemantic =
+    chronologyNeeded &&
+    temporalSupported &&
+    ['before', 'after'].includes(temporalRelation || '') &&
+    semanticRole === 'find_topic' &&
+    semanticSignal >= 0.3;
+
+  if (
+    topicalOccurrenceNeedsSemantic ||
+    relativeTopicNavigationNeedsSemantic
+  ) {
     semanticNeeded = true;
   }
 
@@ -298,14 +308,18 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   if (
     semanticNeeded &&
     chronologyNeeded &&
-    (semanticAnchorSource || topicalOccurrenceNeedsSemantic)
+    (semanticAnchorSource ||
+      topicalOccurrenceNeedsSemantic ||
+      relativeTopicNavigationNeedsSemantic)
   ) {
     addDependency(
       'semantic_history',
       'chronology',
       topicalOccurrenceNeedsSemantic
         ? 'Semantic retrieval finds historical topic candidates before chronological occurrence selection.'
-        : 'Semantic retrieval locates the historical anchor/candidates before chronological navigation.'
+        : relativeTopicNavigationNeedsSemantic
+          ? 'Semantic retrieval resolves the topical target before relative chronological navigation.'
+          : 'Semantic retrieval locates the historical anchor/candidates before chronological navigation.'
     );
   }
 
@@ -393,7 +407,8 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
           : null,
       anchorSource:
         chronologyNeeded
-          ? topicalOccurrenceNeedsSemantic
+          ? topicalOccurrenceNeedsSemantic ||
+            relativeTopicNavigationNeedsSemantic
             ? 'semantic_result'
             : anchorSource && anchorSource !== 'none'
               ? anchorSource
