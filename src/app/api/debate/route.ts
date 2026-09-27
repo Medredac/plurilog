@@ -2480,9 +2480,23 @@ export async function POST(req: NextRequest) {
           ['before', 'after'].includes(
             result.compiledPlan.constraints.temporalRelation || ''
           );
+
+        // A semantic + chronology plan without a supported chronology role is
+        // structurally ambiguous: Jev may have mistaken provenance language
+        // such as "original comparison" for relative temporal navigation.
+        // Let System 2 decide whether chronology genuinely belongs in the
+        // final plan instead of allowing legacy chronology to dominate a
+        // correctly validated semantic source.
+        const semanticChronologyNeedsAdjudication =
+          result.compiledPlan.operations.includes('semantic_history') &&
+          result.compiledPlan.operations.includes('chronology') &&
+          result.compiledPlan.operations.includes('speaker_filter') &&
+          !result.compiledPlan.constraints.chronologyRole;
+
         const needsResolver =
           result.compiledPlan.escalationSuggested ||
           relativeChronologyNeedsAdjudication ||
+          semanticChronologyNeedsAdjudication ||
           (result.compiledPlan.operations.includes('recent_exact') &&
             result.compiledPlan.operations.includes('speaker_filter') &&
             !result.compiledPlan.operations.includes('semantic_history'));
@@ -2503,7 +2517,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, recommend semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence; recommend semantic_history when needed to recover the original source before applying chronology or speaker filtering.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan; omit any proposed operation that should not execute. When overrideNeeded is false, operations may be empty because the proposed plan will be kept unchanged. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, use semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence. Distinguish provenance/original-source requests from actual before/after chronological navigation: do not include chronology merely because words like earlier, original, or first refer to provenance when semantic retrieval can identify the requested source directly.',
                   },
                   {
                     role: 'user',
@@ -2543,19 +2557,19 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const requestedOperations = new Set<string>(
-          result.compiledPlan.operations
-        );
-        if (
+        // Resolver overrides are complete final plans, not additive patches.
+        // This allows System 2 to remove a mistakenly proposed operator such
+        // as chronology when provenance validation should select the source.
+        const requestedOperations =
           resolverResolution?.overrideNeeded &&
           Array.isArray(resolverResolution?.operations)
-        ) {
-          for (const operation of resolverResolution.operations) {
-            if (typeof operation === 'string') {
-              requestedOperations.add(operation);
-            }
-          }
-        }
+            ? new Set<string>(
+                resolverResolution.operations.filter(
+                  (operation: unknown): operation is string =>
+                    typeof operation === 'string'
+                )
+              )
+            : new Set<string>(result.compiledPlan.operations);
 
         const operationOrder = [
           'recent_exact',
@@ -2573,6 +2587,9 @@ export async function POST(req: NextRequest) {
         console.log('[Jev Effective Plan Preview]', {
           operations: effectiveOperations,
           resolverApplied: Boolean(resolverResolution?.overrideNeeded),
+          resolverMode: resolverResolution?.overrideNeeded
+            ? 'complete-plan-override'
+            : 'base-plan',
         });
 
         return {
