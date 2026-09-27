@@ -212,6 +212,63 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                             allowedIds.has(row?.source_user_message_id)
                           );
                           
+console.log(
+                            '[Jev Topical Occurrence Filter]',
+                            {
+                              model:
+                                occurrenceFilterResponse.model ||
+                                occurrenceFilterModel,
+                              inputCount: occurrenceCandidates.length,
+                              substantiveCount: selected.length,
+                            }
+                          );
+                        } else {
+                          console.warn(
+                            '[Jev Topical Occurrence Filter] No substantive candidates selected; preserving validated semantic candidates.'
+                          );
+                        }
+                      }
+                    } catch (occurrenceFilterErr: any) {
+                      console.warn(
+                        '[Jev Topical Occurrence Filter] Non-critical failure',
+                        {
+                          message:
+                            occurrenceFilterErr?.message ||
+                            String(occurrenceFilterErr),
+                        }
+                      );
+                    }
+                  }
+
+                  console.log('[Jev Memory Graph] Semantic node complete', {
+                    candidateCount: hybridRows.length,
+                    validatedCount: qualifying.length,
+                    selectedCount: selected.length,
+                    candidateLimit: semanticCandidateLimit,
+                    topicalOccurrenceLookup,
+                    mode: 'candidate-first',
+                  });
+
+                  return selected;`;
+
+const occurrenceFilterAlreadyPatched =
+  routeSource.includes('[Jev Topical Occurrence Filter]');
+
+if (
+  !routeSource.includes(oldOccurrenceSelection) &&
+  !occurrenceFilterAlreadyPatched
+) {
+  throw new Error('Topical occurrence candidate filter target not found');
+}
+
+if (!occurrenceFilterAlreadyPatched) {
+  routeSource = routeSource.replace(
+    oldOccurrenceSelection,
+    newOccurrenceSelection
+  );
+  fs.writeFileSync(routePath, routeSource);
+}
+
 const oldTopicQueryInstruction = `                                  'Formulate a semantic retrieval query for the HISTORICAL TOPIC only. Do not answer the user. Remove meta-language about which speaker said something and about first, last, previous, before, after, or ordinal position. Return JSON only: {"topicQuery":string}. Preserve the topic meaning and distinctive concepts needed to retrieve every historical round about that topic.',`;
 
 const newTopicQueryInstruction = `                                  'Formulate a semantic retrieval query for the HISTORICAL TOPIC only. Do not answer the user. Remove meta-language about which speaker said something and about first, last, previous, before, after, or ordinal position. If topicSource is recent_context, resolve pronouns or underspecified references such as that, it, this, or the issue from the supplied recentContext before writing the topic query. Return JSON only: {"topicQuery":string}. Preserve the resolved topic meaning and distinctive concepts needed to retrieve every historical round about that topic.',`;
@@ -292,62 +349,6 @@ if (!topicQueryContextAlreadyPatched) {
   fs.writeFileSync(routePath, routeSource);
 }
 
-console.log(
-                            '[Jev Topical Occurrence Filter]',
-                            {
-                              model:
-                                occurrenceFilterResponse.model ||
-                                occurrenceFilterModel,
-                              inputCount: occurrenceCandidates.length,
-                              substantiveCount: selected.length,
-                            }
-                          );
-                        } else {
-                          console.warn(
-                            '[Jev Topical Occurrence Filter] No substantive candidates selected; preserving validated semantic candidates.'
-                          );
-                        }
-                      }
-                    } catch (occurrenceFilterErr: any) {
-                      console.warn(
-                        '[Jev Topical Occurrence Filter] Non-critical failure',
-                        {
-                          message:
-                            occurrenceFilterErr?.message ||
-                            String(occurrenceFilterErr),
-                        }
-                      );
-                    }
-                  }
-
-                  console.log('[Jev Memory Graph] Semantic node complete', {
-                    candidateCount: hybridRows.length,
-                    validatedCount: qualifying.length,
-                    selectedCount: selected.length,
-                    candidateLimit: semanticCandidateLimit,
-                    topicalOccurrenceLookup,
-                    mode: 'candidate-first',
-                  });
-
-                  return selected;`;
-
-const occurrenceFilterAlreadyPatched =
-  routeSource.includes('[Jev Topical Occurrence Filter]');
-
-if (
-  !routeSource.includes(oldOccurrenceSelection) &&
-  !occurrenceFilterAlreadyPatched
-) {
-  throw new Error('Topical occurrence candidate filter target not found');
-}
-
-if (!occurrenceFilterAlreadyPatched) {
-  routeSource = routeSource.replace(
-    oldOccurrenceSelection,
-    newOccurrenceSelection
-  );
-  fs.writeFileSync(routePath, routeSource);
-}
 
 console.log(
   topicalAlreadyPatched && constraintsAlreadyPatched
