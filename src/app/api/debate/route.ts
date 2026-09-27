@@ -7757,6 +7757,7 @@ export async function POST(req: NextRequest) {
                     !referenceImageUrl &&
                     !explicitlyOverridesFocusedContinuation &&
                     discussionId &&
+                    jevAllowsHistoricalVisualEvidence &&
                     isPersistentVisualContextReadsEnabled() &&
                     visualContextState?.focus_source_ids?.length === 1
                   ) {
@@ -7827,7 +7828,11 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  if (!referenceImageUrl && discussionId) {
+                  if (
+                    !referenceImageUrl &&
+                    discussionId &&
+                    jevAllowsHistoricalVisualEvidence
+                  ) {
                     const isOwner = await verifyDiscussionOwnership(
                       supabase,
                       discussionId
@@ -7916,9 +7921,12 @@ export async function POST(req: NextRequest) {
                           brokerResult.evidence?.sources?.length || 0,
                       });
                     }
-                  } else {
+                  } else if (!referenceImageUrl) {
                     editReferenceError =
-                      'I need an image in this discussion before I can edit it.';
+                      jevControllerOwnsConversationMemory &&
+                      !jevAllowsHistoricalVisualEvidence
+                        ? 'I need you to attach the image you want edited or identify it in a way that enables historical visual retrieval.'
+                        : 'I need an image in this discussion before I can edit it.';
                   }
 
                   if (!referenceImageUrl) {
