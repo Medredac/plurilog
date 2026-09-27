@@ -2817,8 +2817,7 @@ export async function POST(req: NextRequest) {
                     ? discussionMemory.recentRounds
                     : [],
                 chronologicalMemory:
-                  !jevControllerOwnsConversationMemory ||
-                  jevEffectiveOperations.includes('chronology')
+                  !jevControllerOwnsConversationMemory
                     ? discussionMemory.chronologicalMemory
                     : undefined,
                 knownDocuments:
