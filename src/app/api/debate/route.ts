@@ -732,6 +732,46 @@ function hasWebOrCodeSurfaceCue(value: string): boolean {
   );
 }
 
+function inferExplicitDocumentReferenceRoleFromPrompt(
+  value: string
+): 'user_uploaded' | 'generated_or_revised' | 'latest' | null {
+  const prompt = (value || '').trim();
+  if (!prompt || !hasExplicitDocumentIdentityCue(prompt)) return null;
+
+  if (promptReferencesUserUploadedDocument(prompt)) {
+    return 'user_uploaded';
+  }
+
+  const documentNoun =
+    '(?:pdf|docx|word(?:\\s+document)?|document|file|resume|résumé|cv|rirekisho)';
+
+  const originalDocument = new RegExp(
+    `\\b(?:original|first|earliest)\\s+(?:(?:uploaded|attached)\\s+)?${documentNoun}\\b`,
+    'i'
+  );
+  if (originalDocument.test(prompt)) {
+    return 'user_uploaded';
+  }
+
+  const latestDocument = new RegExp(
+    `\\b(?:latest|newest|most\\s+recent)\\s+${documentNoun}\\b`,
+    'i'
+  );
+  if (latestDocument.test(prompt)) {
+    return 'latest';
+  }
+
+  const generatedDocument = new RegExp(
+    `(?:\\b(?:generated|revised|edited|modified)\\s+${documentNoun}\\b|\\b${documentNoun}\\s+(?:you|gpt|chatgpt)\\s+(?:made|created|generated|edited|revised)\\b)`,
+    'i'
+  );
+  if (generatedDocument.test(prompt)) {
+    return 'generated_or_revised';
+  }
+
+  return null;
+}
+
 function roundHasImmediateDocumentContext(
   round:
     | {
@@ -2889,35 +2929,47 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Evidence-domain invariant: a strong document mutation whose base
-        // controller plan already resolved provenance to a user-uploaded source
-        // must retain canonical document evidence. System 2 may refine or add
-        // other evidence, but it may not reinterpret that native document as a
-        // recent screenshot/image and erase document_search or its provenance.
-        //
-        // This is intentionally keyed to the structured controller output
-        // (document_search + documentReferenceRole=user_uploaded), not to any
-        // one surface phrase such as "original PDF".
-        const requiresUserUploadedDocumentMutation =
-          isStrongDocumentMutationRequest(prompt || '') &&
-          result.compiledPlan.operations.includes('document_search') &&
-          baseConstraints.documentReferenceRole === 'user_uploaded';
+        // Current-request artifact facts outrank probabilistic retrieval scores.
+        // If the user explicitly names a document/file surface and asks to
+        // mutate it, canonical document evidence is mandatory even when Jev's
+        // broad document score falls below its compilation threshold on a
+        // particular run. Jev/System 2 may add supporting operators, but they
+        // cannot erase the explicit artifact domain from the current request.
+        const explicitCurrentDocumentMutation =
+          isStrongDocumentMutationRequest(prompt || '');
+        const explicitCurrentDocumentReferenceRole =
+          inferExplicitDocumentReferenceRoleFromPrompt(prompt || '');
 
-        if (requiresUserUploadedDocumentMutation) {
+        if (explicitCurrentDocumentMutation) {
           if (!resolverRequestedOperations.includes('document_search')) {
             resolverRequestedOperations.push('document_search');
           }
-          effectiveConstraints.documentReferenceRole = 'user_uploaded';
 
-          console.log('[Jev Document Evidence Invariant]', {
+          const authoritativeDocumentReferenceRole =
+            explicitCurrentDocumentReferenceRole ||
+            baseConstraints.documentReferenceRole ||
+            effectiveConstraints.documentReferenceRole ||
+            null;
+
+          if (authoritativeDocumentReferenceRole) {
+            effectiveConstraints.documentReferenceRole =
+              authoritativeDocumentReferenceRole;
+          }
+
+          console.log('[Current Request Document Invariant]', {
             preservedDocumentSearch: true,
-            documentReferenceRole: 'user_uploaded',
-            resolverHadRemovedDocumentSearch:
-              Boolean(resolverResolution?.overrideNeeded) &&
-              !Array.isArray(resolverResolution?.operations)
-                ? false
-                : Boolean(resolverResolution?.overrideNeeded) &&
-                  !resolverResolution.operations.includes('document_search'),
+            explicitReferenceRole:
+              explicitCurrentDocumentReferenceRole,
+            effectiveReferenceRole:
+              effectiveConstraints.documentReferenceRole || null,
+            jevDocumentScore:
+              (result.answers as any)?.document_search_needed?.type === 'noul'
+                ? Number(
+                    (result.answers as any).document_search_needed.noul || 0
+                  )
+                : null,
+            jevHadCompiledDocumentSearch:
+              result.compiledPlan.operations.includes('document_search'),
           });
         }
 
