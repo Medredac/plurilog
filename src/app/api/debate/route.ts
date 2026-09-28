@@ -52,6 +52,7 @@ import {
   closeJevMemoryOperationsUnderConstraints,
   isJevMemoryPilotShadowEnabled,
   runJevMemoryPilotShadow,
+  type JevWorkingState,
 } from '@/utils/jevMemoryPilot';
 import {
   executeConversationMemoryGraph,
@@ -2671,6 +2672,147 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const classifyControllerArtifact = (
+      filename?: string | null,
+      url?: string | null
+    ): 'pdf' | 'docx' | 'image' | 'other' => {
+      const identity = `${filename || ''} ${url || ''}`
+        .split('?')[0]
+        .split('#')[0]
+        .toLowerCase();
+      if (identity.includes('.pdf')) return 'pdf';
+      if (identity.includes('.docx')) return 'docx';
+      if (/\.(?:png|jpe?g|webp|gif|bmp|heic|heif|avif)(?:\s|$)/i.test(identity)) {
+        return 'image';
+      }
+      return 'other';
+    };
+
+    const controllerLastRoundForState =
+      discussionMemory?.recentRounds &&
+      discussionMemory.recentRounds.length > 0
+        ? discussionMemory.recentRounds[
+            discussionMemory.recentRounds.length - 1
+          ]
+        : null;
+
+    const jevWorkingState: JevWorkingState = {
+      currentAttachments: (Array.isArray(attachments) ? attachments : []).map(
+        (attachment: any) => ({
+          filename:
+            String(attachment?.filename || '').trim() ||
+            String(attachment?.url || '').split('?')[0].split('/').pop() ||
+            'attachment',
+          kind: classifyControllerArtifact(
+            attachment?.filename,
+            attachment?.url
+          ),
+        })
+      ),
+      lastRoundAttachments: (controllerLastRoundForState?.attachments || []).map(
+        (attachment) => ({
+          filename: attachment.filename || 'attachment',
+          kind: classifyControllerArtifact(
+            attachment.filename,
+            attachment.storagePath
+          ),
+          sender: attachment.sender,
+        })
+      ),
+      latestDocumentRevision: null,
+      visualFocus: null,
+    };
+
+    if (discussionId) {
+      try {
+        const controllerOwnsDiscussion = await verifyDiscussionOwnership(
+          supabase,
+          discussionId
+        );
+        if (controllerOwnsDiscussion) {
+          const controllerServiceClient = createServiceClient();
+          const [latestDocumentRevision, visualContextFetch] =
+            await Promise.all([
+              findLatestDocumentStateSnapshot({
+                serviceSupabase: controllerServiceClient,
+                discussionId,
+              }),
+              isPersistentVisualContextReadsEnabled()
+                ? fetchDiscussionVisualContext(
+                    controllerServiceClient,
+                    discussionId
+                  )
+                : Promise.resolve({ state: null, exists: false }),
+            ]);
+
+          if (latestDocumentRevision) {
+            jevWorkingState.latestDocumentRevision = {
+              snapshotId: latestDocumentRevision.id,
+              documentId: latestDocumentRevision.documentId || null,
+              filename: latestDocumentRevision.filename,
+              format: latestDocumentRevision.format,
+              generationKind: latestDocumentRevision.generationKind,
+              parentSnapshotId:
+                latestDocumentRevision.parentSnapshotId || null,
+              parentDocumentId:
+                latestDocumentRevision.parentDocumentId || null,
+              sourceDocumentIds:
+                latestDocumentRevision.sourceDocumentIds || [],
+              createdAt: latestDocumentRevision.createdAt || null,
+            };
+          }
+
+          const focusSourceIds =
+            visualContextFetch?.state?.focus_source_ids || [];
+          if (focusSourceIds.length > 0) {
+            const knownVisualSources = await fetchKnownImageSources(
+              controllerServiceClient,
+              discussionId
+            );
+            const focusedSources = focusSourceIds
+              .map((sourceId) =>
+                knownVisualSources.find(
+                  (source) => source.sourceId === sourceId
+                )
+              )
+              .filter(
+                (source): source is KnownImageSource => Boolean(source)
+              )
+              .map((source) => ({
+                sourceId: source.sourceId,
+                filename: source.filename,
+                sender: source.sender || null,
+                creatorSeatId: source.creatorSeatId || null,
+                generationKind: source.generationKind || null,
+                parentSourceIds: source.parentSourceIds || [],
+                createdAt: source.createdAt || null,
+              }));
+
+            jevWorkingState.visualFocus = {
+              sourceIds: focusSourceIds,
+              sources: focusedSources,
+            };
+          }
+        }
+      } catch (workingStateError: any) {
+        console.warn('[Jev Working State] Non-critical state hydration failure', {
+          message:
+            workingStateError?.message || String(workingStateError),
+        });
+      }
+    }
+
+    console.log('[Jev Working State]', {
+      currentAttachmentCount:
+        jevWorkingState.currentAttachments?.length || 0,
+      lastRoundAttachmentCount:
+        jevWorkingState.lastRoundAttachments?.length || 0,
+      latestDocument:
+        jevWorkingState.latestDocumentRevision?.filename || null,
+      visualFocusCount:
+        jevWorkingState.visualFocus?.sourceIds.length || 0,
+    });
+
     // Preview controller pilot. Jev and its optional resolver now finish before
     // retrieval begins so the effective plan can gate preview-only retrieval.
     let jevControllerPromise: Promise<any> | null = null;
@@ -2687,6 +2829,7 @@ export async function POST(req: NextRequest) {
           prompt,
           recentRounds: discussionMemory?.recentRounds,
           knownDocuments: discussionMemory?.knownDocuments,
+          workingState: jevWorkingState,
           signal: req.signal,
         });
 
@@ -3031,13 +3174,237 @@ export async function POST(req: NextRequest) {
           effectiveDependencies,
           effectiveConstraints,
         };
-      })().catch((error: any) => {
-        if (!req.signal.aborted) {
-          console.warn('[Jev Memory Controller Preview] Non-critical failure', {
-            message: error?.message || String(error),
-          });
+      })().catch(async (error: any) => {
+        if (req.signal.aborted) {
+          return null;
         }
-        return null;
+
+        console.warn('[Jev Memory Controller Preview] Primary controller failure', {
+          message: error?.message || String(error),
+        });
+
+        try {
+          const fallbackModel =
+            process.env.JEV_MEMORY_RESOLVER_MODEL ||
+            'google/gemini-3.1-flash-lite';
+          const fallbackStartedAt = Date.now();
+          const fallbackResponse = await openai.chat.completions.create(
+            {
+              model: fallbackModel,
+              temperature: 0,
+              max_tokens: 450,
+              response_format: { type: 'json_object' },
+              messages: [
+                {
+                  role: 'system',
+                  content:
+                    'You are Plurilog\'s backup memory planner. The primary Jev controller is temporarily unavailable. Do not answer the user. Choose the minimal complete evidence plan needed to let another AI answer naturally and accurately. Use semantic reasoning, recent context, known documents, and workingState; do not route by superficial keywords. Return JSON only: {"operations":string[],"constraints":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null,"ordinalPosition":number|null,"anchorOccurrence":string|null,"anchorOrdinalPosition":number|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Allowed speaker: user, chatgpt, claude, gemini, multiple, null. Allowed temporalRelation: first, last, previous, before, after, ordinal, null. Allowed semanticRole: find_topic, find_anchor, broaden_candidates, null. Allowed chronologyRole: direct_position, navigate_from_anchor, select_anchor_occurrence, scope_for_semantic, null. Allowed topicSource/anchorSource: current_prompt, recent_context, semantic_result, null. Allowed documentReferenceRole: user_uploaded, generated_or_revised, latest, exact_or_unspecified, null. Multiple operations may compose. workingState is authoritative state about available/current artifacts, but an artifact being present does not automatically make it relevant.',
+                },
+                {
+                  role: 'user',
+                  content: JSON.stringify({
+                    currentRequest: prompt,
+                    recentContext: (discussionMemory?.recentRounds || [])
+                      .slice(-3)
+                      .map((round) => ({
+                        user: (round.userPrompt || '').slice(0, 1800),
+                        responses: (round.modelResponses || []).map(
+                          (response) => ({
+                            name: response.name,
+                            content: (response.content || '').slice(0, 900),
+                          })
+                        ),
+                      })),
+                    knownDocuments: (discussionMemory?.knownDocuments || [])
+                      .slice(-20)
+                      .map((doc) => ({
+                        filename: doc.filename,
+                        createdAt: doc.createdAt || null,
+                      })),
+                    workingState: jevWorkingState,
+                  }),
+                },
+              ],
+            },
+            { signal: req.signal }
+          );
+
+          const fallbackRaw =
+            fallbackResponse.choices?.[0]?.message?.content || '{}';
+          const fallbackParsed = JSON.parse(
+            fallbackRaw
+              .trim()
+              .replace(/^\`\`\`(?:json)?\\s*/i, '')
+              .replace(/\\s*\`\`\`$/, '')
+          );
+
+          const allowedOperations = new Set([
+            'recent_exact',
+            'semantic_history',
+            'chronology',
+            'rolling_summary',
+            'document_search',
+            'visual_evidence',
+            'speaker_filter',
+          ]);
+          const fallbackOperations = Array.isArray(
+            fallbackParsed?.operations
+          )
+            ? fallbackParsed.operations.filter(
+                (operation: unknown): operation is string =>
+                  typeof operation === 'string' &&
+                  allowedOperations.has(operation)
+              )
+            : [];
+
+          const fallbackConstraints: any = {
+            speaker: null,
+            temporalRelation: null,
+            semanticRole: null,
+            chronologyRole: null,
+            topicSource: null,
+            anchorSource: null,
+            documentReferenceRole: null,
+            ordinalPosition: null,
+            anchorOccurrence: null,
+            anchorOrdinalPosition: null,
+          };
+          const rawFallbackConstraints =
+            fallbackParsed?.constraints &&
+            typeof fallbackParsed.constraints === 'object'
+              ? fallbackParsed.constraints
+              : {};
+
+          const allowedFallbackConstraintValues: Record<
+            string,
+            Set<string>
+          > = {
+            speaker: new Set([
+              'user',
+              'chatgpt',
+              'claude',
+              'gemini',
+              'multiple',
+            ]),
+            temporalRelation: new Set([
+              'first',
+              'last',
+              'previous',
+              'before',
+              'after',
+              'ordinal',
+            ]),
+            semanticRole: new Set([
+              'find_topic',
+              'find_anchor',
+              'broaden_candidates',
+            ]),
+            chronologyRole: new Set([
+              'direct_position',
+              'navigate_from_anchor',
+              'select_anchor_occurrence',
+              'scope_for_semantic',
+            ]),
+            topicSource: new Set([
+              'current_prompt',
+              'recent_context',
+              'semantic_result',
+            ]),
+            anchorSource: new Set([
+              'current_prompt',
+              'recent_context',
+              'semantic_result',
+            ]),
+            documentReferenceRole: new Set([
+              'user_uploaded',
+              'generated_or_revised',
+              'latest',
+              'exact_or_unspecified',
+            ]),
+            anchorOccurrence: new Set(['first', 'last', 'ordinal']),
+          };
+
+          for (const [key, allowed] of Object.entries(
+            allowedFallbackConstraintValues
+          )) {
+            const value = rawFallbackConstraints[key];
+            if (typeof value === 'string' && allowed.has(value)) {
+              fallbackConstraints[key] = value;
+            }
+          }
+
+          for (const numericKey of [
+            'ordinalPosition',
+            'anchorOrdinalPosition',
+          ]) {
+            const value = rawFallbackConstraints[numericKey];
+            if (
+              typeof value === 'number' &&
+              Number.isInteger(value) &&
+              value >= 1 &&
+              value <= 10
+            ) {
+              fallbackConstraints[numericKey] = value;
+            }
+          }
+
+          const closedFallbackOperations =
+            closeJevMemoryOperationsUnderConstraints(
+              fallbackOperations,
+              fallbackOperations,
+              fallbackConstraints
+            );
+          const fallbackOperationOrder = [
+            'recent_exact',
+            'rolling_summary',
+            'semantic_history',
+            'chronology',
+            'document_search',
+            'visual_evidence',
+            'speaker_filter',
+          ];
+          const effectiveOperations = fallbackOperationOrder.filter(
+            (operation) =>
+              closedFallbackOperations.includes(operation)
+          );
+          const effectiveDependencies = buildJevMemoryDependencies(
+            effectiveOperations,
+            fallbackConstraints
+          );
+
+          console.log('[Jev Intelligent Fallback Planner]', {
+            model: fallbackResponse.model || fallbackModel,
+            latencyMs: Date.now() - fallbackStartedAt,
+            operations: effectiveOperations,
+            constraints: fallbackConstraints,
+            reason:
+              typeof fallbackParsed?.reason === 'string'
+                ? fallbackParsed.reason
+                : null,
+          });
+
+          return {
+            result: null,
+            resolverResolution: {
+              overrideNeeded: true,
+              source: 'intelligent-fallback-planner',
+              reason:
+                typeof fallbackParsed?.reason === 'string'
+                  ? fallbackParsed.reason
+                  : 'Primary Jev controller unavailable.',
+            },
+            effectiveOperations,
+            effectiveDependencies,
+            effectiveConstraints: fallbackConstraints,
+            fallbackPlanner: true,
+          };
+        } catch (fallbackError: any) {
+          console.warn('[Jev Intelligent Fallback Planner] Failure', {
+            message:
+              fallbackError?.message || String(fallbackError),
+          });
+          return null;
+        }
       });
     }
 
