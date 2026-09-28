@@ -790,7 +790,7 @@ function isDocumentRevisionFollowUpQuery(
   const strongDocumentCue =
     /\b(?:document|file|pdf|docx|word(?:\s+document)?|resume|résumé|cv|rirekisho)\b/i;
   const documentElementCue =
-    /\b(?:template|layout|format|style|photo|portrait|image|picture|illustration|graphic|chart|title|heading|header|footer|font|table|margin|spacing|colour|color|section|page)\b/i;
+    /\b(?:template|layout|format|style|photo|portrait|image|picture|illustration|graphic|chart|title|heading|header|footer|font|typeface|serif|sans(?:-|\s)?serif|table|margin|spacing|colour|color|section|page)\b/i;
   const pronounCue = /\b(?:it|this|that|these|those)\b/i;
   const comparativeCue =
     /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i;
@@ -845,13 +845,25 @@ function isDocumentRevisionFollowUpQuery(
       prompt
     );
 
+  // Natural corrections often omit both the artifact noun and an edit verb:
+  // "I said everything sans serif, not just the name", "no, the whole
+  // heading", "still too small". If the immediately preceding round carries
+  // document context, treat a correction that names a document surface or
+  // refers back to it pronominally as a continuation of that document task.
+  const correctiveContinuation =
+    /\b(?:actually|still|instead|rather|i\s+(?:said|meant|asked)|you\s+(?:only|just|didn['’]?t|did\s+not)|not\s+(?:just|only)|everything|entire|whole|throughout|everywhere)\b/i.test(
+      prompt
+    ) &&
+    (documentElementCue.test(prompt) || pronounCue.test(prompt));
+
   return (
     contextualElementMutation ||
     contextualPronounMutation ||
     contextualMakeAdjustment ||
     contextualComparativeMutation ||
     preservationPhrase ||
-    contextualGeneratedAssetInsertion
+    contextualGeneratedAssetInsertion ||
+    correctiveContinuation
   );
 }
 
@@ -2820,6 +2832,61 @@ export async function POST(req: NextRequest) {
               effectiveConstraints[key] = rawValue;
             }
           }
+        }
+
+        const controllerLastRound =
+          discussionMemory?.recentRounds &&
+          discussionMemory.recentRounds.length > 0
+            ? discussionMemory.recentRounds[
+                discussionMemory.recentRounds.length - 1
+              ]
+            : null;
+        const controllerHasCurrentDocumentAttachment =
+          (Array.isArray(attachments) ? attachments : []).some(
+            (attachment: any) => {
+              const filename = String(attachment?.filename || '').toLowerCase();
+              const cleanUrl = String(attachment?.url || '')
+                .split('?')[0]
+                .split('#')[0]
+                .toLowerCase();
+              return (
+                filename.endsWith('.pdf') ||
+                filename.endsWith('.docx') ||
+                cleanUrl.endsWith('.pdf') ||
+                cleanUrl.endsWith('.docx')
+              );
+            }
+          );
+        const controllerHasImmediateDocumentContext =
+          controllerHasCurrentDocumentAttachment ||
+          roundHasImmediateDocumentContext(controllerLastRound);
+        const isImmediateDocumentRevisionContinuation =
+          isDocumentRevisionFollowUpQuery(prompt || '', {
+            hasImmediateDocumentContext:
+              controllerHasImmediateDocumentContext,
+          });
+
+        if (
+          isImmediateDocumentRevisionContinuation &&
+          controllerHasImmediateDocumentContext
+        ) {
+          if (!resolverRequestedOperations.includes('document_search')) {
+            resolverRequestedOperations.push('document_search');
+          }
+          if (!effectiveConstraints.documentReferenceRole) {
+            effectiveConstraints.documentReferenceRole =
+              'generated_or_revised';
+          }
+
+          console.log('[Jev Document Continuation Invariant]', {
+            preservedDocumentSearch: true,
+            documentReferenceRole:
+              effectiveConstraints.documentReferenceRole,
+            lastRoundHasDocumentContext:
+              roundHasImmediateDocumentContext(controllerLastRound),
+            currentTurnHasDocumentAttachment:
+              controllerHasCurrentDocumentAttachment,
+          });
         }
 
         // Evidence-domain invariant: a strong document mutation whose base
