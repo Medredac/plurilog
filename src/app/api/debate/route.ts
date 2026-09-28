@@ -2623,10 +2623,37 @@ export async function POST(req: NextRequest) {
           result.compiledPlan.operations.includes('speaker_filter') &&
           !result.compiledPlan.constraints.chronologyRole;
 
+        // Mixed-modality requests can contain separate references whose
+        // temporal/provenance constraints belong to different evidence
+        // domains (for example, a document version plus older conversation
+        // evidence). A single global Jev temporal/speaker field is not enough
+        // to safely scope those references. Escalate structurally ambiguous
+        // composite plans to System 2 instead of letting a document-relative
+        // "previous" accidentally drive conversation chronology.
+        const hasConversationRetrieval =
+          result.compiledPlan.operations.some((operation) =>
+            ['recent_exact', 'semantic_history', 'chronology', 'rolling_summary', 'speaker_filter'].includes(
+              operation
+            )
+          );
+        const mixedReferenceNeedsAdjudication =
+          result.compiledPlan.operations.includes('document_search') &&
+          hasConversationRetrieval &&
+          (
+            (result.compiledPlan.operations.includes('chronology') &&
+              !result.compiledPlan.constraints.chronologyRole) ||
+            (
+              !result.compiledPlan.constraints.speaker &&
+              (result.answers as any)?.conversation_memory_evidence_needed?.type === 'noul' &&
+              Number((result.answers as any).conversation_memory_evidence_needed.noul || 0) >= 0.7
+            )
+          );
+
         const needsResolver =
           result.compiledPlan.escalationSuggested ||
           relativeChronologyNeedsAdjudication ||
           semanticChronologyNeedsAdjudication ||
+          mixedReferenceNeedsAdjudication ||
           (result.compiledPlan.operations.includes('recent_exact') &&
             result.compiledPlan.operations.includes('speaker_filter') &&
             !result.compiledPlan.operations.includes('semantic_history'));
@@ -2647,7 +2674,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan; omit any proposed operation that should not execute. When overrideNeeded is false, operations may be empty because the proposed plan will be kept unchanged. Do not retrieve old conversation merely because the user says a topic was discussed before when the current request is self-contained. If the user clearly asks for older conversation evidence that is absent from the recent rounds, use semantic_history rather than concluding that nothing can be retrieved. If the user asks for an earlier or original comparison, point, source, or response, do not treat a recent recap of that material as the primary evidence. Distinguish provenance/original-source requests from actual before/after chronological navigation: do not include chronology merely because words like earlier or original refer only to provenance. But if the user explicitly asks for a temporal selection such as first, last, previous, before, after, or a numbered occurrence, the final plan must retain chronology. If the user asks for a specific historical speaker, the final plan must retain speaker_filter. If the topic/referent depends on recent_context, retain recent_exact when semantic_history or chronology still needs that referent.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations and constraints are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"constraintOverrides":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan. constraintOverrides contains only corrections needed to scope the final plan; use null to explicitly clear a mistaken constraint. Treat document, conversation, and visual references as separate evidence domains: temporal wording attached to a document version must not automatically become conversation chronology, and conversational authorship must be resolved independently from document provenance. If the user asks for something they themselves said/told/described earlier, speaker=user is appropriate and speaker_filter should be retained. If they ask what a named panel model said, set that speaker. Do not retrieve old conversation merely because the user mentions history when the current request is self-contained. If older conversation evidence is actually required, use semantic_history. Distinguish provenance/original-source requests from actual first/last/previous/before/after selection over conversation events. If chronology is not genuinely required for the conversation evidence, remove chronology and clear temporalRelation/chronologyRole/anchorSource. Preserve document_search and documentReferenceRole when the request independently needs a historical document.',
                   },
                   {
                     role: 'user',
@@ -2688,8 +2715,9 @@ export async function POST(req: NextRequest) {
         }
 
         // Resolver overrides are complete final plans, not additive patches.
-        // This allows System 2 to remove a mistakenly proposed operator such
-        // as chronology when provenance validation should select the source.
+        // System 2 may also repair cross-modal constraint scoping when Jev's
+        // global fields conflated a document-relative phrase with conversation
+        // chronology or failed to preserve conversational authorship.
         const resolverRequestedOperations =
           resolverResolution?.overrideNeeded &&
           Array.isArray(resolverResolution?.operations)
@@ -2699,10 +2727,39 @@ export async function POST(req: NextRequest) {
               )
             : result.compiledPlan.operations;
 
+        const baseConstraints = result.compiledPlan.constraints;
+        const rawConstraintOverrides =
+          resolverResolution?.overrideNeeded &&
+          resolverResolution?.constraintOverrides &&
+          typeof resolverResolution.constraintOverrides === 'object'
+            ? resolverResolution.constraintOverrides
+            : null;
+        const allowedConstraintValues: Record<string, Set<string>> = {
+          speaker: new Set(['user', 'chatgpt', 'claude', 'gemini', 'multiple', 'none']),
+          temporalRelation: new Set(['first', 'last', 'previous', 'before', 'after', 'ordinal', 'none']),
+          semanticRole: new Set(['find_topic', 'find_anchor', 'broaden_candidates', 'none']),
+          chronologyRole: new Set(['direct_position', 'navigate_from_anchor', 'select_anchor_occurrence', 'scope_for_semantic', 'none']),
+          topicSource: new Set(['current_prompt', 'recent_context', 'semantic_result', 'none']),
+          anchorSource: new Set(['current_prompt', 'recent_context', 'semantic_result', 'none']),
+          documentReferenceRole: new Set(['user_uploaded', 'generated_or_revised', 'latest', 'exact_or_unspecified', 'none']),
+        };
+        const effectiveConstraints: any = { ...baseConstraints };
+        if (rawConstraintOverrides) {
+          for (const [key, allowed] of Object.entries(allowedConstraintValues)) {
+            if (!Object.prototype.hasOwnProperty.call(rawConstraintOverrides, key)) continue;
+            const rawValue = rawConstraintOverrides[key];
+            if (rawValue === null || rawValue === 'none') {
+              effectiveConstraints[key] = null;
+            } else if (typeof rawValue === 'string' && allowed.has(rawValue)) {
+              effectiveConstraints[key] = rawValue;
+            }
+          }
+        }
+
         const closedOperations = closeJevMemoryOperationsUnderConstraints(
           resolverRequestedOperations,
           result.compiledPlan.operations,
-          result.compiledPlan.constraints
+          effectiveConstraints
         );
         const requestedOperations = new Set<string>(closedOperations);
 
@@ -2721,16 +2778,17 @@ export async function POST(req: NextRequest) {
 
         const effectiveDependencies = buildJevMemoryDependencies(
           effectiveOperations,
-          result.compiledPlan.constraints
+          effectiveConstraints
         );
 
         console.log('[Jev Effective Plan Preview]', {
           operations: effectiveOperations,
           dependencies: effectiveDependencies,
-          constraints: result.compiledPlan.constraints,
+          constraints: effectiveConstraints,
+          baseConstraints: result.compiledPlan.constraints,
           resolverApplied: Boolean(resolverResolution?.overrideNeeded),
           resolverMode: resolverResolution?.overrideNeeded
-            ? 'complete-plan-override'
+            ? 'complete-plan-and-constraint-override'
             : 'base-plan',
         });
 
@@ -2739,7 +2797,7 @@ export async function POST(req: NextRequest) {
           resolverResolution,
           effectiveOperations,
           effectiveDependencies,
-          effectiveConstraints: result.compiledPlan.constraints,
+          effectiveConstraints,
         };
       })().catch((error: any) => {
         if (!req.signal.aborted) {
