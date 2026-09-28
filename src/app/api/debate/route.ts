@@ -2822,6 +2822,38 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Evidence-domain invariant: a strong document mutation whose base
+        // controller plan already resolved provenance to a user-uploaded source
+        // must retain canonical document evidence. System 2 may refine or add
+        // other evidence, but it may not reinterpret that native document as a
+        // recent screenshot/image and erase document_search or its provenance.
+        //
+        // This is intentionally keyed to the structured controller output
+        // (document_search + documentReferenceRole=user_uploaded), not to any
+        // one surface phrase such as "original PDF".
+        const requiresUserUploadedDocumentMutation =
+          isStrongDocumentMutationRequest(prompt || '') &&
+          result.compiledPlan.operations.includes('document_search') &&
+          baseConstraints.documentReferenceRole === 'user_uploaded';
+
+        if (requiresUserUploadedDocumentMutation) {
+          if (!resolverRequestedOperations.includes('document_search')) {
+            resolverRequestedOperations.push('document_search');
+          }
+          effectiveConstraints.documentReferenceRole = 'user_uploaded';
+
+          console.log('[Jev Document Evidence Invariant]', {
+            preservedDocumentSearch: true,
+            documentReferenceRole: 'user_uploaded',
+            resolverHadRemovedDocumentSearch:
+              Boolean(resolverResolution?.overrideNeeded) &&
+              !Array.isArray(resolverResolution?.operations)
+                ? false
+                : Boolean(resolverResolution?.overrideNeeded) &&
+                  !resolverResolution.operations.includes('document_search'),
+          });
+        }
+
         // A System-2 override is a complete final operation plan. Constraints
         // must not resurrect an operator that the override explicitly removed.
         // Canonicalize operator-owned constraints before deterministic closure.
