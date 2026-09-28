@@ -4812,6 +4812,205 @@ export async function retrieveDiscussionDocuments(
   }
 }
 
+
+export interface RetrieveDiscussionDocumentByIdOptions {
+  serviceSupabase: SupabaseClient;
+  discussionId: string;
+  documentId: string;
+  queryText?: string;
+  queryEmbedding?: number[] | null;
+  signal?: AbortSignal;
+}
+
+function parseStoredVector(value: unknown): number[] | null {
+  if (Array.isArray(value)) {
+    const parsed = value.map((item) => Number(item));
+    return parsed.every(Number.isFinite) ? parsed : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const numeric = parsed.map((item) => Number(item));
+        return numeric.every(Number.isFinite) ? numeric : null;
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length === 0 || a.length !== b.length) return 0;
+  let dot = 0;
+  let aNorm = 0;
+  let bNorm = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    aNorm += a[i] * a[i];
+    bNorm += b[i] * b[i];
+  }
+  if (aNorm <= 0 || bNorm <= 0) return 0;
+  return dot / (Math.sqrt(aNorm) * Math.sqrt(bNorm));
+}
+
+function lexicalDocumentScore(content: string, queryText: string): number {
+  const stopwords = new Set([
+    'about', 'after', 'again', 'before', 'compare', 'document', 'earlier',
+    'file', 'from', 'have', 'into', 'just', 'more', 'previous', 'should',
+    'that', 'their', 'there', 'these', 'they', 'this', 'those', 'what',
+    'when', 'where', 'which', 'with', 'would', 'your',
+  ]);
+  const tokens = Array.from(
+    new Set(
+      queryText
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((token) => token.length >= 4 && !stopwords.has(token))
+    )
+  );
+  if (tokens.length === 0) return 0;
+  const haystack = content.toLowerCase();
+  return tokens.reduce(
+    (score, token) => score + (haystack.includes(token) ? 1 : 0),
+    0
+  ) / tokens.length;
+}
+
+/**
+ * Retrieves semantically relevant chunks strictly within one already-resolved
+ * canonical document identity. This is the provenance-preserving counterpart
+ * to broad cross-document search: identity is resolved first, content second.
+ */
+export async function retrieveDiscussionDocumentById(
+  options: RetrieveDiscussionDocumentByIdOptions
+): Promise<RetrievedDocumentExcerpt[]> {
+  const {
+    serviceSupabase,
+    discussionId,
+    documentId,
+    queryText = '',
+    queryEmbedding = null,
+    signal,
+  } = options;
+
+  if (
+    !serviceSupabase ||
+    !discussionId ||
+    !documentId ||
+    signal?.aborted
+  ) {
+    return [];
+  }
+
+  try {
+    const { data: docRow, error: docError } = await serviceSupabase
+      .from('discussion_documents')
+      .select('id, filename, full_text')
+      .eq('discussion_id', discussionId)
+      .eq('id', documentId)
+      .maybeSingle();
+
+    if (docError || !docRow?.id) {
+      return [];
+    }
+
+    const { data: chunkRows, error: chunkError } = await serviceSupabase
+      .from('discussion_document_chunks')
+      .select('id, chunk_index, content, embedding')
+      .eq('discussion_id', discussionId)
+      .eq('document_id', documentId)
+      .order('chunk_index', { ascending: true });
+
+    const sourceRows: Array<{
+      id: string;
+      chunk_index: number;
+      content: string;
+      embedding?: unknown;
+    }> =
+      !chunkError && Array.isArray(chunkRows) && chunkRows.length > 0
+        ? chunkRows
+        : chunkDocumentText(String(docRow.full_text || '')).map(
+            (content, index) => ({
+              id: `document-${documentId}-chunk-${index}`,
+              chunk_index: index,
+              content,
+            })
+          );
+
+    const ranked = sourceRows
+      .map((row) => {
+        const content =
+          typeof row.content === 'string' ? row.content.trim() : '';
+        const storedEmbedding = parseStoredVector(row.embedding);
+        const semanticSimilarity =
+          Array.isArray(queryEmbedding) &&
+          queryEmbedding.length > 0 &&
+          storedEmbedding &&
+          storedEmbedding.length === queryEmbedding.length
+            ? cosineSimilarity(queryEmbedding, storedEmbedding)
+            : 0;
+        const lexicalScore = queryText
+          ? lexicalDocumentScore(content, queryText)
+          : 0;
+        return {
+          row,
+          content,
+          semanticSimilarity,
+          lexicalScore,
+          combinedScore:
+            semanticSimilarity > 0
+              ? semanticSimilarity * 0.9 + lexicalScore * 0.1
+              : lexicalScore,
+        };
+      })
+      .filter((item) => Boolean(item.content))
+      .sort(
+        (a, b) =>
+          b.combinedScore - a.combinedScore ||
+          Number(a.row.chunk_index || 0) - Number(b.row.chunk_index || 0)
+      );
+
+    const selected: RetrievedDocumentExcerpt[] = [];
+    let accumulatedTokens = 0;
+
+    for (const item of ranked) {
+      if (selected.length >= 2) break;
+      const chunkTokens = estimateTokens(item.content);
+      if (
+        selected.length > 0 &&
+        accumulatedTokens + chunkTokens > DOCUMENT_RETRIEVAL_TOKEN_BUDGET
+      ) {
+        continue;
+      }
+      selected.push({
+        chunkId: String(item.row.id),
+        documentId,
+        filename: String(docRow.filename || 'document'),
+        chunkIndex: Number(item.row.chunk_index || 0),
+        content: item.content,
+        semanticSimilarity: item.semanticSimilarity,
+        keywordRank: null,
+        filenameMatch: true,
+        hybridScore: item.combinedScore,
+      });
+      accumulatedTokens += chunkTokens;
+    }
+
+    return selected;
+  } catch (err: any) {
+    console.error(
+      '[Doc Retrieval] Non-critical exact-document retrieval failure:',
+      err?.message || String(err)
+    );
+    return [];
+  }
+}
+
 export interface ResolvedVisualDocument {
   documentId?: string | null;
   filename: string;
