@@ -2415,7 +2415,7 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
           {
             role: 'system',
             content:
-              `You are a visual-referent resolver. Do not answer the user and do not propose edits. Select the ONE image source the user is referring to from the supplied candidates, using the semantic meaning and provenance of the conversation. Natural references such as "the warm edited version", "the one before the darker edit", or "Gemini's earlier version" must be resolved from each candidate's originating user request and assistant response, not by crude keyword overlap. Return JSON only: {"selectedSourceId":string|null,"confidence":number,"reason":string}. Select null when the candidates do not uniquely support one referent. Never invent a source ID. Filenames and timestamps are weak metadata; conversation provenance is primary.${candidateScope === 'active_focus' ? ' IMPORTANT: every supplied candidate is simultaneously active in the current visual working set. Do NOT break a tie using recency, timestamps, response order, model seat order, or general salience unless the USER\'S CURRENT WORDING explicitly asks for that distinction. If the current wording does not semantically distinguish one active candidate from the others, selectedSourceId MUST be null.' : ''}`,
+              `You are a visual-referent resolver. Do not answer the user and do not propose edits. Select the ONE image source the user is referring to from the supplied candidates, using the semantic meaning and provenance of the conversation. Natural references such as "the warm edited version", "the one before the darker edit", or "Gemini's earlier version" must be resolved from each candidate's originating user request and assistant response, not by crude keyword overlap. Return JSON only: {"selectedSourceId":string|null,"confidence":number,"reason":string,"currentPromptDiscriminator":{"text":string|null,"type":"creator"|"ordinal"|"filename"|"visual_attribute"|"explicit_temporal"|"none"}}. Select null when the candidates do not uniquely support one referent. Never invent a source ID. Filenames and timestamps are weak metadata; conversation provenance is primary.${candidateScope === 'active_focus' ? ' IMPORTANT: every supplied candidate is simultaneously active in the current visual working set. You may select one ONLY when the USER\'S CURRENT WORDING contains a concrete discriminator that distinguishes one active candidate from the others. Examples of valid discriminator types are creator/model identity, an ordinal, a filename, a visual/content attribute, or an explicit temporal relation. Generic anaphora such as "that one", "this one", "it", "the image", "again", or mere conversational recency are NOT discriminators. Do NOT use prior assistant preference, response order, timestamps, model seat order, or general salience to manufacture a winner. If the current wording itself does not distinguish one candidate, selectedSourceId MUST be null and currentPromptDiscriminator.type MUST be "none".' : ''}`,
           },
           {
             role: 'user',
@@ -2442,9 +2442,41 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
         : null;
     const confidence =
       typeof parsed?.confidence === 'number' ? parsed.confidence : 0;
+    const discriminator =
+      parsed?.currentPromptDiscriminator &&
+      typeof parsed.currentPromptDiscriminator === 'object'
+        ? parsed.currentPromptDiscriminator
+        : null;
+    const discriminatorText =
+      typeof discriminator?.text === 'string'
+        ? discriminator.text.trim()
+        : '';
+    const discriminatorType =
+      typeof discriminator?.type === 'string'
+        ? discriminator.type
+        : 'none';
+    const normalizedPrompt = prompt.toLowerCase();
+    const discriminatorGrounded =
+      discriminatorText.length >= 2 &&
+      normalizedPrompt.includes(discriminatorText.toLowerCase());
+    const allowedActiveFocusDiscriminatorTypes = new Set([
+      'creator',
+      'ordinal',
+      'filename',
+      'visual_attribute',
+      'explicit_temporal',
+    ]);
+    const activeFocusSelectionGrounded =
+      candidateScope !== 'active_focus' ||
+      (
+        allowedActiveFocusDiscriminatorTypes.has(discriminatorType) &&
+        discriminatorGrounded
+      );
 
     const selected =
-      selectedSourceId && confidence >= 0.6
+      selectedSourceId &&
+      confidence >= 0.6 &&
+      activeFocusSelectionGrounded
         ? knownSources.find((source) => source.sourceId === selectedSourceId) || null
         : null;
 
@@ -2452,8 +2484,14 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
       model: response.model || model,
       latencyMs: Date.now() - startedAt,
       candidateCount: candidates.length,
+      candidateScope,
       selectedSourceId: selected?.sourceId || null,
+      proposedSourceId: selectedSourceId,
       confidence,
+      discriminatorType,
+      discriminatorText: discriminatorText || null,
+      discriminatorGrounded,
+      activeFocusSelectionGrounded,
       reason:
         typeof parsed?.reason === 'string'
           ? parsed.reason
