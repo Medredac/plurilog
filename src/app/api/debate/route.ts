@@ -2643,9 +2643,45 @@ export async function POST(req: NextRequest) {
       prompt.trim() &&
       !req.signal.aborted
     ) {
+      const controllerLastRound =
+        discussionMemory?.recentRounds &&
+        discussionMemory.recentRounds.length > 0
+          ? discussionMemory.recentRounds[
+              discussionMemory.recentRounds.length - 1
+            ]
+          : null;
+      const controllerHasCurrentDocumentAttachment =
+        (Array.isArray(attachments) ? attachments : []).some(
+          (attachment: any) => {
+            const filename = String(attachment?.filename || '').toLowerCase();
+            const cleanUrl = String(attachment?.url || '')
+              .split('?')[0]
+              .split('#')[0]
+              .toLowerCase();
+            return (
+              filename.endsWith('.pdf') ||
+              filename.endsWith('.docx') ||
+              cleanUrl.endsWith('.pdf') ||
+              cleanUrl.endsWith('.docx')
+            );
+          }
+        );
+      const controllerHasImmediateDocumentContext =
+        controllerHasCurrentDocumentAttachment ||
+        roundHasImmediateDocumentContext(controllerLastRound);
+      const isImmediateDocumentRevisionContinuation =
+        isDocumentRevisionFollowUpQuery(prompt || '', {
+          hasImmediateDocumentContext:
+            controllerHasImmediateDocumentContext,
+        });
+
       const currentRequestFacts = parseCurrentRequestFacts(prompt || '');
       const requestConstraintEnvelope =
-        buildRequestConstraintEnvelope(currentRequestFacts);
+        buildRequestConstraintEnvelope(currentRequestFacts, {
+          documentRevisionContinuation:
+            isImmediateDocumentRevisionContinuation &&
+            controllerHasImmediateDocumentContext,
+        });
 
       if (
         requestConstraintEnvelope.mandatoryOperations.length > 0 ||
@@ -2859,38 +2895,6 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        const controllerLastRound =
-          discussionMemory?.recentRounds &&
-          discussionMemory.recentRounds.length > 0
-            ? discussionMemory.recentRounds[
-                discussionMemory.recentRounds.length - 1
-              ]
-            : null;
-        const controllerHasCurrentDocumentAttachment =
-          (Array.isArray(attachments) ? attachments : []).some(
-            (attachment: any) => {
-              const filename = String(attachment?.filename || '').toLowerCase();
-              const cleanUrl = String(attachment?.url || '')
-                .split('?')[0]
-                .split('#')[0]
-                .toLowerCase();
-              return (
-                filename.endsWith('.pdf') ||
-                filename.endsWith('.docx') ||
-                cleanUrl.endsWith('.pdf') ||
-                cleanUrl.endsWith('.docx')
-              );
-            }
-          );
-        const controllerHasImmediateDocumentContext =
-          controllerHasCurrentDocumentAttachment ||
-          roundHasImmediateDocumentContext(controllerLastRound);
-        const isImmediateDocumentRevisionContinuation =
-          isDocumentRevisionFollowUpQuery(prompt || '', {
-            hasImmediateDocumentContext:
-              controllerHasImmediateDocumentContext,
-          });
-
         if (
           isImmediateDocumentRevisionContinuation &&
           controllerHasImmediateDocumentContext
@@ -3031,6 +3035,44 @@ export async function POST(req: NextRequest) {
             message: error?.message || String(error),
           });
         }
+
+        // Deterministic current-request / artifact-continuation constraints
+        // remain valid even if the probabilistic pilot fails. Do not fall back
+        // to an unconstrained legacy router when the active task already
+        // establishes a mandatory evidence domain.
+        if (requestConstraintEnvelope.mandatoryOperations.length > 0) {
+          const fallbackConstraints = {
+            speaker: null,
+            temporalRelation: null,
+            semanticRole: null,
+            chronologyRole: null,
+            topicSource: null,
+            anchorSource: null,
+            documentReferenceRole:
+              requestConstraintEnvelope.legacyExecution
+                .documentReferenceRole,
+            ordinalPosition: null,
+            anchorOccurrence: null,
+            anchorOrdinalPosition: null,
+          };
+
+          console.log('[Jev Memory Controller Deterministic Fallback]', {
+            operations: requestConstraintEnvelope.mandatoryOperations,
+            constraints: fallbackConstraints,
+            continuation: requestConstraintEnvelope.continuation,
+          });
+
+          return {
+            result: null,
+            resolverResolution: null,
+            effectiveOperations: [
+              ...requestConstraintEnvelope.mandatoryOperations,
+            ],
+            effectiveDependencies: [],
+            effectiveConstraints: fallbackConstraints,
+          };
+        }
+
         return null;
       });
     }
