@@ -145,7 +145,7 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                   );
 
                   if (
-                    topicalOccurrenceLookup &&
+                    topicSemanticLookup &&
                     selected.length > 1
                   ) {
                     try {
@@ -165,11 +165,27 @@ const newOccurrenceSelection = `                  let selected = qualifying.slic
                         .map((round) => ({
                           roundUserMessageId: round.userMessageId,
                           userPrompt: (round.userPrompt || '').slice(0, 600),
-                          modelResponses: (round.modelResponses || [])
-                            .map((response) => ({
-                              name: response.name,
-                              content: (response.content || '').slice(0, 700),
-                            })),
+                          modelResponses:
+                            jevEffectiveConstraints?.speaker === 'user'
+                              ? []
+                              : jevEffectiveConstraints?.speaker &&
+                                  jevEffectiveConstraints.speaker !== 'none' &&
+                                  jevEffectiveConstraints.speaker !== 'multiple'
+                                ? (round.modelResponses || [])
+                                    .filter(
+                                      (response) =>
+                                        response.name.toLowerCase() ===
+                                        jevEffectiveConstraints.speaker!.toLowerCase()
+                                    )
+                                    .map((response) => ({
+                                      name: response.name,
+                                      content: (response.content || '').slice(0, 700),
+                                    }))
+                                : (round.modelResponses || [])
+                                    .map((response) => ({
+                                      name: response.name,
+                                      content: (response.content || '').slice(0, 700),
+                                    })),
                         }));
 
                       if (occurrenceCandidates.length > 1) {
