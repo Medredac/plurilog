@@ -8581,7 +8581,16 @@ export async function POST(req: NextRequest) {
                   // must never be allowed to invent a disambiguating filename/selector and thereby
                   // silently choose among multiple candidate images.
                   const referenceText = prompt;
+                  const jevScopesVisualToRecentTurn =
+                    jevEffectiveOperations.includes('visual_evidence') &&
+                    jevEffectiveOperations.includes('chronology') &&
+                    ['last', 'previous'].includes(
+                      jevEffectiveConstraints?.temporalRelation || ''
+                    ) &&
+                    jevEffectiveConstraints?.anchorSource === 'recent_context';
+
                   const explicitlyHistoricalReference =
+                    jevScopesVisualToRecentTurn ||
                     /\b(?:earlier|previous|generated|gemini|chatgpt|claude)\b/i.test(
                       referenceText
                     );
@@ -8593,6 +8602,94 @@ export async function POST(req: NextRequest) {
 
                   if (referenceImageUrl) {
                     // Already resolved from a user-grounded Image N selection in this call.
+                  } else if (
+                    jevScopesVisualToRecentTurn &&
+                    discussionId &&
+                    lastRound
+                  ) {
+                    try {
+                      const serviceClientForTurnScopedEdit =
+                        createServiceClient();
+                      const knownSourcesForTurnScopedEdit =
+                        await fetchKnownImageSources(
+                          serviceClientForTurnScopedEdit,
+                          discussionId
+                        );
+                      const priorResponseIds = new Set(
+                        (lastRound.modelResponses || [])
+                          .map((response) => response.id)
+                          .filter(
+                            (id): id is string =>
+                              typeof id === 'string' && id.length > 0
+                          )
+                      );
+                      const turnScopedSources =
+                        knownSourcesForTurnScopedEdit.filter(
+                          (source) =>
+                            Boolean(source.sourceMessageId) &&
+                            priorResponseIds.has(source.sourceMessageId!)
+                        );
+
+                      if (turnScopedSources.length === 1) {
+                        const source = turnScopedSources[0];
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForTurnScopedEdit.storage
+                            .from('message-images')
+                            .createSignedUrl(source.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          referenceImageUrl = signedData.signedUrl;
+                          referenceImageLabel =
+                            source.filename || 'image from the referenced turn';
+                          editReferentSourceIds = [source.sourceId];
+                          pendingResolvedImageSources = [source];
+
+                          console.log(
+                            '[Image Editing Resolver] Resolved unique prior-turn visual source',
+                            {
+                              discussionId,
+                              sourceId: source.sourceId,
+                              filename: source.filename,
+                            }
+                          );
+                        } else {
+                          editReferenceError =
+                            'The image from the referenced turn could not be retrieved for this edit.';
+                        }
+                      } else if (turnScopedSources.length > 1) {
+                        editReferenceError =
+                          'I found multiple images created in the referenced turn. Please specify which one you want me to edit.';
+                        console.log(
+                          '[Image Editing Resolver] Prior-turn visual reference is ambiguous; failing closed',
+                          {
+                            discussionId,
+                            candidateSourceIds: turnScopedSources.map(
+                              (source) => source.sourceId
+                            ),
+                            candidateSenders: turnScopedSources.map(
+                              (source) => source.sender || null
+                            ),
+                          }
+                        );
+                      } else {
+                        editReferenceError =
+                          'I could not identify an image created in the referenced turn. Please specify the image you want me to edit.';
+                        console.log(
+                          '[Image Editing Resolver] No prior-turn visual source matched the temporal scope',
+                          {
+                            discussionId,
+                            priorResponseIds: Array.from(priorResponseIds),
+                          }
+                        );
+                      }
+                    } catch (turnScopedEditErr) {
+                      console.warn(
+                        '[Image Editing Resolver] Prior-turn visual scope resolution failed:',
+                        turnScopedEditErr
+                      );
+                      editReferenceError =
+                        'I could not safely determine which image from the referenced turn you want edited.';
+                    }
                   } else if (!explicitlyHistoricalReference && currentUserImages.length === 1) {
                     referenceImageUrl = currentUserImages[0].url;
                     referenceImageLabel =
