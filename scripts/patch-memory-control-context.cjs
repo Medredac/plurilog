@@ -193,6 +193,7 @@ routeSource = replaceOnce(
                       atomicAnswers: result.answers,`,
   `                      prompt: memoryControlContext.currentRequest,
                       controlContext: memoryControlContext,
+                      workingState: jevWorkingState,
                       atomicAnswers: result.answers,`,
   'System-2 shared context'
 );
@@ -208,6 +209,7 @@ routeSource = replaceOnce(
                                     memoryControlContext.currentRequest,
                                   constraints: jevEffectiveConstraints,
                                   controlContext: memoryControlContext,
+                                  workingState: jevWorkingState,
                                 }),`,
   'Anchor-query shared context'
 );
@@ -251,6 +253,7 @@ const newTopicPayload = `                                content: JSON.stringify
                                     memoryControlContext.currentRequest,
                                   constraints: jevEffectiveConstraints,
                                   controlContext: memoryControlContext,
+                                  workingState: jevWorkingState,
                                   composedSemanticQuery: semanticQuery,
                                 }),`;
 
