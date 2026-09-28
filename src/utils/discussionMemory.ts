@@ -4040,7 +4040,7 @@ export async function ingestDiscussionArtifacts(
   return result;
 }
 
-export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 1500;
+export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 8000;
 export const DOCUMENT_SECTION_TOKEN_BUDGET = 2500;
 export const DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD = 0.60;
 
@@ -4661,9 +4661,6 @@ export interface RetrieveDiscussionDocumentsOptions {
   discussionId: string;
   queryText: string;
   queryEmbedding?: number[] | null;
-  candidateLimit?: number;
-  tokenBudget?: number;
-  documentScope?: 'single' | 'multiple' | 'broad' | null;
   signal?: AbortSignal;
 }
 
@@ -4675,16 +4672,7 @@ export interface RetrieveDiscussionDocumentsOptions {
 export async function retrieveDiscussionDocuments(
   options: RetrieveDiscussionDocumentsOptions
 ): Promise<RetrievedDocumentExcerpt[]> {
-  const {
-    serviceSupabase,
-    discussionId,
-    queryText,
-    queryEmbedding,
-    candidateLimit = 50,
-    tokenBudget = 6000,
-    documentScope = null,
-    signal,
-  } = options;
+  const { serviceSupabase, discussionId, queryText, queryEmbedding, signal } = options;
 
   if (
     !serviceSupabase ||
@@ -4705,7 +4693,7 @@ export async function retrieveDiscussionDocuments(
         p_discussion_id: discussionId,
         p_query_text: queryText.trim(),
         p_query_embedding: queryEmbedding,
-        p_match_count: Math.max(5, Math.min(100, candidateLimit)),
+        p_match_count: 50,
       }
     );
 
@@ -4718,9 +4706,7 @@ export async function retrieveDiscussionDocuments(
       return [];
     }
 
-    // Filter, deduplicate, and enforce a controller-selected token budget.
-    // There is intentionally no fixed document/chunk count ceiling: breadth is
-    // selected by Jev/System 2 and bounded only by relevance + context budget.
+    // Filter, deduplicate, and enforce a token budget. There is intentionally no fixed document/chunk count ceiling.
     // Before applying the semantic threshold, derive a few meaningful lexical
     // anchors from the user's query. Exact anchor presence is a conservative
     // rescue signal for cases where an embedding ranks a tiny unrelated chunk
@@ -4766,28 +4752,21 @@ export async function retrieveDiscussionDocuments(
     const seenChunkKeys = new Set<string>();
     let accumulatedTokens = 0;
 
-    // For multi-document work, first give every relevant document a chance to
-    // contribute its best chunk before taking second/third chunks from one file.
-    const candidateOrder =
-      documentScope === 'multiple' || documentScope === 'broad'
-        ? (() => {
-            const firstPerDocument: typeof rankedRows = [];
-            const remainder: typeof rankedRows = [];
-            const seenDocuments = new Set<string>();
-            for (const ranked of rankedRows) {
-              const documentId = String(ranked.row?.document_id || '');
-              if (documentId && !seenDocuments.has(documentId)) {
-                seenDocuments.add(documentId);
-                firstPerDocument.push(ranked);
-              } else {
-                remainder.push(ranked);
-              }
-            }
-            return [...firstPerDocument, ...remainder];
-          })()
-        : rankedRows;
+    const firstChunkPerDocument: typeof rankedRows = [];
+    const remainingChunks: typeof rankedRows = [];
+    const seenDocumentIds = new Set<string>();
+    for (const ranked of rankedRows) {
+      const documentId = String(ranked.row?.document_id || '');
+      if (documentId && !seenDocumentIds.has(documentId)) {
+        seenDocumentIds.add(documentId);
+        firstChunkPerDocument.push(ranked);
+      } else {
+        remainingChunks.push(ranked);
+      }
+    }
+    const diversifiedRows = [...firstChunkPerDocument, ...remainingChunks];
 
-    for (const ranked of candidateOrder) {
+    for (const ranked of diversifiedRows) {
       const row = ranked.row;
       const lexicalAnchorMatch = ranked.lexicalAnchorMatch;
 
@@ -4854,7 +4833,7 @@ export async function retrieveDiscussionDocuments(
         });
         seenChunkKeys.add(dedupeKey);
         accumulatedTokens += chunkTokens;
-      } else if (accumulatedTokens + chunkTokens <= Math.max(500, tokenBudget)) {
+      } else if (accumulatedTokens + chunkTokens <= DOCUMENT_RETRIEVAL_TOKEN_BUDGET) {
         qualifying.push({
           chunkId,
           documentId,
@@ -4872,18 +4851,12 @@ export async function retrieveDiscussionDocuments(
     }
 
     if (process.env.VERCEL_ENV === 'preview') {
-      console.log('[Jev Adaptive Document Retrieval]', {
+      console.log('[Adaptive Document Retrieval]', {
         discussionId,
-        documentScope,
-        candidateLimit: Math.max(5, Math.min(100, candidateLimit)),
-        tokenBudget: Math.max(500, tokenBudget),
         selectedChunkCount: qualifying.length,
-        selectedDocumentCount: new Set(
-          qualifying.map((item) => item.documentId)
-        ).size,
-        selectedDocuments: Array.from(
-          new Set(qualifying.map((item) => item.filename))
-        ),
+        selectedDocumentCount: new Set(qualifying.map((item) => item.documentId)).size,
+        selectedDocuments: Array.from(new Set(qualifying.map((item) => item.filename))),
+        tokenBudget: DOCUMENT_RETRIEVAL_TOKEN_BUDGET,
         accumulatedTokens,
       });
     }
