@@ -1,3 +1,4 @@
+// Synthesis validation retry after rate-limit window cleared
 // Synthesis validation branch trigger
 // Trigger atomic synthesis rebuild
 // Preview-only memory architecture patches
