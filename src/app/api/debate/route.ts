@@ -2345,6 +2345,17 @@ const SEAT_DEFINITIONS: Record<ModelId, SeatConfig> = {
   chatgpt: { seatId: 'chatgpt', name: 'ChatGPT', providerPrefix: 'openai/' },
 };
 
+function getExplicitVisualCreatorTarget(referenceText: string): ModelId | null {
+  const text = referenceText || '';
+  return /\b(?:chatgpt's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+chatgpt|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+chatgpt|(?:the\s+)?chatgpt\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(text)
+    ? 'chatgpt'
+    : /\b(?:gemini's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+gemini|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+gemini|(?:the\s+)?gemini\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(text)
+      ? 'gemini'
+      : /\b(?:claude's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+claude|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+claude|(?:the\s+)?claude\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(text)
+        ? 'claude'
+        : null;
+}
+
 async function resolveHistoricalImageReferentWithSystem2(options: {
   openai: OpenAI;
   prompt: string;
@@ -4607,17 +4618,73 @@ export async function POST(req: NextRequest) {
 
                   const activeVisualContext = isPersistentVisualContextReadsEnabled() ? visualContextState : null;
 
-                  // Pass 1: Cheap resolution using knownSources + lastRoundEvidence (empty recentEvidenceSets)
-                  let resolvedImage = resolveImageEvidence({
-                    prompt,
-                    knownSources,
-                    lastRoundEvidence,
-                    recentEvidenceSets: [],
-                    previousUserPrompt: lastRound?.userPrompt,
-                    historicalRounds: discussionMemory?.allRounds,
-                    allUserMessageIds: discussionMemory?.allUserMessageIds,
-                    visualContext: activeVisualContext,
-                  });
+                  // Explicit creator references are scoped to the active visual
+                  // working set first. This keeps pre-seat evidence reopening
+                  // aligned with the edit resolver instead of letting a broad
+                  // historical semantic pass resurrect an older sibling.
+                  const explicitVisualCreatorTargetForTurn =
+                    getExplicitVisualCreatorTarget(prompt);
+                  const focusedCreatorMatches =
+                    explicitVisualCreatorTargetForTurn &&
+                    activeVisualContext?.focus_source_ids?.length
+                      ? knownSources.filter(
+                          (source) =>
+                            activeVisualContext.focus_source_ids.includes(
+                              source.sourceId
+                            ) &&
+                            String(source.sender || '').toLowerCase() ===
+                              explicitVisualCreatorTargetForTurn
+                        )
+                      : [];
+                  const focusedCreatorAmbiguous =
+                    focusedCreatorMatches.length > 1;
+
+                  // Pass 1: first honor a unique creator match inside the
+                  // current focus; otherwise use the general cheap resolver.
+                  let resolvedImage =
+                    focusedCreatorMatches.length === 1
+                      ? ({
+                          sources: [focusedCreatorMatches[0]],
+                          reason: 'explicit_creator_current_focus',
+                        } as any)
+                      : focusedCreatorAmbiguous
+                        ? null
+                        : resolveImageEvidence({
+                            prompt,
+                            knownSources,
+                            lastRoundEvidence,
+                            recentEvidenceSets: [],
+                            previousUserPrompt: lastRound?.userPrompt,
+                            historicalRounds: discussionMemory?.allRounds,
+                            allUserMessageIds: discussionMemory?.allUserMessageIds,
+                            visualContext: activeVisualContext,
+                          });
+
+                  if (focusedCreatorMatches.length === 1) {
+                    console.log(
+                      '[Image Reopening] Resolved explicit creator inside current focus',
+                      {
+                        discussionId,
+                        explicitVisualCreatorTarget:
+                          explicitVisualCreatorTargetForTurn,
+                        sourceId: focusedCreatorMatches[0].sourceId,
+                        focusSourceIds:
+                          activeVisualContext?.focus_source_ids || [],
+                      }
+                    );
+                  } else if (focusedCreatorAmbiguous) {
+                    console.log(
+                      '[Image Reopening] Explicit creator ambiguous inside current focus; skipping broad historical resolver',
+                      {
+                        discussionId,
+                        explicitVisualCreatorTarget:
+                          explicitVisualCreatorTargetForTurn,
+                        candidateSourceIds: focusedCreatorMatches.map(
+                          (source) => source.sourceId
+                        ),
+                      }
+                    );
+                  }
 
                   // Pass 2: Contextual visual-set requests may need broader evidence history.
                   // Re-run not only when Pass 1 is unresolved, but also when it resolves
@@ -4645,7 +4712,11 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  if (!resolvedImage && knownSources.length > 1) {
+                  if (
+                    !resolvedImage &&
+                    !focusedCreatorAmbiguous &&
+                    knownSources.length > 1
+                  ) {
                     const system2Source =
                       await resolveHistoricalImageReferentWithSystem2({
                         openai,
@@ -8645,14 +8716,8 @@ export async function POST(req: NextRequest) {
                     ) &&
                     jevEffectiveConstraints?.anchorSource === 'recent_context';
 
-                  const explicitVisualCreatorTarget: ModelId | null =
-                    /\b(?:chatgpt's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+chatgpt|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+chatgpt|(?:the\s+)?chatgpt\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
-                      ? 'chatgpt'
-                      : /\b(?:gemini's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+gemini|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+gemini|(?:the\s+)?gemini\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
-                        ? 'gemini'
-                        : /\b(?:claude's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+claude|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+claude|(?:the\s+)?claude\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
-                          ? 'claude'
-                          : null;
+                  const explicitVisualCreatorTarget =
+                    getExplicitVisualCreatorTarget(referenceText);
 
                   const explicitlyHistoricalReference =
                     jevScopesVisualToRecentTurn ||
