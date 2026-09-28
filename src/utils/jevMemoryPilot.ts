@@ -9,6 +9,41 @@ type KnownDocumentLike = {
   createdAt?: string | null;
 };
 
+export type JevWorkingState = {
+  currentAttachments?: Array<{
+    filename: string;
+    kind: 'pdf' | 'docx' | 'image' | 'other';
+  }>;
+  lastRoundAttachments?: Array<{
+    filename: string;
+    kind: 'pdf' | 'docx' | 'image' | 'other';
+    sender?: 'user' | 'assistant';
+  }>;
+  latestDocumentRevision?: {
+    snapshotId: string;
+    documentId?: string | null;
+    filename: string;
+    format: 'pdf' | 'docx';
+    generationKind: 'create' | 'revision' | 'convert';
+    parentSnapshotId?: string | null;
+    parentDocumentId?: string | null;
+    sourceDocumentIds?: string[];
+    createdAt?: string | null;
+  } | null;
+  visualFocus?: {
+    sourceIds: string[];
+    sources: Array<{
+      sourceId: string;
+      filename: string;
+      sender?: string | null;
+      creatorSeatId?: string | null;
+      generationKind?: string | null;
+      parentSourceIds?: string[];
+      createdAt?: string | null;
+    }>;
+  } | null;
+};
+
 type JevAnswer =
   | {
       type: 'noul';
@@ -863,6 +898,7 @@ export async function runJevMemoryPilotShadow(options: {
   prompt: string;
   recentRounds?: Round[];
   knownDocuments?: KnownDocumentLike[];
+  workingState?: JevWorkingState;
   signal?: AbortSignal;
 }): Promise<JevMemoryPilotShadowResult> {
   const startedAt = Date.now();
@@ -875,6 +911,7 @@ export async function runJevMemoryPilotShadow(options: {
       filename: doc.filename || 'unknown',
       created_at: doc.createdAt || null,
     })),
+    working_state: options.workingState || null,
     available_memory_systems: [
       'recent_exact',
       'semantic_history',
@@ -885,7 +922,7 @@ export async function runJevMemoryPilotShadow(options: {
       'speaker_filter',
     ],
     controller_role:
-      'Choose what evidence operations Plurilog needs. Do not answer the user. Multiple systems may be needed and one system may need to feed or constrain another.',
+      'Choose what evidence operations Plurilog needs. Do not answer the user. Multiple systems may be needed and one system may need to feed or constrain another. working_state contains authoritative artifact/context state that may resolve implicit follow-ups, but the presence of an artifact does not by itself mean it is relevant to the current request.',
   };
 
   const questions = {
@@ -917,12 +954,12 @@ export async function runJevMemoryPilotShadow(options: {
     document_search_needed: {
       type: 'noul',
       instructions:
-        'Does current_user_message require finding or reading text from a known document or file from this discussion?',
+        'Does current_user_message require finding, continuing, editing, or reading a known document/file from this discussion? Use working_state and recent_context to resolve implicit follow-ups, but do not retrieve an unrelated document merely because one exists.',
     },
     visual_evidence_needed: {
       type: 'noul',
       instructions:
-        'Does current_user_message require the actual visual appearance of an image, PDF, or Word document, such as layout, photo placement, colours, signatures, or rendered pages?',
+        'Does current_user_message require the actual visual appearance of an image, PDF, or Word document, such as layout, photo placement, colours, signatures, rendered pages, or continuing work on a visually grounded artifact? Use working_state.visualFocus when it resolves an implicit referent.',
     },
     primary_source_needed: {
       type: 'noul',
