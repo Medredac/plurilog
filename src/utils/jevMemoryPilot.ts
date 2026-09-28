@@ -85,7 +85,6 @@ export type JevMemoryPilotShadowResult = {
       topicSource: string | null;
       anchorSource: string | null;
       documentReferenceRole: string | null;
-      documentScope: string | null;
       ordinalPosition: number | null;
       anchorOccurrence: string | null;
       anchorOrdinalPosition: number | null;
@@ -99,10 +98,9 @@ export type JevMemoryPilotShadowResult = {
       } | null;
       documentSearch: {
         candidateLimit: number;
-        maxSelected: number | null;
+        maxSelected: number;
         tokenBudget: number;
         metadataFirst: boolean;
-        scope: string | null;
       } | null;
     };
     escalationSuggested: boolean;
@@ -468,7 +466,6 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const topicSource = getChoice(answers, 'topic_source');
   const anchorSource = getChoice(answers, 'anchor_source');
   const documentReferenceRole = getChoice(answers, 'document_reference_role');
-  const documentScope = getChoice(answers, 'document_scope');
   const ordinalPositionChoice = getChoice(answers, 'ordinal_position');
   const anchorOccurrence = getChoice(answers, 'anchor_occurrence');
   const anchorOrdinalPositionChoice = getChoice(
@@ -500,10 +497,6 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const documentReferenceRoleConfidence = getChoiceConfidence(
     answers,
     'document_reference_role'
-  );
-  const documentScopeConfidence = getChoiceConfidence(
-    answers,
-    'document_scope'
   );
   const ordinalPositionConfidence = getChoiceConfidence(
     answers,
@@ -857,15 +850,6 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
         documentReferenceRoleConfidence >= 0.5
           ? documentReferenceRole
           : null,
-      documentScope:
-        documentNeeded &&
-        documentScope &&
-        documentScope !== 'none' &&
-        documentScopeConfidence >= 0.5
-          ? documentScope
-          : documentNeeded
-            ? 'multiple'
-            : null,
       ordinalPosition:
         chronologyNeeded &&
         executableRelation === 'ordinal' &&
@@ -894,24 +878,10 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
         : null,
       documentSearch: documentNeeded
         ? {
-            // Candidate breadth is intentionally generous; downstream
-            // relevance + token budgeting decides how much evidence survives.
-            // There is no fixed document/chunk count ceiling.
-            candidateLimit: 50,
-            maxSelected: null,
-            tokenBudget:
-              documentScope === 'broad'
-                ? 16000
-                : documentScope === 'multiple'
-                  ? 8000
-                  : documentScope === 'single'
-                    ? 3500
-                    : 6000,
+            candidateLimit: 5,
+            maxSelected: 2,
+            tokenBudget: 1500,
             metadataFirst: true,
-            scope:
-              documentScope && documentScope !== 'none'
-                ? documentScope
-                : 'multiple',
           }
         : null,
     },
@@ -1142,17 +1112,6 @@ export async function runJevMemoryPilotShadow(options: {
           'The user explicitly wants the latest/current version regardless of provenance.',
         exact_or_unspecified:
           'A document is referenced, but provenance/version is not specified clearly enough to prefer upload vs generated descendant.',
-      },
-    },
-    document_scope: {
-      type: 'choice',
-      instructions:
-        'When document_search is needed, how broad should document evidence be? Choose based on the task, not on arbitrary limits. Comparisons, synthesis across files, or references to several documents require multiple/broad scope.',
-      criteria: {
-        none: 'No document evidence is needed.',
-        single: 'The task clearly concerns one specific document/version.',
-        multiple: 'The task may require several relevant documents or comparison across a small working set.',
-        broad: 'The task explicitly asks to survey, compare, synthesize, or reason across many/all relevant documents in the discussion.',
       },
     },
     flexible_resolver_needed: {
