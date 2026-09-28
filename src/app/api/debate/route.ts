@@ -527,7 +527,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
     function: {
       name: 'edit_source_document',
       description:
-        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. Make only the requested localized edits. Identify target text exactly as it appears in the source evidence. Use occurrence when the same text appears more than once. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
+        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. Make only the requested edits. For a document-wide font-family request such as "make everything sans serif", use one set_font_family edit with scope=document and font_family=sans; do not approximate it by changing only a title or a few text targets. For localized edits, identify target text exactly as it appears in the source evidence and use occurrence when needed. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
       parameters: {
         type: 'object',
         properties: {
@@ -554,6 +554,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
                     'replace_text',
                     'delete_text',
                     'set_font_size',
+                    'set_font_family',
                     'set_bold',
                     'set_italic',
                     'set_alignment',
@@ -562,7 +563,19 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
                 target_text: {
                   type: 'string',
                   description:
-                    'Exact existing text to locate in the source document. Use the smallest distinctive text span that safely identifies the requested element.',
+                    'Exact existing text to locate for a localized edit. Required for target-scoped edits; omit only for a document-wide set_font_family operation.',
+                },
+                scope: {
+                  type: 'string',
+                  enum: ['target', 'document'],
+                  description:
+                    'Use document only for a whole-document set_font_family request. Otherwise use target or omit.',
+                },
+                font_family: {
+                  type: 'string',
+                  enum: ['sans', 'serif', 'mono'],
+                  description:
+                    'Requested family for set_font_family. Use sans for sans-serif.',
                 },
                 occurrence: {
                   type: 'integer',
@@ -614,7 +627,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
                     'Optional PDF page number when the same target text occurs on multiple pages.',
                 },
               },
-              required: ['action', 'target_text'],
+              required: ['action'],
               additionalProperties: false,
             },
           },
