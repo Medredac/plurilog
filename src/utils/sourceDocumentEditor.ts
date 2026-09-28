@@ -700,9 +700,45 @@ function validateEdits(edits: SourceDocumentEditOperation[]): void {
   }
   for (let i = 0; i < edits.length; i += 1) {
     const edit = edits[i];
-    if (!edit || typeof edit.target_text !== 'string' || !edit.target_text.trim()) {
-      throw new Error('Source-document edit #' + (i + 1) + ' requires exact target_text.');
+    const isDocumentWideFontFamily =
+      edit?.action === 'set_font_family' &&
+      edit?.scope === 'document';
+
+    if (
+      !edit ||
+      (
+        !isDocumentWideFontFamily &&
+        (
+          typeof edit.target_text !== 'string' ||
+          !edit.target_text.trim()
+        )
+      )
+    ) {
+      throw new Error(
+        'Source-document edit #' + (i + 1) +
+        ' requires exact target_text unless set_font_family uses scope=document.'
+      );
     }
+
+    if (
+      edit.action === 'set_font_family' &&
+      !['sans', 'serif', 'mono'].includes(edit.font_family || '')
+    ) {
+      throw new Error(
+        'set_font_family edit #' + (i + 1) +
+        ' requires font_family=sans, serif, or mono.'
+      );
+    }
+
+    if (
+      edit.action !== 'set_font_family' &&
+      edit.scope === 'document'
+    ) {
+      throw new Error(
+        'Document-wide scope is currently supported only for set_font_family.'
+      );
+    }
+
     if (edit.action === 'replace_text' && typeof edit.replacement_text !== 'string') {
       throw new Error('replace_text edit #' + (i + 1) + ' requires replacement_text.');
     }
