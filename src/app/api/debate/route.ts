@@ -2646,6 +2646,39 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const deterministicContinuationLastRound =
+      discussionMemory?.recentRounds &&
+      discussionMemory.recentRounds.length > 0
+        ? discussionMemory.recentRounds[
+            discussionMemory.recentRounds.length - 1
+          ]
+        : null;
+    const deterministicContinuationHasCurrentDocumentAttachment =
+      (Array.isArray(attachments) ? attachments : []).some(
+        (attachment: any) => {
+          const filename = String(attachment?.filename || '').toLowerCase();
+          const cleanUrl = String(attachment?.url || '')
+            .split('?')[0]
+            .split('#')[0]
+            .toLowerCase();
+          return (
+            filename.endsWith('.pdf') ||
+            filename.endsWith('.docx') ||
+            cleanUrl.endsWith('.pdf') ||
+            cleanUrl.endsWith('.docx')
+          );
+        }
+      );
+    const deterministicContinuationHasImmediateDocumentContext =
+      deterministicContinuationHasCurrentDocumentAttachment ||
+      roundHasImmediateDocumentContext(deterministicContinuationLastRound);
+    const validatedDocumentRevisionContinuation =
+      isDocumentRevisionFollowUpQuery(prompt || '', {
+        hasImmediateDocumentContext:
+          deterministicContinuationHasImmediateDocumentContext,
+      }) &&
+      deterministicContinuationHasImmediateDocumentContext;
+
     // Preview controller pilot. Jev and its optional resolver now finish before
     // retrieval begins so the effective plan can gate preview-only retrieval.
     let jevControllerPromise: Promise<any> | null = null;
@@ -2692,8 +2725,7 @@ export async function POST(req: NextRequest) {
       const requestConstraintEnvelope =
         buildRequestConstraintEnvelope(currentRequestFacts, {
           documentRevisionContinuation:
-            isImmediateDocumentRevisionContinuation &&
-            controllerHasImmediateDocumentContext,
+            validatedDocumentRevisionContinuation,
         });
 
       if (
@@ -7911,7 +7943,7 @@ export async function POST(req: NextRequest) {
                     isDocumentRevisionFollowUp &&
                     (
                       isStrongDocumentMutationRequest(prompt || '') ||
-                      requestConstraintEnvelope.continuation.documentRevision
+                      validatedDocumentRevisionContinuation
                     ) &&
                     Boolean(resolvedEditableDocumentEvidence) &&
                     (!revisionParentState ||
@@ -7921,7 +7953,7 @@ export async function POST(req: NextRequest) {
                     isDocumentRevisionFollowUp &&
                     (
                       isStrongDocumentMutationRequest(prompt || '') ||
-                      requestConstraintEnvelope.continuation.documentRevision
+                      validatedDocumentRevisionContinuation
                     ) &&
                     Boolean(revisionParentState) &&
                     !isSourcePreservingDocumentState(revisionParentState);
