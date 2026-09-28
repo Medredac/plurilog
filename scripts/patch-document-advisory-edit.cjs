@@ -27,14 +27,21 @@ const newForcedChoice = `                  : sourceDocumentEditingForCurrentTurn
                       }
                     : {}),`;
 
-if (!source.includes(oldDescription)) {
+const descriptionAlreadyPatched = source.includes(newDescription);
+const forcedChoiceAlreadyPatched = source.includes(newForcedChoice);
+
+if (!source.includes(oldDescription) && !descriptionAlreadyPatched) {
   throw new Error('Document edit tool description target not found');
 }
-if (!source.includes(oldForcedChoice)) {
+if (!source.includes(oldForcedChoice) && !forcedChoiceAlreadyPatched) {
   throw new Error('Document edit forced tool-choice target not found');
 }
 
-source = source.replace(oldDescription, newDescription);
-source = source.replace(oldForcedChoice, newForcedChoice);
+if (!descriptionAlreadyPatched) {
+  source = source.replace(oldDescription, newDescription);
+}
+if (!forcedChoiceAlreadyPatched) {
+  source = source.replace(oldForcedChoice, newForcedChoice);
+}
 fs.writeFileSync(target, source);
 console.log('[Preview Patch] Advisory document requests no longer force source editing');
