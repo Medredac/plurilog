@@ -4244,6 +4244,10 @@ export async function POST(req: NextRequest) {
           // Generated-image and edited-image siblings each preserve a shared working set.
           let sameRoundGeneratedSourceIds: string[] = [];
           let sameRoundEditedSourceIds: string[] = [];
+          // Once one editor resolves the canonical source for this user turn,
+          // later editor seats must branch from that same source rather than
+          // independently drifting to another historical ancestor.
+          let sameTurnEditReferentLock: KnownImageSource | null = null;
 
           // Identify every current visual source, including images embedded inside DOCX files.
           // Embedded images are hidden transport/evidence assets, not extra user-facing message attachments.
@@ -8480,6 +8484,57 @@ export async function POST(req: NextRequest) {
                   let editReferentSourceIds: string[] = [];
                   let editReferenceError: string | null = null;
 
+                  // Multi-editor requests share one canonical turn-level
+                  // referent. Re-sign the same source for each later seat so
+                  // sibling edits are true parallel branches from one parent.
+                  if (sameTurnEditReferentLock && discussionId) {
+                    try {
+                      const serviceClientForLockedEdit =
+                        createServiceClient();
+                      const { data: lockedSignedData, error: lockedSignErr } =
+                        await serviceClientForLockedEdit.storage
+                          .from('message-images')
+                          .createSignedUrl(
+                            sameTurnEditReferentLock.storagePath,
+                            900
+                          );
+
+                      if (
+                        !lockedSignErr &&
+                        lockedSignedData?.signedUrl
+                      ) {
+                        referenceImageUrl =
+                          lockedSignedData.signedUrl;
+                        referenceImageLabel =
+                          sameTurnEditReferentLock.filename ||
+                          'shared turn edit source';
+                        editReferentSourceIds = [
+                          sameTurnEditReferentLock.sourceId,
+                        ];
+                        pendingResolvedImageSources = [
+                          sameTurnEditReferentLock,
+                        ];
+
+                        console.log(
+                          '[Image Editing Resolver] Reusing same-turn canonical edit referent',
+                          {
+                            discussionId,
+                            sourceId:
+                              sameTurnEditReferentLock.sourceId,
+                            filename:
+                              sameTurnEditReferentLock.filename,
+                            seatId: seat.seatId,
+                          }
+                        );
+                      }
+                    } catch (lockedEditErr) {
+                      console.warn(
+                        '[Image Editing Resolver] Failed to reuse same-turn edit referent:',
+                        lockedEditErr
+                      );
+                    }
+                  }
+
                   const isStandaloneImageAttachment = (att: RouteAttachment) => {
                     const cleanUrl =
                       att?.url?.split('?')[0].split('#')[0].toLowerCase() || '';
@@ -9018,6 +9073,29 @@ export async function POST(req: NextRequest) {
                       !jevAllowsHistoricalVisualEvidence
                         ? 'I need you to attach the image you want edited or identify it in a way that enables historical visual retrieval.'
                         : 'I need an image in this discussion before I can edit it.';
+                  }
+
+                  if (
+                    referenceImageUrl &&
+                    !sameTurnEditReferentLock &&
+                    editReferentSourceIds.length === 1 &&
+                    pendingResolvedImageSources?.length === 1 &&
+                    pendingResolvedImageSources[0].sourceId ===
+                      editReferentSourceIds[0]
+                  ) {
+                    sameTurnEditReferentLock =
+                      pendingResolvedImageSources[0];
+                    console.log(
+                      '[Image Editing Resolver] Locked canonical edit referent for turn',
+                      {
+                        discussionId,
+                        sourceId:
+                          sameTurnEditReferentLock.sourceId,
+                        filename:
+                          sameTurnEditReferentLock.filename,
+                        seatId: seat.seatId,
+                      }
+                    );
                   }
 
                   if (!referenceImageUrl) {
