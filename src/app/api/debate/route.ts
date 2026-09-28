@@ -8630,7 +8630,50 @@ export async function POST(req: NextRequest) {
                             priorResponseIds.has(source.sourceMessageId!)
                         );
 
-                      if (turnScopedSources.length === 1) {
+                      const focusedTurnSources =
+                        turnScopedSources.filter((source) =>
+                          (
+                            visualContextState?.focus_source_ids || []
+                          ).includes(source.sourceId)
+                        );
+
+                      if (
+                        turnScopedSources.length > 1 &&
+                        focusedTurnSources.length === 1
+                      ) {
+                        // A unique persisted focus acts as the conversational
+                        // cursor inside the referenced turn. This makes singular
+                        // continuations intuitive even when multiple panel seats
+                        // produced sibling artifacts in that turn.
+                        const source = focusedTurnSources[0];
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForTurnScopedEdit.storage
+                            .from('message-images')
+                            .createSignedUrl(source.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          referenceImageUrl = signedData.signedUrl;
+                          referenceImageLabel =
+                            source.filename || 'focused image from the referenced turn';
+                          editReferentSourceIds = [source.sourceId];
+                          pendingResolvedImageSources = [source];
+
+                          console.log(
+                            '[Image Editing Resolver] Resolved prior-turn visual by unique focus',
+                            {
+                              discussionId,
+                              sourceId: source.sourceId,
+                              filename: source.filename,
+                              candidateSourceIds: turnScopedSources.map(
+                                (candidate) => candidate.sourceId
+                              ),
+                            }
+                          );
+                        } else {
+                          editReferenceError =
+                            'The focused image from the referenced turn could not be retrieved for this edit.';
+                        }
+                      } else if (turnScopedSources.length === 1) {
                         const source = turnScopedSources[0];
                         const { data: signedData, error: signErr } =
                           await serviceClientForTurnScopedEdit.storage
@@ -8658,9 +8701,9 @@ export async function POST(req: NextRequest) {
                         }
                       } else if (turnScopedSources.length > 1) {
                         editReferenceError =
-                          'I found multiple images created in the referenced turn. Please specify which one you want me to edit.';
+                          'I found multiple images created in the referenced turn and none is uniquely in focus. Please specify which one you want me to edit.';
                         console.log(
-                          '[Image Editing Resolver] Prior-turn visual reference is ambiguous; failing closed',
+                          '[Image Editing Resolver] Prior-turn visual reference is genuinely ambiguous; failing closed',
                           {
                             discussionId,
                             candidateSourceIds: turnScopedSources.map(
@@ -8668,6 +8711,9 @@ export async function POST(req: NextRequest) {
                             ),
                             candidateSenders: turnScopedSources.map(
                               (source) => source.sender || null
+                            ),
+                            focusedCandidateSourceIds: focusedTurnSources.map(
+                              (source) => source.sourceId
                             ),
                           }
                         );
@@ -8800,6 +8846,7 @@ export async function POST(req: NextRequest) {
 
                   if (
                     !referenceImageUrl &&
+                    !editReferenceError &&
                     discussionId &&
                     jevAllowsHistoricalVisualEvidence
                   ) {
