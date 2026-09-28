@@ -9036,6 +9036,13 @@ export async function POST(req: NextRequest) {
                                 {
                                   url: persistedImage.signedUrl,
                                   filename: persistedImage.filename,
+                                  artifactMetadata: {
+                                    generationKind: 'image_edit',
+                                    parentSourceIds: editReferentSourceIds,
+                                    creatorSeatId: seat.seatId,
+                                    sourceMessageId:
+                                      persistedMsg?.id || messageId,
+                                  },
                                 },
                               ],
                               sourceUserMessageId:
