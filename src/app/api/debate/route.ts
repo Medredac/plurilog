@@ -4624,14 +4624,17 @@ export async function POST(req: NextRequest) {
                   // historical semantic pass resurrect an older sibling.
                   const explicitVisualCreatorTargetForTurn =
                     getExplicitVisualCreatorTarget(prompt);
+                  const activeFocusSourceIds =
+                    activeVisualContext?.focus_source_ids || [];
+                  const activeFocusSourceIdSet = new Set(
+                    activeFocusSourceIds
+                  );
                   const focusedCreatorMatches =
                     explicitVisualCreatorTargetForTurn &&
-                    activeVisualContext?.focus_source_ids?.length
+                    activeFocusSourceIds.length > 0
                       ? knownSources.filter(
                           (source) =>
-                            activeVisualContext.focus_source_ids.includes(
-                              source.sourceId
-                            ) &&
+                            activeFocusSourceIdSet.has(source.sourceId) &&
                             String(source.sender || '').toLowerCase() ===
                               explicitVisualCreatorTargetForTurn
                         )
