@@ -53,6 +53,8 @@ import {
   isJevMemoryPilotShadowEnabled,
   runJevMemoryPilotShadow,
 } from '@/utils/jevMemoryPilot';
+import { parseCurrentRequestFacts } from '@/utils/currentRequestFacts';
+import { buildRequestConstraintEnvelope } from '@/utils/requestConstraintEnvelope';
 import {
   executeConversationMemoryGraph,
   type ConversationMemoryGraphResult,
@@ -730,46 +732,6 @@ function hasWebOrCodeSurfaceCue(value: string): boolean {
   return /\b(?:website|web\s*page|webpage|home\s*page|homepage|landing\s*page|web\s*site|site|claude\s+code|next\.?js|react|component|frontend|front-end|html|css|hero|cta|navbar|navigation|mock\s*up|mockup|saas)\b/i.test(
     value || ''
   );
-}
-
-function inferExplicitDocumentReferenceRoleFromPrompt(
-  value: string
-): 'user_uploaded' | 'generated_or_revised' | 'latest' | null {
-  const prompt = (value || '').trim();
-  if (!prompt || !hasExplicitDocumentIdentityCue(prompt)) return null;
-
-  if (promptReferencesUserUploadedDocument(prompt)) {
-    return 'user_uploaded';
-  }
-
-  const documentNoun =
-    '(?:pdf|docx|word(?:\\s+document)?|document|file|resume|résumé|cv|rirekisho)';
-
-  const originalDocument = new RegExp(
-    `\\b(?:original|first|earliest)\\s+(?:(?:uploaded|attached)\\s+)?${documentNoun}\\b`,
-    'i'
-  );
-  if (originalDocument.test(prompt)) {
-    return 'user_uploaded';
-  }
-
-  const latestDocument = new RegExp(
-    `\\b(?:latest|newest|most\\s+recent)\\s+${documentNoun}\\b`,
-    'i'
-  );
-  if (latestDocument.test(prompt)) {
-    return 'latest';
-  }
-
-  const generatedDocument = new RegExp(
-    `(?:\\b(?:generated|revised|edited|modified)\\s+${documentNoun}\\b|\\b${documentNoun}\\s+(?:you|gpt|chatgpt)\\s+(?:made|created|generated|edited|revised)\\b)`,
-    'i'
-  );
-  if (generatedDocument.test(prompt)) {
-    return 'generated_or_revised';
-  }
-
-  return null;
 }
 
 function roundHasImmediateDocumentContext(
@@ -2681,6 +2643,20 @@ export async function POST(req: NextRequest) {
       prompt.trim() &&
       !req.signal.aborted
     ) {
+      const currentRequestFacts = parseCurrentRequestFacts(prompt || '');
+      const requestConstraintEnvelope =
+        buildRequestConstraintEnvelope(currentRequestFacts);
+
+      if (
+        requestConstraintEnvelope.mandatoryOperations.length > 0 ||
+        currentRequestFacts.references.length > 0
+      ) {
+        console.log('[Current Request Facts]', {
+          facts: currentRequestFacts,
+          envelope: requestConstraintEnvelope,
+        });
+      }
+
       jevControllerPromise = (async () => {
         const result = await runJevMemoryPilotShadow({
           apiKey,
@@ -2798,6 +2774,15 @@ export async function POST(req: NextRequest) {
                     role: 'user',
                     content: JSON.stringify({
                       prompt,
+                      currentRequestFacts,
+                      hardConstraints: {
+                        mandatoryOperations:
+                          requestConstraintEnvelope.mandatoryOperations,
+                        lockedConstraints:
+                          requestConstraintEnvelope.lockedConstraints,
+                        preservation:
+                          requestConstraintEnvelope.preservation,
+                      },
                       recentRounds: discussionMemory?.recentRounds?.slice(-3),
                       atomicAnswers: result.answers,
                       proposedPlan: result.compiledPlan,
@@ -2929,21 +2914,25 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Current-request artifact facts outrank probabilistic retrieval scores.
-        // If the user explicitly names a document/file surface and asks to
-        // mutate it, canonical document evidence is mandatory even when Jev's
-        // broad document score falls below its compilation threshold on a
-        // particular run. Jev/System 2 may add supporting operators, but they
-        // cannot erase the explicit artifact domain from the current request.
-        const explicitCurrentDocumentMutation =
-          isStrongDocumentMutationRequest(prompt || '');
-        const explicitCurrentDocumentReferenceRole =
-          inferExplicitDocumentReferenceRoleFromPrompt(prompt || '');
-
-        if (explicitCurrentDocumentMutation) {
-          if (!resolverRequestedOperations.includes('document_search')) {
-            resolverRequestedOperations.push('document_search');
+        // Hard facts from the literal current request constrain the composed
+        // plan; they do not replace Jev. Jev/System 2 remain free to add any
+        // other memory operators needed by the request, while mandatory
+        // evidence domains explicitly named by the user cannot disappear due
+        // to probabilistic score variation.
+        for (const mandatoryOperation of
+          requestConstraintEnvelope.mandatoryOperations) {
+          if (!resolverRequestedOperations.includes(mandatoryOperation)) {
+            resolverRequestedOperations.push(mandatoryOperation);
           }
+        }
+
+        if (
+          requestConstraintEnvelope.mandatoryOperations.includes(
+            'document_search'
+          )
+        ) {
+          const explicitCurrentDocumentReferenceRole =
+            requestConstraintEnvelope.legacyExecution.documentReferenceRole;
 
           const authoritativeDocumentReferenceRole =
             explicitCurrentDocumentReferenceRole ||
@@ -2956,9 +2945,14 @@ export async function POST(req: NextRequest) {
               authoritativeDocumentReferenceRole;
           }
 
-          console.log('[Current Request Document Invariant]', {
-            preservedDocumentSearch: true,
-            explicitReferenceRole:
+          console.log('[Current Request Constraint Envelope]', {
+            mandatoryOperations:
+              requestConstraintEnvelope.mandatoryOperations,
+            documentSelector:
+              requestConstraintEnvelope.lockedConstraints.documentSelector,
+            preserveUnmentioned:
+              requestConstraintEnvelope.preservation.preserveUnmentioned,
+            compatibilityDocumentReferenceRole:
               explicitCurrentDocumentReferenceRole,
             effectiveReferenceRole:
               effectiveConstraints.documentReferenceRole || null,
