@@ -3750,7 +3750,11 @@ export async function ingestParsedDocument(
 export interface IngestArtifactsOptions {
   serviceSupabase: SupabaseClient;
   discussionId: string;
-  attachments?: { url: string; filename?: string }[] | null;
+  attachments?: {
+    url: string;
+    filename?: string;
+    artifactMetadata?: Record<string, unknown>;
+  }[] | null;
   sourceUserMessageId?: string | null;
   signal?: AbortSignal;
 }
@@ -3893,15 +3897,43 @@ export async function ingestDiscussionArtifacts(
       // 3. Upsert / retrieve canonical record from discussion_artifacts
       let artifactId: string | null = null;
 
+      const artifactMetadata =
+        attachment.artifactMetadata &&
+        typeof attachment.artifactMetadata === 'object'
+          ? attachment.artifactMetadata
+          : {};
+
       const { data: existingArtifact } = await serviceSupabase
         .from('discussion_artifacts')
-        .select('id')
+        .select('id, metadata')
         .eq('discussion_id', discussionId)
         .eq('file_hash', fileHash)
         .maybeSingle();
 
       if (existingArtifact?.id) {
         artifactId = existingArtifact.id;
+
+        if (Object.keys(artifactMetadata).length > 0) {
+          const mergedMetadata = {
+            ...(
+              existingArtifact.metadata &&
+              typeof existingArtifact.metadata === 'object'
+                ? existingArtifact.metadata
+                : {}
+            ),
+            ...artifactMetadata,
+          };
+          const { error: metadataUpdateErr } = await serviceSupabase
+            .from('discussion_artifacts')
+            .update({ metadata: mergedMetadata })
+            .eq('id', artifactId);
+          if (metadataUpdateErr) {
+            console.warn(
+              '[Artifact Ingest] Non-critical metadata provenance update failed:',
+              metadataUpdateErr
+            );
+          }
+        }
       } else {
         const { data: insertedArtifact, error: insertErr } = await serviceSupabase
           .from('discussion_artifacts')
@@ -3910,7 +3942,7 @@ export async function ingestDiscussionArtifacts(
             artifact_type: 'image',
             file_hash: fileHash,
             byte_size: byteSize,
-            metadata: {},
+            metadata: artifactMetadata,
           })
           .select('id')
           .single();
