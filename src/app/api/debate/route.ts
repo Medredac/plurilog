@@ -7909,12 +7909,20 @@ export async function POST(req: NextRequest) {
                   const evidenceContinuationCanSourceEdit =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
+                    (
+                      isStrongDocumentMutationRequest(prompt || '') ||
+                      requestConstraintEnvelope.continuation.documentRevision
+                    ) &&
                     Boolean(resolvedEditableDocumentEvidence) &&
                     (!revisionParentState ||
                       isSourcePreservingDocumentState(revisionParentState));
                   const evidenceContinuationCanReviseFile =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
+                    (
+                      isStrongDocumentMutationRequest(prompt || '') ||
+                      requestConstraintEnvelope.continuation.documentRevision
+                    ) &&
                     Boolean(revisionParentState) &&
                     !isSourcePreservingDocumentState(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
