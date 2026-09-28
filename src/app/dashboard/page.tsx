@@ -1028,6 +1028,48 @@ export default function DashboardPage() {
     const currentAttemptModelMsgIds = new Set<string>();
     const pendingSeatPlaceholders = new Map<ModelId, string>();
 
+    const insertAttemptMessageBySeatOrder = (
+      current: ChatMessage[],
+      message: ChatMessage
+    ): ChatMessage[] => {
+      if (current.some((item) => item.id === message.id)) {
+        return current;
+      }
+
+      const targetSeat = message.modelId;
+      const targetRank = targetSeat ? activeSeatOrder.indexOf(targetSeat) : -1;
+      if (targetRank === -1) {
+        return [...current, message];
+      }
+
+      // Current-turn model bubbles must follow configured seat order, never
+      // SSE arrival timing. This closes the race where seat_handoff can append
+      // the next seat before a deferred seat_done recovery restores the
+      // previous seat's authoritative bubble.
+      let insertionIndex = current.length;
+      for (let index = 0; index < current.length; index++) {
+        const candidate = current[index];
+        if (
+          !candidate.modelId ||
+          !currentAttemptModelMsgIds.has(candidate.id)
+        ) {
+          continue;
+        }
+
+        const candidateRank = activeSeatOrder.indexOf(candidate.modelId);
+        if (candidateRank !== -1 && candidateRank > targetRank) {
+          insertionIndex = index;
+          break;
+        }
+      }
+
+      return [
+        ...current.slice(0, insertionIndex),
+        message,
+        ...current.slice(insertionIndex),
+      ];
+    };
+
     if (optimisticPlaceholder?.msgId) {
       currentAttemptModelMsgIds.add(optimisticPlaceholder.msgId);
     }
@@ -1378,7 +1420,7 @@ export default function DashboardPage() {
                         ? prev.filter((m) => m.id !== optimisticPlaceholder.msgId)
                         : prev;
 
-                    return [...base, newMsg];
+                    return insertAttemptMessageBySeatOrder(base, newMsg);
                   });
                 }
               }
@@ -1427,7 +1469,7 @@ export default function DashboardPage() {
                 setMessages((prev) =>
                   prev.some((m) => m.id === placeholderId)
                     ? prev
-                    : [...prev, placeholder]
+                    : insertAttemptMessageBySeatOrder(prev, placeholder)
                 );
               }
             } else if (eventType === 'seat_activity') {
@@ -1663,28 +1705,29 @@ export default function DashboardPage() {
                       seatId,
                       messageId: persistedMessageId,
                     });
-                    return [
-                      ...msgs,
-                      {
-                        id: persistedMessageId,
-                        discussionId: discussionId || undefined,
-                        role: 'model',
-                        modelId: seatId,
-                        authorName:
-                          COUNCIL_MEMBERS[seatId]?.name || data.name || 'AI',
-                        content: completedContent,
-                        timestamp: new Date(completedAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        }),
-                        createdAt: completedAt,
-                        isStreaming: false,
-                        attachment_urls:
-                          normalizedAttachments && normalizedAttachments.length > 0
-                            ? normalizedAttachments
-                            : null,
-                      },
-                    ];
+                    const recoveredMessage: ChatMessage = {
+                      id: persistedMessageId,
+                      discussionId: discussionId || undefined,
+                      role: 'model',
+                      modelId: seatId,
+                      authorName:
+                        COUNCIL_MEMBERS[seatId]?.name || data.name || 'AI',
+                      content: completedContent,
+                      timestamp: new Date(completedAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }),
+                      createdAt: completedAt,
+                      isStreaming: false,
+                      attachment_urls:
+                        normalizedAttachments && normalizedAttachments.length > 0
+                          ? normalizedAttachments
+                          : null,
+                    };
+                    return insertAttemptMessageBySeatOrder(
+                      msgs,
+                      recoveredMessage
+                    );
                   });
                 }, 0);
               }
