@@ -186,16 +186,54 @@ routeSource = replaceOnce(
   'Jev shared context handoff'
 );
 
-routeSource = replaceOnce(
-  routeSource,
-  `                      prompt,
+const extendedSystem2Payload = `                      prompt,
+                      currentRequestFacts,
+                      hardConstraints: {
+                        mandatoryOperations:
+                          requestConstraintEnvelope.mandatoryOperations,
+                        lockedConstraints:
+                          requestConstraintEnvelope.lockedConstraints,
+                        preservation:
+                          requestConstraintEnvelope.preservation,
+                      },
+                      recentRounds: discussionMemory?.recentRounds?.slice(-3),
+                      atomicAnswers: result.answers,`;
+
+const patchedExtendedSystem2Payload = `                      prompt: memoryControlContext.currentRequest,
+                      currentRequestFacts,
+                      hardConstraints: {
+                        mandatoryOperations:
+                          requestConstraintEnvelope.mandatoryOperations,
+                        lockedConstraints:
+                          requestConstraintEnvelope.lockedConstraints,
+                        preservation:
+                          requestConstraintEnvelope.preservation,
+                      },
+                      controlContext: memoryControlContext,
+                      atomicAnswers: result.answers,`;
+
+if (
+  routeSource.includes(extendedSystem2Payload) ||
+  routeSource.includes(patchedExtendedSystem2Payload)
+) {
+  routeSource = replaceOnce(
+    routeSource,
+    extendedSystem2Payload,
+    patchedExtendedSystem2Payload,
+    'System-2 shared context with current-request facts'
+  );
+} else {
+  routeSource = replaceOnce(
+    routeSource,
+    `                      prompt,
                       recentRounds: discussionMemory?.recentRounds?.slice(-3),
                       atomicAnswers: result.answers,`,
-  `                      prompt: memoryControlContext.currentRequest,
+    `                      prompt: memoryControlContext.currentRequest,
                       controlContext: memoryControlContext,
                       atomicAnswers: result.answers,`,
-  'System-2 shared context'
-);
+    'System-2 shared context'
+  );
+}
 
 // Anchor-query helper: include the same control context for pronouns,
 // ellipsis, and implicit historical anchors.
