@@ -5667,7 +5667,7 @@ export async function persistActiveImageEvidence(
 
     const { data: artifactRows, error: artErr } = await serviceSupabase
       .from('discussion_artifacts')
-      .select('id, artifact_type')
+      .select('id, artifact_type, metadata')
       .in('id', artifactIds);
 
     if (artErr) {
@@ -5797,6 +5797,9 @@ export interface KnownImageSource {
   attachmentIndex: number;
   createdAt: string;
   sender?: string | null;
+  generationKind?: string | null;
+  parentSourceIds?: string[];
+  creatorSeatId?: string | null;
 }
 
 export interface MessageVisualEvidenceItem {
@@ -5853,7 +5856,8 @@ export interface ResolvedImageEvidenceResult {
     | 'discussion_ordinal'
     | 'ordinal_scope_inheritance'
     | 'active_referent_recovery'
-    | 'comparative_contextual_set';
+    | 'comparative_contextual_set'
+    | 'original_lineage_root';
 }
 
 /**
@@ -5890,6 +5894,9 @@ export async function fetchKnownImageSources(
     const imageArtifactIdSet = new Set(
       artifactRows.filter((a: any) => a.artifact_type === 'image').map((a: any) => a.id)
     );
+    const artifactMetadataMap = new Map<string, any>(
+      artifactRows.map((a: any) => [a.id, a.metadata || {}])
+    );
 
     // 2. Fetch source messages to establish authoritative upload/generation chronology and sender provenance
     const messageIds = Array.from(new Set(sourceRows.map((s: any) => s.source_message_id).filter(Boolean)));
@@ -5921,6 +5928,12 @@ export async function fetchKnownImageSources(
       if (imageArtifactIdSet.has(s.artifact_id) && s.storage_path) {
         const messageCreatedAt = (s.source_message_id && messageCreatedAtMap.get(s.source_message_id)) || s.created_at;
         const sender = s.source_message_id ? (messageSenderMap.get(s.source_message_id) || null) : null;
+        const artifactMetadata = artifactMetadataMap.get(s.artifact_id) || {};
+        const parentSourceIds = Array.isArray(artifactMetadata.parentSourceIds)
+          ? artifactMetadata.parentSourceIds.filter(
+              (id: unknown): id is string => typeof id === 'string' && id.length > 0
+            )
+          : [];
         result.push({
           sourceId: s.id,
           artifactId: s.artifact_id,
@@ -5931,6 +5944,15 @@ export async function fetchKnownImageSources(
           attachmentIndex: s.attachment_index ?? 0,
           createdAt: messageCreatedAt,
           sender,
+          generationKind:
+            typeof artifactMetadata.generationKind === 'string'
+              ? artifactMetadata.generationKind
+              : null,
+          parentSourceIds,
+          creatorSeatId:
+            typeof artifactMetadata.creatorSeatId === 'string'
+              ? artifactMetadata.creatorSeatId
+              : null,
         });
       }
     }
@@ -6868,6 +6890,99 @@ export function resolveImageEvidence(
       sources: distinctSources,
       roundIndices: threadRoundIndices,
     };
+  }
+
+  // 0. Explicit original/root provenance resolution.
+  // "Original" is an identity/provenance request, not a request for the
+  // currently focused descendant. Walk parentSourceIds back to the root of
+  // the active visual lineage and prefer an authoritative user-upload root.
+  const isExplicitOriginalVisualReference =
+    /\b(?:original|initial)\s+(?:image|picture|photo|screenshot|snapshot|upload)\b/i.test(pLower) ||
+    /\bgo\s+back\s+to\s+(?:the\s+)?original\b/i.test(pLower) ||
+    /\b(?:image|picture|photo|screenshot|snapshot)\s+(?:i|the\s+user)\s+(?:originally\s+)?(?:uploaded|shared|sent|provided)\b/i.test(pLower);
+
+  if (isExplicitOriginalVisualReference && discussionSources.length > 0) {
+    const sourceById = new Map<string, KnownImageSource>(
+      discussionSources.map((source) => [source.sourceId, source])
+    );
+
+    const findRoots = (startIds: string[]): KnownImageSource[] => {
+      const roots = new Map<string, KnownImageSource>();
+      const visited = new Set<string>();
+      const stack = [...startIds];
+
+      while (stack.length > 0) {
+        const sourceId = stack.pop();
+        if (!sourceId || visited.has(sourceId)) continue;
+        visited.add(sourceId);
+
+        const source = sourceById.get(sourceId);
+        if (!source) continue;
+
+        const parents = (source.parentSourceIds || [])
+          .map((parentId) => sourceById.get(parentId))
+          .filter((parent): parent is KnownImageSource => Boolean(parent));
+
+        if (parents.length === 0) {
+          roots.set(source.sourceId, source);
+          continue;
+        }
+
+        for (const parent of parents) {
+          stack.push(parent.sourceId);
+        }
+      }
+
+      return Array.from(roots.values());
+    };
+
+    const focusIds = visualContext?.focus_source_ids || [];
+    const lastRoundIds = Array.isArray(lastRoundEvidence)
+      ? lastRoundEvidence.map((item) => item.sourceId).filter(Boolean)
+      : [];
+    const lineageAnchorIds =
+      focusIds.length > 0
+        ? focusIds
+        : lastRoundIds.length > 0
+          ? lastRoundIds
+          : discussionSources
+              .filter((source) => isAssistantSource(source))
+              .slice(-1)
+              .map((source) => source.sourceId);
+
+    const lineageRoots = findRoots(lineageAnchorIds);
+    const userRoots = lineageRoots.filter(
+      (source) => String(source.sender || '').toLowerCase() === 'user'
+    );
+
+    if (userRoots.length === 1) {
+      return {
+        sources: [userRoots[0]],
+        reason: 'original_lineage_root',
+      };
+    }
+
+    if (lineageRoots.length === 1) {
+      return {
+        sources: [lineageRoots[0]],
+        reason: 'original_lineage_root',
+      };
+    }
+
+    // If the active lineage cannot uniquely identify a root, fall back only
+    // when the whole discussion contains one authoritative user-upload root.
+    const allUserRoots = userUploadSources.filter(
+      (source) => (source.parentSourceIds || []).length === 0
+    );
+    if (allUserRoots.length === 1) {
+      return {
+        sources: [allUserRoots[0]],
+        reason: 'original_lineage_root',
+      };
+    }
+
+    // Genuine multi-root ambiguity: do not inherit current focus.
+    return null;
   }
 
   // 1. Explicit Filename & Unique Numeric Shorthand Resolution
