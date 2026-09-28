@@ -2635,8 +2635,52 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get hardcoded fallback arrays for each seat
+    // Get hardcoded fallback arrays for each seat.
+    // Claude alternates between premium-first and economy-first routing in
+    // repeating $0.25 bands of the user's overall current-period usage.
     const seatFallbacks = getCouncilSeatFallbacks();
+
+    let overallUsageCents = 0;
+    let claudeEconomyBand = false;
+
+    try {
+      const { data: usageProfile, error: usageProfileError } = await supabase
+        .from('profiles')
+        .select('total_spent_cents')
+        .single();
+
+      if (usageProfileError) {
+        console.warn('[Claude Usage Band] Could not read total usage; using normal routing', {
+          error: usageProfileError,
+        });
+      } else {
+        overallUsageCents = Math.max(
+          0,
+          Number(usageProfile?.total_spent_cents) || 0
+        );
+
+        const usageBandIndex = Math.floor(overallUsageCents / 25);
+        claudeEconomyBand = usageBandIndex % 2 === 1;
+
+        if (claudeEconomyBand) {
+          const [sonnet, haiku, opus] = seatFallbacks.claude;
+          seatFallbacks.claude = [haiku, sonnet, opus].filter(
+            (model): model is string => Boolean(model)
+          );
+        }
+
+        console.log('[Claude Usage Band]', {
+          overallUsageCents,
+          usageBandIndex,
+          mode: claudeEconomyBand ? 'economy' : 'normal',
+          claudeModels: seatFallbacks.claude,
+        });
+      }
+    } catch (usageBandError: any) {
+      console.warn('[Claude Usage Band] Non-critical routing lookup failure; using normal routing', {
+        message: usageBandError?.message || String(usageBandError),
+      });
+    }
 
     const openai = new OpenAI({
       apiKey: apiKey.trim(),
