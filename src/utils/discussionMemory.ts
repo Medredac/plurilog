@@ -4813,6 +4813,136 @@ export async function retrieveDiscussionDocuments(
 }
 
 
+
+export type DocumentReferenceRole =
+  | 'user_uploaded'
+  | 'generated_or_revised'
+  | 'latest'
+  | 'exact_or_unspecified';
+
+export interface ResolveDocumentIdentityByRoleOptions {
+  role?: string | null;
+  allRounds?: Round[];
+  knownDocuments?: KnownDiscussionDocument[];
+  retrievedDocuments?: RetrievedDocumentExcerpt[];
+}
+
+function normalizedDocumentFilename(value?: string | null): string {
+  return (value || '').trim().toLowerCase();
+}
+
+/**
+ * Resolves which canonical document identity a retrieval candidate refers to.
+ * Semantic search proposes content candidates; provenance/version selection is
+ * applied separately so an edited descendant cannot silently replace a user
+ * upload when the controller requested the uploaded source.
+ */
+export function resolveDocumentIdentityByRole(
+  options: ResolveDocumentIdentityByRoleOptions
+): KnownDiscussionDocument | null {
+  const role = options.role as DocumentReferenceRole | null | undefined;
+  const allRounds = Array.isArray(options.allRounds) ? options.allRounds : [];
+  const knownDocuments = Array.isArray(options.knownDocuments)
+    ? options.knownDocuments
+    : [];
+  const retrievedDocuments = Array.isArray(options.retrievedDocuments)
+    ? options.retrievedDocuments
+    : [];
+
+  if (!role || knownDocuments.length === 0) return null;
+
+  const candidateFilenames = Array.from(
+    new Set(
+      retrievedDocuments
+        .map((item) => normalizedDocumentFilename(item.filename))
+        .filter(Boolean)
+    )
+  );
+
+  const matchesCandidateFilename = (filename?: string | null) =>
+    candidateFilenames.length === 0 ||
+    candidateFilenames.includes(normalizedDocumentFilename(filename));
+
+  const findKnownFromAttachment = (attachment: RoundAttachment) => {
+    if (attachment.documentId) {
+      const byId = knownDocuments.find(
+        (doc) => doc.id === attachment.documentId
+      );
+      if (byId) return byId;
+    }
+    if (attachment.storagePath) {
+      const byPath = knownDocuments.find(
+        (doc) =>
+          doc.storagePath === attachment.storagePath ||
+          (Array.isArray(doc.sourcePaths) &&
+            doc.sourcePaths.includes(attachment.storagePath!))
+      );
+      if (byPath) return byPath;
+    }
+    const filename = normalizedDocumentFilename(attachment.filename);
+    if (filename) {
+      const byFilename = knownDocuments.filter(
+        (doc) => normalizedDocumentFilename(doc.filename) === filename
+      );
+      if (byFilename.length === 1) return byFilename[0];
+    }
+    return null;
+  };
+
+  if (role === 'user_uploaded' || role === 'generated_or_revised') {
+    const desiredSender =
+      role === 'user_uploaded' ? 'user' : 'assistant';
+    const attachmentCandidates: RoundAttachment[] = [];
+
+    for (const round of allRounds) {
+      for (const attachment of round.attachments || []) {
+        if (
+          attachment.sender === desiredSender &&
+          matchesCandidateFilename(attachment.filename)
+        ) {
+          attachmentCandidates.push(attachment);
+        }
+      }
+    }
+
+    for (let index = attachmentCandidates.length - 1; index >= 0; index -= 1) {
+      const resolved = findKnownFromAttachment(attachmentCandidates[index]);
+      if (resolved) return resolved;
+    }
+
+    return null;
+  }
+
+  if (role === 'latest') {
+    const candidates = knownDocuments.filter((doc) =>
+      matchesCandidateFilename(doc.filename)
+    );
+    if (candidates.length === 0) return null;
+    return [...candidates].sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+      return aTime - bTime;
+    })[candidates.length - 1] || null;
+  }
+
+  if (role === 'exact_or_unspecified') {
+    const candidateIds = Array.from(
+      new Set(
+        retrievedDocuments
+          .map((item) => item.documentId)
+          .filter(Boolean)
+      )
+    );
+    if (candidateIds.length === 1) {
+      return (
+        knownDocuments.find((doc) => doc.id === candidateIds[0]) || null
+      );
+    }
+  }
+
+  return null;
+}
+
 export interface RetrieveDiscussionDocumentByIdOptions {
   serviceSupabase: SupabaseClient;
   discussionId: string;
