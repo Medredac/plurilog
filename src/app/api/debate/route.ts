@@ -8589,6 +8589,15 @@ export async function POST(req: NextRequest) {
                     ) &&
                     jevEffectiveConstraints?.anchorSource === 'recent_context';
 
+                  const explicitVisualCreatorTarget: ModelId | null =
+                    /\b(?:chatgpt's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+chatgpt|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+chatgpt|(?:the\s+)?chatgpt\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
+                      ? 'chatgpt'
+                      : /\b(?:gemini's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+gemini|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+gemini|(?:the\s+)?gemini\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
+                        ? 'gemini'
+                        : /\b(?:claude's\s+(?:(?:edited|generated|created|made|rendered|produced)\s+)?(?:image|picture|photo|screenshot|one)|(?:image|picture|photo|screenshot|one)\s+(?:edited|generated|created|made|rendered|produced)?\s*(?:by|from)\s+claude|(?:edited|generated|created|made|rendered|produced)\s+(?:image|picture|photo|screenshot)?\s*by\s+claude|(?:the\s+)?claude\s+(?:edited\s+|generated\s+)?(?:image|picture|photo|screenshot|one))\b/i.test(referenceText)
+                          ? 'claude'
+                          : null;
+
                   const explicitlyHistoricalReference =
                     jevScopesVisualToRecentTurn ||
                     /\b(?:earlier|previous|generated|gemini|chatgpt|claude)\b/i.test(
@@ -8630,15 +8639,46 @@ export async function POST(req: NextRequest) {
                             priorResponseIds.has(source.sourceMessageId!)
                         );
 
+                      const creatorScopedSources =
+                        explicitVisualCreatorTarget
+                          ? turnScopedSources.filter(
+                              (source) =>
+                                String(source.sender || '').toLowerCase() ===
+                                explicitVisualCreatorTarget
+                            )
+                          : turnScopedSources;
+
+                      if (
+                        explicitVisualCreatorTarget &&
+                        creatorScopedSources.length === 0
+                      ) {
+                        editReferenceError =
+                          'I could not find an image created by the requested model in the referenced turn.';
+                        console.log(
+                          '[Image Editing Resolver] Explicit creator constraint had no prior-turn match',
+                          {
+                            discussionId,
+                            explicitVisualCreatorTarget,
+                            candidateSourceIds: turnScopedSources.map(
+                              (source) => source.sourceId
+                            ),
+                            candidateSenders: turnScopedSources.map(
+                              (source) => source.sender || null
+                            ),
+                          }
+                        );
+                      }
+
                       const focusedTurnSources =
-                        turnScopedSources.filter((source) =>
+                        creatorScopedSources.filter((source) =>
                           (
                             visualContextState?.focus_source_ids || []
                           ).includes(source.sourceId)
                         );
 
                       if (
-                        turnScopedSources.length > 1 &&
+                        !editReferenceError &&
+                        creatorScopedSources.length > 1 &&
                         focusedTurnSources.length === 1
                       ) {
                         // A unique persisted focus acts as the conversational
@@ -8673,8 +8713,11 @@ export async function POST(req: NextRequest) {
                           editReferenceError =
                             'The focused image from the referenced turn could not be retrieved for this edit.';
                         }
-                      } else if (turnScopedSources.length === 1) {
-                        const source = turnScopedSources[0];
+                      } else if (
+                        !editReferenceError &&
+                        creatorScopedSources.length === 1
+                      ) {
+                        const source = creatorScopedSources[0];
                         const { data: signedData, error: signErr } =
                           await serviceClientForTurnScopedEdit.storage
                             .from('message-images')
@@ -8699,17 +8742,23 @@ export async function POST(req: NextRequest) {
                           editReferenceError =
                             'The image from the referenced turn could not be retrieved for this edit.';
                         }
-                      } else if (turnScopedSources.length > 1) {
+                      } else if (
+                        !editReferenceError &&
+                        creatorScopedSources.length > 1
+                      ) {
                         editReferenceError =
-                          'I found multiple images created in the referenced turn and none is uniquely in focus. Please specify which one you want me to edit.';
+                          explicitVisualCreatorTarget
+                            ? 'I found multiple images created by that model in the referenced turn and none is uniquely in focus. Please specify which one you want me to edit.'
+                            : 'I found multiple images created in the referenced turn and none is uniquely in focus. Please specify which one you want me to edit.';
                         console.log(
                           '[Image Editing Resolver] Prior-turn visual reference is genuinely ambiguous; failing closed',
                           {
                             discussionId,
-                            candidateSourceIds: turnScopedSources.map(
+                            explicitVisualCreatorTarget,
+                            candidateSourceIds: creatorScopedSources.map(
                               (source) => source.sourceId
                             ),
-                            candidateSenders: turnScopedSources.map(
+                            candidateSenders: creatorScopedSources.map(
                               (source) => source.sender || null
                             ),
                             focusedCandidateSourceIds: focusedTurnSources.map(
