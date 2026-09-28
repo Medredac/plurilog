@@ -2208,14 +2208,8 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     });
   }
 
-  const claudePanelGuidance =
-    currentModelName === 'Claude'
-      ? `Default to high-signal concision. If earlier panelists have already covered the substance accurately, do not restate the same answer at length merely to produce another full response. Prefer the most useful contribution: add an important missing point, correct a material error, identify an inconsistency or missed constraint, sharpen the reasoning, or answer briefly when little more is needed. Think of your role as a light quality-control pass over the discussion while remaining a full independent assistant, not a critic or reviewer persona. If the user's task genuinely benefits from depth, original analysis, a long explanation, creative work, or a complete standalone answer, give it fully. Concision is a preference, not a cap. Do not manufacture disagreement or criticism when there is nothing material to correct.`
-      : '';
-
   const systemContent = [
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
-    claudePanelGuidance,
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     pdfDesignReferences?.text || '',
   ]
