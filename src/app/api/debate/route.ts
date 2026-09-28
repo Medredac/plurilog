@@ -2351,8 +2351,16 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
   knownSources: KnownImageSource[];
   historicalRounds?: DiscussionMemoryResult['allRounds'];
   signal?: AbortSignal;
+  candidateScope?: 'historical' | 'active_focus';
 }): Promise<KnownImageSource | null> {
-  const { openai, prompt, knownSources, historicalRounds, signal } = options;
+  const {
+    openai,
+    prompt,
+    knownSources,
+    historicalRounds,
+    signal,
+    candidateScope = 'historical',
+  } = options;
   if (!prompt?.trim() || !Array.isArray(knownSources) || knownSources.length < 2) {
     return null;
   }
@@ -2407,7 +2415,7 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
           {
             role: 'system',
             content:
-              'You are a visual-referent resolver. Do not answer the user and do not propose edits. Select the ONE historical image source the user is referring to from the supplied candidates, using the semantic meaning and provenance of the conversation. Natural references such as "the warm edited version", "the one before the darker edit", or "Gemini\'s earlier version" must be resolved from each candidate\'s originating user request and assistant response, not by crude keyword overlap. Return JSON only: {"selectedSourceId":string|null,"confidence":number,"reason":string}. Select null when the candidates do not uniquely support one referent. Never invent a source ID. Filenames and timestamps are weak metadata; conversation provenance is primary.',
+              `You are a visual-referent resolver. Do not answer the user and do not propose edits. Select the ONE image source the user is referring to from the supplied candidates, using the semantic meaning and provenance of the conversation. Natural references such as "the warm edited version", "the one before the darker edit", or "Gemini's earlier version" must be resolved from each candidate's originating user request and assistant response, not by crude keyword overlap. Return JSON only: {"selectedSourceId":string|null,"confidence":number,"reason":string}. Select null when the candidates do not uniquely support one referent. Never invent a source ID. Filenames and timestamps are weak metadata; conversation provenance is primary.${candidateScope === 'active_focus' ? ' IMPORTANT: every supplied candidate is simultaneously active in the current visual working set. Do NOT break a tie using recency, timestamps, response order, model seat order, or general salience unless the USER\'S CURRENT WORDING explicitly asks for that distinction. If the current wording does not semantically distinguish one active candidate from the others, selectedSourceId MUST be null.' : ''}`,
           },
           {
             role: 'user',
@@ -4647,20 +4655,47 @@ export async function POST(req: NextRequest) {
                   }
 
                   if (!resolvedImage && knownSources.length > 1) {
+                    const activeFocusIds =
+                      activeVisualContext?.focus_source_ids || [];
+                    const jevScopesSystem2ToActiveFocus =
+                      activeFocusIds.length > 1 &&
+                      jevEffectiveOperations.includes('recent_exact') &&
+                      jevEffectiveOperations.includes('visual_evidence');
+                    const activeFocusIdSet = new Set(activeFocusIds);
+                    const system2KnownSources =
+                      jevScopesSystem2ToActiveFocus
+                        ? knownSources.filter((source) =>
+                            activeFocusIdSet.has(source.sourceId)
+                          )
+                        : knownSources;
+
                     const system2Source =
-                      await resolveHistoricalImageReferentWithSystem2({
-                        openai,
-                        prompt,
-                        knownSources,
-                        historicalRounds: discussionMemory?.allRounds,
-                        signal: req.signal,
-                      });
+                      system2KnownSources.length > 1
+                        ? await resolveHistoricalImageReferentWithSystem2({
+                            openai,
+                            prompt,
+                            knownSources: system2KnownSources,
+                            historicalRounds: discussionMemory?.allRounds,
+                            signal: req.signal,
+                            candidateScope: jevScopesSystem2ToActiveFocus
+                              ? 'active_focus'
+                              : 'historical',
+                          })
+                        : null;
 
                     if (system2Source) {
                       resolvedImage = {
                         sources: [system2Source],
                         reason: 'semantic_candidate_resolver',
                       } as any;
+                    } else if (jevScopesSystem2ToActiveFocus) {
+                      console.log(
+                        '[Visual Referent System 2] Active focus remained ambiguous; preserving fail-closed state',
+                        {
+                          discussionId,
+                          activeFocusSourceIds: activeFocusIds,
+                        }
+                      );
                     }
                   }
 
@@ -9106,17 +9141,36 @@ export async function POST(req: NextRequest) {
                       );
 
                       let system2SelectedSource: KnownImageSource | null = null;
+                      const editFocusIds =
+                        isPersistentVisualContextReadsEnabled()
+                          ? visualContextState?.focus_source_ids || []
+                          : [];
+                      const jevScopesEditSystem2ToActiveFocus =
+                        editFocusIds.length > 1 &&
+                        jevEffectiveOperations.includes('recent_exact') &&
+                        jevEffectiveOperations.includes('visual_evidence');
+                      const editFocusIdSet = new Set(editFocusIds);
+                      const editSystem2KnownSources =
+                        jevScopesEditSystem2ToActiveFocus
+                          ? latestKnownSources.filter((source) =>
+                              editFocusIdSet.has(source.sourceId)
+                            )
+                          : latestKnownSources;
+
                       if (
                         brokerResult.status !== 'resolved' &&
-                        latestKnownSources.length > 1
+                        editSystem2KnownSources.length > 1
                       ) {
                         system2SelectedSource =
                           await resolveHistoricalImageReferentWithSystem2({
                             openai,
                             prompt: referenceText || prompt,
-                            knownSources: latestKnownSources,
+                            knownSources: editSystem2KnownSources,
                             historicalRounds: discussionMemory?.allRounds,
                             signal: seatAbortController.signal,
+                            candidateScope: jevScopesEditSystem2ToActiveFocus
+                              ? 'active_focus'
+                              : 'historical',
                           });
                       }
 
@@ -9155,8 +9209,11 @@ export async function POST(req: NextRequest) {
                         const safeBrokerResult =
                           toModelSafeBrokerResult(brokerResult);
                         editReferenceError =
-                          safeBrokerResult.message ||
-                          'I need you to clarify which image you want me to edit.';
+                          jevScopesEditSystem2ToActiveFocus &&
+                          editSystem2KnownSources.length > 1
+                            ? 'I found multiple active images and cannot tell which one you mean. Please specify which image you want me to edit.'
+                            : safeBrokerResult.message ||
+                              'I need you to clarify which image you want me to edit.';
                       }
 
                       console.log('[Image Editing Resolver] Reference resolution', {
