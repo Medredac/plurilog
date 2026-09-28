@@ -129,6 +129,37 @@ def replace_or_insert_rpr_property(rxml, tag, val=None, toggle=False):
         return rxml
     return rxml[:opening.end()] + '<w:rPr>' + prop + '</w:rPr>' + rxml[opening.end():]
 
+def replace_or_insert_rpr_raw_property(rxml, tag, prop):
+    prop_re = re.compile(r'<w:' + re.escape(tag) + r'\b[^>]*/?>', re.S)
+    rpr_m = RPR_RE.search(rxml)
+    if rpr_m:
+        rpr = rpr_m.group(0)
+        if prop_re.search(rpr):
+            new_rpr = prop_re.sub(prop, rpr, count=1)
+        else:
+            new_rpr = rpr[:-len('</w:rPr>')] + prop + '</w:rPr>'
+        return rxml[:rpr_m.start()] + new_rpr + rxml[rpr_m.end():]
+    opening = re.match(r'<w:r\b[^>]*>', rxml, re.S)
+    if not opening:
+        return rxml
+    return rxml[:opening.end()] + '<w:rPr>' + prop + '</w:rPr>' + rxml[opening.end():]
+
+def patch_run_font_family(rxml, family):
+    family = str(family or '').lower()
+    if family == 'serif':
+        latin, east_asia = 'Times New Roman', 'Yu Mincho'
+    elif family == 'mono':
+        latin, east_asia = 'Courier New', 'MS Gothic'
+    else:
+        latin, east_asia = 'Arial', 'Yu Gothic'
+    prop = (
+        '<w:rFonts w:ascii="' + latin +
+        '" w:hAnsi="' + latin +
+        '" w:cs="' + latin +
+        '" w:eastAsia="' + east_asia + '"/>'
+    )
+    return replace_or_insert_rpr_raw_property(rxml, 'rFonts', prop)
+
 def explicit_run_size(rxml):
     val = get_val(rxml, 'sz')
     if val is None:
@@ -218,6 +249,8 @@ def patch_runs_overlapping(pxml, start, end, action, edit):
             rxml = replace_or_insert_rpr_property(rxml, 'b', edit.get('value', True), toggle=True)
         elif action == 'set_italic':
             rxml = replace_or_insert_rpr_property(rxml, 'i', edit.get('value', True), toggle=True)
+        elif action == 'set_font_family':
+            rxml = patch_run_font_family(rxml, edit.get('font_family'))
         replacements.append((item['match'].start(), item['match'].end(), rxml))
     for s, e, rep in reversed(replacements):
         pxml = pxml[:s] + rep + pxml[e:]
@@ -252,6 +285,32 @@ for name in xml_names:
             xml_text[name] = original[name].decode('utf-8-sig')
 
 for edit in edits:
+    action = edit.get('action')
+    scope = str(edit.get('scope') or 'target').lower()
+
+    if action == 'set_font_family' and scope == 'document':
+        family = str(edit.get('font_family') or '').lower()
+        if family not in ('sans', 'serif', 'mono'):
+            raise RuntimeError('Unsupported DOCX font family: %s' % family)
+        changed = 0
+        for name in xml_names:
+            text = xml_text.get(name)
+            if text is None:
+                continue
+            def patch_all_runs(match):
+                nonlocal_placeholder = None
+                rxml = match.group(0)
+                if not T_RE.search(rxml):
+                    return rxml
+                return patch_run_font_family(rxml, family)
+            new_text = R_RE.sub(patch_all_runs, text)
+            if new_text != text:
+                changed += 1
+                xml_text[name] = new_text
+        if changed < 1:
+            raise RuntimeError('Document-wide DOCX font edit found no text runs.')
+        continue
+
     target = str(edit.get('target_text') or '')
     if not target:
         raise RuntimeError('Empty target_text')
@@ -280,7 +339,7 @@ for edit in edits:
         new_pxml = replace_text_range(pxml, start, end, str(edit.get('replacement_text') or ''))
     elif action == 'delete_text':
         new_pxml = replace_text_range(pxml, start, end, '')
-    elif action in ('set_font_size', 'set_bold', 'set_italic'):
+    elif action in ('set_font_size', 'set_bold', 'set_italic', 'set_font_family'):
         new_pxml = patch_runs_overlapping(pxml, start, end, action, edit)
     elif action == 'set_alignment':
         new_pxml = patch_alignment(pxml, edit.get('alignment') or 'left')
@@ -302,15 +361,242 @@ with zipfile.ZipFile(out, 'w') as zout:
         zout.writestr(new_info, data)
 `;
 
-const PDF_EDIT_SCRIPT = Buffer.from(
-  'aW1wb3J0IGpzb24sIG9zLCBzdWJwcm9jZXNzLCBzeXMKaW1wb3J0IGZpdHoKCnNyYywgcGxhbl9wYXRoLCBvdXQgPSBzeXMuYXJndlsxXSwgc3lzLmFyZ3ZbMl0sIHN5cy5hcmd2WzNdCndpdGggb3BlbihwbGFuX3BhdGgsICdyJywgZW5jb2Rpbmc9J3V0Zi04JykgYXMgZjoKICAgIGVkaXRzID0ganNvbi5sb2FkKGYpCmRvYyA9IGZpdHoub3BlbihzcmMpCgpkZWYgcmdiKHYpOgogICAgdHJ5OgogICAgICAgIHYgPSBpbnQodikKICAgICAgICByZXR1cm4gKCgodiA+PiAxNikgJiAyNTUpLzI1NS4wLCAoKHYgPj4gOCkgJiAyNTUpLzI1NS4wLCAodiAmIDI1NSkvMjU1LjApCiAgICBleGNlcHQ6CiAgICAgICAgcmV0dXJuICgwLDAsMCkKCmRlZiBiZ19jb2xvcihwYWdlLCByZWN0KToKICAgIGNsaXAgPSBmaXR6LlJlY3QobWF4KHBhZ2UucmVjdC54MCwgcmVjdC54MC0yKSwgbWF4KHBhZ2UucmVjdC55MCwgcmVjdC55MC0yKSwKICAgICAgICAgICAgICAgICAgICAgbWluKHBhZ2UucmVjdC54MSwgcmVjdC54MSsyKSwgbWluKHBhZ2UucmVjdC55MSwgcmVjdC55MSsyKSkKICAgIHRyeToKICAgICAgICBwaXggPSBwYWdlLmdldF9waXhtYXAobWF0cml4PWZpdHouTWF0cml4KDEsMSksIGNsaXA9Y2xpcCwgYWxwaGE9RmFsc2UpCiAgICAgICAgaWYgcGl4LndpZHRoIDwgMSBvciBwaXguaGVpZ2h0IDwgMSBvciBwaXgubiA8IDM6IHJldHVybiAoMSwxLDEpCiAgICAgICAgcHRzPVtdCiAgICAgICAgZm9yIHgseSBpbiBbKDAsMCksKHBpeC53aWR0aC0xLDApLCgwLHBpeC5oZWlnaHQtMSksKHBpeC53aWR0aC0xLHBpeC5oZWlnaHQtMSldOgogICAgICAgICAgICBpPSh5KnBpeC53aWR0aCt4KSpwaXgubgogICAgICAgICAgICBwdHMuYXBwZW5kKHR1cGxlKHBpeC5zYW1wbGVzW2kral0vMjU1LjAgZm9yIGogaW4gcmFuZ2UoMykpKQogICAgICAgIHJldHVybiB0dXBsZShzdW0ocFtrXSBmb3IgcCBpbiBwdHMpLzQgZm9yIGsgaW4gcmFuZ2UoMykpCiAgICBleGNlcHQ6CiAgICAgICAgcmV0dXJuICgxLDEsMSkKCmRlZiBiZXN0X3NwYW4ocGFnZSwgcmVjdCk6CiAgICBiZXN0LCBiZXN0X2FyZWEgPSB7fSwgMAogICAgZm9yIGJsb2NrIGluIHBhZ2UuZ2V0X3RleHQoJ2RpY3QnKS5nZXQoJ2Jsb2NrcycsIFtdKToKICAgICAgICBmb3IgbGluZSBpbiBibG9jay5nZXQoJ2xpbmVzJywgW10pOgogICAgICAgICAgICBmb3Igc3BhbiBpbiBsaW5lLmdldCgnc3BhbnMnLCBbXSk6CiAgICAgICAgICAgICAgICByPWZpdHouUmVjdChzcGFuLmdldCgnYmJveCcpKQogICAgICAgICAgICAgICAgaW50ZXI9ciAmIHJlY3QKICAgICAgICAgICAgICAgIGFyZWE9bWF4KDAsaW50ZXIud2lkdGgpKm1heCgwLGludGVyLmhlaWdodCkKICAgICAgICAgICAgICAgIGlmIGFyZWEgPiBiZXN0X2FyZWE6CiAgICAgICAgICAgICAgICAgICAgYmVzdCwgYmVzdF9hcmVhPXNwYW4sIGFyZWEKICAgIHJldHVybiBiZXN0CgpkZWYgZm9udF9uYW1lKHBhZ2UsIHNwYW4sIHRleHQsIGJvbGQ9RmFsc2UsIGl0YWxpYz1GYWxzZSk6CiAgICBpZiBhbnkob3JkKGNoKT4xMjcgZm9yIGNoIGluIHRleHQpOgogICAgICAgIHRyeToKICAgICAgICAgICAgZnA9c3VicHJvY2Vzcy5jaGVja19vdXRwdXQoWydmYy1tYXRjaCcsJy1mJywnJXtmaWxlfScsJ05vdG8gU2FucyBDSksgSlAnXSwgdGV4dD1UcnVlKS5zdHJpcCgpCiAgICAgICAgICAgIGlmIGZwIGFuZCBvcy5wYXRoLmV4aXN0cyhmcCk6CiAgICAgICAgICAgICAgICBuYW1lPSdQbHVyaWxvZ0NKSycKICAgICAgICAgICAgICAgIHRyeTogcGFnZS5pbnNlcnRfZm9udChmb250bmFtZT1uYW1lLCBmb250ZmlsZT1mcCkKICAgICAgICAgICAgICAgIGV4Y2VwdDogcGFzcwogICAgICAgICAgICAgICAgcmV0dXJuIG5hbWUKICAgICAgICBleGNlcHQ6CiAgICAgICAgICAgIHBhc3MKICAgIHJhdz1zdHIoc3Bhbi5nZXQoJ2ZvbnQnKSBvciAnJykubG93ZXIoKQogICAgaWYgYm9sZDogcmV0dXJuICdoZWJvJwogICAgaWYgaXRhbGljOiByZXR1cm4gJ2hlaXQnCiAgICBpZiAndGltZXMnIGluIHJhdyBvciAnc2VyaWYnIGluIHJhdzogcmV0dXJuICd0aXJvJwogICAgaWYgJ2NvdXJpZXInIGluIHJhdyBvciAnbW9ubycgaW4gcmF3OiByZXR1cm4gJ2NvdXInCiAgICByZXR1cm4gJ2hlbHYnCgpmb3IgZWRpdCBpbiBlZGl0czoKICAgIHRhcmdldD1zdHIoZWRpdC5nZXQoJ3RhcmdldF90ZXh0Jykgb3IgJycpCiAgICBpZiBub3QgdGFyZ2V0OiByYWlzZSBSdW50aW1lRXJyb3IoJ0VtcHR5IHRhcmdldF90ZXh0JykKICAgIG9jYz1tYXgoMSxpbnQoZWRpdC5nZXQoJ29jY3VycmVuY2UnKSBvciAxKSkKICAgIHBhZ2VfZmlsdGVyPWVkaXQuZ2V0KCdwYWdlX251bWJlcicpCiAgICBtYXRjaGVzPVtdCiAgICBmb3IgcGkgaW4gcmFuZ2UobGVuKGRvYykpOgogICAgICAgIGlmIHBhZ2VfZmlsdGVyIGFuZCBwaSsxICE9IGludChwYWdlX2ZpbHRlcik6IGNvbnRpbnVlCiAgICAgICAgZm9yIHJlY3QgaW4gZG9jW3BpXS5zZWFyY2hfZm9yKHRhcmdldCk6CiAgICAgICAgICAgIG1hdGNoZXMuYXBwZW5kKChwaSxyZWN0KSkKICAgIGlmIG9jYyA+IGxlbihtYXRjaGVzKToKICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIlBERiB0YXJnZXQgbm90IGZvdW5kIGF0IHJlcXVlc3RlZCBvY2N1cnJlbmNlOiAlciAoIyVkLCBtYXRjaGVzPSVkKSIgJSAodGFyZ2V0LG9jYyxsZW4obWF0Y2hlcykpKQogICAgcGksIHJlY3Q9bWF0Y2hlc1tvY2MtMV0KICAgIHBhZ2U9ZG9jW3BpXQogICAgc3Bhbj1iZXN0X3NwYW4ocGFnZSxyZWN0KQogICAgYWN0aW9uPWVkaXQuZ2V0KCdhY3Rpb24nKQogICAgdGV4dD10YXJnZXQKICAgIGlmIGFjdGlvbiA9PSAncmVwbGFjZV90ZXh0JzogdGV4dD1zdHIoZWRpdC5nZXQoJ3JlcGxhY2VtZW50X3RleHQnKSBvciAnJykKICAgIGVsaWYgYWN0aW9uID09ICdkZWxldGVfdGV4dCc6IHRleHQ9JycKICAgIGVsaWYgYWN0aW9uIG5vdCBpbiAoJ3NldF9mb250X3NpemUnLCdzZXRfYm9sZCcsJ3NldF9pdGFsaWMnLCdzZXRfYWxpZ25tZW50Jyk6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCdVbnN1cHBvcnRlZCBQREYgZWRpdCBhY3Rpb246ICVzJyAlIGFjdGlvbikKICAgIG9sZF9zaXplPWZsb2F0KHNwYW4uZ2V0KCdzaXplJykgb3IgMTEuMCkKICAgIHNjYWxlPWVkaXQuZ2V0KCdmb250X3NpemVfc2NhbGUnKQogICAgZGVsdGE9ZWRpdC5nZXQoJ2ZvbnRfc2l6ZV9kZWx0YV9wdCcpCiAgICBhYnNvbHV0ZT1lZGl0LmdldCgnZm9udF9zaXplX3B0JykKICAgIGlmIHNjYWxlIGlzIG5vdCBOb25lIGFuZCBhYnMoZmxvYXQoc2NhbGUpLTEuMCkgPiAwLjAwMDE6CiAgICAgICAgc2l6ZT1vbGRfc2l6ZSpmbG9hdChzY2FsZSkKICAgIGVsaWYgZGVsdGEgaXMgbm90IE5vbmUgYW5kIGFicyhmbG9hdChkZWx0YSkpID4gMC4wMDAxOgogICAgICAgIHNpemU9b2xkX3NpemUrZmxvYXQoZGVsdGEpCiAgICBlbHNlOgogICAgICAgIHNpemU9ZmxvYXQoYWJzb2x1dGUpIGlmIGFic29sdXRlIGlzIG5vdCBOb25lIGVsc2Ugb2xkX3NpemUKICAgIHNpemU9bWF4KDUuMCxtaW4oOTYuMCxmbG9hdChzaXplKSkpCiAgICBwYWRfeD1tYXgoMS41LG9sZF9zaXplKjAuMTIpOyBwYWRfeT1tYXgoMS4wLG9sZF9zaXplKjAuMTApCiAgICBycj1maXR6LlJlY3QocmVjdC54MC1wYWRfeCxyZWN0LnkwLXBhZF95LHJlY3QueDErcGFkX3gscmVjdC55MStwYWRfeSkKICAgIHBhZ2UuYWRkX3JlZGFjdF9hbm5vdChyciwgZmlsbD1iZ19jb2xvcihwYWdlLHJlY3QpKQogICAgcGFnZS5hcHBseV9yZWRhY3Rpb25zKGltYWdlcz0wLCBncmFwaGljcz0wKQogICAgaWYgdGV4dDoKICAgICAgICBzY2FsZT1tYXgoMS4wLGxlbih0ZXh0KS9tYXgoMSxsZW4odGFyZ2V0KSksc2l6ZS9tYXgoMS4wLG9sZF9zaXplKSkKICAgICAgICB3cj1maXR6LlJlY3QocmVjdC54MC1wYWRfeCxyZWN0LnkwLXBhZF95LAogICAgICAgICAgICAgICAgICAgICBtaW4ocGFnZS5yZWN0LngxLHJlY3QueDArKHJlY3Qud2lkdGgrMipwYWRfeCkqc2NhbGUrMTYpLAogICAgICAgICAgICAgICAgICAgICBtaW4ocGFnZS5yZWN0LnkxLHJlY3QueTArKHJlY3QuaGVpZ2h0KzIqcGFkX3kpKm1heCgxLjI1LHNjYWxlKSsxMCkpCiAgICAgICAgYWxpZ25fbmFtZT1lZGl0LmdldCgnYWxpZ25tZW50JykKICAgICAgICBhbGlnbj0xIGlmIGFsaWduX25hbWU9PSdjZW50ZXInIGVsc2UgMiBpZiBhbGlnbl9uYW1lPT0ncmlnaHQnIGVsc2UgMAogICAgICAgIGZvbnQ9Zm9udF9uYW1lKHBhZ2Usc3Bhbix0ZXh0LGFjdGlvbj09J3NldF9ib2xkJyBhbmQgYm9vbChlZGl0LmdldCgndmFsdWUnLFRydWUpKSxhY3Rpb249PSdzZXRfaXRhbGljJyBhbmQgYm9vbChlZGl0LmdldCgndmFsdWUnLFRydWUpKSkKICAgICAgICByYz1wYWdlLmluc2VydF90ZXh0Ym94KHdyLHRleHQsZm9udHNpemU9c2l6ZSxmb250bmFtZT1mb250LGNvbG9yPXJnYihzcGFuLmdldCgnY29sb3InLDApKSxhbGlnbj1hbGlnbixvdmVybGF5PVRydWUpCiAgICAgICAgaWYgcmMgPCAtMjogcmFpc2UgUnVudGltZUVycm9yKCJSZXBsYWNlbWVudCB0ZXh0IGRpZCBub3QgZml0IHRhcmdldCByZWdpb24gZm9yICVyIiAlIHRhcmdldCkKCmRvYy5zYXZlKG91dCxnYXJiYWdlPTMsZGVmbGF0ZT1UcnVlLGNsZWFuPUZhbHNlKQpkb2MuY2xvc2UoKQ==',
-  'base64'
-).toString('utf8');
+const PDF_EDIT_SCRIPT = String.raw`import json, os, subprocess, sys
+import fitz
+
+src, plan_path, out = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(plan_path, 'r', encoding='utf-8') as f:
+    edits = json.load(f)
+doc = fitz.open(src)
+
+def rgb(v):
+    try:
+        v = int(v)
+        return (((v >> 16) & 255)/255.0, ((v >> 8) & 255)/255.0, (v & 255)/255.0)
+    except:
+        return (0,0,0)
+
+def bg_color(page, rect):
+    clip = fitz.Rect(max(page.rect.x0, rect.x0-2), max(page.rect.y0, rect.y0-2),
+                     min(page.rect.x1, rect.x1+2), min(page.rect.y1, rect.y1+2))
+    try:
+        pix = page.get_pixmap(matrix=fitz.Matrix(1,1), clip=clip, alpha=False)
+        if pix.width < 1 or pix.height < 1 or pix.n < 3:
+            return (1,1,1)
+        pts=[]
+        for x,y in [(0,0),(pix.width-1,0),(0,pix.height-1),(pix.width-1,pix.height-1)]:
+            i=(y*pix.width+x)*pix.n
+            pts.append(tuple(pix.samples[i+j]/255.0 for j in range(3)))
+        return tuple(sum(p[k] for p in pts)/4 for k in range(3))
+    except:
+        return (1,1,1)
+
+def best_span(page, rect):
+    best, best_area = {}, 0
+    for block in page.get_text('dict').get('blocks', []):
+        for line in block.get('lines', []):
+            for span in line.get('spans', []):
+                r=fitz.Rect(span.get('bbox'))
+                inter=r & rect
+                area=max(0,inter.width)*max(0,inter.height)
+                if area > best_area:
+                    best, best_area=span, area
+    return best
+
+def style_flags(span):
+    raw=str(span.get('font') or '').lower()
+    bold = any(token in raw for token in ('bold','black','heavy','semibold','demi'))
+    italic = any(token in raw for token in ('italic','oblique','slanted'))
+    return bold, italic
+
+def builtin_font(family, bold=False, italic=False):
+    family=(family or '').lower()
+    if family == 'serif':
+        if bold and italic: return 'tibi'
+        if bold: return 'tibo'
+        if italic: return 'tiit'
+        return 'tiro'
+    if family == 'mono':
+        if bold and italic: return 'cobi'
+        if bold: return 'cobo'
+        if italic: return 'coit'
+        return 'cour'
+    if bold and italic: return 'hebi'
+    if bold: return 'hebo'
+    if italic: return 'heit'
+    return 'helv'
+
+def unicode_font_name(page, family):
+    desired = {
+        'serif': 'Noto Serif CJK JP',
+        'mono': 'Noto Sans Mono CJK JP',
+        'sans': 'Noto Sans CJK JP',
+    }.get((family or 'sans').lower(), 'Noto Sans CJK JP')
+    try:
+        fp=subprocess.check_output(['fc-match','-f','%{file}',desired], text=True).strip()
+        if fp and os.path.exists(fp):
+            safe_family=(family or 'sans').lower()
+            name='PlurilogCJK_' + safe_family
+            try:
+                page.insert_font(fontname=name, fontfile=fp)
+            except:
+                pass
+            return name
+    except:
+        pass
+    return 'helv'
+
+def font_name(page, span, text, family=None, bold=False, italic=False):
+    raw=str(span.get('font') or '').lower()
+    existing_bold, existing_italic = style_flags(span)
+    if family:
+        final_bold = bold or existing_bold
+        final_italic = italic or existing_italic
+        if any(ord(ch)>127 for ch in text):
+            return unicode_font_name(page, family)
+        return builtin_font(family, final_bold, final_italic)
+    if any(ord(ch)>127 for ch in text):
+        return unicode_font_name(page, 'sans')
+    if bold: return 'hebo'
+    if italic: return 'heit'
+    if 'times' in raw or 'serif' in raw: return 'tiro'
+    if 'courier' in raw or 'mono' in raw: return 'cour'
+    return 'helv'
+
+def iter_text_spans(page):
+    for block in page.get_text('dict').get('blocks', []):
+        for line in block.get('lines', []):
+            direction = line.get('dir') or (1.0, 0.0)
+            if abs(float(direction[1] or 0.0)) > 0.01:
+                continue
+            for span in line.get('spans', []):
+                text=str(span.get('text') or '')
+                bbox=span.get('bbox')
+                if not text or not bbox:
+                    continue
+                rect=fitz.Rect(bbox)
+                if rect.is_empty or rect.width <= 0 or rect.height <= 0:
+                    continue
+                yield span, text, rect
+
+def apply_document_font_family(page, family):
+    items=[]
+    for span, text, rect in iter_text_spans(page):
+        origin = span.get('origin') or (rect.x0, rect.y1)
+        items.append({
+            'span': span,
+            'text': text,
+            'rect': rect,
+            'origin': fitz.Point(float(origin[0]), float(origin[1])),
+            'background': bg_color(page, rect),
+        })
+    if not items:
+        return 0
+    for item in items:
+        rect=item['rect']
+        pad=max(0.35, float(item['span'].get('size') or 11.0) * 0.035)
+        rr=fitz.Rect(rect.x0-pad, rect.y0-pad, rect.x1+pad, rect.y1+pad)
+        page.add_redact_annot(rr, fill=item['background'])
+    page.apply_redactions(images=0, graphics=0)
+    for item in items:
+        span=item['span']
+        text=item['text']
+        size=max(5.0,min(96.0,float(span.get('size') or 11.0)))
+        bold, italic=style_flags(span)
+        font=font_name(page, span, text, family=family, bold=bold, italic=italic)
+        page.insert_text(
+            item['origin'], text, fontsize=size, fontname=font,
+            color=rgb(span.get('color',0)), overlay=True
+        )
+    return len(items)
+
+for edit in edits:
+    action=edit.get('action')
+    scope=str(edit.get('scope') or 'target').lower()
+
+    if action == 'set_font_family' and scope == 'document':
+        family=str(edit.get('font_family') or '').lower()
+        if family not in ('sans','serif','mono'):
+            raise RuntimeError('Unsupported PDF font family: %s' % family)
+        changed=0
+        for page in doc:
+            changed += apply_document_font_family(page, family)
+        if changed < 1:
+            raise RuntimeError('Document-wide PDF font edit found no text spans.')
+        continue
+
+    target=str(edit.get('target_text') or '')
+    if not target:
+        raise RuntimeError('Empty target_text')
+    occ=max(1,int(edit.get('occurrence') or 1))
+    page_filter=edit.get('page_number')
+    matches=[]
+    for pi in range(len(doc)):
+        if page_filter and pi+1 != int(page_filter):
+            continue
+        for rect in doc[pi].search_for(target):
+            matches.append((pi,rect))
+    if occ > len(matches):
+        raise RuntimeError("PDF target not found at requested occurrence: %r (#%d, matches=%d)" % (target,occ,len(matches)))
+    pi, rect=matches[occ-1]
+    page=doc[pi]
+    span=best_span(page,rect)
+    text=target
+    if action == 'replace_text':
+        text=str(edit.get('replacement_text') or '')
+    elif action == 'delete_text':
+        text=''
+    elif action not in ('set_font_size','set_bold','set_italic','set_alignment','set_font_family'):
+        raise RuntimeError('Unsupported PDF edit action: %s' % action)
+
+    old_size=float(span.get('size') or 11.0)
+    scale=edit.get('font_size_scale')
+    delta=edit.get('font_size_delta_pt')
+    absolute=edit.get('font_size_pt')
+    if scale is not None and abs(float(scale)-1.0) > 0.0001:
+        size=old_size*float(scale)
+    elif delta is not None and abs(float(delta)) > 0.0001:
+        size=old_size+float(delta)
+    else:
+        size=float(absolute) if absolute is not None else old_size
+    size=max(5.0,min(96.0,float(size)))
+    pad_x=max(1.5,old_size*0.12)
+    pad_y=max(1.0,old_size*0.10)
+    rr=fitz.Rect(rect.x0-pad_x,rect.y0-pad_y,rect.x1+pad_x,rect.y1+pad_y)
+    page.add_redact_annot(rr, fill=bg_color(page,rect))
+    page.apply_redactions(images=0, graphics=0)
+
+    if text:
+        scale=max(1.0,len(text)/max(1,len(target)),size/max(1.0,old_size))
+        wr=fitz.Rect(
+            rect.x0-pad_x, rect.y0-pad_y,
+            min(page.rect.x1,rect.x0+(rect.width+2*pad_x)*scale+16),
+            min(page.rect.y1,rect.y0+(rect.height+2*pad_y)*max(1.25,scale)+10)
+        )
+        align_name=edit.get('alignment')
+        align=1 if align_name=='center' else 2 if align_name=='right' else 0
+        family=str(edit.get('font_family') or '').lower() if action == 'set_font_family' else None
+        font=font_name(
+            page, span, text, family=family,
+            bold=action=='set_bold' and bool(edit.get('value',True)),
+            italic=action=='set_italic' and bool(edit.get('value',True))
+        )
+        rc=page.insert_textbox(
+            wr, text, fontsize=size, fontname=font,
+            color=rgb(span.get('color',0)), align=align, overlay=True
+        )
+        if rc < -2:
+            raise RuntimeError("Replacement text did not fit target region for %r" % target)
+
+doc.save(out,garbage=3,deflate=True,clean=False)
+doc.close()
+`;
 
 export type SourceDocumentEditAction =
   | 'replace_text'
   | 'delete_text'
   | 'set_font_size'
+  | 'set_font_family'
   | 'set_bold'
   | 'set_italic'
   | 'set_alignment';
@@ -323,6 +609,8 @@ export interface SourceDocumentEditOperation {
   font_size_pt?: number;
   font_size_delta_pt?: number;
   font_size_scale?: number;
+  font_family?: 'sans' | 'serif' | 'mono';
+  scope?: 'target' | 'document';
   value?: boolean;
   alignment?: 'left' | 'center' | 'right' | 'justify';
   page_number?: number;
