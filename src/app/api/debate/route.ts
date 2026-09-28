@@ -3101,9 +3101,12 @@ export async function POST(req: NextRequest) {
                     ['first', 'last', 'ordinal'].includes(
                       jevEffectiveConstraints?.temporalRelation || ''
                     );
+                  const topicSemanticLookup =
+                    jevEffectiveConstraints?.semanticRole === 'find_topic' &&
+                    jevEffectiveOperations.includes('semantic_history');
 
                   if (
-                    topicalOccurrenceLookup &&
+                    topicSemanticLookup &&
                     retrievalQuery === semanticQuery
                   ) {
                     try {
