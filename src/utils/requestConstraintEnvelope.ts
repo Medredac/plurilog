@@ -12,6 +12,9 @@ export type LegacyDocumentReferenceRole =
 export interface RequestConstraintEnvelope {
   facts: CurrentRequestFacts;
   mandatoryOperations: string[];
+  continuation: {
+    documentRevision: boolean;
+  };
   lockedConstraints: {
     documentSelector: {
       artifactKind: CurrentRequestReference['artifactKind'];
@@ -78,13 +81,22 @@ function legacyDocumentRoleFor(
 }
 
 export function buildRequestConstraintEnvelope(
-  facts: CurrentRequestFacts
+  facts: CurrentRequestFacts,
+  options?: { documentRevisionContinuation?: boolean }
 ): RequestConstraintEnvelope {
   const documentMutation = selectExplicitDocumentMutation(facts);
+  const documentRevisionContinuation =
+    options?.documentRevisionContinuation === true;
 
   return {
     facts,
-    mandatoryOperations: documentMutation ? ['document_search'] : [],
+    mandatoryOperations:
+      documentMutation || documentRevisionContinuation
+        ? ['document_search']
+        : [],
+    continuation: {
+      documentRevision: documentRevisionContinuation,
+    },
     lockedConstraints: {
       documentSelector: documentMutation
         ? {
@@ -102,7 +114,9 @@ export function buildRequestConstraintEnvelope(
       preserveUnmentioned: facts.preservation.preserveUnmentioned,
     },
     legacyExecution: {
-      documentReferenceRole: legacyDocumentRoleFor(documentMutation),
+      documentReferenceRole:
+        legacyDocumentRoleFor(documentMutation) ||
+        (documentRevisionContinuation ? 'generated_or_revised' : null),
     },
   };
 }
