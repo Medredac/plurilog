@@ -2935,7 +2935,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations and constraints are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"constraintOverrides":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null,"documentScope":"single"|"multiple"|"broad"|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan. constraintOverrides contains only corrections needed to scope the final plan; use null to explicitly clear a mistaken constraint. Treat document, conversation, and visual references as separate evidence domains: temporal wording attached to a document version must not automatically become conversation chronology, and conversational authorship must be resolved independently from document provenance. If the requested visual source is a native image or screenshot and the user does not independently need text from a document, visual_evidence is sufficient for that visual source and document_search should be removed. If the user asks for something they themselves said/told/described earlier, speaker=user is appropriate and speaker_filter should be retained. If they ask what a named panel model said, set that speaker. Do not retrieve old conversation merely because the user mentions history when the current request is self-contained. If older conversation evidence is actually required, use semantic_history. Distinguish provenance/original-source requests from actual first/last/previous/before/after selection over conversation events. If chronology is not genuinely required for the conversation evidence, remove chronology and clear temporalRelation/chronologyRole/anchorSource. Preserve document_search and documentReferenceRole when the request independently needs a historical document.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations and constraints are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"constraintOverrides":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan. constraintOverrides contains only corrections needed to scope the final plan; use null to explicitly clear a mistaken constraint. Treat document, conversation, and visual references as separate evidence domains: temporal wording attached to a document version must not automatically become conversation chronology, and conversational authorship must be resolved independently from document provenance. If the requested visual source is a native image or screenshot and the user does not independently need text from a document, visual_evidence is sufficient for that visual source and document_search should be removed. If the user asks for something they themselves said/told/described earlier, speaker=user is appropriate and speaker_filter should be retained. If they ask what a named panel model said, set that speaker. Do not retrieve old conversation merely because the user mentions history when the current request is self-contained. If older conversation evidence is actually required, use semantic_history. Distinguish provenance/original-source requests from actual first/last/previous/before/after selection over conversation events. If chronology is not genuinely required for the conversation evidence, remove chronology and clear temporalRelation/chronologyRole/anchorSource. Preserve document_search and documentReferenceRole when the request independently needs a historical document.',
                   },
                   {
                     role: 'user',
@@ -3003,7 +3003,6 @@ export async function POST(req: NextRequest) {
           topicSource: new Set(['current_prompt', 'recent_context', 'semantic_result', 'none']),
           anchorSource: new Set(['current_prompt', 'recent_context', 'semantic_result', 'none']),
           documentReferenceRole: new Set(['user_uploaded', 'generated_or_revised', 'latest', 'exact_or_unspecified', 'none']),
-          documentScope: new Set(['single', 'multiple', 'broad', 'none']),
         };
         const effectiveConstraints: any = { ...baseConstraints };
         if (rawConstraintOverrides) {
@@ -3199,7 +3198,7 @@ export async function POST(req: NextRequest) {
                 {
                   role: 'system',
                   content:
-                    'You are Plurilog\'s backup memory planner. The primary Jev controller is temporarily unavailable. Do not answer the user. Choose the minimal complete evidence plan needed to let another AI answer naturally and accurately. Use semantic reasoning, recent context, known documents, and workingState; do not route by superficial keywords. Return JSON only: {"operations":string[],"constraints":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null,"documentScope":"single"|"multiple"|"broad"|null,"ordinalPosition":number|null,"anchorOccurrence":string|null,"anchorOrdinalPosition":number|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Allowed speaker: user, chatgpt, claude, gemini, multiple, null. Allowed temporalRelation: first, last, previous, before, after, ordinal, null. Allowed semanticRole: find_topic, find_anchor, broaden_candidates, null. Allowed chronologyRole: direct_position, navigate_from_anchor, select_anchor_occurrence, scope_for_semantic, null. Allowed topicSource/anchorSource: current_prompt, recent_context, semantic_result, null. Allowed documentReferenceRole: user_uploaded, generated_or_revised, latest, exact_or_unspecified, null. Multiple operations may compose. workingState is authoritative state about available/current artifacts, but an artifact being present does not automatically make it relevant.',
+                    'You are Plurilog\'s backup memory planner. The primary Jev controller is temporarily unavailable. Do not answer the user. Choose the minimal complete evidence plan needed to let another AI answer naturally and accurately. Use semantic reasoning, recent context, known documents, and workingState; do not route by superficial keywords. Return JSON only: {"operations":string[],"constraints":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null,"ordinalPosition":number|null,"anchorOccurrence":string|null,"anchorOrdinalPosition":number|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. Allowed speaker: user, chatgpt, claude, gemini, multiple, null. Allowed temporalRelation: first, last, previous, before, after, ordinal, null. Allowed semanticRole: find_topic, find_anchor, broaden_candidates, null. Allowed chronologyRole: direct_position, navigate_from_anchor, select_anchor_occurrence, scope_for_semantic, null. Allowed topicSource/anchorSource: current_prompt, recent_context, semantic_result, null. Allowed documentReferenceRole: user_uploaded, generated_or_revised, latest, exact_or_unspecified, null. Multiple operations may compose. workingState is authoritative state about available/current artifacts, but an artifact being present does not automatically make it relevant.',
                 },
                 {
                   role: 'user',
@@ -3266,7 +3265,6 @@ export async function POST(req: NextRequest) {
             topicSource: null,
             anchorSource: null,
             documentReferenceRole: null,
-            documentScope: null,
             ordinalPosition: null,
             anchorOccurrence: null,
             anchorOrdinalPosition: null,
@@ -3323,7 +3321,6 @@ export async function POST(req: NextRequest) {
               'latest',
               'exact_or_unspecified',
             ]),
-            documentScope: new Set(['single', 'multiple', 'broad']),
             anchorOccurrence: new Set(['first', 'last', 'ordinal']),
           };
 
@@ -4170,27 +4167,11 @@ export async function POST(req: NextRequest) {
                     const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
                     if (isOwner) {
                       const serviceClient = createServiceClient();
-                      const adaptiveDocumentScope =
-                        jevEffectiveConstraints?.documentScope === 'single' ||
-                        jevEffectiveConstraints?.documentScope === 'multiple' ||
-                        jevEffectiveConstraints?.documentScope === 'broad'
-                          ? jevEffectiveConstraints.documentScope
-                          : 'multiple';
-                      const adaptiveDocumentTokenBudget =
-                        adaptiveDocumentScope === 'broad'
-                          ? 16000
-                          : adaptiveDocumentScope === 'multiple'
-                            ? 8000
-                            : 3500;
-
                       retrievedDocuments = await retrieveDiscussionDocuments({
                         serviceSupabase: serviceClient,
                         discussionId,
                         queryText: prompt,
                         queryEmbedding,
-                        candidateLimit: 50,
-                        tokenBudget: adaptiveDocumentTokenBudget,
-                        documentScope: adaptiveDocumentScope,
                         signal: req.signal,
                       });
 
