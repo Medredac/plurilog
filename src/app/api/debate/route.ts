@@ -2756,6 +2756,21 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // A System-2 override is a complete final operation plan. Constraints
+        // must not resurrect an operator that the override explicitly removed.
+        // Canonicalize operator-owned constraints before deterministic closure.
+        if (resolverResolution?.overrideNeeded) {
+          const resolverOperationSet = new Set(resolverRequestedOperations);
+          if (!resolverOperationSet.has('chronology')) {
+            effectiveConstraints.temporalRelation = null;
+            effectiveConstraints.chronologyRole = null;
+            effectiveConstraints.anchorSource = null;
+            effectiveConstraints.ordinalPosition = null;
+            effectiveConstraints.anchorOccurrence = null;
+            effectiveConstraints.anchorOrdinalPosition = null;
+          }
+        }
+
         const closedOperations = closeJevMemoryOperationsUnderConstraints(
           resolverRequestedOperations,
           result.compiledPlan.operations,
