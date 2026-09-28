@@ -4040,7 +4040,7 @@ export async function ingestDiscussionArtifacts(
   return result;
 }
 
-export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 8000;
+export const DOCUMENT_RETRIEVAL_TOKEN_BUDGET = 1500;
 export const DOCUMENT_SECTION_TOKEN_BUDGET = 2500;
 export const DOCUMENT_SEMANTIC_SIMILARITY_THRESHOLD = 0.60;
 
@@ -4693,7 +4693,7 @@ export async function retrieveDiscussionDocuments(
         p_discussion_id: discussionId,
         p_query_text: queryText.trim(),
         p_query_embedding: queryEmbedding,
-        p_match_count: 50,
+        p_match_count: 5,
       }
     );
 
@@ -4706,7 +4706,7 @@ export async function retrieveDiscussionDocuments(
       return [];
     }
 
-    // Filter, deduplicate, and enforce a token budget. There is intentionally no fixed document/chunk count ceiling.
+    // Filter, deduplicate, and enforce DOCUMENT_RETRIEVAL_TOKEN_BUDGET (max 2 chunks).
     // Before applying the semantic threshold, derive a few meaningful lexical
     // anchors from the user's query. Exact anchor presence is a conservative
     // rescue signal for cases where an embedding ranks a tiny unrelated chunk
@@ -4752,23 +4752,10 @@ export async function retrieveDiscussionDocuments(
     const seenChunkKeys = new Set<string>();
     let accumulatedTokens = 0;
 
-    const firstChunkPerDocument: typeof rankedRows = [];
-    const remainingChunks: typeof rankedRows = [];
-    const seenDocumentIds = new Set<string>();
     for (const ranked of rankedRows) {
-      const documentId = String(ranked.row?.document_id || '');
-      if (documentId && !seenDocumentIds.has(documentId)) {
-        seenDocumentIds.add(documentId);
-        firstChunkPerDocument.push(ranked);
-      } else {
-        remainingChunks.push(ranked);
-      }
-    }
-    const diversifiedRows = [...firstChunkPerDocument, ...remainingChunks];
-
-    for (const ranked of diversifiedRows) {
       const row = ranked.row;
       const lexicalAnchorMatch = ranked.lexicalAnchorMatch;
+      if (qualifying.length >= 2) break;
 
       const chunkId = String(row?.chunk_id || '');
       const documentId = String(row?.document_id || '');
@@ -4848,17 +4835,6 @@ export async function retrieveDiscussionDocuments(
         seenChunkKeys.add(dedupeKey);
         accumulatedTokens += chunkTokens;
       }
-    }
-
-    if (process.env.VERCEL_ENV === 'preview') {
-      console.log('[Adaptive Document Retrieval]', {
-        discussionId,
-        selectedChunkCount: qualifying.length,
-        selectedDocumentCount: new Set(qualifying.map((item) => item.documentId)).size,
-        selectedDocuments: Array.from(new Set(qualifying.map((item) => item.filename))),
-        tokenBudget: DOCUMENT_RETRIEVAL_TOKEN_BUDGET,
-        accumulatedTokens,
-      });
     }
 
     return qualifying;
