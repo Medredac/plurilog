@@ -8665,9 +8665,86 @@ export async function POST(req: NextRequest) {
                       referenceText
                     );
 
+                  if (
+                    !referenceImageUrl &&
+                    explicitVisualCreatorTarget &&
+                    discussionId &&
+                    visualContextState?.focus_source_ids?.length
+                  ) {
+                    try {
+                      const serviceClientForFocusedCreator =
+                        createServiceClient();
+                      const knownSourcesForFocusedCreator =
+                        await fetchKnownImageSources(
+                          serviceClientForFocusedCreator,
+                          discussionId
+                        );
+                      const focusSourceIdSet = new Set(
+                        visualContextState.focus_source_ids
+                      );
+                      const focusedCreatorMatches =
+                        knownSourcesForFocusedCreator.filter(
+                          (source) =>
+                            focusSourceIdSet.has(source.sourceId) &&
+                            String(source.sender || '').toLowerCase() ===
+                              explicitVisualCreatorTarget
+                        );
+
+                      if (focusedCreatorMatches.length === 1) {
+                        const source = focusedCreatorMatches[0];
+                        const { data: signedData, error: signErr } =
+                          await serviceClientForFocusedCreator.storage
+                            .from('message-images')
+                            .createSignedUrl(source.storagePath, 900);
+
+                        if (!signErr && signedData?.signedUrl) {
+                          referenceImageUrl = signedData.signedUrl;
+                          referenceImageLabel =
+                            source.filename ||
+                            `${explicitVisualCreatorTarget} image in the current working set`;
+                          editReferentSourceIds = [source.sourceId];
+                          pendingResolvedImageSources = [source];
+
+                          console.log(
+                            '[Image Editing Resolver] Resolved explicit creator inside current focus',
+                            {
+                              discussionId,
+                              explicitVisualCreatorTarget,
+                              sourceId: source.sourceId,
+                              filename: source.filename,
+                              focusSourceIds:
+                                visualContextState.focus_source_ids,
+                            }
+                          );
+                        }
+                      } else if (focusedCreatorMatches.length > 1) {
+                        editReferenceError =
+                          'I found multiple images from that model in the current working set. Please specify which one you want me to edit.';
+                        console.log(
+                          '[Image Editing Resolver] Explicit creator is ambiguous inside current focus',
+                          {
+                            discussionId,
+                            explicitVisualCreatorTarget,
+                            candidateSourceIds:
+                              focusedCreatorMatches.map(
+                                (source) => source.sourceId
+                              ),
+                          }
+                        );
+                      }
+                    } catch (focusedCreatorErr) {
+                      console.warn(
+                        '[Image Editing Resolver] Non-critical focused creator resolution failure:',
+                        focusedCreatorErr
+                      );
+                    }
+                  }
+
                   if (referenceImageUrl) {
-                    // Already resolved from a user-grounded Image N selection in this call.
+                    // Already resolved from a user-grounded Image N selection
+                    // or an explicit creator match inside the current focus.
                   } else if (
+                    !editReferenceError &&
                     jevScopesVisualToRecentTurn &&
                     discussionId &&
                     lastRound
