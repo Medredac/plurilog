@@ -4241,8 +4241,9 @@ export async function POST(req: NextRequest) {
           let hadGeneratedImageInTurn = false;
           let documentCreatedThisTurn = false;
           // Track independent image outputs created by multiple seats for this one user turn.
-          // These must remain a shared visual working set after the round completes.
+          // Generated-image and edited-image siblings each preserve a shared working set.
           let sameRoundGeneratedSourceIds: string[] = [];
+          let sameRoundEditedSourceIds: string[] = [];
 
           // Identify every current visual source, including images embedded inside DOCX files.
           // Embedded images are hidden transport/evidence assets, not extra user-facing message attachments.
@@ -9255,6 +9256,21 @@ export async function POST(req: NextRequest) {
                                   discussionId
                                 );
 
+                              const priorSameRoundEditedSourceIds =
+                                [...sameRoundEditedSourceIds];
+
+                              // The first edit continues from its true parent.
+                              // A second (or later) independent editor in the
+                              // same user turn is a sibling branch, so the
+                              // visual working focus should become the sibling
+                              // outputs rather than whichever seat happened
+                              // to finish last. Provenance still uses
+                              // editReferentSourceIds above.
+                              const visualWorkingReferentSourceIds =
+                                priorSameRoundEditedSourceIds.length > 0
+                                  ? priorSameRoundEditedSourceIds
+                                  : editReferentSourceIds;
+
                               visualContextState =
                                 await updateDiscussionVisualContextCAS(
                                   serviceClient,
@@ -9262,13 +9278,21 @@ export async function POST(req: NextRequest) {
                                   visualContextState,
                                   {
                                     resolvedReferentSourceIds:
-                                      editReferentSourceIds,
+                                      visualWorkingReferentSourceIds,
                                     newArtifactSourceIds:
                                       editIngestResult.ingestedSourceIds,
-                                    isComparison: false,
+                                    isComparison:
+                                      priorSameRoundEditedSourceIds.length > 0,
                                     knownSources: latestKnownSources,
                                   }
                                 );
+
+                              sameRoundEditedSourceIds = Array.from(
+                                new Set([
+                                  ...sameRoundEditedSourceIds,
+                                  ...editIngestResult.ingestedSourceIds,
+                                ])
+                              );
 
                               console.log(
                                 '[Visual Context: Assistant Edit Transition]',
@@ -9276,6 +9300,8 @@ export async function POST(req: NextRequest) {
                                   discussionId,
                                   referencedSources:
                                     editReferentSourceIds,
+                                  siblingWorkingSet:
+                                    sameRoundEditedSourceIds,
                                   newSources:
                                     editIngestResult.ingestedSourceIds,
                                   activeSourceCount:
