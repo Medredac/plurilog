@@ -28,6 +28,8 @@ import {
   ExpectedCurrentImageSource,
   extractStoragePathFromSignedUrl,
   retrieveDiscussionDocuments,
+  retrieveDiscussionDocumentById,
+  resolveDocumentIdentityByRole,
   resolveDocumentSection,
   RetrievedDocumentExcerpt,
   isVisualEvidenceQuery,
@@ -3204,10 +3206,26 @@ export async function POST(req: NextRequest) {
                       roundUserMessageId: round.userMessageId || null,
                       roundIndex,
                       userPrompt: (round.userPrompt || '').slice(0, 1200),
-                      modelResponses: (round.modelResponses || []).map((response) => ({
-                        name: response.name,
-                        content: (response.content || '').slice(0, 900),
-                      })),
+                      modelResponses:
+                        constraints.speaker === 'user'
+                          ? []
+                          : constraints.speaker &&
+                              constraints.speaker !== 'none' &&
+                              constraints.speaker !== 'multiple'
+                            ? (round.modelResponses || [])
+                                .filter(
+                                  (response) =>
+                                    response.name.toLowerCase() ===
+                                    constraints.speaker!.toLowerCase()
+                                )
+                                .map((response) => ({
+                                  name: response.name,
+                                  content: (response.content || '').slice(0, 1200),
+                                }))
+                            : (round.modelResponses || []).map((response) => ({
+                                name: response.name,
+                                content: (response.content || '').slice(0, 900),
+                              })),
                     }))
                     .filter(
                       (candidate) =>
@@ -3487,6 +3505,56 @@ export async function POST(req: NextRequest) {
                         queryEmbedding,
                         signal: req.signal,
                       });
+
+                      const resolvedDocumentIdentity =
+                        resolveDocumentIdentityByRole({
+                          role:
+                            jevEffectiveConstraints?.documentReferenceRole ||
+                            null,
+                          allRounds: discussionMemory?.allRounds,
+                          knownDocuments: discussionMemory?.knownDocuments,
+                          retrievedDocuments,
+                        });
+
+                      if (
+                        resolvedDocumentIdentity?.id &&
+                        retrievedDocuments.some(
+                          (item) =>
+                            item.documentId !== resolvedDocumentIdentity.id
+                        )
+                      ) {
+                        const exactDocumentEvidence =
+                          await retrieveDiscussionDocumentById({
+                            serviceSupabase: serviceClient,
+                            discussionId,
+                            documentId: resolvedDocumentIdentity.id,
+                            queryText: prompt,
+                            queryEmbedding,
+                            signal: req.signal,
+                          });
+
+                        if (exactDocumentEvidence.length > 0) {
+                          console.log('[Document Provenance Resolution]', {
+                            role:
+                              jevEffectiveConstraints?.documentReferenceRole ||
+                              null,
+                            broadCandidateDocumentIds: Array.from(
+                              new Set(
+                                retrievedDocuments.map(
+                                  (item) => item.documentId
+                                )
+                              )
+                            ),
+                            resolvedDocumentId:
+                              resolvedDocumentIdentity.id,
+                            filename:
+                              resolvedDocumentIdentity.filename,
+                            exactResultCount:
+                              exactDocumentEvidence.length,
+                          });
+                          retrievedDocuments = exactDocumentEvidence;
+                        }
+                      }
                     }
                   } catch (docErr: any) {
                     console.error(
