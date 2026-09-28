@@ -480,22 +480,34 @@ export async function findDocumentStateSnapshot(options: {
     return null;
   }
 
-  const normalizedFilename = (filename || '').trim().toLowerCase();
-  for (const row of data) {
-    const snapshot = snapshotFromRow(discussionId, row);
-    if (!snapshot) continue;
+  const snapshots = data
+    .map((row: any) => snapshotFromRow(discussionId, row))
+    .filter(
+      (snapshot: DocumentStateSnapshot | null): snapshot is DocumentStateSnapshot =>
+        Boolean(snapshot)
+    );
 
-    if (storagePath && snapshot.storagePath === storagePath) return snapshot;
-    if (documentId && snapshot.documentId === documentId) return snapshot;
-    if (
-      normalizedFilename &&
-      snapshot.filename.trim().toLowerCase() === normalizedFilename
-    ) {
-      return snapshot;
-    }
+  // Exact provenance always outranks filename similarity. If the caller
+  // supplied a storage path or document ID, never silently fall through to a
+  // newer generated descendant that happens to share the same filename.
+  if (storagePath || documentId) {
+    const exact = snapshots.find(
+      (snapshot) =>
+        (storagePath && snapshot.storagePath === storagePath) ||
+        (documentId && snapshot.documentId === documentId)
+    );
+    return exact || null;
   }
 
-  return null;
+  const normalizedFilename = (filename || '').trim().toLowerCase();
+  if (!normalizedFilename) return null;
+
+  return (
+    snapshots.find(
+      (snapshot) =>
+        snapshot.filename.trim().toLowerCase() === normalizedFilename
+    ) || null
+  );
 }
 
 function decodePointerToken(token: string): string {
