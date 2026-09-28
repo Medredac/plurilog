@@ -4661,6 +4661,9 @@ export interface RetrieveDiscussionDocumentsOptions {
   discussionId: string;
   queryText: string;
   queryEmbedding?: number[] | null;
+  candidateLimit?: number;
+  tokenBudget?: number;
+  documentScope?: 'single' | 'multiple' | 'broad' | null;
   signal?: AbortSignal;
 }
 
@@ -4672,7 +4675,16 @@ export interface RetrieveDiscussionDocumentsOptions {
 export async function retrieveDiscussionDocuments(
   options: RetrieveDiscussionDocumentsOptions
 ): Promise<RetrievedDocumentExcerpt[]> {
-  const { serviceSupabase, discussionId, queryText, queryEmbedding, signal } = options;
+  const {
+    serviceSupabase,
+    discussionId,
+    queryText,
+    queryEmbedding,
+    candidateLimit = 50,
+    tokenBudget = 6000,
+    documentScope = null,
+    signal,
+  } = options;
 
   if (
     !serviceSupabase ||
@@ -4693,7 +4705,7 @@ export async function retrieveDiscussionDocuments(
         p_discussion_id: discussionId,
         p_query_text: queryText.trim(),
         p_query_embedding: queryEmbedding,
-        p_match_count: 5,
+        p_match_count: Math.max(5, Math.min(100, candidateLimit)),
       }
     );
 
@@ -4706,7 +4718,9 @@ export async function retrieveDiscussionDocuments(
       return [];
     }
 
-    // Filter, deduplicate, and enforce DOCUMENT_RETRIEVAL_TOKEN_BUDGET (max 2 chunks).
+    // Filter, deduplicate, and enforce a controller-selected token budget.
+    // There is intentionally no fixed document/chunk count ceiling: breadth is
+    // selected by Jev/System 2 and bounded only by relevance + context budget.
     // Before applying the semantic threshold, derive a few meaningful lexical
     // anchors from the user's query. Exact anchor presence is a conservative
     // rescue signal for cases where an embedding ranks a tiny unrelated chunk
@@ -4752,10 +4766,30 @@ export async function retrieveDiscussionDocuments(
     const seenChunkKeys = new Set<string>();
     let accumulatedTokens = 0;
 
-    for (const ranked of rankedRows) {
+    // For multi-document work, first give every relevant document a chance to
+    // contribute its best chunk before taking second/third chunks from one file.
+    const candidateOrder =
+      documentScope === 'multiple' || documentScope === 'broad'
+        ? (() => {
+            const firstPerDocument: typeof rankedRows = [];
+            const remainder: typeof rankedRows = [];
+            const seenDocuments = new Set<string>();
+            for (const ranked of rankedRows) {
+              const documentId = String(ranked.row?.document_id || '');
+              if (documentId && !seenDocuments.has(documentId)) {
+                seenDocuments.add(documentId);
+                firstPerDocument.push(ranked);
+              } else {
+                remainder.push(ranked);
+              }
+            }
+            return [...firstPerDocument, ...remainder];
+          })()
+        : rankedRows;
+
+    for (const ranked of candidateOrder) {
       const row = ranked.row;
       const lexicalAnchorMatch = ranked.lexicalAnchorMatch;
-      if (qualifying.length >= 2) break;
 
       const chunkId = String(row?.chunk_id || '');
       const documentId = String(row?.document_id || '');
@@ -4820,7 +4854,7 @@ export async function retrieveDiscussionDocuments(
         });
         seenChunkKeys.add(dedupeKey);
         accumulatedTokens += chunkTokens;
-      } else if (accumulatedTokens + chunkTokens <= DOCUMENT_RETRIEVAL_TOKEN_BUDGET) {
+      } else if (accumulatedTokens + chunkTokens <= Math.max(500, tokenBudget)) {
         qualifying.push({
           chunkId,
           documentId,
@@ -4835,6 +4869,23 @@ export async function retrieveDiscussionDocuments(
         seenChunkKeys.add(dedupeKey);
         accumulatedTokens += chunkTokens;
       }
+    }
+
+    if (process.env.VERCEL_ENV === 'preview') {
+      console.log('[Jev Adaptive Document Retrieval]', {
+        discussionId,
+        documentScope,
+        candidateLimit: Math.max(5, Math.min(100, candidateLimit)),
+        tokenBudget: Math.max(500, tokenBudget),
+        selectedChunkCount: qualifying.length,
+        selectedDocumentCount: new Set(
+          qualifying.map((item) => item.documentId)
+        ).size,
+        selectedDocuments: Array.from(
+          new Set(qualifying.map((item) => item.filename))
+        ),
+        accumulatedTokens,
+      });
     }
 
     return qualifying;
