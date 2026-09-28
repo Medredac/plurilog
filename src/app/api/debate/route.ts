@@ -2649,11 +2649,31 @@ export async function POST(req: NextRequest) {
             )
           );
 
+        const primarySourceAnswer =
+          (result.answers as any)?.primary_source_needed;
+        const primarySourceSignal =
+          primarySourceAnswer?.type === 'noul'
+            ? Number(primarySourceAnswer.noul || 0)
+            : 0;
+        const provenanceChronologyNeedsAdjudication =
+          primarySourceSignal >= 0.7 &&
+          result.compiledPlan.operations.includes('semantic_history') &&
+          result.compiledPlan.operations.includes('chronology') &&
+          result.compiledPlan.operations.includes('speaker_filter');
+
+        const visualCompositeNeedsAdjudication =
+          result.compiledPlan.operations.includes('visual_evidence') &&
+          result.compiledPlan.operations.includes('document_search') &&
+          hasConversationRetrieval &&
+          primarySourceSignal >= 0.7;
+
         const needsResolver =
           result.compiledPlan.escalationSuggested ||
           relativeChronologyNeedsAdjudication ||
           semanticChronologyNeedsAdjudication ||
           mixedReferenceNeedsAdjudication ||
+          provenanceChronologyNeedsAdjudication ||
+          visualCompositeNeedsAdjudication ||
           (result.compiledPlan.operations.includes('recent_exact') &&
             result.compiledPlan.operations.includes('speaker_filter') &&
             !result.compiledPlan.operations.includes('semantic_history'));
@@ -2674,7 +2694,7 @@ export async function POST(req: NextRequest) {
                   {
                     role: 'system',
                     content:
-                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations and constraints are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"constraintOverrides":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan. constraintOverrides contains only corrections needed to scope the final plan; use null to explicitly clear a mistaken constraint. Treat document, conversation, and visual references as separate evidence domains: temporal wording attached to a document version must not automatically become conversation chronology, and conversational authorship must be resolved independently from document provenance. If the user asks for something they themselves said/told/described earlier, speaker=user is appropriate and speaker_filter should be retained. If they ask what a named panel model said, set that speaker. Do not retrieve old conversation merely because the user mentions history when the current request is self-contained. If older conversation evidence is actually required, use semantic_history. Distinguish provenance/original-source requests from actual first/last/previous/before/after selection over conversation events. If chronology is not genuinely required for the conversation evidence, remove chronology and clear temporalRelation/chronologyRole/anchorSource. Preserve document_search and documentReferenceRole when the request independently needs a historical document.',
+                      'You are a shadow memory-plan adjudicator. Do not answer the user. Decide whether the proposed memory operations and constraints are actually needed. Return JSON only: {"overrideNeeded":boolean,"operations":string[],"constraintOverrides":{"speaker":string|null,"temporalRelation":string|null,"semanticRole":string|null,"chronologyRole":string|null,"topicSource":string|null,"anchorSource":string|null,"documentReferenceRole":string|null},"reason":string}. Allowed operations: recent_exact, semantic_history, chronology, rolling_summary, document_search, visual_evidence, speaker_filter. IMPORTANT CONTRACT: when overrideNeeded is true, operations MUST be the complete final operation set, not merely additions to the proposed plan. constraintOverrides contains only corrections needed to scope the final plan; use null to explicitly clear a mistaken constraint. Treat document, conversation, and visual references as separate evidence domains: temporal wording attached to a document version must not automatically become conversation chronology, and conversational authorship must be resolved independently from document provenance. If the requested visual source is a native image or screenshot and the user does not independently need text from a document, visual_evidence is sufficient for that visual source and document_search should be removed. If the user asks for something they themselves said/told/described earlier, speaker=user is appropriate and speaker_filter should be retained. If they ask what a named panel model said, set that speaker. Do not retrieve old conversation merely because the user mentions history when the current request is self-contained. If older conversation evidence is actually required, use semantic_history. Distinguish provenance/original-source requests from actual first/last/previous/before/after selection over conversation events. If chronology is not genuinely required for the conversation evidence, remove chronology and clear temporalRelation/chronologyRole/anchorSource. Preserve document_search and documentReferenceRole when the request independently needs a historical document.',
                   },
                   {
                     role: 'user',
