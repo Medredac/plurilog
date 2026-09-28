@@ -49,6 +49,7 @@ export type JevMemoryPilotShadowResult = {
       chronologyRole: string | null;
       topicSource: string | null;
       anchorSource: string | null;
+      documentReferenceRole: string | null;
       ordinalPosition: number | null;
       anchorOccurrence: string | null;
       anchorOrdinalPosition: number | null;
@@ -429,6 +430,7 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const chronologyRole = getChoice(answers, 'chronology_role');
   const topicSource = getChoice(answers, 'topic_source');
   const anchorSource = getChoice(answers, 'anchor_source');
+  const documentReferenceRole = getChoice(answers, 'document_reference_role');
   const ordinalPositionChoice = getChoice(answers, 'ordinal_position');
   const anchorOccurrence = getChoice(answers, 'anchor_occurrence');
   const anchorOrdinalPositionChoice = getChoice(
@@ -456,6 +458,10 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
   const anchorSourceConfidence = getChoiceConfidence(
     answers,
     'anchor_source'
+  );
+  const documentReferenceRoleConfidence = getChoiceConfidence(
+    answers,
+    'document_reference_role'
   );
   const ordinalPositionConfidence = getChoiceConfidence(
     answers,
@@ -792,6 +798,13 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
               ? anchorSource
               : null
           : null,
+      documentReferenceRole:
+        documentNeeded &&
+        documentReferenceRole &&
+        documentReferenceRole !== 'none' &&
+        documentReferenceRoleConfidence >= 0.5
+          ? documentReferenceRole
+          : null,
       ordinalPosition:
         chronologyNeeded &&
         executableRelation === 'ordinal' &&
@@ -1036,6 +1049,22 @@ export async function runJevMemoryPilotShadow(options: {
           'Recent context must resolve what historical event/topic the user means.',
         semantic_result:
           'Semantic history should first locate the relevant historical anchor/candidate round.',
+      },
+    },
+    document_reference_role: {
+      type: 'choice',
+      instructions:
+        'When document_search is needed, what provenance/version of the document is the user referring to?',
+      criteria: {
+        none: 'No document reference is required.',
+        user_uploaded:
+          'The user refers to a file they uploaded or shared as the source document.',
+        generated_or_revised:
+          'The user refers to a document generated, edited, revised, or returned by the panel.',
+        latest:
+          'The user explicitly wants the latest/current version regardless of provenance.',
+        exact_or_unspecified:
+          'A document is referenced, but provenance/version is not specified clearly enough to prefer upload vs generated descendant.',
       },
     },
     flexible_resolver_needed: {
