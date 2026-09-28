@@ -2922,6 +2922,15 @@ export async function POST(req: NextRequest) {
           // Attempt hybrid discussion-memory retrieval (non-critical)
           let retrievedMemory: any[] = [];
           let retrievedDocuments: RetrievedDocumentExcerpt[] = [];
+          let provenanceResolvedDocument:
+            | {
+                id?: string | null;
+                filename: string;
+                storagePath?: string | null;
+                sourcePaths?: string[];
+                createdAt?: string;
+              }
+            | null = null;
           let composedConversationGraph: ConversationMemoryGraphResult | null = null;
 
           const conversationGraphOperations = jevEffectiveOperations.filter(
@@ -3515,6 +3524,8 @@ export async function POST(req: NextRequest) {
                           knownDocuments: discussionMemory?.knownDocuments,
                           retrievedDocuments,
                         });
+                      provenanceResolvedDocument =
+                        resolvedDocumentIdentity || provenanceResolvedDocument;
 
                       if (
                         resolvedDocumentIdentity?.id &&
@@ -6510,7 +6521,10 @@ export async function POST(req: NextRequest) {
                     /\b(?:older|earlier|previous|prior|first|original)\s+(?:version|draft|document|file|pdf|docx|rirekisho)\b/i.test(
                       prompt || ''
                     );
+                  const controllerDocumentReferenceRole =
+                    jevEffectiveConstraints?.documentReferenceRole || null;
                   const userRequestedUserUploadedDocument =
+                    controllerDocumentReferenceRole === 'user_uploaded' ||
                     promptReferencesUserUploadedDocument(prompt || '');
 
                   let explicitlySelectedUserUploadedDocument:
@@ -6682,11 +6696,19 @@ export async function POST(req: NextRequest) {
                     const canonicalRevisionParent =
                       explicitlySelectedCanonicalRevisionState ||
                       latestCanonicalRevisionState;
+                    const shouldUseControllerResolvedDocument =
+                      Boolean(
+                        provenanceResolvedDocument?.id &&
+                        provenanceResolvedDocument?.storagePath
+                      ) &&
+                      (toolResourceType === 'document' ||
+                        toolResourceType === 'auto');
                     const shouldAnchorToUserUploadedDocument =
                       Boolean(explicitlySelectedUserUploadedDocument) &&
                       (toolResourceType === 'document' ||
                         toolResourceType === 'auto');
                     const shouldAnchorRevisionToCanonicalParent =
+                      !shouldUseControllerResolvedDocument &&
                       !shouldAnchorToUserUploadedDocument &&
                       Boolean(canonicalRevisionParent);
                     const shouldAnchorToSameRoundGeneratedDocument =
@@ -6700,7 +6722,36 @@ export async function POST(req: NextRequest) {
                       );
 
                     const brokerResult =
-                      shouldAnchorToUserUploadedDocument &&
+                      shouldUseControllerResolvedDocument &&
+                      provenanceResolvedDocument?.storagePath
+                        ? {
+                            status: 'resolved' as const,
+                            kind:
+                              provenanceResolvedDocument.filename
+                                .toLowerCase()
+                                .endsWith('.docx')
+                                ? ('docx' as const)
+                                : ('pdf' as const),
+                            message:
+                              `Resolved controller-selected document: ${provenanceResolvedDocument.filename}.`,
+                            evidence: {
+                              kind:
+                                provenanceResolvedDocument.filename
+                                  .toLowerCase()
+                                  .endsWith('.docx')
+                                  ? ('docx' as const)
+                                  : ('pdf' as const),
+                              filename:
+                                provenanceResolvedDocument.filename,
+                              storagePath:
+                                provenanceResolvedDocument.storagePath,
+                              documentId:
+                                provenanceResolvedDocument.id || undefined,
+                              reason:
+                                'controller_resolved_document_identity',
+                            },
+                          }
+                        : shouldAnchorToUserUploadedDocument &&
                       explicitlySelectedUserUploadedDocument
                         ? {
                             status: 'resolved' as const,
