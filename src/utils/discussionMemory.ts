@@ -5886,7 +5886,7 @@ export async function fetchKnownImageSources(
 
     const { data: artifactRows, error: artErr } = await serviceSupabase
       .from('discussion_artifacts')
-      .select('id, artifact_type')
+      .select('id, artifact_type, metadata')
       .in('id', artifactIds);
 
     if (artErr || !Array.isArray(artifactRows)) return [];
