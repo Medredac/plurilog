@@ -509,8 +509,12 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
       ? Number.parseInt(anchorOrdinalPositionChoice, 10)
       : null;
 
+  // Speaker identity is a high-value provenance constraint: once Jev has a
+  // clear top speaker choice, preserve it at a slightly lower confidence than
+  // optional semantic-role labels so downstream resolution can judge evidence
+  // inside the requested speaker domain rather than whole-round echoes.
   const speakerSupported =
-    Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.75;
+    Boolean(speaker && speaker !== 'none') && speakerConfidence >= 0.7;
   const temporalSupported =
     Boolean(temporalRelation && temporalRelation !== 'none') &&
     temporalConfidence >= 0.55;
@@ -626,14 +630,20 @@ function compileShadowPlan(answers: Record<string, JevAnswer>) {
     documentSignal >= 0.65 ||
     (documentSignal >= 0.5 && visualNeeded);
 
-  const retrievalNeeded =
+  const conversationRetrievalNeeded =
     recentNeeded ||
     semanticNeeded ||
-    chronologyNeeded ||
+    chronologyNeeded;
+
+  const retrievalNeeded =
+    conversationRetrievalNeeded ||
     documentNeeded ||
     visualNeeded;
 
-  const speakerFilterNeeded = speakerSupported && retrievalNeeded;
+  // speaker_filter is a conversation-memory operator. Do not introduce it for
+  // document-only or visual-only retrieval merely because Jev named a speaker.
+  const speakerFilterNeeded =
+    speakerSupported && conversationRetrievalNeeded;
 
   const operations: string[] = [];
   if (recentNeeded) operations.push('recent_exact');
