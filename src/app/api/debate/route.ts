@@ -4230,6 +4230,7 @@ export async function POST(req: NextRequest) {
           // Visual Escalation & Verification Follow-Up Handling
           let visualAttachments: RouteAttachment[] | null = null;
           let pendingResolvedImageSources: KnownImageSource[] | null = null;
+          let pendingResolvedImageReason: string | null = null;
           let hadSuccessfulHistoricalImageDelivery = false;
           let mixedHistoricalAttachments: RouteAttachment[] = [];
           let pendingMixedHistoricalSources: KnownImageSource[] | null = null;
@@ -4725,6 +4726,7 @@ export async function POST(req: NextRequest) {
                           ...successfulImageAttachments,
                         ];
                         pendingResolvedImageSources = successfulResolvedSources;
+                        pendingResolvedImageReason = resolvedImage.reason;
                         hadSuccessfulHistoricalImageDelivery = true;
 
                         console.log('[Image Reopening] Reopened historical image evidence for turn:', {
@@ -4732,6 +4734,9 @@ export async function POST(req: NextRequest) {
                           sourceUserMessageId,
                           reason: resolvedImage.reason,
                           reopenedCount: successfulImageAttachments.length,
+                          resolvedSourceIds: successfulResolvedSources.map(
+                            (source) => source.sourceId
+                          ),
                         });
                       }
                     }
@@ -5168,6 +5173,29 @@ export async function POST(req: NextRequest) {
               : visualAttachments || [];
 
           let currentRoundAttachments: RouteAttachment[] = [...(effectiveAttachments || [])];
+
+          // Strong deterministic provenance resolutions are authoritative for
+          // the whole user turn. The action layer must consume the already
+          // resolved source rather than independently re-resolving it later.
+          // We deliberately limit this handoff to identity/provenance reasons
+          // whose source is objectively determined by the artifact graph.
+          if (
+            !sameTurnEditReferentLock &&
+            !hasCurrentImages &&
+            pendingResolvedImageSources?.length === 1 &&
+            pendingResolvedImageReason === 'original_lineage_root'
+          ) {
+            sameTurnEditReferentLock = pendingResolvedImageSources[0];
+            console.log(
+              '[Visual Referent Handoff] Locked authoritative turn-level provenance source',
+              {
+                discussionId,
+                reason: pendingResolvedImageReason,
+                sourceId: sameTurnEditReferentLock.sourceId,
+                filename: sameTurnEditReferentLock.filename,
+              }
+            );
+          }
 
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
