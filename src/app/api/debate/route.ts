@@ -5221,7 +5221,15 @@ export async function POST(req: NextRequest) {
               hasImmediateDocumentContext,
             });
 
-          if (discussionId && jevAllowsHistoricalVisualEvidence) {
+          // Historical artifact selection is deliberately post-reasoning in
+          // agentic mode. The seat asks for the evidence it needs; the runtime
+          // then resolves canonical identity/provenance. Legacy branches retain
+          // the old pre-seat visual/document reopeners for compatibility.
+          if (
+            !AGENTIC_MEMORY_EXPERIMENT &&
+            discussionId &&
+            jevAllowsHistoricalVisualEvidence
+          ) {
             if (isVerificationFollowUp && lastRound) {
               const inheritedDocId = lastRound.visualDocumentId;
               if (inheritedDocId) {
@@ -6452,7 +6460,8 @@ export async function POST(req: NextRequest) {
             const canEditCurrentUserDocument =
               isDocumentCreationEnabledForSeat &&
               hasCurrentUserDocumentUpload &&
-              !isSimplePdfFormatConversionRequest(prompt || '');
+              (AGENTIC_MEMORY_EXPERIMENT ||
+                !isSimplePdfFormatConversionRequest(prompt || ''));
             const sourceDocumentEditingForCurrentTurn =
               !AGENTIC_MEMORY_EXPERIMENT &&
               canEditCurrentUserDocument &&
@@ -6478,6 +6487,7 @@ export async function POST(req: NextRequest) {
               (jevAllowsDocumentSearch && hasKnownInspectableDocument) ||
               (jevAllowsHistoricalVisualEvidence && hasKnownInspectableImage);
             const shouldForceEvidenceOnFirstPass =
+              !AGENTIC_MEMORY_EXPERIMENT &&
               isEvidenceEnabledForSeat &&
               hasRetrievableHistoricalEvidence &&
               (
@@ -7618,7 +7628,8 @@ export async function POST(req: NextRequest) {
 
                     const sourceDocx =
                       explicitSourceDocx ||
-                      (fileArgs.format === 'pdf' &&
+                      (!AGENTIC_MEMORY_EXPERIMENT &&
+                      fileArgs.format === 'pdf' &&
                       isSimplePdfFormatConversionRequest(prompt || '')
                         ? latestDocxSourceFromContext({
                             currentRoundAttachments,
@@ -8136,6 +8147,7 @@ export async function POST(req: NextRequest) {
                     | null = null;
 
                   if (
+                    !AGENTIC_MEMORY_EXPERIMENT &&
                     seat.seatId === 'chatgpt' &&
                     isDocumentRevisionFollowUp &&
                     serviceClientForEvidence &&
@@ -8733,10 +8745,19 @@ export async function POST(req: NextRequest) {
                         explicitlySelectedCanonicalRevisionState ||
                         latestCanonicalRevisionState
                     );
+                  const hasResolvedDocumentEvidence =
+                    evidenceResolutionRecords.some(
+                      (record) =>
+                        record.brokerResult.status === 'resolved' &&
+                        (record.brokerResult.evidence?.kind === 'pdf' ||
+                          record.brokerResult.evidence?.kind === 'docx')
+                    );
                   if (
                     seat.seatId === 'chatgpt' &&
-                    isDocumentRevisionFollowUp &&
-                    serviceClientForEvidence
+                    serviceClientForEvidence &&
+                    (AGENTIC_MEMORY_EXPERIMENT
+                      ? hasResolvedDocumentEvidence
+                      : isDocumentRevisionFollowUp)
                   ) {
                     const resolvedDocumentIds = Array.from(
                       new Set([
@@ -9576,8 +9597,9 @@ export async function POST(req: NextRequest) {
 
                           if (
                             seat.seatId === 'chatgpt' &&
-                            isDocumentRevisionFollowUp &&
-                            serviceClientForEvidence
+                            serviceClientForEvidence &&
+                            (AGENTIC_MEMORY_EXPERIMENT ||
+                              isDocumentRevisionFollowUp)
                           ) {
                             revisionParentState =
                               await findDocumentStateSnapshot({
@@ -10458,7 +10480,8 @@ export async function POST(req: NextRequest) {
 
                       const resolvedSourceDocx =
                         explicitEvidenceSourceDocx ||
-                        (fileArgs.format === 'pdf' &&
+                        (!AGENTIC_MEMORY_EXPERIMENT &&
+                        fileArgs.format === 'pdf' &&
                         isSimplePdfFormatConversionRequest(prompt || '')
                           ? resolvedDocxEvidence?.storagePath
                             ? {
