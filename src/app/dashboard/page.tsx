@@ -2815,15 +2815,16 @@ export default function DashboardPage() {
                   key={activeDebateId || 'empty-state-view'}
                   className="flex-1 flex flex-col items-center justify-center pl-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-right))] max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
                 >
-                  {/* Brand Logo (Substantially Enlarged ~2.5x with subtle drop-in) */}
+                  {/* Animated Plurilog panel illustration */}
                   <div 
-                    className="w-24 h-24 mb-5 flex items-center justify-center animate-drop-fade"
+                    className="w-52 sm:w-60 mb-2 flex items-center justify-center animate-drop-fade"
                     style={{ animationDelay: '0ms' }}
                   >
                     <img
-                      src="/logo.svg"
-                      alt="Plurilog"
-                      className="w-20 h-20 sm:w-22 sm:h-22"
+                      src="/plurilog-robots-sketch.svg"
+                      alt="Gemini, Claude, and ChatGPT discussing together"
+                      className="w-full h-auto select-none pointer-events-none"
+                      draggable={false}
                     />
                   </div>
 
