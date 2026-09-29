@@ -474,7 +474,7 @@ export default function LandingPage() {
             }}
             className="w-full lg:w-[55%] order-first lg:order-last"
           >
-            <img src="/plurilog-laptop-robots.svg" alt="" className="w-full h-auto" />
+            <img src="/herodraw.svg" alt="" className="w-full h-auto" />
           </motion.div>
         </section>
 
