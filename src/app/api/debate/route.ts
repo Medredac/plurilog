@@ -8618,6 +8618,17 @@ export async function POST(req: NextRequest) {
                   };
 
                   for (const toolCall of evidenceRequestCalls) {
+                    const liveActivity = buildAgenticSeatActivity(
+                      toolCall.name,
+                      toolCall.arguments
+                    );
+                    if (liveActivity) {
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        ...liveActivity,
+                      });
+                    }
+
                     const toolArgs = (toolCall.arguments || {}) as {
                       resource_type?: 'auto' | 'image' | 'document';
                       need?: string;
