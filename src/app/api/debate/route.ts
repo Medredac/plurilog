@@ -8334,7 +8334,7 @@ export async function POST(req: NextRequest) {
                     ...currentRoundAttachments,
                     ...newEvidenceAttachments,
                   ];
-                  const anyResolvedEvidence =
+                  let anyResolvedEvidence =
                     evidenceResolutionRecords.some(
                       (record) =>
                         record.modelSafeBrokerResult.status ===
@@ -8366,7 +8366,7 @@ export async function POST(req: NextRequest) {
 
                   const evidenceWasMaterialized =
                     newEvidenceAttachments.length > 0;
-                  const evidenceSeatAttachments =
+                  let evidenceSeatAttachments =
                     seat.seatId === 'gemini'
                       ? await prepareGeminiVisionAttachments(
                           evidenceAttachments
@@ -8508,7 +8508,7 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  const canonicalRevisionStateDocument =
+                  let canonicalRevisionStateDocument =
                     revisionParentState
                       ? [
                           {
@@ -8523,7 +8523,7 @@ export async function POST(req: NextRequest) {
                         ]
                       : [];
 
-                  const evidenceTurnDocuments = [
+                  let evidenceTurnDocuments = [
                     ...(currentTurnDocuments || []),
                     ...resolvedRevisionDocuments,
                     ...canonicalRevisionStateDocument,
@@ -8536,7 +8536,7 @@ export async function POST(req: NextRequest) {
                       ) === index
                   );
 
-                  const evidenceBaseMessages = buildPanelMessages(
+                  let evidenceBaseMessages = buildPanelMessages(
                     seat.name,
                     prompt,
                     priorResponses,
@@ -8686,17 +8686,17 @@ export async function POST(req: NextRequest) {
                   seatWebCitations.length = 0;
                   seenCitationUrls.clear();
 
-                  const evidenceContinuationCanCreateFile =
+                  let evidenceContinuationCanCreateFile =
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
                     anyResolvedEvidence;
-                  const evidenceContinuationCanSourceEdit =
+                  let evidenceContinuationCanSourceEdit =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
                     Boolean(resolvedEditableDocumentEvidence) &&
                     (!revisionParentState ||
                       isSourcePreservingDocumentState(revisionParentState));
-                  const evidenceContinuationCanReviseFile =
+                  let evidenceContinuationCanReviseFile =
                     evidenceContinuationCanCreateFile &&
                     isDocumentRevisionFollowUp &&
                     Boolean(revisionParentState) &&
@@ -8780,14 +8780,10 @@ export async function POST(req: NextRequest) {
                     const text = chunk.choices?.[0]?.delta?.content || '';
                     if (text) {
                       seatResponse += text;
-                      if (evidenceContinuationCanCreateFile) {
-                        evidenceContinuationChunks.push(text);
-                      } else {
-                        sendEvent('seat_chunk', {
-                          seatId: seat.seatId,
-                          text,
-                        });
-                      }
+                      // Always buffer while retrieval/action tools remain
+                      // available. A model may decide from this evidence that
+                      // it needs another grounded lookup before finalizing.
+                      evidenceContinuationChunks.push(text);
                     }
                   }
 
@@ -8807,7 +8803,7 @@ export async function POST(req: NextRequest) {
                     return;
                   }
 
-                  const evidenceContinuationCalls =
+                  let evidenceContinuationCalls =
                     accumulatedToolCalls.length > 0
                       ? finalizeAllToolCalls(accumulatedToolCalls)
                       : [];
