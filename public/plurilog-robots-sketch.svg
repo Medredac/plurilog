@@ -1,0 +1,227 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 236" width="380" height="236" role="img" aria-labelledby="t"><title id="t">Three Plurilog robots discussing and agreeing around a table</title>
+  <defs>
+    <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="2.4" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="grain" filterUnits="userSpaceOnUse" x="-20" y="-20" width="420" height="276">
+      <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="4" result="n"/>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.2 2.05" result="m"/>
+      <feComposite in="SourceGraphic" in2="m" operator="in"/>
+    </filter>
+  </defs>
+  <style>    .lean, .robot, .head, .bubble, .eyes, .mouth, .dot, .msg, .dots, .bulb, .arm { transform-box: fill-box; }
+    .lean { transform-origin: 50% 100%; }
+    .l0 { animation: lean0 9s ease-in-out infinite; }
+    .l2 { animation: lean2 9s ease-in-out infinite; }
+    .robot { transform-origin: 50% 100%; animation: idle 3s ease-in-out infinite, hop 9s ease-in-out infinite; }
+    .r1 { animation-delay: -1.4s, 0s; } .r2 { animation-delay: -2.2s, 0s; } .r0 { animation-delay: -0.4s, 0s; }
+    .r0 { animation-name: idle, hopA; } .r1 { animation-name: idle, hopB; } .r2 { animation-name: idle, hopC; }
+    .head { transform-origin: 50% 100%; }
+    .h0 { animation: talk0 9s ease-in-out infinite; }
+    .h1 { animation: talk1 9s ease-in-out infinite; }
+    .h2 { animation: talk2 9s ease-in-out infinite; }
+    .eyes { transform-origin: 50% 50%; animation: blink 4.5s infinite; }
+    .e1 { animation-delay: -1.7s; } .e2 { animation-delay: -3.1s; }
+    .mouth { transform-origin: 50% 0%; }
+    .m0 { animation: mouth0 9s infinite; } .m1 { animation: mouth1 9s infinite; } .m2 { animation: mouth2 9s infinite; }
+    .bu0 { animation: bub0 9s cubic-bezier(.3,1.5,.5,1) infinite; }
+    .bu1 { animation: bub1 9s cubic-bezier(.3,1.5,.5,1) infinite; }
+    .bu2 { animation: bub2 9s cubic-bezier(.3,1.5,.5,1) infinite; }
+    .d0 { animation: dots0 9s infinite; } .d1 { animation: dots1 9s infinite; } .d2 { animation: dots2 9s infinite; }
+    .msg { transform-origin: 50% 50%; }
+    .g0 { animation: msg0 9s infinite; } .g1 { animation: msg1 9s infinite; } .g2 { animation: msg2 9s infinite; }
+    .dot { transform-origin: 50% 50%; animation: typing .9s ease-in-out infinite; }
+    .dot:nth-child(2) { animation-delay: .15s; } .dot:nth-child(3) { animation-delay: .3s; }
+    .b0 { animation: glow0 9s infinite; } .b1 { animation: glow1 9s infinite; } .b2 { animation: glow2 9s infinite; }
+    .arm { transform-origin: 50% 10%; }
+    .armL1 { animation: waveL 9s ease-in-out infinite; }
+    .armR1 { animation: waveR 9s ease-in-out infinite; }
+
+    @keyframes idle { 0%,100% { translate: 0 0; } 50% { translate: 0 -2px; } }
+    @keyframes hopA { 0%,70%,82%,100% { transform: translateY(0) scale(1,1); }
+      72% { transform: translateY(0) scale(1.06,.94); } 75% { transform: translateY(-12px) scale(.97,1.04); }
+      78% { transform: translateY(0) scale(1.05,.95); } 80% { transform: translateY(-4px); } }
+    @keyframes hopB { 0%,73%,85%,100% { transform: translateY(0) scale(1,1); }
+      75% { transform: translateY(0) scale(1.06,.94); } 78% { transform: translateY(-12px) scale(.97,1.04); }
+      81% { transform: translateY(0) scale(1.05,.95); } 83% { transform: translateY(-4px); } }
+    @keyframes hopC { 0%,76%,88%,100% { transform: translateY(0) scale(1,1); }
+      78% { transform: translateY(0) scale(1.06,.94); } 81% { transform: translateY(-12px) scale(.97,1.04); }
+      84% { transform: translateY(0) scale(1.05,.95); } 86% { transform: translateY(-4px); } }
+    @keyframes blink { 0%,92%,100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+
+    /* back robots peek out sideways while speaking */
+    @keyframes lean0 { 0%,1%,19%,100% { rotate: 0deg; translate: 0 0; } 5%,15% { rotate: -9deg; translate: -6px 0; } }
+    @keyframes lean2 { 0%,44%,63%,100% { rotate: 0deg; translate: 0 0; } 48%,59% { rotate: 9deg; translate: 6px 0; } }
+
+    @keyframes talk0 { 0%,2%,20%,100% { rotate: 0deg; } 8% { rotate: -5deg; } 14% { rotate: 3deg; } }
+    @keyframes talk1 { 0%,22%,42%,100% { rotate: 0deg; } 28% { rotate: 5deg; } 35% { rotate: -3deg; } }
+    @keyframes talk2 { 0%,44%,64%,100% { rotate: 0deg; } 51% { rotate: 5deg; } 57% { rotate: -3deg; } }
+
+    @keyframes mouth0 { 0%,15%,100% { transform: scaleY(1); } 4%,8%,12% { transform: scaleY(2.2); } 6%,10% { transform: scaleY(.6); } }
+    @keyframes mouth1 { 0%,22%,37%,100% { transform: scaleY(1); } 26%,30%,34% { transform: scaleY(2.2); } 28%,32% { transform: scaleY(.6); } }
+    @keyframes mouth2 { 0%,44%,59%,100% { transform: scaleY(1); } 48%,52%,56% { transform: scaleY(2.2); } 50%,54% { transform: scaleY(.6); } }
+
+    @keyframes bub0 { 0% { transform: scale(0); opacity: 0; } 4% { transform: scale(1); opacity: 1; } 90% { transform: scale(1); opacity: 1; } 96%,100% { transform: scale(.6); opacity: 0; } }
+    @keyframes bub1 { 0%,22% { transform: scale(0); opacity: 0; } 26% { transform: scale(1); opacity: 1; } 90% { transform: scale(1); opacity: 1; } 96%,100% { transform: scale(.6); opacity: 0; } }
+    @keyframes bub2 { 0%,44% { transform: scale(0); opacity: 0; } 48% { transform: scale(1); opacity: 1; } 90% { transform: scale(1); opacity: 1; } 96%,100% { transform: scale(.6); opacity: 0; } }
+
+    @keyframes dots0 { 0%,13% { opacity: 1; } 15%,100% { opacity: 0; } }
+    @keyframes dots1 { 0%,35% { opacity: 1; } 37%,100% { opacity: 0; } }
+    @keyframes dots2 { 0%,57% { opacity: 1; } 59%,100% { opacity: 0; } }
+    @keyframes msg0 { 0%,14% { opacity: 0; transform: scale(.7); } 17%,100% { opacity: 1; transform: scale(1); } }
+    @keyframes msg1 { 0%,36% { opacity: 0; transform: scale(.7); } 39%,100% { opacity: 1; transform: scale(1); } }
+    @keyframes msg2 { 0%,58% { opacity: 0; transform: scale(.4) rotate(-20deg); } 62%,100% { opacity: 1; transform: scale(1) rotate(0); } }
+
+    @keyframes typing { 0%,60%,100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-3.5px); opacity: 1; } }
+    @keyframes glow0 { 0%,1%,17%,100% { fill: #E0644B; } 3%,7%,11%,15% { fill: #F6D3C9; } 5%,9%,13% { fill: #E0644B; } }
+    @keyframes glow1 { 0%,23%,39%,100% { fill: #4880E6; } 25%,29%,33%,37% { fill: #D3E0F8; } 27%,31%,35% { fill: #4880E6; } }
+    @keyframes glow2 { 0%,45%,61%,100% { fill: #3A3A3C; } 47%,51%,55%,59% { fill: #D9D8D5; } 49%,53%,57% { fill: #3A3A3C; } }
+    @keyframes waveL { 0%,72%,88%,100% { rotate: 0deg; } 77%,83% { rotate: -40deg; } 80% { rotate: -15deg; } }
+    @keyframes waveR { 0%,72%,88%,100% { rotate: 0deg; } 77%,83% { rotate: 40deg; } 80% { rotate: 15deg; } }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .dots { opacity: 0; }
+    }
+
+    .spark { transform-box: fill-box; transform-origin: 50% 50%; opacity: 0; animation: spark 9s ease-out infinite; }
+    .sp1 { animation-delay: .15s; } .sp2 { animation-delay: .3s; } .sp3 { animation-delay: .1s; }
+    @keyframes spark { 0%,74% { opacity: 0; transform: scale(.3) rotate(0); } 78% { opacity: 1; transform: scale(1.1) rotate(20deg); } 86% { opacity: 1; transform: scale(1) rotate(30deg); } 90%,100% { opacity: 0; transform: scale(.6) rotate(40deg); } }
+</style>
+  <path d="M46 120 C40 70 80 58 130 64 C190 50 260 48 310 64 C352 76 350 120 344 160 C340 205 300 214 190 216 C90 218 52 200 46 160 Z" fill="#F3EEE3"/>
+  <g filter="url(#rough)">
+    <!-- wall frames -->
+    <path d="M30 84.8 Q45.0 83.2 60 84 Q62 84 62 86 Q62.8 106.0 62 126 Q62 128 60 128 Q45.0 128.8 30 128 Q28 128 28 126 Q27.2 106.0 28 86 Q28 84 30 84.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><path d="M34 89.8 Q45.0 88.2 56 89 Q57 89 57 90 Q57.8 106.0 57 122 Q57 123 56 123 Q45.0 123.8 34 123 Q33 123 33 122 Q32.2 106.0 33 90 Q33 89 34 89.8Z" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M45 117 q0 -10 0 -20 M45 110 q-6 -3 -7 -8 M45 104 q6 -2 7 -7" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M45 104 q6 -2 7 -7 q-5 0 -7 7" fill="#D9D8D5" filter="url(#grain)"/>
+    <circle cx="336" cy="104" r="17" fill="#E0644B" filter="url(#grain)"/><circle cx="334" cy="102" r="17" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M334 94 v8 l6 4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    
+  <g class="bubble bu0" style="transform-origin:108% 100%">
+    <path d="M111 53 Q126.0 59.0 138 64 Q132.0 57.0 125 53" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M66 10.8 Q92.0 9.2 118 10 Q132 10 132 24 Q132.8 32.0 132 40 Q132 54 118 54 Q92.0 54.8 66 54 Q52 54 52 40 Q51.2 32.0 52 24 Q52 10 66 10.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M67 13.8 Q93.0 12.2 119 13 Q131 13 131 25 Q131.8 33.0 131 41 Q131 53 119 53 Q93.0 53.8 67 53 Q55 53 55 41 Q54.2 33.0 55 25 Q55 13 67 13.8Z" fill="#EAE8E3" filter="url(#grain)"/>
+    <path d="M112 52.5 L124 52.5" stroke="#EAE8E3" stroke-width="3.2"/>
+    <g class="dots d0">
+      <circle class="dot" cx="80" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="92" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="104" cy="32" r="3" fill="#2A2622"/>
+    </g>
+    <g class="msg g0"><path d="M66 26 q7 -2 14 0 t14 0 t14 -1 t10 0" fill="none" stroke="#E0644B" stroke-width="4" stroke-linecap="round" filter="url(#grain)"/><path d="M66 38 q6 -2 12 0 t12 0 t10 0" fill="none" stroke="#E0644B" stroke-width="4" stroke-linecap="round" filter="url(#grain)"/></g>
+  </g>
+    
+  <g class="bubble bu1" style="transform-origin:50% 100%">
+    <path d="M183 53 Q188.0 70.0 190 86 Q194.0 68.0 197 53" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M164 10.8 Q190.0 9.2 216 10 Q230 10 230 24 Q230.8 32.0 230 40 Q230 54 216 54 Q190.0 54.8 164 54 Q150 54 150 40 Q149.2 32.0 150 24 Q150 10 164 10.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M165 13.8 Q191.0 12.2 217 13 Q229 13 229 25 Q229.8 33.0 229 41 Q229 53 217 53 Q191.0 53.8 165 53 Q153 53 153 41 Q152.2 33.0 153 25 Q153 13 165 13.8Z" fill="#EAE8E3" filter="url(#grain)"/>
+    <path d="M184 52.5 L196 52.5" stroke="#EAE8E3" stroke-width="3.2"/>
+    <g class="dots d1">
+      <circle class="dot" cx="178" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="190" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="202" cy="32" r="3" fill="#2A2622"/>
+    </g>
+    <g class="msg g1"><path d="M164 26 q7 -2 14 0 t14 0 t14 -1 t10 0" fill="none" stroke="#4880E6" stroke-width="4" stroke-linecap="round" filter="url(#grain)"/><path d="M164 38 q6 -2 12 0 t12 0 t10 0" fill="none" stroke="#4880E6" stroke-width="4" stroke-linecap="round" filter="url(#grain)"/></g>
+  </g>
+    
+  <g class="bubble bu2" style="transform-origin:-8% 100%">
+    <path d="M255 53 Q250.0 59.0 242 64 Q256.0 57.0 269 53" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M262 10.8 Q288.0 9.2 314 10 Q328 10 328 24 Q328.8 32.0 328 40 Q328 54 314 54 Q288.0 54.8 262 54 Q248 54 248 40 Q247.2 32.0 248 24 Q248 10 262 10.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M263 13.8 Q289.0 12.2 315 13 Q327 13 327 25 Q327.8 33.0 327 41 Q327 53 315 53 Q289.0 53.8 263 53 Q251 53 251 41 Q250.2 33.0 251 25 Q251 13 263 13.8Z" fill="#EAE8E3" filter="url(#grain)"/>
+    <path d="M256 52.5 L268 52.5" stroke="#EAE8E3" stroke-width="3.2"/>
+    <g class="dots d2">
+      <circle class="dot" cx="276" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="288" cy="32" r="3" fill="#2A2622"/>
+      <circle class="dot" cx="300" cy="32" r="3" fill="#2A2622"/>
+    </g>
+    <g class="msg g2"><circle cx="288" cy="32" r="12" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><path d="M282 32 l4.5 5 l8 -10" fill="none" stroke="#2A2622" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+  </g>
+    
+  <g class="lean l0"><g class="robot r0">
+    <g>
+      <path class="arm armL0" d="M114.5 145.8 Q114.5 144.2 114.5 145 Q119 145 119 149.5 Q119.8 156.0 119 162.5 Q119 167 114.5 167 Q114.5 167.8 114.5 167 Q110 167 110 162.5 Q109.2 156.0 110 149.5 Q110 145 114.5 145.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="arm armR0" d="M165.5 145.8 Q165.5 144.2 165.5 145 Q170 145 170 149.5 Q170.8 156.0 170 162.5 Q170 167 165.5 167 Q165.5 167.8 165.5 167 Q161 167 161 162.5 Q160.2 156.0 161 149.5 Q161 145 165.5 145.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M128 139.8 Q140.0 138.2 152 139 Q162 139 162 149 Q162.8 164.5 162 180 Q162 190 152 190 Q140.0 190.8 128 190 Q118 190 118 180 Q117.2 164.5 118 149 Q118 139 128 139.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M128 145.8 Q138.0 144.2 148 145 Q153 145 153 150 Q153.8 153.0 153 156 Q153 161 148 161 Q138.0 161.8 128 161 Q123 161 123 156 Q122.2 153.0 123 150 Q123 145 128 145.8Z" fill="#F6D3C9" filter="url(#grain)"/>
+      <path d="M131 152 h14 M131 157 h8" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+    <g class="head h0">
+      <path d="M140 92 q-1 -7 0 -13" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle class="bulb b0" cx="140" cy="75" r="4.5" fill="#E0644B" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M109.0 108.8 Q109.0 107.2 109.0 108 Q112.0 108 112.0 111 Q112.8 114.5 112.0 118 Q112.0 121 109.0 121 Q109.0 121.8 109.0 121 Q106.0 121 106.0 118 Q105.2 114.5 106.0 111 Q106.0 108 109.0 108.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M171.0 108.8 Q171.0 107.2 171.0 108 Q174.0 108 174.0 111 Q174.8 114.5 174.0 118 Q174.0 121 171.0 121 Q171.0 121.8 171.0 121 Q168.0 121 168.0 118 Q167.2 114.5 168.0 111 Q168.0 108 171.0 108.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M124.0 92.8 Q140.0 91.2 156.0 92 Q169.0 92 169.0 105 Q169.8 115.0 169.0 125 Q169.0 138 156.0 138 Q140.0 138.8 124.0 138 Q111.0 138 111.0 125 Q110.2 115.0 111.0 105 Q111.0 92 124.0 92.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M125.5 95.8 Q141.0 94.2 156.5 95 Q168.5 95 168.5 107 Q169.3 116.5 168.5 126 Q168.5 138 156.5 138 Q141.0 138.8 125.5 138 Q113.5 138 113.5 126 Q112.7 116.5 113.5 107 Q113.5 95 125.5 95.8Z" fill="#E0644B" filter="url(#grain)"/>
+      <path d="M126.0 100.8 Q140.0 99.2 154.0 100 Q161.0 100 161.0 107 Q161.8 115.0 161.0 123 Q161.0 130 154.0 130 Q140.0 130.8 126.0 130 Q119.0 130 119.0 123 Q118.2 115.0 119.0 107 Q119.0 100 126.0 100.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <g class="eyes e0">
+        <path d="M130 110 v6 M150 110 v6" fill="none" stroke="#2A2622" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <circle cx="125" cy="119" r="2.8" fill="#F6D3C9" filter="url(#grain)"/>
+      <circle cx="155" cy="119" r="2.8" fill="#F6D3C9" filter="url(#grain)"/>
+      <path class="mouth m0" d="M136 120 q4 3.5 8 0" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g></g>
+    
+  <g class="lean l2"><g class="robot r2">
+    <g>
+      <path class="arm armL2" d="M214.5 145.8 Q214.5 144.2 214.5 145 Q219 145 219 149.5 Q219.8 156.0 219 162.5 Q219 167 214.5 167 Q214.5 167.8 214.5 167 Q210 167 210 162.5 Q209.2 156.0 210 149.5 Q210 145 214.5 145.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="arm armR2" d="M265.5 145.8 Q265.5 144.2 265.5 145 Q270 145 270 149.5 Q270.8 156.0 270 162.5 Q270 167 265.5 167 Q265.5 167.8 265.5 167 Q261 167 261 162.5 Q260.2 156.0 261 149.5 Q261 145 265.5 145.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M228 139.8 Q240.0 138.2 252 139 Q262 139 262 149 Q262.8 164.5 262 180 Q262 190 252 190 Q240.0 190.8 228 190 Q218 190 218 180 Q217.2 164.5 218 149 Q218 139 228 139.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M228 145.8 Q238.0 144.2 248 145 Q253 145 253 150 Q253.8 153.0 253 156 Q253 161 248 161 Q238.0 161.8 228 161 Q223 161 223 156 Q222.2 153.0 223 150 Q223 145 228 145.8Z" fill="#D9D8D5" filter="url(#grain)"/>
+      <path d="M231 152 h14 M231 157 h8" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+    <g class="head h2">
+      <path d="M229 92 q-2 -6 -5 -11" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><path d="M251 92 q2 -6 5 -11" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle class="bulb b2" cx="224" cy="78" r="3.8" fill="#3A3A3C" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle class="bulb b2" cx="256" cy="78" r="3.8" fill="#3A3A3C" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M209.0 108.8 Q209.0 107.2 209.0 108 Q212.0 108 212.0 111 Q212.8 114.5 212.0 118 Q212.0 121 209.0 121 Q209.0 121.8 209.0 121 Q206.0 121 206.0 118 Q205.2 114.5 206.0 111 Q206.0 108 209.0 108.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M271.0 108.8 Q271.0 107.2 271.0 108 Q274.0 108 274.0 111 Q274.8 114.5 274.0 118 Q274.0 121 271.0 121 Q271.0 121.8 271.0 121 Q268.0 121 268.0 118 Q267.2 114.5 268.0 111 Q268.0 108 271.0 108.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M224.0 92.8 Q240.0 91.2 256.0 92 Q269.0 92 269.0 105 Q269.8 115.0 269.0 125 Q269.0 138 256.0 138 Q240.0 138.8 224.0 138 Q211.0 138 211.0 125 Q210.2 115.0 211.0 105 Q211.0 92 224.0 92.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M225.5 95.8 Q241.0 94.2 256.5 95 Q268.5 95 268.5 107 Q269.3 116.5 268.5 126 Q268.5 138 256.5 138 Q241.0 138.8 225.5 138 Q213.5 138 213.5 126 Q212.7 116.5 213.5 107 Q213.5 95 225.5 95.8Z" fill="#3A3A3C" filter="url(#grain)"/>
+      <path d="M226.0 100.8 Q240.0 99.2 254.0 100 Q261.0 100 261.0 107 Q261.8 115.0 261.0 123 Q261.0 130 254.0 130 Q240.0 130.8 226.0 130 Q219.0 130 219.0 123 Q218.2 115.0 219.0 107 Q219.0 100 226.0 100.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <g class="eyes e2">
+        <path d="M230 110 v6 M250 110 v6" fill="none" stroke="#2A2622" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <circle cx="225" cy="119" r="2.8" fill="#D9D8D5" filter="url(#grain)"/>
+      <circle cx="255" cy="119" r="2.8" fill="#D9D8D5" filter="url(#grain)"/>
+      <path class="mouth m2" d="M236 120 q4 3.5 8 0" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g></g>
+    
+  <g class="lean l1"><g class="robot r1">
+    <g>
+      <path class="arm armL1" d="M164.5 169.8 Q164.5 168.2 164.5 169 Q169 169 169 173.5 Q169.8 180.0 169 186.5 Q169 191 164.5 191 Q164.5 191.8 164.5 191 Q160 191 160 186.5 Q159.2 180.0 160 173.5 Q160 169 164.5 169.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path class="arm armR1" d="M215.5 169.8 Q215.5 168.2 215.5 169 Q220 169 220 173.5 Q220.8 180.0 220 186.5 Q220 191 215.5 191 Q215.5 191.8 215.5 191 Q211 191 211 186.5 Q210.2 180.0 211 173.5 Q211 169 215.5 169.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M178 163.8 Q190.0 162.2 202 163 Q212 163 212 173 Q212.8 176.5 212 180 Q212 190 202 190 Q190.0 190.8 178 190 Q168 190 168 180 Q167.2 176.5 168 173 Q168 163 178 163.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M178 169.8 Q188.0 168.2 198 169 Q203 169 203 174 Q203.8 177.0 203 180 Q203 185 198 185 Q188.0 185.8 178 185 Q173 185 173 180 Q172.2 177.0 173 174 Q173 169 178 169.8Z" fill="#D3E0F8" filter="url(#grain)"/>
+      <path d="M181 176 h14 M181 181 h8" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+    <g class="head h1">
+      <path d="M190 116 q1 -6 0 -11" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle class="bulb b1" cx="190" cy="100" r="5.5" fill="#4880E6" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/><circle cx="190" cy="100" r="1.6" fill="#2A2622"/>
+      <path d="M159.0 132.8 Q159.0 131.2 159.0 132 Q162.0 132 162.0 135 Q162.8 138.5 162.0 142 Q162.0 145 159.0 145 Q159.0 145.8 159.0 145 Q156.0 145 156.0 142 Q155.2 138.5 156.0 135 Q156.0 132 159.0 132.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M221.0 132.8 Q221.0 131.2 221.0 132 Q224.0 132 224.0 135 Q224.8 138.5 224.0 142 Q224.0 145 221.0 145 Q221.0 145.8 221.0 145 Q218.0 145 218.0 142 Q217.2 138.5 218.0 135 Q218.0 132 221.0 132.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M174.0 116.8 Q190.0 115.2 206.0 116 Q219.0 116 219.0 129 Q219.8 139.0 219.0 149 Q219.0 162 206.0 162 Q190.0 162.8 174.0 162 Q161.0 162 161.0 149 Q160.2 139.0 161.0 129 Q161.0 116 174.0 116.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="M175.5 119.8 Q191.0 118.2 206.5 119 Q218.5 119 218.5 131 Q219.3 140.5 218.5 150 Q218.5 162 206.5 162 Q191.0 162.8 175.5 162 Q163.5 162 163.5 150 Q162.7 140.5 163.5 131 Q163.5 119 175.5 119.8Z" fill="#4880E6" filter="url(#grain)"/>
+      <path d="M176.0 124.8 Q190.0 123.2 204.0 124 Q211.0 124 211.0 131 Q211.8 139.0 211.0 147 Q211.0 154 204.0 154 Q190.0 154.8 176.0 154 Q169.0 154 169.0 147 Q168.2 139.0 169.0 131 Q169.0 124 176.0 124.8Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+      <g class="eyes e1">
+        <path d="M180 134 v6 M200 134 v6" fill="none" stroke="#2A2622" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <circle cx="175" cy="143" r="2.8" fill="#D3E0F8" filter="url(#grain)"/>
+      <circle cx="205" cy="143" r="2.8" fill="#D3E0F8" filter="url(#grain)"/>
+      <path class="mouth m1" d="M186 144 q4 3.5 8 0" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    </g>
+  </g></g>
+    <!-- table -->
+    <path d="M70 186 Q190 183 312 186 L312 196 Q190 198 70 196 Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M86 196 L84 222 M298 196 L300 222" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- mug -->
+    <path d="M104 168 L106 185 Q113 187 120 185 L122 168 Z" fill="#4A3B2C" filter="url(#grain)"/>
+    <path d="M102 167 L104 185 Q111 187 118 185 L120 167 Z" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M120 171 q7 0 6 6 q-1 5 -7 4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M108 160 q-2 -3 0 -6 M114 161 q-2 -3 0 -6" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- papers -->
+    <path d="M250 185 L256 170 L290 172 L286 186 Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M254 184 L262 168 L294 172 L288 185 Z" fill="#FBF8F1" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M266 174 L284 176 M264 178 L278 179.5" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M262 181 L292 166" stroke="#4880E6" stroke-width="3" stroke-linecap="round" filter="url(#grain)"/>
+    <path d="M261 182 L291 167" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+    <g class="spark sp0"><path d="M108 80 v4 M108 92 v-4 M102 86 h4 M114 86 h-4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></g><g class="spark sp1"><path d="M190 65.2 v4 M190 74.8 v-4 M185.2 70 h4 M194.8 70 h-4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></g><g class="spark sp2"><path d="M274 82 v4 M274 94 v-4 M268 88 h4 M280 88 h-4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></g><g class="spark sp3"><path d="M160 65.8 v4 M160 74.2 v-4 M155.8 70 h4 M164.2 70 h-4" fill="none" stroke="#2A2622" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></g>
+  </g>
+</svg>
