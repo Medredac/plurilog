@@ -6748,7 +6748,7 @@ export async function POST(req: NextRequest) {
                 seenCitationUrls.clear();
 
                 const continuationStartedAt = Date.now();
-                const memoryToolsStillAvailable =
+                const retrievalToolsStillAvailable =
                   agenticRetrievalRounds <
                   MAX_AGENTIC_RETRIEVAL_ROUNDS;
                 const continuationTools = [
@@ -6770,8 +6770,11 @@ export async function POST(req: NextRequest) {
                     : isDocumentCreationEnabledForSeat
                       ? GPT_FILE_TOOLS
                       : []),
-                  ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
-                  ...(memoryToolsStillAvailable
+                  ...(retrievalToolsStillAvailable &&
+                  isEvidenceEnabledForSeat
+                    ? REQUEST_EVIDENCE_TOOL
+                    : []),
+                  ...(retrievalToolsStillAvailable
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
                 ];
