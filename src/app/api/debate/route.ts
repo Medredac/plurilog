@@ -873,19 +873,6 @@ function isDocumentRevisionFollowUpQuery(
     /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i;
   const webOrCodeSurface = hasWebOrCodeSurfaceCue(prompt);
 
-  // With an active document immediately in context, users often request a
-  // format conversion as a noun phrase rather than a full imperative:
-  // "Word version please", "PDF copy", "same DOCX version". Treat this
-  // as a document continuation only when the document context is already
-  // established, so ordinary questions mentioning Word/PDF do not authorize
-  // a durable side effect.
-  const contextualFormatShorthand =
-    hasImmediateDocumentContext &&
-    !webOrCodeSurface &&
-    /^(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\s+you|now|then|also|and)[,!.\s-]*)*(?:(?:a|the|same)\s+)?(?:pdf|docx|word(?:\s+document)?)(?:\s+(?:version|copy|file|format|one))?(?:\s+please)?$/i.test(
-      prompt
-    );
-
   const explicitDocumentMutation =
     revisionVerb.test(prompt) && strongDocumentCue.test(prompt);
 
@@ -902,7 +889,6 @@ function isDocumentRevisionFollowUpQuery(
     );
 
   if (
-    contextualFormatShorthand ||
     explicitDocumentMutation ||
     explicitMakeMutation ||
     generatedAssetInsertionIntoNamedDocument
@@ -6459,11 +6445,18 @@ export async function POST(req: NextRequest) {
                 );
               });
 
-            const sourceDocumentEditingForCurrentTurn =
+            // Agentic-mode invariant: retrieval may add grounded context, but it
+            // must not remove an otherwise executable user-turn capability.
+            // Natural-language intent belongs to the active seat; the runtime
+            // owns only capability/safety constraints and canonical artifacts.
+            const canEditCurrentUserDocument =
               isDocumentCreationEnabledForSeat &&
-              isDocumentRevisionFollowUp &&
               hasCurrentUserDocumentUpload &&
               !isSimplePdfFormatConversionRequest(prompt || '');
+            const sourceDocumentEditingForCurrentTurn =
+              !AGENTIC_MEMORY_EXPERIMENT &&
+              canEditCurrentUserDocument &&
+              isDocumentRevisionFollowUp;
             const documentSideEffectsAuthorizedForTurn =
               sourceDocumentEditingForCurrentTurn ||
               isDocumentRevisionFollowUp ||
@@ -6621,11 +6614,20 @@ export async function POST(req: NextRequest) {
                   },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(sourceDocumentEditingForCurrentTurn
-                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                    : isDocumentCreationEnabledForSeat
-                      ? GPT_FILE_TOOLS
-                      : []),
+                  ...(AGENTIC_MEMORY_EXPERIMENT
+                    ? [
+                        ...(isDocumentCreationEnabledForSeat
+                          ? GPT_FILE_TOOLS
+                          : []),
+                        ...(canEditCurrentUserDocument
+                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                          : []),
+                      ]
+                    : sourceDocumentEditingForCurrentTurn
+                      ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                      : isDocumentCreationEnabledForSeat
+                        ? GPT_FILE_TOOLS
+                        : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                   ...(isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
@@ -6641,7 +6643,8 @@ export async function POST(req: NextRequest) {
                         function: { name: 'request_evidence' },
                       },
                     }
-                  : sourceDocumentEditingForCurrentTurn
+                  : !AGENTIC_MEMORY_EXPERIMENT &&
+                      sourceDocumentEditingForCurrentTurn
                     ? {
                         tool_choice: {
                           type: 'function',
@@ -7048,12 +7051,21 @@ export async function POST(req: NextRequest) {
                   ...(isImageEditingEnabledForSeat
                     ? GEMINI_IMAGE_EDIT_TOOLS
                     : []),
-                  ...(sourceDocumentEditingForCurrentTurn
-                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                    : isDocumentCreationEnabledForSeat &&
-                        documentSideEffectsAuthorizedForTurn
-                      ? GPT_FILE_TOOLS
-                      : []),
+                  ...(AGENTIC_MEMORY_EXPERIMENT
+                    ? [
+                        ...(isDocumentCreationEnabledForSeat
+                          ? GPT_FILE_TOOLS
+                          : []),
+                        ...(canEditCurrentUserDocument
+                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                          : []),
+                      ]
+                    : sourceDocumentEditingForCurrentTurn
+                      ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                      : isDocumentCreationEnabledForSeat &&
+                          documentSideEffectsAuthorizedForTurn
+                        ? GPT_FILE_TOOLS
+                        : []),
                   ...(retrievalToolsStillAvailable &&
                   isEvidenceEnabledForSeat
                     ? REQUEST_EVIDENCE_TOOL
@@ -7278,8 +7290,12 @@ export async function POST(req: NextRequest) {
                 const sourceDocumentEditCalls = finalizedCalls.filter(
                   (call) => call?.name === 'edit_source_document'
                 );
+                const sourceDocumentEditExecutable =
+                  AGENTIC_MEMORY_EXPERIMENT
+                    ? canEditCurrentUserDocument
+                    : sourceDocumentEditingForCurrentTurn;
                 const isSourceDocumentEditCall =
-                  sourceDocumentEditingForCurrentTurn &&
+                  sourceDocumentEditExecutable &&
                   sourceDocumentEditCalls.length === 1 &&
                   sourceDocumentEditCalls.length === finalizedCalls.length;
 
@@ -9020,17 +9036,20 @@ export async function POST(req: NextRequest) {
                   let evidenceContinuationCanCreateFile =
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
-                    documentSideEffectsAuthorizedForTurn &&
+                    (AGENTIC_MEMORY_EXPERIMENT ||
+                      documentSideEffectsAuthorizedForTurn) &&
                     anyResolvedEvidence;
                   let evidenceContinuationCanSourceEdit =
                     evidenceContinuationCanCreateFile &&
-                    isDocumentRevisionFollowUp &&
+                    (AGENTIC_MEMORY_EXPERIMENT ||
+                      isDocumentRevisionFollowUp) &&
                     Boolean(resolvedEditableDocumentEvidence) &&
                     (!revisionParentState ||
                       isSourcePreservingDocumentState(revisionParentState));
                   let evidenceContinuationCanReviseFile =
                     evidenceContinuationCanCreateFile &&
-                    isDocumentRevisionFollowUp &&
+                    (AGENTIC_MEMORY_EXPERIMENT ||
+                      isDocumentRevisionFollowUp) &&
                     Boolean(revisionParentState) &&
                     !isSourcePreservingDocumentState(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
@@ -9053,13 +9072,25 @@ export async function POST(req: NextRequest) {
                       ...(isImageGenerationEnabledForSeat
                         ? GEMINI_IMAGE_TOOLS
                         : []),
-                      ...(evidenceContinuationCanSourceEdit
-                        ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                        : evidenceContinuationCanReviseFile
-                          ? GPT_REVISE_FILE_TOOL
-                          : evidenceContinuationCanCreateFile
-                            ? GPT_FILE_TOOLS
-                            : []),
+                      ...(AGENTIC_MEMORY_EXPERIMENT
+                        ? [
+                            ...(evidenceContinuationCanCreateFile
+                              ? GPT_FILE_TOOLS
+                              : []),
+                            ...(evidenceContinuationCanSourceEdit
+                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                              : []),
+                            ...(evidenceContinuationCanReviseFile
+                              ? GPT_REVISE_FILE_TOOL
+                              : []),
+                          ]
+                        : evidenceContinuationCanSourceEdit
+                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                          : evidenceContinuationCanReviseFile
+                            ? GPT_REVISE_FILE_TOOL
+                            : evidenceContinuationCanCreateFile
+                              ? GPT_FILE_TOOLS
+                              : []),
                       ...(agenticRetrievalRounds <
                         AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isEvidenceEnabledForSeat
@@ -9750,11 +9781,13 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCanCreateFile =
                       seat.seatId === 'chatgpt' &&
                       isDocumentCreationEnabledForSeat &&
-                      documentSideEffectsAuthorizedForTurn &&
+                      (AGENTIC_MEMORY_EXPERIMENT ||
+                        documentSideEffectsAuthorizedForTurn) &&
                       anyResolvedEvidence;
                     evidenceContinuationCanSourceEdit =
                       evidenceContinuationCanCreateFile &&
-                      isDocumentRevisionFollowUp &&
+                      (AGENTIC_MEMORY_EXPERIMENT ||
+                        isDocumentRevisionFollowUp) &&
                       Boolean(
                         resolvedEditableDocumentEvidence
                       ) &&
@@ -9764,7 +9797,8 @@ export async function POST(req: NextRequest) {
                         ));
                     evidenceContinuationCanReviseFile =
                       evidenceContinuationCanCreateFile &&
-                      isDocumentRevisionFollowUp &&
+                      (AGENTIC_MEMORY_EXPERIMENT ||
+                        isDocumentRevisionFollowUp) &&
                       Boolean(revisionParentState) &&
                       !isSourcePreservingDocumentState(
                         revisionParentState
@@ -9878,13 +9912,25 @@ export async function POST(req: NextRequest) {
                             ...(isImageGenerationEnabledForSeat
                               ? GEMINI_IMAGE_TOOLS
                               : []),
-                            ...(evidenceContinuationCanSourceEdit
-                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                              : evidenceContinuationCanReviseFile
-                                ? GPT_REVISE_FILE_TOOL
-                                : evidenceContinuationCanCreateFile
-                                  ? GPT_FILE_TOOLS
-                                  : []),
+                            ...(AGENTIC_MEMORY_EXPERIMENT
+                              ? [
+                                  ...(evidenceContinuationCanCreateFile
+                                    ? GPT_FILE_TOOLS
+                                    : []),
+                                  ...(evidenceContinuationCanSourceEdit
+                                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                                    : []),
+                                  ...(evidenceContinuationCanReviseFile
+                                    ? GPT_REVISE_FILE_TOOL
+                                    : []),
+                                ]
+                              : evidenceContinuationCanSourceEdit
+                                ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                                : evidenceContinuationCanReviseFile
+                                  ? GPT_REVISE_FILE_TOOL
+                                  : evidenceContinuationCanCreateFile
+                                    ? GPT_FILE_TOOLS
+                                    : []),
                             ...(agenticRetrievalRounds <
                               AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isEvidenceEnabledForSeat
