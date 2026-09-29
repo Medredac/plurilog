@@ -8382,7 +8382,7 @@ export async function POST(req: NextRequest) {
                     );
                   }
 
-                  const evidenceWasMaterialized =
+                  let evidenceWasMaterialized =
                     newEvidenceAttachments.length > 0;
                   let evidenceSeatAttachments =
                     seat.seatId === 'gemini'
@@ -8613,6 +8613,9 @@ export async function POST(req: NextRequest) {
                         }) as any
                     ),
                   ];
+
+                  const evidenceToolTranscript: any[] =
+                    evidenceMessages.slice(evidenceBaseMessages.length);
 
                   let resolvedDocxEvidence =
                     evidenceResolutionRecords.find(
