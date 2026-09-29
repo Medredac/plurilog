@@ -269,7 +269,7 @@ function getSeatActivityLabel(status: SeatIndicatorStatus): string {
     case 'locating_evidence':
       return 'Locating the referenced source…';
     case 'reviewing_evidence':
-      return 'Reviewing what it found…';
+      return 'Reviewing findings…';
     case 'searching_web':
       return 'Searching the web…';
     case 'generating_image':
