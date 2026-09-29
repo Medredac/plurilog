@@ -2902,7 +2902,13 @@ export async function POST(req: NextRequest) {
     // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
     let discussionMemory: DiscussionMemoryResult | undefined;
     if (discussionId) {
-      discussionMemory = await getScopedDiscussionMemory(discussionId, prompt, openai, supabase);
+      discussionMemory = await getScopedDiscussionMemory(
+        discussionId,
+        prompt,
+        openai,
+        supabase,
+        { agenticMode: AGENTIC_MEMORY_EXPERIMENT }
+      );
 
       if (
         discussionMemory?.historyLookupIntent === true &&
