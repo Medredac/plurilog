@@ -7639,6 +7639,14 @@ export async function POST(req: NextRequest) {
 
                 if (isEvidenceRequestCall) {
                   evidenceToolBranchActive = true;
+                  agenticRetrievalRounds += 1;
+                  console.log('[Agentic Artifact Evidence]', {
+                    discussionId,
+                    seatId: seat.seatId,
+                    seatIndex,
+                    retrievalRound: agenticRetrievalRounds,
+                    requestCount: evidenceRequestCalls.length,
+                  });
                   incurredEvidenceFirstPassCostUsd =
                     typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
@@ -8588,7 +8596,7 @@ export async function POST(req: NextRequest) {
                     ),
                   ];
 
-                  const resolvedDocxEvidence =
+                  let resolvedDocxEvidence =
                     evidenceResolutionRecords.find(
                       (record) =>
                         record.brokerResult.status === 'resolved' &&
@@ -8598,7 +8606,7 @@ export async function POST(req: NextRequest) {
                           record.brokerResult.evidence.storagePath
                         )
                     )?.brokerResult.evidence || null;
-                  const resolvedEditableDocumentEvidence =
+                  let resolvedEditableDocumentEvidence =
                     evidenceResolutionRecords.find(
                       (record) =>
                         record.brokerResult.status === 'resolved' &&
@@ -8606,7 +8614,7 @@ export async function POST(req: NextRequest) {
                           record.brokerResult.evidence?.kind === 'docx') &&
                         Boolean(record.brokerResult.evidence?.storagePath)
                     )?.brokerResult.evidence || null;
-                  const aggregateModelSafeBrokerResult =
+                  let aggregateModelSafeBrokerResult =
                     anyResolvedEvidence
                       ? {
                           status: 'resolved' as const,
@@ -8641,7 +8649,7 @@ export async function POST(req: NextRequest) {
                   const evidencePdfAttachments = evidenceAttachments.filter((a) =>
                     a.url?.split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
                   );
-                  const evidenceHasPdf = evidencePdfAttachments.length > 0;
+                  let evidenceHasPdf = evidencePdfAttachments.length > 0;
 
                   console.log('[Evidence Broker Request]', {
                     discussionId,
@@ -8702,28 +8710,33 @@ export async function POST(req: NextRequest) {
                     stream: true,
                     temperature: 0.7,
                     signal: seatAbortController.signal,
-                    ...(evidenceContinuationCanCreateFile
-                      ? evidenceContinuationCanSourceEdit
-                        ? {
-                            tools: GPT_SOURCE_DOCUMENT_EDIT_TOOL,
-                            tool_choice: {
-                              type: 'function',
-                              function: { name: 'edit_source_document' },
-                            },
-                          }
+                    tools: [
+                      {
+                        type: 'openrouter:web_search',
+                        parameters: {
+                          max_results: 3,
+                          max_total_results: 6,
+                        },
+                      },
+                      ...(evidenceContinuationCanSourceEdit
+                        ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
                         : evidenceContinuationCanReviseFile
-                          ? {
-                              tools: GPT_REVISE_FILE_TOOL,
-                              tool_choice: {
-                                type: 'function',
-                                function: { name: 'revise_file' },
-                              },
-                            }
-                          : {
-                              tools: GPT_FILE_TOOLS,
-                              tool_choice: 'auto',
-                            }
-                      : {}),
+                          ? GPT_REVISE_FILE_TOOL
+                          : evidenceContinuationCanCreateFile
+                            ? GPT_FILE_TOOLS
+                            : []),
+                      ...(agenticRetrievalRounds <
+                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                      isEvidenceEnabledForSeat
+                        ? REQUEST_EVIDENCE_TOOL
+                        : []),
+                      ...(agenticRetrievalRounds <
+                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                      isAgenticMemoryEnabledForSeat
+                        ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                        : []),
+                    ],
+                    tool_choice: 'auto',
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
                       : {}),
