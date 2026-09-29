@@ -142,15 +142,15 @@ export const maxDuration = 300;
 // codebase, but they are not executed or consulted for conversation-memory
 // decisions on preview/agentic-memory.
 const AGENTIC_MEMORY_EXPERIMENT = true;
-const AGENTIC_SOFT_RETRIEVAL_ROUNDS = 3;
-const AGENTIC_HARD_RETRIEVAL_ROUNDS = 4;
+const AGENTIC_SOFT_RETRIEVAL_ROUNDS = 4;
+const AGENTIC_HARD_RETRIEVAL_ROUNDS = 6;
 
 function buildAgenticRetrievalBudgetInstruction(
   retrievalRounds: number
 ): string | null {
   if (retrievalRounds >= AGENTIC_HARD_RETRIEVAL_ROUNDS) {
     return `AGENTIC RETRIEVAL CEILING REACHED:
-You have used the maximum grounded-evidence retrieval budget for this seat. Do not request more conversation, chronology, document, artifact, visual, or web evidence. Complete the user's request from the evidence already available. If a material fact remains unresolved, say exactly what remains uncertain rather than guessing. Reaching this ceiling is not an error and must not prevent you from giving the best possible final response. If the user explicitly requested an authorized creation/edit action and the grounded evidence is sufficient, perform that action exactly once.`;
+You have used the maximum grounded-evidence retrieval budget for this seat. Do not request more conversation, chronology, document, artifact, visual, or web evidence. Complete the user's request from the evidence already available. If a material fact remains unresolved, say exactly what remains uncertain rather than guessing. Do not mention retrieval budgets, tool limits, retrieval rounds, or other internal orchestration mechanics to the user. Reaching this ceiling is not an error and must not prevent you from giving the best possible final response. If the user explicitly requested an authorized creation/edit action and the grounded evidence is sufficient, perform that action exactly once.`;
   }
 
   if (retrievalRounds >= AGENTIC_SOFT_RETRIEVAL_ROUNDS) {
@@ -159,6 +159,91 @@ You have already made ${retrievalRounds} grounded-evidence retrieval rounds. If 
   }
 
   return null;
+}
+
+const AGENTIC_EVIDENCE_HANDOFF_LIMIT = 12;
+
+function serializeAgenticEvidenceHandoff(
+  ledger: AgenticEvidenceLedgerEntry[]
+): AgenticEvidenceLedgerEntry[] {
+  return ledger.slice(-AGENTIC_EVIDENCE_HANDOFF_LIMIT).map((entry) => ({
+    ...entry,
+    compactText: String(entry.compactText || '').slice(0, 1200),
+    expandedText: String(entry.expandedText || '').slice(0, 6000),
+  }));
+}
+
+function parseAgenticEvidenceHandoff(
+  raw: unknown
+): AgenticEvidenceLedgerEntry[] {
+  if (!Array.isArray(raw)) return [];
+
+  const validKinds = new Set(['semantic', 'recent', 'chronology', 'artifact']);
+  const validSpeakers = new Set([
+    'any',
+    'user',
+    'chatgpt',
+    'claude',
+    'gemini',
+  ]);
+
+  return raw
+    .slice(-AGENTIC_EVIDENCE_HANDOFF_LIMIT)
+    .map((value: any) => {
+      if (
+        !value ||
+        typeof value.evidenceId !== 'string' ||
+        !validKinds.has(value.kind) ||
+        !validSpeakers.has(value.speaker) ||
+        typeof value.compactText !== 'string' ||
+        typeof value.expandedText !== 'string' ||
+        typeof value.requestedBySeatId !== 'string'
+      ) {
+        return null;
+      }
+
+      return {
+        evidenceId: value.evidenceId.slice(0, 80),
+        kind: value.kind,
+        sourceUserMessageId:
+          typeof value.sourceUserMessageId === 'string'
+            ? value.sourceUserMessageId
+            : null,
+        roundIndex:
+          Number.isInteger(value.roundIndex) ? value.roundIndex : null,
+        speaker: value.speaker,
+        compactText: value.compactText.slice(0, 1200),
+        expandedText: value.expandedText.slice(0, 6000),
+        query:
+          typeof value.query === 'string' ? value.query.slice(0, 4000) : null,
+        requestedBySeatId: value.requestedBySeatId.slice(0, 80),
+        createdAt:
+          typeof value.createdAt === 'string' ? value.createdAt : null,
+        semanticSimilarity:
+          typeof value.semanticSimilarity === 'number'
+            ? value.semanticSimilarity
+            : null,
+        hybridScore:
+          typeof value.hybridScore === 'number' ? value.hybridScore : null,
+        artifactKind:
+          typeof value.artifactKind === 'string'
+            ? value.artifactKind
+            : null,
+        filename:
+          typeof value.filename === 'string' ? value.filename.slice(0, 500) : null,
+        provenanceReason:
+          typeof value.provenanceReason === 'string'
+            ? value.provenanceReason.slice(0, 1000)
+            : null,
+        artifactIdentityKey:
+          typeof value.artifactIdentityKey === 'string'
+            ? value.artifactIdentityKey.slice(0, 2000)
+            : null,
+      } as AgenticEvidenceLedgerEntry;
+    })
+    .filter(
+      (entry): entry is AgenticEvidenceLedgerEntry => Boolean(entry)
+    );
 }
 
 export const GEMINI_IMAGE_TOOLS = [
@@ -6122,6 +6207,71 @@ export async function POST(req: NextRequest) {
           let currentRoundAttachments: RouteAttachment[] = [...(effectiveAttachments || [])];
           const sharedAgenticEvidenceLedger: AgenticEvidenceLedgerEntry[] = [];
           let agenticEvidenceSequence = 0;
+
+          if (
+            AGENTIC_MEMORY_EXPERIMENT &&
+            isContinueRound === true &&
+            discussionId
+          ) {
+            try {
+              const isOwner = await verifyDiscussionOwnership(
+                supabase,
+                discussionId
+              );
+              if (isOwner) {
+                const handoffServiceClient = createServiceClient();
+                const { data: latestSpendRows, error: handoffReadError } =
+                  await handoffServiceClient
+                    .from('spend_events')
+                    .select('id, created_at, meta')
+                    .eq('discussion_id', discussionId)
+                    .lt(
+                      'created_at',
+                      new Date(turnStartedAt).toISOString()
+                    )
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+
+                if (handoffReadError) {
+                  console.warn(
+                    '[Agentic Evidence Handoff] Could not read previous turn snapshot',
+                    handoffReadError
+                  );
+                } else {
+                  const inherited = parseAgenticEvidenceHandoff(
+                    latestSpendRows?.[0]?.meta?.agenticEvidenceHandoff
+                  );
+                  sharedAgenticEvidenceLedger.push(...inherited);
+                  agenticEvidenceSequence = inherited.reduce(
+                    (maxValue, entry) => {
+                      const match = /^mem_(\d+)$/.exec(entry.evidenceId);
+                      return match
+                        ? Math.max(maxValue, Number(match[1]) || 0)
+                        : maxValue;
+                    },
+                    0
+                  );
+
+                  console.log('[Agentic Evidence Handoff] Hydrated Continue ledger', {
+                    discussionId,
+                    inheritedEvidenceCount: inherited.length,
+                    sourceSpendEventId: latestSpendRows?.[0]?.id || null,
+                    sourceCreatedAt: latestSpendRows?.[0]?.created_at || null,
+                    nextEvidenceSequence: agenticEvidenceSequence + 1,
+                  });
+                }
+              }
+            } catch (handoffErr: any) {
+              console.warn(
+                '[Agentic Evidence Handoff] Non-critical Continue hydration failure',
+                {
+                  discussionId,
+                  message: handoffErr?.message || String(handoffErr),
+                }
+              );
+            }
+          }
+
           const createAgenticEvidenceId = () =>
             `mem_${++agenticEvidenceSequence}`;
 
@@ -13262,6 +13412,92 @@ export async function POST(req: NextRequest) {
             } finally {
               clearTimeout(seatTimeoutHandle);
               req.signal.removeEventListener('abort', abortSeatFromRequest);
+            }
+          }
+
+          if (
+            AGENTIC_MEMORY_EXPERIMENT &&
+            discussionId &&
+            sharedAgenticEvidenceLedger.length > 0 &&
+            !req.signal.aborted
+          ) {
+            try {
+              const isOwner = await verifyDiscussionOwnership(
+                supabase,
+                discussionId
+              );
+              if (isOwner) {
+                const handoffServiceClient = createServiceClient();
+                const turnStartedAtIso = new Date(turnStartedAt).toISOString();
+                const { data: currentTurnSpendRows, error: handoffSpendError } =
+                  await handoffServiceClient
+                    .from('spend_events')
+                    .select('id, meta, created_at')
+                    .eq('discussion_id', discussionId)
+                    .gte('created_at', turnStartedAtIso)
+                    .order('created_at', { ascending: false })
+                    .limit(1);
+
+                if (handoffSpendError) {
+                  console.warn(
+                    '[Agentic Evidence Handoff] Could not locate current turn spend event',
+                    handoffSpendError
+                  );
+                } else if (currentTurnSpendRows?.[0]?.id) {
+                  const spendRow = currentTurnSpendRows[0];
+                  const snapshot = serializeAgenticEvidenceHandoff(
+                    sharedAgenticEvidenceLedger
+                  );
+                  const { error: handoffWriteError } =
+                    await handoffServiceClient
+                      .from('spend_events')
+                      .update({
+                        meta: {
+                          ...(spendRow.meta || {}),
+                          agenticEvidenceHandoff: snapshot,
+                          agenticEvidenceTurnId: turnId,
+                          agenticEvidenceSourceUserMessageId:
+                            sourceUserMessageId || null,
+                          agenticEvidenceIsContinue:
+                            isContinueRound === true,
+                        },
+                      })
+                      .eq('id', spendRow.id);
+
+                  if (handoffWriteError) {
+                    console.warn(
+                      '[Agentic Evidence Handoff] Could not persist turn snapshot',
+                      handoffWriteError
+                    );
+                  } else {
+                    console.log('[Agentic Evidence Handoff] Persisted turn snapshot', {
+                      discussionId,
+                      turnId,
+                      evidenceCount: snapshot.length,
+                      spendEventId: spendRow.id,
+                      isContinueRound: isContinueRound === true,
+                    });
+                  }
+                } else {
+                  console.warn(
+                    '[Agentic Evidence Handoff] No current-turn spend event available for snapshot',
+                    {
+                      discussionId,
+                      turnId,
+                      evidenceCount: sharedAgenticEvidenceLedger.length,
+                    }
+                  );
+                }
+              }
+            } catch (handoffErr: any) {
+              console.warn(
+                '[Agentic Evidence Handoff] Non-critical snapshot persistence failure',
+                {
+                  discussionId,
+                  turnId,
+                  message: handoffErr?.message || String(handoffErr),
+                }
+              );
             }
           }
 
