@@ -6639,13 +6639,31 @@ export async function POST(req: NextRequest) {
               ) {
                 const finalizedMemoryCandidateCalls =
                   finalizeAllToolCalls(accumulatedToolCalls);
-                const allCallsAreAgenticMemory =
-                  finalizedMemoryCandidateCalls.length > 0 &&
-                  finalizedMemoryCandidateCalls.every((call) =>
+                const memoryCandidateCalls =
+                  finalizedMemoryCandidateCalls.filter((call) =>
                     AGENTIC_CONVERSATION_TOOL_NAMES.has(call.name as any)
                   );
 
-                if (!allCallsAreAgenticMemory) break;
+                if (memoryCandidateCalls.length === 0) break;
+
+                const deferredNonMemoryCalls =
+                  finalizedMemoryCandidateCalls.filter(
+                    (call) =>
+                      !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                        call.name as any
+                      )
+                  );
+                if (deferredNonMemoryCalls.length > 0) {
+                  console.log(
+                    '[Agentic Retrieval] Deferred non-memory calls until after grounded memory',
+                    {
+                      seatId: seat.seatId,
+                      deferredTools: deferredNonMemoryCalls.map(
+                        (call) => call.name
+                      ),
+                    }
+                  );
+                }
 
                 if (
                   agenticRetrievalRounds >=
@@ -6655,7 +6673,7 @@ export async function POST(req: NextRequest) {
                     discussionId,
                     seatId: seat.seatId,
                     maxRounds: MAX_AGENTIC_RETRIEVAL_ROUNDS,
-                    pendingTools: finalizedMemoryCandidateCalls.map(
+                    pendingTools: memoryCandidateCalls.map(
                       (call) => call.name
                     ),
                   });
@@ -6671,7 +6689,7 @@ export async function POST(req: NextRequest) {
                 incurredAgenticRetrievalCostUsd += priorPassCostUsd;
 
                 const toolResolutions = [];
-                for (const toolCall of finalizedMemoryCandidateCalls) {
+                for (const toolCall of memoryCandidateCalls) {
                   const resolution = await resolveAgenticConversationTool({
                     toolName: toolCall.name,
                     toolArgs: (toolCall.arguments || {}) as Record<string, unknown>,
