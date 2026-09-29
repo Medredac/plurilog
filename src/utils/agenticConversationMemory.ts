@@ -1,0 +1,690 @@
+import OpenAI from 'openai';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Round } from '@/utils/discussionMemory';
+
+export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'search_conversation_memory',
+      description:
+        'Search older conversation history only when answering the current request requires a fact, name, decision, wording, event, or continuity detail that is not reliably present in your current context. Returns compact grounded evidence candidates with evidence IDs. Do not search merely because history exists. Prefer a focused semantic query containing the uncertain entities or fact you need to verify.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description:
+              'Focused search query for the historical fact or continuity detail you need.',
+          },
+          speaker: {
+            type: 'string',
+            enum: ['any', 'user', 'chatgpt', 'claude', 'gemini'],
+            description:
+              'Optional speaker constraint when the requested evidence must come from one speaker.',
+          },
+          max_results: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 5,
+            description: 'Maximum compact evidence candidates to return.',
+          },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'expand_conversation_evidence',
+      description:
+        'Expand one or more compact conversation evidence candidates already returned by memory search, chronology navigation, recent-history lookup, or inherited from an earlier configured seat. Use only when the compact snippet is insufficient.',
+      parameters: {
+        type: 'object',
+        properties: {
+          evidence_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            minItems: 1,
+            maxItems: 3,
+          },
+        },
+        required: ['evidence_ids'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'navigate_conversation_evidence',
+      description:
+        'Move deterministically before or after a grounded conversation evidence item in chronological round order. Use when the answer depends on what happened immediately before/after an already retrieved historical event.',
+      parameters: {
+        type: 'object',
+        properties: {
+          evidence_id: { type: 'string' },
+          direction: {
+            type: 'string',
+            enum: ['before', 'after'],
+          },
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 3,
+          },
+          speaker: {
+            type: 'string',
+            enum: ['any', 'user', 'chatgpt', 'claude', 'gemini'],
+          },
+        },
+        required: ['evidence_id', 'direction'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_recent_conversation',
+      description:
+        'Retrieve a small number of the most recent historical conversation rounds when the immediate baseline context is insufficient. Do not use this for broad history search.',
+      parameters: {
+        type: 'object',
+        properties: {
+          count: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 3,
+          },
+          speaker: {
+            type: 'string',
+            enum: ['any', 'user', 'chatgpt', 'claude', 'gemini'],
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+] as const;
+
+export const AGENTIC_CONVERSATION_TOOL_NAMES = new Set(
+  AGENTIC_CONVERSATION_MEMORY_TOOLS.map((tool) => tool.function.name)
+);
+
+export type AgenticEvidenceKind = 'semantic' | 'recent' | 'chronology';
+
+export interface AgenticEvidenceLedgerEntry {
+  evidenceId: string;
+  kind: AgenticEvidenceKind;
+  sourceUserMessageId: string | null;
+  roundIndex: number | null;
+  speaker: 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
+  compactText: string;
+  expandedText: string;
+  query: string | null;
+  requestedBySeatId: string;
+  createdAt: string | null;
+  semanticSimilarity?: number | null;
+  hybridScore?: number | null;
+}
+
+export interface AgenticMemoryToolResolution {
+  toolName: string;
+  result: Record<string, unknown>;
+  addedEntries: AgenticEvidenceLedgerEntry[];
+  reusedEvidenceIds: string[];
+  query: string | null;
+  latencyMs: number;
+}
+
+type SpeakerConstraint =
+  | 'any'
+  | 'user'
+  | 'chatgpt'
+  | 'claude'
+  | 'gemini';
+
+const MAX_COMPACT_CHARS = 1200;
+const MAX_EXPANDED_CHARS = 6000;
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function normalizeSpeaker(value: unknown): SpeakerConstraint {
+  const normalized = String(value || 'any').trim().toLowerCase();
+  return ['user', 'chatgpt', 'claude', 'gemini'].includes(normalized)
+    ? (normalized as SpeakerConstraint)
+    : 'any';
+}
+
+function normalizeModelName(name: string): SpeakerConstraint | null {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (normalized.includes('chatgpt') || normalized === 'gpt') return 'chatgpt';
+  if (normalized.includes('claude')) return 'claude';
+  if (normalized.includes('gemini')) return 'gemini';
+  return null;
+}
+
+function speakerTextFromRound(
+  round: Round,
+  speaker: SpeakerConstraint
+): string {
+  if (speaker === 'user') {
+    return round.userPrompt || '';
+  }
+
+  if (speaker !== 'any') {
+    return (round.modelResponses || [])
+      .filter((response) => normalizeModelName(response.name) === speaker)
+      .map((response) => `${response.name} said:\n"""${response.content || ''}"""`)
+      .join('\n\n');
+  }
+
+  const sections: string[] = [];
+  if (round.userPrompt) {
+    sections.push(`User said:\n"""${round.userPrompt}"""`);
+  }
+  for (const response of round.modelResponses || []) {
+    if (!response?.content) continue;
+    sections.push(`${response.name} said:\n"""${response.content}"""`);
+  }
+  return sections.join('\n\n');
+}
+
+function queryTokens(query: string): string[] {
+  const stop = new Set([
+    'about', 'after', 'again', 'before', 'could', 'earlier', 'from', 'have',
+    'history', 'memory', 'please', 'previous', 'said', 'that', 'their', 'there',
+    'these', 'they', 'this', 'those', 'what', 'when', 'where', 'which', 'with',
+    'would', 'your',
+  ]);
+  return Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter((token) => token.length >= 3 && !stop.has(token))
+    )
+  ).slice(0, 10);
+}
+
+function relevantWindow(text: string, query: string, maxChars: number): string {
+  const clean = String(text || '').trim();
+  if (clean.length <= maxChars) return clean;
+
+  const lower = clean.toLowerCase();
+  const tokens = queryTokens(query);
+  let bestIndex = -1;
+
+  for (const token of tokens) {
+    const idx = lower.indexOf(token);
+    if (idx >= 0 && (bestIndex < 0 || idx < bestIndex)) {
+      bestIndex = idx;
+    }
+  }
+
+  if (bestIndex < 0) {
+    return `${clean.slice(0, maxChars - 1).trimEnd()}…`;
+  }
+
+  const before = Math.floor(maxChars * 0.35);
+  let start = Math.max(0, bestIndex - before);
+  let end = Math.min(clean.length, start + maxChars);
+  if (end - start < maxChars && start > 0) {
+    start = Math.max(0, end - maxChars);
+  }
+
+  let window = clean.slice(start, end).trim();
+  if (start > 0) window = `…${window}`;
+  if (end < clean.length) window = `${window}…`;
+  return window;
+}
+
+function ledgerMatch(
+  ledger: AgenticEvidenceLedgerEntry[],
+  sourceUserMessageId: string | null,
+  speaker: SpeakerConstraint,
+  compactText: string
+): AgenticEvidenceLedgerEntry | undefined {
+  return ledger.find(
+    (entry) =>
+      entry.sourceUserMessageId === sourceUserMessageId &&
+      entry.speaker === speaker &&
+      entry.compactText === compactText
+  );
+}
+
+function addOrReuseEntry(options: {
+  ledger: AgenticEvidenceLedgerEntry[];
+  createEvidenceId: () => string;
+  kind: AgenticEvidenceKind;
+  sourceUserMessageId: string | null;
+  roundIndex: number | null;
+  speaker: SpeakerConstraint;
+  compactText: string;
+  expandedText: string;
+  query: string | null;
+  requestedBySeatId: string;
+  createdAt?: string | null;
+  semanticSimilarity?: number | null;
+  hybridScore?: number | null;
+}): { entry: AgenticEvidenceLedgerEntry; reused: boolean } {
+  const existing = ledgerMatch(
+    options.ledger,
+    options.sourceUserMessageId,
+    options.speaker,
+    options.compactText
+  );
+  if (existing) return { entry: existing, reused: true };
+
+  const entry: AgenticEvidenceLedgerEntry = {
+    evidenceId: options.createEvidenceId(),
+    kind: options.kind,
+    sourceUserMessageId: options.sourceUserMessageId,
+    roundIndex: options.roundIndex,
+    speaker: options.speaker,
+    compactText: options.compactText,
+    expandedText: options.expandedText,
+    query: options.query,
+    requestedBySeatId: options.requestedBySeatId,
+    createdAt: options.createdAt || null,
+    semanticSimilarity: options.semanticSimilarity ?? null,
+    hybridScore: options.hybridScore ?? null,
+  };
+  options.ledger.push(entry);
+  return { entry, reused: false };
+}
+
+function publicEntry(entry: AgenticEvidenceLedgerEntry) {
+  return {
+    evidence_id: entry.evidenceId,
+    kind: entry.kind,
+    source_user_message_id: entry.sourceUserMessageId,
+    speaker: entry.speaker,
+    snippet: entry.compactText,
+    semantic_similarity: entry.semanticSimilarity ?? null,
+    hybrid_score: entry.hybridScore ?? null,
+  };
+}
+
+async function embedQuery(
+  openai: OpenAI,
+  query: string,
+  signal?: AbortSignal
+): Promise<number[] | null> {
+  const result = await (openai.embeddings.create as any)(
+    {
+      model: 'google/gemini-embedding-2',
+      dimensions: 1536,
+      input: query,
+      encoding_format: 'float',
+    },
+    {
+      timeout: 10000,
+      ...(signal ? { signal } : {}),
+    }
+  );
+  const embedding = result?.data?.[0]?.embedding;
+  return Array.isArray(embedding) && embedding.length === 1536
+    ? embedding
+    : null;
+}
+
+export async function resolveAgenticConversationTool(options: {
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  serviceSupabase: SupabaseClient;
+  openai: OpenAI;
+  discussionId: string;
+  allRounds: Round[];
+  ledger: AgenticEvidenceLedgerEntry[];
+  requestedBySeatId: string;
+  createEvidenceId: () => string;
+  signal?: AbortSignal;
+}): Promise<AgenticMemoryToolResolution> {
+  const startedAt = Date.now();
+  const {
+    toolName,
+    toolArgs,
+    serviceSupabase,
+    openai,
+    discussionId,
+    allRounds,
+    ledger,
+    requestedBySeatId,
+    createEvidenceId,
+    signal,
+  } = options;
+
+  const addedEntries: AgenticEvidenceLedgerEntry[] = [];
+  const reusedEvidenceIds: string[] = [];
+
+  if (signal?.aborted) {
+    return {
+      toolName,
+      result: { ok: false, error: 'request_aborted' },
+      addedEntries,
+      reusedEvidenceIds,
+      query: null,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'search_conversation_memory') {
+    const query =
+      typeof toolArgs.query === 'string' ? toolArgs.query.trim().slice(0, 4000) : '';
+    const speaker = normalizeSpeaker(toolArgs.speaker);
+    const maxResults = clampInt(toolArgs.max_results, 1, 5, 3);
+
+    if (!query) {
+      return {
+        toolName,
+        result: { ok: false, error: 'query_required' },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const queryEmbedding = await embedQuery(openai, query, signal);
+    if (!queryEmbedding) {
+      return {
+        toolName,
+        result: { ok: false, error: 'embedding_unavailable' },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const { data: rows, error } = await serviceSupabase.rpc(
+      'search_discussion_memory_hybrid',
+      {
+        p_discussion_id: discussionId,
+        p_query_text: query,
+        p_query_embedding: queryEmbedding,
+        p_match_count: Math.min(15, Math.max(8, maxResults * 3)),
+      }
+    );
+
+    if (error || !Array.isArray(rows)) {
+      return {
+        toolName,
+        result: {
+          ok: false,
+          error: 'memory_search_failed',
+          detail: error?.message || null,
+        },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const candidates: AgenticEvidenceLedgerEntry[] = [];
+    const seenSourceIds = new Set<string>();
+
+    for (const row of rows) {
+      if (candidates.length >= maxResults) break;
+      const sourceUserMessageId =
+        typeof row?.source_user_message_id === 'string'
+          ? row.source_user_message_id
+          : null;
+      if (!sourceUserMessageId || seenSourceIds.has(sourceUserMessageId)) {
+        continue;
+      }
+
+      const roundIndex = allRounds.findIndex(
+        (round) => round.userMessageId === sourceUserMessageId
+      );
+      if (roundIndex < 0) continue;
+
+      const round = allRounds[roundIndex];
+      const speakerText = speakerTextFromRound(round, speaker);
+      if (speaker !== 'any' && !speakerText.trim()) continue;
+
+      const rawMatchedText =
+        typeof row?.content === 'string' && row.content.trim()
+          ? row.content.trim()
+          : speakerText;
+      const sourceText = speaker === 'any' ? rawMatchedText : speakerText;
+      const compactText = relevantWindow(sourceText, query, MAX_COMPACT_CHARS);
+      const expandedText = relevantWindow(
+        speaker === 'any' ? rawMatchedText : speakerText,
+        query,
+        MAX_EXPANDED_CHARS
+      );
+
+      if (!compactText) continue;
+      seenSourceIds.add(sourceUserMessageId);
+
+      const { entry, reused } = addOrReuseEntry({
+        ledger,
+        createEvidenceId,
+        kind: 'semantic',
+        sourceUserMessageId,
+        roundIndex,
+        speaker,
+        compactText,
+        expandedText,
+        query,
+        requestedBySeatId,
+        createdAt:
+          typeof row?.created_at === 'string' ? row.created_at : null,
+        semanticSimilarity:
+          typeof row?.semantic_similarity === 'number'
+            ? row.semantic_similarity
+            : null,
+        hybridScore:
+          typeof row?.hybrid_score === 'number' ? row.hybrid_score : null,
+      });
+
+      candidates.push(entry);
+      if (reused) reusedEvidenceIds.push(entry.evidenceId);
+      else addedEntries.push(entry);
+    }
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        query,
+        speaker,
+        candidates: candidates.map(publicEntry),
+        note:
+          'These are grounded historical candidates. Expand only the evidence IDs whose compact snippets are insufficient.',
+      },
+      addedEntries,
+      reusedEvidenceIds,
+      query,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'expand_conversation_evidence') {
+    const rawIds = Array.isArray(toolArgs.evidence_ids)
+      ? toolArgs.evidence_ids
+      : [];
+    const evidenceIds = Array.from(
+      new Set(
+        rawIds
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      )
+    ).slice(0, 3);
+
+    const expanded = evidenceIds
+      .map((id) => ledger.find((entry) => entry.evidenceId === id))
+      .filter((entry): entry is AgenticEvidenceLedgerEntry => Boolean(entry))
+      .map((entry) => ({
+        evidence_id: entry.evidenceId,
+        source_user_message_id: entry.sourceUserMessageId,
+        speaker: entry.speaker,
+        content: entry.expandedText,
+      }));
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        evidence: expanded,
+        missing_ids: evidenceIds.filter(
+          (id) => !ledger.some((entry) => entry.evidenceId === id)
+        ),
+      },
+      addedEntries,
+      reusedEvidenceIds: expanded.map((item) => item.evidence_id),
+      query: null,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'get_recent_conversation') {
+    const count = clampInt(toolArgs.count, 1, 3, 2);
+    const speaker = normalizeSpeaker(toolArgs.speaker);
+    const selected = allRounds.slice(-count);
+    const evidence: AgenticEvidenceLedgerEntry[] = [];
+
+    selected.forEach((round, localIndex) => {
+      const roundIndex = allRounds.length - selected.length + localIndex;
+      const sourceText = speakerTextFromRound(round, speaker);
+      if (!sourceText.trim()) return;
+      const compactText = relevantWindow(sourceText, '', MAX_COMPACT_CHARS);
+      const expandedText = relevantWindow(sourceText, '', MAX_EXPANDED_CHARS);
+      const { entry, reused } = addOrReuseEntry({
+        ledger,
+        createEvidenceId,
+        kind: 'recent',
+        sourceUserMessageId: round.userMessageId || null,
+        roundIndex,
+        speaker,
+        compactText,
+        expandedText,
+        query: null,
+        requestedBySeatId,
+      });
+      evidence.push(entry);
+      if (reused) reusedEvidenceIds.push(entry.evidenceId);
+      else addedEntries.push(entry);
+    });
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        evidence: evidence.map(publicEntry),
+      },
+      addedEntries,
+      reusedEvidenceIds,
+      query: null,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'navigate_conversation_evidence') {
+    const evidenceId = String(toolArgs.evidence_id || '').trim();
+    const direction =
+      toolArgs.direction === 'before' || toolArgs.direction === 'after'
+        ? toolArgs.direction
+        : null;
+    const count = clampInt(toolArgs.count, 1, 3, 1);
+    const speaker = normalizeSpeaker(toolArgs.speaker);
+    const anchor = ledger.find((entry) => entry.evidenceId === evidenceId);
+
+    if (!anchor || anchor.roundIndex === null || !direction) {
+      return {
+        toolName,
+        result: { ok: false, error: 'valid_anchor_and_direction_required' },
+        addedEntries,
+        reusedEvidenceIds,
+        query: null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const evidence: AgenticEvidenceLedgerEntry[] = [];
+    for (let offset = 1; offset <= count; offset += 1) {
+      const roundIndex =
+        direction === 'before'
+          ? anchor.roundIndex - offset
+          : anchor.roundIndex + offset;
+      if (roundIndex < 0 || roundIndex >= allRounds.length) break;
+
+      const round = allRounds[roundIndex];
+      const sourceText = speakerTextFromRound(round, speaker);
+      if (!sourceText.trim()) continue;
+      const compactText = relevantWindow(sourceText, anchor.query || '', MAX_COMPACT_CHARS);
+      const expandedText = relevantWindow(sourceText, anchor.query || '', MAX_EXPANDED_CHARS);
+      const { entry, reused } = addOrReuseEntry({
+        ledger,
+        createEvidenceId,
+        kind: 'chronology',
+        sourceUserMessageId: round.userMessageId || null,
+        roundIndex,
+        speaker,
+        compactText,
+        expandedText,
+        query: anchor.query,
+        requestedBySeatId,
+      });
+      evidence.push(entry);
+      if (reused) reusedEvidenceIds.push(entry.evidenceId);
+      else addedEntries.push(entry);
+    }
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        anchor_evidence_id: evidenceId,
+        direction,
+        evidence: evidence.map(publicEntry),
+      },
+      addedEntries,
+      reusedEvidenceIds,
+      query: anchor.query,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  return {
+    toolName,
+    result: { ok: false, error: 'unsupported_agentic_memory_tool' },
+    addedEntries,
+    reusedEvidenceIds,
+    query: null,
+    latencyMs: Date.now() - startedAt,
+  };
+}
+
+export function formatSharedAgenticEvidenceForPrompt(
+  ledger: AgenticEvidenceLedgerEntry[]
+): string {
+  if (!Array.isArray(ledger) || ledger.length === 0) return '';
+
+  const selected = ledger.slice(-12);
+  const blocks = selected.map((entry) => {
+    const source = entry.sourceUserMessageId
+      ? `source_user_message_id=${entry.sourceUserMessageId}`
+      : 'source_user_message_id=unknown';
+    return [
+      `[${entry.evidenceId}] kind=${entry.kind}; speaker=${entry.speaker}; ${source}`,
+      entry.compactText,
+    ].join('\n');
+  });
+
+  return `SHARED GROUNDED EVIDENCE FROM EARLIER CONFIGURED SEATS
+The following evidence was retrieved from this discussion by earlier configured seats in the current round. It is source evidence, not their private reasoning or conclusions. You may use it directly, independently assess it, or expand/navigate an evidence ID with the conversation tools if more context is needed.
+
+${blocks.join('\n\n')}`;
+}
