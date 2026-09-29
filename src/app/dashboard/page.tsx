@@ -36,6 +36,12 @@ const EMPTY_SEAT_SEARCH_SOURCES: Record<ModelId, SeatSearchSource[]> = {
   chatgpt: [],
 };
 
+const EMPTY_SEAT_ACTIVITY_LABELS: Record<ModelId, string | null> = {
+  gemini: null,
+  claude: null,
+  chatgpt: null,
+};
+
 const SIGNUP_SOURCE_ROLLOUT_AT = new Date('2026-09-13T00:00:00.000Z').getTime();
 const COUNTRY_CODE_ROLLOUT_AT = new Date('2026-09-19T04:00:00.000Z').getTime();
 
@@ -167,6 +173,7 @@ interface ActiveDiscussionState {
   controller: AbortController;
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
+  seatActivityLabels: Record<ModelId, string | null>;
   seatSearchSources: Record<ModelId, SeatSearchSource[]>;
   activeSpeaker: ModelId | null;
 }
@@ -246,6 +253,9 @@ export default function DashboardPage() {
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
+  const [seatActivityLabels, setSeatActivityLabels] = useState<
+    Record<ModelId, string | null>
+  >(EMPTY_SEAT_ACTIVITY_LABELS);
   const [seatSearchSources, setSeatSearchSources] = useState<
     Record<ModelId, SeatSearchSource[]>
   >(EMPTY_SEAT_SEARCH_SOURCES);
@@ -560,6 +570,7 @@ export default function DashboardPage() {
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
         setSeatStatuses({ ...activeGen.seatStatuses });
+        setSeatActivityLabels({ ...activeGen.seatActivityLabels });
         setSeatSearchSources({
           gemini: [...activeGen.seatSearchSources.gemini],
           claude: [...activeGen.seatSearchSources.claude],
@@ -574,6 +585,7 @@ export default function DashboardPage() {
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
         setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
         setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
         setIsDebating(false);
         setActiveSpeaker(null);
@@ -1100,6 +1112,11 @@ export default function DashboardPage() {
         controller,
         liveSeatMessage: initialLiveSeatMsg,
         seatStatuses: initialStatuses,
+        seatActivityLabels: {
+          gemini: null,
+          claude: null,
+          chatgpt: null,
+        },
         seatSearchSources: {
           gemini: [],
           claude: [],
@@ -1348,6 +1365,10 @@ export default function DashboardPage() {
                     ...activeGen.seatStatuses,
                     [seatId]: 'thinking',
                   };
+                  activeGen.seatActivityLabels = {
+                    ...activeGen.seatActivityLabels,
+                    [seatId]: null,
+                  };
                   activeGen.seatSearchSources = {
                     ...activeGen.seatSearchSources,
                     [seatId]: [],
@@ -1361,6 +1382,10 @@ export default function DashboardPage() {
                 setSeatStatuses((prev) => ({
                   ...prev,
                   [seatId]: 'thinking',
+                }));
+                setSeatActivityLabels((prev) => ({
+                  ...prev,
+                  [seatId]: null,
                 }));
                 setSeatSearchSources((prev) => ({
                   ...prev,
@@ -1475,10 +1500,20 @@ export default function DashboardPage() {
             } else if (eventType === 'seat_activity') {
               const seatId = data.seatId as ModelId;
               const activity = data.activity as SeatStatus;
+              const activityLabel =
+                typeof data.label === 'string' && data.label.trim()
+                  ? data.label.trim().slice(0, 120)
+                  : null;
               const allowedActivities: SeatStatus[] = [
                 'working',
                 'checking_documents',
                 'checking_images',
+                'searching_conversation',
+                'checking_chronology',
+                'reading_context',
+                'searching_documents',
+                'locating_evidence',
+                'reviewing_evidence',
                 'searching_web',
                 'generating_image',
                 'editing_image',
@@ -1499,6 +1534,10 @@ export default function DashboardPage() {
                       ...activeGen.seatStatuses,
                       [seatId]: activity,
                     };
+                    activeGen.seatActivityLabels = {
+                      ...activeGen.seatActivityLabels,
+                      [seatId]: activityLabel,
+                    };
                   }
                 }
 
@@ -1506,6 +1545,10 @@ export default function DashboardPage() {
                   setSeatStatuses((prev) => ({
                     ...prev,
                     [seatId]: activity,
+                  }));
+                  setSeatActivityLabels((prev) => ({
+                    ...prev,
+                    [seatId]: activityLabel,
                   }));
                 }
               }
@@ -1579,6 +1622,10 @@ export default function DashboardPage() {
                     ...activeGen.seatStatuses,
                     [seatId]: 'speaking',
                   };
+                  activeGen.seatActivityLabels = {
+                    ...activeGen.seatActivityLabels,
+                    [seatId]: null,
+                  };
                   if (activeGen.liveSeatMessage && activeGen.liveSeatMessage.modelId === seatId) {
                     activeGen.liveSeatMessage = {
                       ...activeGen.liveSeatMessage,
@@ -1592,6 +1639,10 @@ export default function DashboardPage() {
                 setSeatStatuses((prev) =>
                   prev[seatId] !== 'speaking' ? { ...prev, [seatId]: 'speaking' } : prev
                 );
+                setSeatActivityLabels((prev) => ({
+                  ...prev,
+                  [seatId]: null,
+                }));
 
                 setMessages((prev) => {
                   const msgs = [...prev];
@@ -2827,6 +2878,7 @@ export default function DashboardPage() {
                   onPromptClick={handleSendMessage}
                   activeSpeaker={activeSpeaker}
                   seatStatuses={seatStatuses}
+                  seatActivityLabels={seatActivityLabels}
                   seatSearchSources={seatSearchSources}
                   isDebating={isDebating}
                   errorMessage={errorMessage}
