@@ -2415,7 +2415,7 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     AGENTIC_MEMORY_EXPERIMENT
       ? `AGENTIC CONVERSATION MEMORY:
 You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
-Start with compact retrieval. Expand only evidence that needs more context. For first/last conversation occurrences, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. Use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
+Start with compact retrieval. Expand only evidence that needs more context. For first/last conversation occurrences, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. Use search_document_evidence when you need wording or facts from the parsed text of a prior file; use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
@@ -7097,9 +7097,10 @@ export async function POST(req: NextRequest) {
                 });
               }
 
-              // Route custom tool calls without wrapping the seat in a generic retry loop.
-              // Image generation remains a terminal seat path; request_evidence gets one
-              // dedicated second inference after canonical evidence is materialized.
+              // Route custom tool calls through bounded evidence retrieval before
+              // terminal side effects. Conversation, chronology, parsed-document,
+              // and canonical artifact evidence may be retrieved iteratively;
+              // creation/edit/generation remains a single side-effect action.
               if (accumulatedToolCalls.length > 0) {
                 const finalizedCalls = finalizeAllToolCalls(accumulatedToolCalls);
 
@@ -8874,6 +8875,11 @@ export async function POST(req: NextRequest) {
                       isAgenticMemoryEnabledForSeat
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
+                      ...(agenticRetrievalRounds <
+                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                      isAgenticDocumentEvidenceEnabledForSeat
+                        ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
+                        : []),
                     ],
                     tool_choice: 'auto',
                     ...(discussionId
@@ -8954,6 +8960,9 @@ export async function POST(req: NextRequest) {
                           call?.name === 'request_evidence' ||
                           AGENTIC_CONVERSATION_TOOL_NAMES.has(
                             call?.name as any
+                          ) ||
+                          AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                            call?.name as any
                           )
                       );
 
@@ -8986,6 +8995,9 @@ export async function POST(req: NextRequest) {
                           call?.name !== 'request_evidence' &&
                           !AGENTIC_CONVERSATION_TOOL_NAMES.has(
                             call?.name as any
+                          ) &&
+                          !AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                            call?.name as any
                           )
                       );
                     if (deferredActionCalls.length > 0) {
@@ -9009,6 +9021,78 @@ export async function POST(req: NextRequest) {
                       [];
 
                     for (const toolCall of retrievalCalls) {
+                      if (
+                        AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                          toolCall.name as any
+                        )
+                      ) {
+                        const isOwner =
+                          await verifyDiscussionOwnership(
+                            supabase,
+                            discussionId!
+                          );
+                        const resolution = isOwner
+                          ? await resolveAgenticDocumentEvidenceTool({
+                              toolName: toolCall.name,
+                              toolArgs: (toolCall.arguments ||
+                                {}) as Record<string, unknown>,
+                              serviceSupabase:
+                                createServiceClient(),
+                              openai,
+                              discussionId: discussionId!,
+                              knownDocuments:
+                                discussionMemory?.knownDocuments ||
+                                [],
+                              ledger:
+                                sharedAgenticEvidenceLedger,
+                              requestedBySeatId:
+                                seat.seatId,
+                              createEvidenceId:
+                                createAgenticEvidenceId,
+                              signal:
+                                seatAbortController.signal,
+                            })
+                          : {
+                              toolName: toolCall.name,
+                              result: {
+                                ok: false,
+                                error:
+                                  'discussion_ownership_required',
+                              },
+                              addedEvidenceIds: [],
+                              reusedEvidenceIds: [],
+                              query: null,
+                              latencyMs: 0,
+                            };
+
+                        retrievalResults.push({
+                          toolCall,
+                          result: resolution.result,
+                        });
+
+                        console.log(
+                          '[Agentic Document Evidence Tool]',
+                          {
+                            discussionId,
+                            seatId: seat.seatId,
+                            seatIndex,
+                            retrievalRound:
+                              agenticRetrievalRounds,
+                            tool: toolCall.name,
+                            query: resolution.query,
+                            addedEvidenceIds:
+                              resolution.addedEvidenceIds,
+                            reusedEvidenceIds:
+                              resolution.reusedEvidenceIds,
+                            latencyMs:
+                              resolution.latencyMs,
+                            ledgerSize:
+                              sharedAgenticEvidenceLedger.length,
+                          }
+                        );
+                        continue;
+                      }
+
                       if (
                         AGENTIC_CONVERSATION_TOOL_NAMES.has(
                           toolCall.name as any
@@ -9538,6 +9622,11 @@ export async function POST(req: NextRequest) {
                               MAX_AGENTIC_RETRIEVAL_ROUNDS &&
                             isAgenticMemoryEnabledForSeat
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                              : []),
+                            ...(agenticRetrievalRounds <
+                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                            isAgenticDocumentEvidenceEnabledForSeat
+                              ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                               : []),
                           ],
                           tool_choice: 'auto',
