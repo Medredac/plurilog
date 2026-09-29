@@ -24,7 +24,9 @@ import {
   FileEdit,
   Sparkles,
   Globe2,
-  Clock3
+  Clock3,
+  History,
+  BookOpen
 } from 'lucide-react';
 import {
   ChatMessage,
@@ -234,28 +236,30 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
   };
 }
 
-type SeatIndicatorStatus =
-  | SeatStatus
-  | 'analyzing_input'
-  | 'thinking_again'
-  | 'considering_context';
+type SeatIndicatorStatus = SeatStatus;
 
 function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   switch (status) {
     case 'waiting':
       return 'Preparing…';
-    case 'analyzing_input':
-      return 'Analyzing input…';
-    case 'thinking_again':
-      return 'Thinking…';
-    case 'considering_context':
-      return 'Considering context…';
     case 'working':
       return 'Working through it…';
     case 'checking_documents':
       return 'Checking documents…';
     case 'checking_images':
       return 'Checking images…';
+    case 'searching_conversation':
+      return 'Searching earlier messages…';
+    case 'checking_chronology':
+      return 'Checking the conversation timeline…';
+    case 'reading_context':
+      return 'Reading more context…';
+    case 'searching_documents':
+      return 'Searching earlier documents…';
+    case 'locating_evidence':
+      return 'Locating the referenced source…';
+    case 'reviewing_evidence':
+      return 'Reviewing what it found…';
     case 'searching_web':
       return 'Searching the web…';
     case 'generating_image':
@@ -301,6 +305,7 @@ interface SeatActivityIndicatorProps {
   status: SeatStatus;
   startedAt?: string;
   searchSources?: SeatSearchSource[];
+  activityLabel?: string | null;
   reduceMotion?: boolean;
 }
 
@@ -308,6 +313,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   status,
   startedAt,
   searchSources = [],
+  activityLabel = null,
   reduceMotion = false,
 }) => {
   const startMs = React.useMemo(() => {
@@ -334,19 +340,12 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       : `${minutes}m${String(seconds).padStart(2, '0')}`;
   })();
 
-  // UI-only fallback rhythm while the backend has not reported a concrete
-  // activity yet. Real activity events always replace this immediately.
-  const effectiveStatus: SeatIndicatorStatus = (() => {
-    if (status !== 'thinking') return status;
-
-    // One-way progression. Once the generic fallback reaches "working", it
-    // stays there until content arrives or the backend reports a real activity.
-    if (elapsedMs < 3000) return 'thinking';
-    if (elapsedMs < 10000) return 'analyzing_input';
-    if (elapsedMs < 15000) return 'thinking_again';
-    if (elapsedMs < 22000) return 'considering_context';
-    return 'working';
-  })();
+  // Stay truthful while the model is reasoning silently. Concrete backend
+  // activity events replace this immediately when the agent chooses a tool.
+  const effectiveStatus: SeatIndicatorStatus =
+    status === 'thinking' && elapsedMs >= 22000 ? 'working' : status;
+  const displayLabel =
+    activityLabel?.trim() || getSeatActivityLabel(effectiveStatus);
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -388,16 +387,22 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
         return Clock3;
       case 'working':
         return Sparkles;
-      case 'analyzing_input':
-        return Brain;
-      case 'thinking_again':
-        return Brain;
-      case 'considering_context':
-        return Sparkles;
       case 'checking_documents':
         return FileSearch;
       case 'checking_images':
         return ImageIcon;
+      case 'searching_conversation':
+        return Search;
+      case 'checking_chronology':
+        return History;
+      case 'reading_context':
+        return BookOpen;
+      case 'searching_documents':
+        return FileSearch;
+      case 'locating_evidence':
+        return Search;
+      case 'reviewing_evidence':
+        return Sparkles;
       case 'searching_web':
         return Search;
       case 'generating_image':
@@ -441,7 +446,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
-            key={effectiveStatus}
+            key={`${effectiveStatus}:${displayLabel}`}
             initial={
               reduceMotion
                 ? false
@@ -483,7 +488,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             }
             className="animate-text-shimmer whitespace-nowrap font-normal tracking-tight select-none"
           >
-            {getSeatActivityLabel(effectiveStatus)}
+            {displayLabel}
           </motion.span>
         </AnimatePresence>
 
@@ -907,6 +912,7 @@ interface ChatFeedProps {
   onPromptClick: (prompt: string) => void;
   activeSpeaker?: ModelId | null;
   seatStatuses?: Record<ModelId, SeatStatus>;
+  seatActivityLabels?: Record<ModelId, string | null>;
   seatSearchSources?: Record<ModelId, SeatSearchSource[]>;
   isDebating?: boolean;
   errorMessage?: string | null;
@@ -1247,6 +1253,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     'gemini': 'idle',
     'claude': 'idle',
     'chatgpt': 'idle',
+  },
+  seatActivityLabels = {
+    gemini: null,
+    claude: null,
+    chatgpt: null,
   },
   seatSearchSources = {
     gemini: [],
@@ -1700,6 +1711,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   status={seatStatuses[modelKey] || 'thinking'}
                   startedAt={message.createdAt}
                   searchSources={seatSearchSources[modelKey] || []}
+                  activityLabel={seatActivityLabels[modelKey] || null}
                   reduceMotion={Boolean(shouldReduceMotion)}
                 />
               ) : (
