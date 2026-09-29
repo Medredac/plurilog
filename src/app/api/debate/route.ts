@@ -939,6 +939,18 @@ function isRecoverableSourceEditExecutionError(error: any): boolean {
   );
 }
 
+function isExplicitDownloadableDocumentRequest(value: string): boolean {
+  const prompt = (value || '').trim();
+  if (!prompt) return false;
+
+  const fileSurface =
+    /\b(?:pdf|docx|word(?:\s+document)?|downloadable\s+(?:file|document)|file|resume|résumé|cv|rirekisho)\b/i;
+  const creationIntent =
+    /\b(?:create|make|generate|produce|prepare|build|export|save|download|turn|convert|give|provide)\b/i;
+
+  return fileSurface.test(prompt) && creationIntent.test(prompt);
+}
+
 function isStrongDocumentMutationRequest(value: string): boolean {
   const prompt = (value || '').trim();
   if (!prompt || !isDocumentRevisionFollowUpQuery(prompt)) return false;
@@ -6386,6 +6398,10 @@ export async function POST(req: NextRequest) {
               isDocumentRevisionFollowUp &&
               hasCurrentUserDocumentUpload &&
               !isSimplePdfFormatConversionRequest(prompt || '');
+            const documentSideEffectsAuthorizedForTurn =
+              sourceDocumentEditingForCurrentTurn ||
+              isDocumentRevisionFollowUp ||
+              isExplicitDownloadableDocumentRequest(prompt || '');
             const hasKnownInspectableDocument =
               (discussionMemory?.knownDocuments || []).some((doc) => {
                 const filename = (doc.filename || '').toLowerCase();
@@ -6904,7 +6920,8 @@ export async function POST(req: NextRequest) {
                     : []),
                   ...(sourceDocumentEditingForCurrentTurn
                     ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                    : isDocumentCreationEnabledForSeat
+                    : isDocumentCreationEnabledForSeat &&
+                        documentSideEffectsAuthorizedForTurn
                       ? GPT_FILE_TOOLS
                       : []),
                   ...(retrievalToolsStillAvailable &&
@@ -8835,6 +8852,7 @@ export async function POST(req: NextRequest) {
                   let evidenceContinuationCanCreateFile =
                     seat.seatId === 'chatgpt' &&
                     isDocumentCreationEnabledForSeat &&
+                    documentSideEffectsAuthorizedForTurn &&
                     anyResolvedEvidence;
                   let evidenceContinuationCanSourceEdit =
                     evidenceContinuationCanCreateFile &&
@@ -9506,6 +9524,7 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCanCreateFile =
                       seat.seatId === 'chatgpt' &&
                       isDocumentCreationEnabledForSeat &&
+                      documentSideEffectsAuthorizedForTurn &&
                       anyResolvedEvidence;
                     evidenceContinuationCanSourceEdit =
                       evidenceContinuationCanCreateFile &&
