@@ -2896,8 +2896,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Get hardcoded fallback arrays for each seat.
-    // Claude alternates between premium-first and economy-first routing in
-    // repeating $0.25 bands of the user's overall current-period usage.
+    // Claude routing repeats on a $1.00 usage cycle:
+    // first $0.25 premium-first (Sonnet), then $0.75 economy-first (Haiku).
     const seatFallbacks = getCouncilSeatFallbacks();
 
     let overallUsageCents = 0;
@@ -2919,8 +2919,8 @@ export async function POST(req: NextRequest) {
           Number(usageProfile?.total_spent_cents) || 0
         );
 
-        const usageBandIndex = Math.floor(overallUsageCents / 25);
-        claudeEconomyBand = usageBandIndex % 2 === 1;
+        const claudeCyclePositionCents = overallUsageCents % 100;
+        claudeEconomyBand = claudeCyclePositionCents >= 25;
 
         if (claudeEconomyBand) {
           const [sonnet, haiku, opus] = seatFallbacks.claude;
@@ -2931,7 +2931,7 @@ export async function POST(req: NextRequest) {
 
         console.log('[Claude Usage Band]', {
           overallUsageCents,
-          usageBandIndex,
+          claudeCyclePositionCents,
           mode: claudeEconomyBand ? 'economy' : 'normal',
           claudeModels: seatFallbacks.claude,
         });
