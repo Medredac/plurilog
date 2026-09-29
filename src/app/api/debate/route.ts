@@ -1734,6 +1734,184 @@ async function materializeDocxEmbeddedImageAttachments(options: {
   return attachments;
 }
 
+async function materializeBrokerEvidenceForSeat(options: {
+  supabase: any;
+  serviceClient: ReturnType<typeof createServiceClient> | null;
+  discussionId: string;
+  sourceUserMessageId?: string | null;
+  brokerResult: ReturnType<typeof resolveRequestedEvidence>;
+  signal?: AbortSignal;
+}): Promise<{
+  modelSafeBrokerResult: ReturnType<typeof toModelSafeBrokerResult>;
+  materializedEvidenceAttachments: RouteAttachment[];
+}> {
+  const {
+    supabase,
+    serviceClient,
+    discussionId,
+    sourceUserMessageId,
+    brokerResult,
+    signal,
+  } = options;
+
+  let modelSafeBrokerResult = toModelSafeBrokerResult(brokerResult);
+  const materializedEvidenceAttachments: RouteAttachment[] = [];
+
+  if (
+    brokerResult.status === 'resolved' &&
+    brokerResult.evidence &&
+    serviceClient
+  ) {
+    const ev = brokerResult.evidence;
+
+    if (ev.kind === 'pdf' && ev.storagePath) {
+      const { data: signedData, error: signErr } = await serviceClient.storage
+        .from('message-images')
+        .createSignedUrl(ev.storagePath, 900);
+
+      if (!signErr && signedData?.signedUrl) {
+        materializedEvidenceAttachments.push({
+          url: signedData.signedUrl,
+          filename: ev.filename,
+          provenance:
+            ev.reason === 'user_uploaded_document_ordinal'
+              ? 'historical_user_upload'
+              : 'historical_assistant_generated',
+        });
+      } else {
+        modelSafeBrokerResult = {
+          status: 'not_found',
+          kind: 'pdf',
+          message:
+            'The requested PDF visual evidence could not be retrieved for this call.',
+        };
+      }
+    } else if (
+      ev.kind === 'docx' &&
+      ev.storagePath &&
+      discussionId
+    ) {
+      try {
+        const renderedPages =
+          await materializeDocxRenderedPageAttachments({
+            supabase,
+            serviceClient,
+            discussionId,
+            sourceUserMessageId,
+            storagePath: ev.storagePath,
+            filename: ev.filename,
+            signal,
+            registerImmediately: true,
+          });
+
+        if (renderedPages.length > 0) {
+          materializedEvidenceAttachments.push(...renderedPages);
+
+          try {
+            const embeddedImages =
+              await materializeDocxEmbeddedImageAttachments({
+                supabase,
+                serviceClient,
+                discussionId,
+                sourceMessageId: null,
+                storagePath: ev.storagePath,
+                filename: ev.filename,
+                signal,
+                registerImmediately: true,
+              });
+            materializedEvidenceAttachments.push(...embeddedImages);
+          } catch (embeddedImageErr) {
+            console.warn(
+              '[Evidence Broker] Non-critical DOCX embedded-image materialization error:',
+              embeddedImageErr
+            );
+          }
+        } else {
+          modelSafeBrokerResult = {
+            status: 'not_found',
+            kind: 'docx',
+            message:
+              'The requested Word document could not be rendered for visual inspection in this call.',
+          };
+        }
+      } catch (docxEvidenceErr) {
+        console.warn(
+          '[Evidence Broker] Non-critical DOCX visual materialization error:',
+          docxEvidenceErr
+        );
+        modelSafeBrokerResult = {
+          status: 'not_found',
+          kind: 'docx',
+          message:
+            'The requested Word document could not be rendered for visual inspection in this call.',
+        };
+      }
+    } else if (
+      ev.kind === 'image' &&
+      ev.sources &&
+      ev.sources.length > 0
+    ) {
+      const signedImages: RouteAttachment[] = [];
+
+      for (const source of ev.sources) {
+        if (!source.storagePath) continue;
+        const { data: signedData, error: signErr } =
+          await serviceClient.storage
+            .from('message-images')
+            .createSignedUrl(source.storagePath, 900);
+
+        if (signErr || !signedData?.signedUrl) continue;
+
+        let provenance: AttachmentProvenance | undefined;
+        let creatorSeatId: string | undefined;
+        if (source.sender) {
+          const senderLower = source.sender.toLowerCase();
+          if (['gemini', 'chatgpt', 'claude'].includes(senderLower)) {
+            provenance = 'historical_assistant_generated';
+            creatorSeatId = senderLower;
+          } else if (senderLower === 'user') {
+            provenance = 'historical_user_upload';
+          }
+        }
+
+        signedImages.push({
+          url: signedData.signedUrl,
+          filename: source.filename || 'image.jpg',
+          provenance,
+          creatorSeatId,
+        });
+      }
+
+      if (signedImages.length === ev.sources.length) {
+        materializedEvidenceAttachments.push(...signedImages);
+      } else {
+        modelSafeBrokerResult = {
+          status: 'not_found',
+          kind: 'image',
+          message:
+            'The requested image evidence could not be completely retrieved for this call.',
+        };
+      }
+    }
+  } else if (
+    brokerResult.status === 'resolved' &&
+    brokerResult.evidence &&
+    !serviceClient
+  ) {
+    modelSafeBrokerResult = {
+      status: 'not_found',
+      kind: brokerResult.kind,
+      message:
+        'The requested visual evidence could not be securely retrieved for this call.',
+    };
+  }
+
+  return {
+    modelSafeBrokerResult,
+    materializedEvidenceAttachments,
+  };
+}
+
 async function generateImageActionFollowUp(options: {
   openai: OpenAI;
   primaryModel: string;
