@@ -8991,6 +8991,9 @@ export async function POST(req: NextRequest) {
                           max_total_results: 6,
                         },
                       },
+                      ...(isImageGenerationEnabledForSeat
+                        ? GEMINI_IMAGE_TOOLS
+                        : []),
                       ...(evidenceContinuationCanSourceEdit
                         ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
                         : evidenceContinuationCanReviseFile
@@ -9812,6 +9815,9 @@ export async function POST(req: NextRequest) {
                                   },
                                 ]
                               : []),
+                            ...(isImageGenerationEnabledForSeat
+                              ? GEMINI_IMAGE_TOOLS
+                              : []),
                             ...(evidenceContinuationCanSourceEdit
                               ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
                               : evidenceContinuationCanReviseFile
@@ -9954,6 +9960,15 @@ export async function POST(req: NextRequest) {
                     evidenceContinuationCalls.filter(
                       (call) => call?.name === 'edit_source_document'
                     );
+                  const evidenceGenerateImageCalls =
+                    evidenceContinuationCalls.filter(
+                      (call) => call?.name === 'generate_image'
+                    );
+                  const hasOnlyEvidenceGenerateImageCall =
+                    isImageGenerationEnabledForSeat &&
+                    evidenceGenerateImageCalls.length === 1 &&
+                    evidenceGenerateImageCalls.length ===
+                      evidenceContinuationCalls.length;
                   const hasOnlyEvidenceSourceEditCalls =
                     evidenceContinuationCanSourceEdit &&
                     evidenceSourceEditCalls.length === 1 &&
@@ -10630,8 +10645,447 @@ export async function POST(req: NextRequest) {
                     continue seatLoop;
                   }
 
+                  if (hasOnlyEvidenceGenerateImageCall) {
+                    const imageCall = evidenceGenerateImageCalls[0];
+                    const toolArgs = imageCall.arguments as { prompt?: string };
+                    const toolPrompt =
+                      typeof toolArgs?.prompt === 'string'
+                        ? toolArgs.prompt.trim()
+                        : '';
+
+                    if (!toolPrompt) {
+                      throw new Error(
+                        'A non-empty prompt is required for image generation.'
+                      );
+                    }
+
+                    const { data: currentBalanceRows, error: checkBalErr } =
+                      await supabase.rpc('get_my_balance');
+                    if (checkBalErr) {
+                      throw new Error(
+                        'Could not verify account balance for image generation.'
+                      );
+                    }
+
+                    const remainingCents = Number(
+                      currentBalanceRows?.[0]?.remaining_cents ?? 0
+                    );
+
+                    if (remainingCents <= 0) {
+                      const lowCreditNotice =
+                        "You’ve used all of your available usage credit, so I can’t generate another image right now.";
+                      seatResponse = lowCreditNotice;
+                      evidenceContinuationCalls = [];
+                      sendEvent('seat_chunk', {
+                        seatId: seat.seatId,
+                        text: lowCreditNotice,
+                      });
+                    } else {
+                      imageToolBranchActive = true;
+                      sendEvent('seat_activity', {
+                        seatId: seat.seatId,
+                        activity: 'generating_image',
+                      });
+
+                      const imageProviderLabel =
+                        seat.seatId === 'chatgpt'
+                          ? 'ChatGPT'
+                          : 'Gemini';
+                      console.log(
+                        `[${imageProviderLabel} Image Generation] Executing after grounded evidence retrieval:`,
+                        {
+                          seatId: seat.seatId,
+                          promptLength: toolPrompt.length,
+                          evidenceAttachmentCount:
+                            evidenceAttachments.length,
+                          retrievalRounds: agenticRetrievalRounds,
+                        }
+                      );
+
+                      const imageResult =
+                        seat.seatId === 'chatgpt'
+                          ? await generateChatGPTImage({
+                              prompt: toolPrompt,
+                              signal: seatAbortController.signal,
+                            })
+                          : await generateGeminiImage({
+                              prompt: toolPrompt,
+                              signal: seatAbortController.signal,
+                            });
+
+                      incurredImageCostUsd = imageResult.costUsd;
+
+                      let finalContent = seatResponse.trim();
+                      if (!finalContent) {
+                        try {
+                          const followUp =
+                            await generateImageActionFollowUp({
+                              openai,
+                              primaryModel,
+                              models,
+                              baseMessages: evidenceMessages,
+                              toolCall: imageCall,
+                              priorToolText: '',
+                              signal: seatAbortController.signal,
+                              sessionId: discussionId
+                                ? `${discussionId}:${seat.seatId}:evidence-image`
+                                : null,
+                              onText: (text) =>
+                                sendEvent('seat_chunk', {
+                                  seatId: seat.seatId,
+                                  text,
+                                }),
+                            });
+                          finalContent = followUp.content;
+                          incurredImageFollowUpCostUsd +=
+                            followUp.costUsd;
+                          respondingModel =
+                            followUp.respondingModel;
+                        } catch (followUpErr) {
+                          console.warn(
+                            '[Image Generation] Non-critical contextual follow-up error after evidence retrieval:',
+                            followUpErr
+                          );
+                        }
+                      }
+                      if (!finalContent) {
+                        finalContent = 'Image generated.';
+                      }
+
+                      let persistedMsg: {
+                        id: string;
+                        created_at: string;
+                      } | null = null;
+                      if (discussionId) {
+                        for (
+                          let attempt = 1;
+                          attempt <= 2;
+                          attempt++
+                        ) {
+                          const { data, error } = await supabase
+                            .from('messages')
+                            .insert({
+                              id: messageId,
+                              discussion_id: discussionId,
+                              sender: seat.seatId,
+                              content: finalContent,
+                            })
+                            .select(
+                              'id, created_at, discussion_id, sender, content'
+                            )
+                            .maybeSingle();
+
+                          if (!error && data) {
+                            persistedMsg = {
+                              id: data.id,
+                              created_at: data.created_at,
+                            };
+                            break;
+                          }
+
+                          if (error?.code === '23505') {
+                            const {
+                              data: existing,
+                              error: fetchErr,
+                            } = await supabase
+                              .from('messages')
+                              .select(
+                                'id, created_at, discussion_id, sender, content'
+                              )
+                              .eq('id', messageId)
+                              .maybeSingle();
+                            if (
+                              !fetchErr &&
+                              existing &&
+                              existing.id === messageId &&
+                              existing.discussion_id ===
+                                discussionId &&
+                              existing.sender === seat.seatId
+                            ) {
+                              persistedMsg = {
+                                id: existing.id,
+                                created_at:
+                                  existing.created_at,
+                              };
+                              break;
+                            }
+                          }
+
+                          if (attempt < 2) {
+                            await new Promise((resolve) =>
+                              setTimeout(resolve, 100)
+                            );
+                          }
+                        }
+                      }
+
+                      if (discussionId && !persistedMsg) {
+                        throw new Error(
+                          `Failed to persist completed response from ${seat.name}.`
+                        );
+                      }
+
+                      const persistedImage =
+                        await persistGeneratedImage({
+                          supabase,
+                          discussionId: discussionId || '',
+                          messageId:
+                            persistedMsg?.id || messageId,
+                          seatId: seat.seatId,
+                          b64Json: imageResult.b64Json,
+                          mediaType: imageResult.mediaType,
+                        });
+
+                      hadGeneratedImageInTurn = true;
+
+                      if (discussionId) {
+                        try {
+                          const serviceClient =
+                            createServiceClient();
+                          const genIngestResult =
+                            await ingestDiscussionArtifacts({
+                              serviceSupabase: serviceClient,
+                              discussionId,
+                              attachments: [
+                                {
+                                  url: persistedImage.signedUrl,
+                                  filename:
+                                    persistedImage.filename,
+                                },
+                              ],
+                              sourceUserMessageId:
+                                persistedMsg?.id || messageId,
+                              signal:
+                                seatAbortController.signal,
+                            });
+
+                          if (
+                            isPersistentVisualContextWritesEnabled() &&
+                            genIngestResult?.ingestedSourceIds
+                              ?.length
+                          ) {
+                            const latestKnownSources =
+                              await fetchKnownImageSources(
+                                serviceClient,
+                                discussionId
+                              );
+                            const priorSameRoundGeneratedSourceIds =
+                              [...sameRoundGeneratedSourceIds];
+                            const groundedEvidenceSourceIds =
+                              evidenceResolutionRecords.flatMap(
+                                (record) => {
+                                  const ev =
+                                    record.brokerResult.evidence;
+                                  if (
+                                    !ev ||
+                                    ev.kind !== 'image'
+                                  ) {
+                                    return [];
+                                  }
+                                  if (
+                                    Array.isArray(ev.sourceIds)
+                                  ) {
+                                    return ev.sourceIds;
+                                  }
+                                  if (
+                                    Array.isArray(ev.sources)
+                                  ) {
+                                    return ev.sources
+                                      .map(
+                                        (source) =>
+                                          source.sourceId
+                                      )
+                                      .filter(
+                                        (
+                                          id
+                                        ): id is string =>
+                                          Boolean(id)
+                                      );
+                                  }
+                                  return latestKnownSources
+                                    .filter(
+                                      (source) =>
+                                        source.storagePath &&
+                                        source.storagePath ===
+                                          ev.storagePath
+                                    )
+                                    .map(
+                                      (source) =>
+                                        source.sourceId
+                                    );
+                                }
+                              );
+                            const transitionReferentSourceIds =
+                              Array.from(
+                                new Set([
+                                  ...groundedEvidenceSourceIds,
+                                  ...priorSameRoundGeneratedSourceIds,
+                                ])
+                              );
+
+                            visualContextState =
+                              await updateDiscussionVisualContextCAS(
+                                serviceClient,
+                                discussionId,
+                                visualContextState,
+                                {
+                                  resolvedReferentSourceIds:
+                                    transitionReferentSourceIds,
+                                  newArtifactSourceIds:
+                                    genIngestResult.ingestedSourceIds,
+                                  isComparison:
+                                    transitionReferentSourceIds.length >
+                                    1,
+                                  knownSources:
+                                    latestKnownSources,
+                                }
+                              );
+
+                            sameRoundGeneratedSourceIds =
+                              Array.from(
+                                new Set([
+                                  ...sameRoundGeneratedSourceIds,
+                                  ...genIngestResult.ingestedSourceIds,
+                                ])
+                              );
+
+                            console.log(
+                              '[Visual Context: Evidence-Chained Assistant Generation Transition]',
+                              {
+                                discussionId,
+                                groundedReferentSourceIds:
+                                  transitionReferentSourceIds,
+                                newSources:
+                                  genIngestResult.ingestedSourceIds,
+                                activeSourceCount:
+                                  visualContextState
+                                    ?.active_session_source_ids
+                                    ?.length || 0,
+                                focusSourceCount:
+                                  visualContextState
+                                    ?.focus_source_ids
+                                    ?.length || 0,
+                              }
+                            );
+                          }
+
+                          try {
+                            await indexDiscussionImageArtifacts({
+                              serviceSupabase: serviceClient,
+                              openai,
+                              discussionId,
+                              attachments: [
+                                {
+                                  url: persistedImage.signedUrl,
+                                  filename:
+                                    persistedImage.filename,
+                                },
+                              ],
+                              signal:
+                                seatAbortController.signal,
+                            });
+                          } catch (indexErr) {
+                            console.warn(
+                              '[Visual Indexer] Non-critical error after evidence-chained image generation:',
+                              indexErr
+                            );
+                          }
+                        } catch (imgIngestErr) {
+                          console.warn(
+                            '[Image Artifact Ingest] Non-critical error after evidence-chained image generation:',
+                            imgIngestErr
+                          );
+                        }
+                      }
+
+                      currentRoundAttachments.push({
+                        url: persistedImage.signedUrl,
+                        filename: persistedImage.filename,
+                        provenance:
+                          'same_round_assistant_generated',
+                        creatorSeatId: seat.seatId,
+                      });
+
+                      const textCostUsd =
+                        incurredEvidenceFirstPassCostUsd +
+                        incurredEvidenceSecondPassCostUsd +
+                        incurredImageFollowUpCostUsd;
+                      const imageCostUsd =
+                        typeof imageResult.costUsd === 'number'
+                          ? imageResult.costUsd
+                          : 0;
+                      const costCents =
+                        (textCostUsd + imageCostUsd) * 100;
+
+                      if (costCents > 0) {
+                        const { error: spendError } =
+                          await supabase.rpc('spend_credits', {
+                            p_cents: costCents,
+                            p_model: respondingModel,
+                            p_discussion_id:
+                              discussionId || null,
+                            p_meta: {
+                              seatId: seat.seatId,
+                              textModel: respondingModel,
+                              imageModel: imageResult.model,
+                              textCostUsd,
+                              imageCostUsd,
+                              imageGeneration: true,
+                              evidenceThenImage: true,
+                            },
+                          });
+                        if (spendError) {
+                          throw new Error(
+                            'Failed to record image generation usage.'
+                          );
+                        }
+                        spendRecorded = true;
+                      }
+
+                      sendEvent('seat_done', {
+                        seatId: seat.seatId,
+                        modelId: respondingModel,
+                        content: finalContent,
+                        messageId:
+                          persistedMsg?.id || messageId,
+                        createdAt:
+                          persistedMsg?.created_at ||
+                          new Date().toISOString(),
+                        attachment_urls: [
+                          persistedImage.signedUrl,
+                        ],
+                      });
+
+                      priorResponses.push({
+                        name: seat.name,
+                        response:
+                          sanitizePeerResponseForWebCitations(
+                            finalContent,
+                            seatWebCitations
+                          ),
+                      });
+
+                      console.log(
+                        '[Agentic Artifact Action] Completed evidence-chained image generation',
+                        {
+                          discussionId,
+                          seatId: seat.seatId,
+                          retrievalRounds:
+                            agenticRetrievalRounds,
+                          evidenceAttachmentCount:
+                            evidenceAttachments.length,
+                          filename:
+                            persistedImage.filename,
+                        }
+                      );
+
+                      continue seatLoop;
+                    }
+                  }
+
                   if (
                     evidenceContinuationCalls.length > 0 &&
+                    !hasOnlyEvidenceGenerateImageCall &&
                     !hasOnlyEvidenceCreateFileCalls &&
                     !hasOnlyEvidenceReviseFileCalls &&
                     !hasOnlyEvidenceSourceEditCalls
