@@ -116,6 +116,7 @@ import {
   AGENTIC_CONVERSATION_TOOL_NAMES,
   resolveAgenticConversationTool,
   formatSharedAgenticEvidenceForPrompt,
+  registerAgenticArtifactEvidence,
   type AgenticEvidenceLedgerEntry,
 } from '@/utils/agenticConversationMemory';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
@@ -136,7 +137,7 @@ export const maxDuration = 300;
 // codebase, but they are not executed or consulted for conversation-memory
 // decisions on preview/agentic-memory.
 const AGENTIC_MEMORY_EXPERIMENT = true;
-const MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS = 3;
+const MAX_AGENTIC_RETRIEVAL_ROUNDS = 4;
 
 export const GEMINI_IMAGE_TOOLS = [
   {
@@ -6444,8 +6445,8 @@ export async function POST(req: NextRequest) {
               // Resolve conversation-memory tools iteratively before routing
               // any terminal artifact/action tool. The seat itself decides
               // whether another retrieval is needed after seeing each result.
-              let agenticMemoryRounds = 0;
-              let incurredAgenticMemoryCostUsd = 0;
+              let agenticRetrievalRounds = 0;
+              let incurredAgenticRetrievalCostUsd = 0;
               const agenticModelCalls: Array<{
                 round: number;
                 model: string;
@@ -6469,13 +6470,13 @@ export async function POST(req: NextRequest) {
                 if (!allCallsAreAgenticMemory) break;
 
                 if (
-                  agenticMemoryRounds >=
-                  MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS
+                  agenticRetrievalRounds >=
+                  MAX_AGENTIC_RETRIEVAL_ROUNDS
                 ) {
-                  console.warn('[Agentic Memory] Retrieval bound reached', {
+                  console.warn('[Agentic Retrieval] Bound reached', {
                     discussionId,
                     seatId: seat.seatId,
-                    maxRounds: MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS,
+                    maxRounds: MAX_AGENTIC_RETRIEVAL_ROUNDS,
                     pendingTools: finalizedMemoryCandidateCalls.map(
                       (call) => call.name
                     ),
@@ -6486,10 +6487,10 @@ export async function POST(req: NextRequest) {
                   break;
                 }
 
-                agenticMemoryRounds += 1;
+                agenticRetrievalRounds += 1;
                 const priorPassCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-                incurredAgenticMemoryCostUsd += priorPassCostUsd;
+                incurredAgenticRetrievalCostUsd += priorPassCostUsd;
 
                 const toolResolutions = [];
                 for (const toolCall of finalizedMemoryCandidateCalls) {
@@ -6511,7 +6512,7 @@ export async function POST(req: NextRequest) {
                     discussionId,
                     seatId: seat.seatId,
                     seatIndex,
-                    retrievalRound: agenticMemoryRounds,
+                    retrievalRound: agenticRetrievalRounds,
                     tool: toolCall.name,
                     query: resolution.query,
                     addedEvidenceIds: resolution.addedEntries.map(
@@ -6532,7 +6533,7 @@ export async function POST(req: NextRequest) {
                       ({ toolCall }, index) => ({
                         id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticMemoryRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
                         type: 'function',
                         function: {
                           name: toolCall.name,
@@ -6549,7 +6550,7 @@ export async function POST(req: NextRequest) {
                         role: 'tool',
                         tool_call_id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticMemoryRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
                         name: toolCall.name,
                         content: JSON.stringify(resolution.result),
                       }) as any
@@ -6570,8 +6571,8 @@ export async function POST(req: NextRequest) {
 
                 const continuationStartedAt = Date.now();
                 const memoryToolsStillAvailable =
-                  agenticMemoryRounds <
-                  MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS;
+                  agenticRetrievalRounds <
+                  MAX_AGENTIC_RETRIEVAL_ROUNDS;
                 const continuationTools = [
                   {
                     type: 'openrouter:web_search',
@@ -6608,7 +6609,7 @@ export async function POST(req: NextRequest) {
                     tools: continuationTools,
                     ...(discussionId
                       ? {
-                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticMemoryRounds}`,
+                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
                         }
                       : {}),
                     ...(needsPdfPlugin
@@ -6661,7 +6662,7 @@ export async function POST(req: NextRequest) {
                 const continuationCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 agenticModelCalls.push({
-                  round: agenticMemoryRounds,
+                  round: agenticRetrievalRounds,
                   model: continuationModel,
                   costUsd: continuationCostUsd,
                   latencyMs: Date.now() - continuationStartedAt,
@@ -6675,25 +6676,25 @@ export async function POST(req: NextRequest) {
               }
 
               if (
-                incurredAgenticMemoryCostUsd > 0 &&
+                incurredAgenticRetrievalCostUsd > 0 &&
                 typeof seatUsage?.cost === 'number'
               ) {
                 seatUsage = {
                   ...seatUsage,
-                  cost: seatUsage.cost + incurredAgenticMemoryCostUsd,
+                  cost: seatUsage.cost + incurredAgenticRetrievalCostUsd,
                 };
               }
 
-              if (agenticMemoryRounds > 0) {
-                console.log('[Agentic Memory Seat Summary]', {
+              if (agenticRetrievalRounds > 0) {
+                console.log('[Agentic Retrieval Seat Summary]', {
                   discussionId,
                   seatId: seat.seatId,
                   seatIndex,
-                  retrievalRounds: agenticMemoryRounds,
+                  retrievalRounds: agenticRetrievalRounds,
                   ledgerSize: sharedAgenticEvidenceLedger.length,
                   modelCalls: agenticModelCalls,
                   totalAddedRetrievalCostUsd:
-                    incurredAgenticMemoryCostUsd,
+                    incurredAgenticRetrievalCostUsd,
                   finalModel: respondingModel,
                   seatElapsedMs: Date.now() - seatStartedAt,
                 });
