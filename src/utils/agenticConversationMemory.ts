@@ -141,7 +141,11 @@ export const AGENTIC_CONVERSATION_TOOL_NAMES = new Set(
   AGENTIC_CONVERSATION_MEMORY_TOOLS.map((tool) => tool.function.name)
 );
 
-export type AgenticEvidenceKind = 'semantic' | 'recent' | 'chronology';
+export type AgenticEvidenceKind =
+  | 'semantic'
+  | 'recent'
+  | 'chronology'
+  | 'artifact';
 
 export interface AgenticEvidenceLedgerEntry {
   evidenceId: string;
@@ -156,6 +160,10 @@ export interface AgenticEvidenceLedgerEntry {
   createdAt: string | null;
   semanticSimilarity?: number | null;
   hybridScore?: number | null;
+  artifactKind?: 'image' | 'pdf' | 'docx' | 'document_text' | null;
+  filename?: string | null;
+  provenanceReason?: string | null;
+  artifactIdentityKey?: string | null;
 }
 
 export interface AgenticMemoryToolResolution {
@@ -338,7 +346,63 @@ function publicEntry(entry: AgenticEvidenceLedgerEntry) {
     snippet: entry.compactText,
     semantic_similarity: entry.semanticSimilarity ?? null,
     hybrid_score: entry.hybridScore ?? null,
+    artifact_kind: entry.artifactKind ?? null,
+    filename: entry.filename ?? null,
+    provenance_reason: entry.provenanceReason ?? null,
   };
+}
+
+export function registerAgenticArtifactEvidence(options: {
+  ledger: AgenticEvidenceLedgerEntry[];
+  createEvidenceId: () => string;
+  requestedBySeatId: string;
+  artifactKind: 'image' | 'pdf' | 'docx' | 'document_text';
+  filename?: string | null;
+  provenanceReason?: string | null;
+  artifactIdentityKey?: string | null;
+  compactText: string;
+  expandedText?: string;
+  query?: string | null;
+  sourceUserMessageId?: string | null;
+}): { entry: AgenticEvidenceLedgerEntry; reused: boolean } {
+  const identityKey =
+    options.artifactIdentityKey?.trim() ||
+    [
+      options.artifactKind,
+      options.filename || '',
+      options.provenanceReason || '',
+      options.compactText,
+    ].join('|');
+
+  const existing = options.ledger.find(
+    (entry) =>
+      entry.kind === 'artifact' &&
+      entry.artifactIdentityKey === identityKey
+  );
+  if (existing) {
+    return { entry: existing, reused: true };
+  }
+
+  const entry: AgenticEvidenceLedgerEntry = {
+    evidenceId: options.createEvidenceId(),
+    kind: 'artifact',
+    sourceUserMessageId: options.sourceUserMessageId || null,
+    roundIndex: null,
+    speaker: 'any',
+    compactText: options.compactText,
+    expandedText: options.expandedText || options.compactText,
+    query: options.query || null,
+    requestedBySeatId: options.requestedBySeatId,
+    createdAt: null,
+    semanticSimilarity: null,
+    hybridScore: null,
+    artifactKind: options.artifactKind,
+    filename: options.filename || null,
+    provenanceReason: options.provenanceReason || null,
+    artifactIdentityKey: identityKey,
+  };
+  options.ledger.push(entry);
+  return { entry, reused: false };
 }
 
 async function embedQuery(
@@ -879,14 +943,18 @@ export function formatSharedAgenticEvidenceForPrompt(
     const source = entry.sourceUserMessageId
       ? `source_user_message_id=${entry.sourceUserMessageId}`
       : 'source_user_message_id=unknown';
+    const artifactMeta =
+      entry.kind === 'artifact'
+        ? `; artifact_kind=${entry.artifactKind || 'unknown'}; filename=${entry.filename || 'unknown'}; provenance=${entry.provenanceReason || 'resolved'}`
+        : '';
     return [
-      `[${entry.evidenceId}] kind=${entry.kind}; speaker=${entry.speaker}; ${source}`,
+      `[${entry.evidenceId}] kind=${entry.kind}; speaker=${entry.speaker}; ${source}${artifactMeta}`,
       entry.compactText,
     ].join('\n');
   });
 
   return `SHARED GROUNDED EVIDENCE FROM EARLIER CONFIGURED SEATS
-The following evidence was retrieved from this discussion by earlier configured seats in the current round. It is source evidence, not their private reasoning or conclusions. You may use it directly, independently assess it, or expand/navigate an evidence ID with the conversation tools if more context is needed.
+The following evidence was retrieved from this discussion by earlier configured seats in the current round. It is source evidence, not their private reasoning or conclusions. It may include conversation evidence and deterministically resolved artifact/visual evidence. You may use it directly, independently assess it, or use the available evidence tools if more context or a different source is needed.
 
 ${blocks.join('\n\n')}`;
 }
