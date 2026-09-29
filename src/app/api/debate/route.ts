@@ -111,6 +111,13 @@ import {
   resolveRequestedEvidence,
   toModelSafeBrokerResult,
 } from '@/utils/resourceBroker';
+import {
+  AGENTIC_CONVERSATION_MEMORY_TOOLS,
+  AGENTIC_CONVERSATION_TOOL_NAMES,
+  resolveAgenticConversationTool,
+  formatSharedAgenticEvidenceForPrompt,
+  type AgenticEvidenceLedgerEntry,
+} from '@/utils/agenticConversationMemory';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
 import {
   extractPdfEmbeddedImages,
@@ -124,6 +131,12 @@ import {
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
+
+// Experimental preview-only runtime switch. Jev/System 2 remain intact in the
+// codebase, but they are not executed or consulted for conversation-memory
+// decisions on preview/agentic-memory.
+const AGENTIC_MEMORY_EXPERIMENT = true;
+const MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS = 3;
 
 export const GEMINI_IMAGE_TOOLS = [
   {
@@ -1947,7 +1960,8 @@ export function buildPanelMessages(
   isVisualUnavailable?: boolean,
   currentTurnDocuments?: { filename: string; content: string }[] | null,
   visualDeliveryMismatch?: { requestedCount: number; deliveredCount: number } | null,
-  runtimeProductContext?: PlurilogRuntimeProductContext
+  runtimeProductContext?: PlurilogRuntimeProductContext,
+  sharedAgenticEvidenceContext?: string | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
   const hasTargetedChronology = Boolean(
@@ -2014,6 +2028,10 @@ Layout/style/template changes must not silently delete names, contact details, d
     if (memoryBlocks) {
       sections.push(`Relevant earlier discussion:\n${memoryBlocks}`);
     }
+  }
+
+  if (sharedAgenticEvidenceContext?.trim()) {
+    sections.push(sharedAgenticEvidenceContext.trim());
   }
 
   // 4. [current round's prior seat responses — provisional peer claims to evaluate]
@@ -2861,6 +2879,7 @@ export async function POST(req: NextRequest) {
     // retrieval begins so the effective plan can gate preview-only retrieval.
     let jevControllerPromise: Promise<any> | null = null;
     if (
+      !AGENTIC_MEMORY_EXPERIMENT &&
       isJevMemoryPilotShadowEnabled() &&
       apiKey.trim() &&
       prompt &&
@@ -3476,12 +3495,20 @@ export async function POST(req: NextRequest) {
         const jevEffectiveConstraints =
           jevControllerState?.effectiveConstraints || null;
         const jevAllowsSemanticConversationMemory =
-          !jevControllerOwnsConversationMemory ||
-          jevEffectiveOperations.includes('semantic_history');
+          !AGENTIC_MEMORY_EXPERIMENT &&
+          (
+            !jevControllerOwnsConversationMemory ||
+            jevEffectiveOperations.includes('semantic_history')
+          );
+        // Artifact/document/visual systems remain available independently of
+        // Jev on the agentic branch. Their identity/provenance resolution stays
+        // deterministic in the backend.
         const jevAllowsDocumentSearch =
+          AGENTIC_MEMORY_EXPERIMENT ||
           !jevControllerOwnsConversationMemory ||
           jevEffectiveOperations.includes('document_search');
         const jevAllowsHistoricalVisualEvidence =
+          AGENTIC_MEMORY_EXPERIMENT ||
           !jevControllerOwnsConversationMemory ||
           jevEffectiveOperations.includes('visual_evidence');
 
@@ -3513,30 +3540,51 @@ export async function POST(req: NextRequest) {
         // models only when the effective controller plan authorizes it.
         let panelDiscussionMemory: DiscussionMemoryResult | undefined =
           discussionMemory
-            ? {
-                ...discussionMemory,
-                summary:
-                  !jevControllerOwnsConversationMemory ||
-                  jevEffectiveOperations.includes('rolling_summary')
-                    ? discussionMemory.summary
-                    : undefined,
-                recentRounds:
-                  !jevControllerOwnsConversationMemory ||
-                  jevEffectiveOperations.includes('recent_exact')
-                    ? discussionMemory.recentRounds
-                    : [],
-                chronologicalMemory:
-                  !jevControllerOwnsConversationMemory
-                    ? discussionMemory.chronologicalMemory
-                    : undefined,
-                knownDocuments:
-                  !jevControllerOwnsConversationMemory ||
-                  jevEffectiveOperations.includes('document_search') ||
-                  jevEffectiveOperations.includes('visual_evidence')
-                    ? discussionMemory.knownDocuments
-                    : undefined,
-              }
+            ? AGENTIC_MEMORY_EXPERIMENT
+              ? {
+                  ...discussionMemory,
+                  // Light deterministic baseline only. Older conversation
+                  // evidence is pulled progressively by the active seat.
+                  summary: undefined,
+                  recentRounds: (discussionMemory.recentRounds || []).slice(-2),
+                  chronologicalMemory: undefined,
+                  knownDocuments: discussionMemory.knownDocuments,
+                }
+              : {
+                  ...discussionMemory,
+                  summary:
+                    !jevControllerOwnsConversationMemory ||
+                    jevEffectiveOperations.includes('rolling_summary')
+                      ? discussionMemory.summary
+                      : undefined,
+                  recentRounds:
+                    !jevControllerOwnsConversationMemory ||
+                    jevEffectiveOperations.includes('recent_exact')
+                      ? discussionMemory.recentRounds
+                      : [],
+                  chronologicalMemory:
+                    !jevControllerOwnsConversationMemory
+                      ? discussionMemory.chronologicalMemory
+                      : undefined,
+                  knownDocuments:
+                    !jevControllerOwnsConversationMemory ||
+                    jevEffectiveOperations.includes('document_search') ||
+                    jevEffectiveOperations.includes('visual_evidence')
+                      ? discussionMemory.knownDocuments
+                      : undefined,
+                }
             : undefined;
+
+        if (AGENTIC_MEMORY_EXPERIMENT) {
+          console.log('[Agentic Memory Baseline]', {
+            discussionId: discussionId || null,
+            recentRoundCount: panelDiscussionMemory?.recentRounds?.length || 0,
+            knownDocumentCount: panelDiscussionMemory?.knownDocuments?.length || 0,
+            rollingSummaryIncluded: false,
+            precomputedChronologyIncluded: false,
+            jevExecuted: false,
+          });
+        }
 
         if (jevControllerOwnsConversationMemory) {
           console.log('[Jev Panel Memory Gate]', {
@@ -5808,6 +5856,17 @@ export async function POST(req: NextRequest) {
               : visualAttachments || [];
 
           let currentRoundAttachments: RouteAttachment[] = [...(effectiveAttachments || [])];
+          const sharedAgenticEvidenceLedger: AgenticEvidenceLedgerEntry[] = [];
+          let agenticEvidenceSequence = 0;
+          const createAgenticEvidenceId = () =>
+            `mem_${++agenticEvidenceSequence}`;
+
+          if (AGENTIC_MEMORY_EXPERIMENT) {
+            // The agentic branch must never inherit a precomputed semantic
+            // conversation package. Document/artifact retrieval remains
+            // untouched; conversation history is pulled by seat tool calls.
+            retrievedMemory = [];
+          }
 
           // Strong deterministic provenance resolutions are authoritative for
           // the whole user turn. The action layer must consume the already
@@ -5964,11 +6023,16 @@ export async function POST(req: NextRequest) {
             const isEvidenceEnabledForSeat =
               isSeatEligibleForEvidenceRequest(seat.seatId) &&
               (
+                AGENTIC_MEMORY_EXPERIMENT ||
                 !jevControllerOwnsConversationMemory ||
                 jevAllowsDocumentSearch ||
                 jevAllowsHistoricalVisualEvidence ||
                 currentRoundAttachments.length > 0
               );
+            const isAgenticMemoryEnabledForSeat =
+              AGENTIC_MEMORY_EXPERIMENT &&
+              Boolean(discussionId) &&
+              Boolean(discussionMemory?.allRounds?.length);
             const isDocumentCreationEnabledForSeat =
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
@@ -6173,7 +6237,9 @@ export async function POST(req: NextRequest) {
               });
             }
 
-            const seatMessages = buildPanelMessages(
+            const sharedAgenticEvidenceContext =
+              formatSharedAgenticEvidenceForPrompt(sharedAgenticEvidenceLedger);
+            let seatMessages = buildPanelMessages(
               seat.name,
               prompt,
               priorResponses,
@@ -6185,7 +6251,8 @@ export async function POST(req: NextRequest) {
               isVisualUnavailable,
               currentTurnDocuments,
               visualDeliveryMismatch,
-              runtimeProductContext
+              runtimeProductContext,
+              sharedAgenticEvidenceContext
             );
 
             const seatWebCitations: { url: string; title: string }[] = [];
@@ -6274,6 +6341,9 @@ export async function POST(req: NextRequest) {
                       ? GPT_FILE_TOOLS
                       : []),
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
+                  ...(isAgenticMemoryEnabledForSeat
+                    ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                    : []),
                 ],
                 ...(shouldForceEvidenceOnFirstPass
                   ? {
@@ -6334,7 +6404,11 @@ export async function POST(req: NextRequest) {
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
-                  if (isEvidenceEnabledForSeat || isDocumentCreationEnabledForSeat) {
+                  if (
+                    isEvidenceEnabledForSeat ||
+                    isDocumentCreationEnabledForSeat ||
+                    isAgenticMemoryEnabledForSeat
+                  ) {
                     bufferedSeatChunks.push(text);
                   } else {
                     sendEvent('seat_chunk', {
@@ -6359,6 +6433,276 @@ export async function POST(req: NextRequest) {
               if (req.signal.aborted) {
                 safeClose();
                 return;
+              }
+
+              // Resolve conversation-memory tools iteratively before routing
+              // any terminal artifact/action tool. The seat itself decides
+              // whether another retrieval is needed after seeing each result.
+              let agenticMemoryRounds = 0;
+              let incurredAgenticMemoryCostUsd = 0;
+              const agenticModelCalls: Array<{
+                round: number;
+                model: string;
+                costUsd: number;
+                latencyMs: number;
+                tools: string[];
+              }> = [];
+
+              while (
+                isAgenticMemoryEnabledForSeat &&
+                accumulatedToolCalls.length > 0
+              ) {
+                const finalizedMemoryCandidateCalls =
+                  finalizeAllToolCalls(accumulatedToolCalls);
+                const allCallsAreAgenticMemory =
+                  finalizedMemoryCandidateCalls.length > 0 &&
+                  finalizedMemoryCandidateCalls.every((call) =>
+                    AGENTIC_CONVERSATION_TOOL_NAMES.has(call.name as any)
+                  );
+
+                if (!allCallsAreAgenticMemory) break;
+
+                if (
+                  agenticMemoryRounds >=
+                  MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS
+                ) {
+                  console.warn('[Agentic Memory] Retrieval bound reached', {
+                    discussionId,
+                    seatId: seat.seatId,
+                    maxRounds: MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS,
+                    pendingTools: finalizedMemoryCandidateCalls.map(
+                      (call) => call.name
+                    ),
+                  });
+                  accumulatedToolCalls = [];
+                  seatResponse = '';
+                  bufferedSeatChunks.length = 0;
+                  break;
+                }
+
+                agenticMemoryRounds += 1;
+                const priorPassCostUsd =
+                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                incurredAgenticMemoryCostUsd += priorPassCostUsd;
+
+                const toolResolutions = [];
+                for (const toolCall of finalizedMemoryCandidateCalls) {
+                  const resolution = await resolveAgenticConversationTool({
+                    toolName: toolCall.name,
+                    toolArgs: (toolCall.arguments || {}) as Record<string, unknown>,
+                    serviceSupabase: supabase,
+                    openai,
+                    discussionId: discussionId!,
+                    allRounds: discussionMemory?.allRounds || [],
+                    ledger: sharedAgenticEvidenceLedger,
+                    requestedBySeatId: seat.seatId,
+                    createEvidenceId: createAgenticEvidenceId,
+                    signal: seatAbortController.signal,
+                  });
+                  toolResolutions.push({ toolCall, resolution });
+
+                  console.log('[Agentic Memory Tool]', {
+                    discussionId,
+                    seatId: seat.seatId,
+                    seatIndex,
+                    retrievalRound: agenticMemoryRounds,
+                    tool: toolCall.name,
+                    query: resolution.query,
+                    addedEvidenceIds: resolution.addedEntries.map(
+                      (entry) => entry.evidenceId
+                    ),
+                    reusedEvidenceIds: resolution.reusedEvidenceIds,
+                    latencyMs: resolution.latencyMs,
+                    ledgerSize: sharedAgenticEvidenceLedger.length,
+                  });
+                }
+
+                const memoryContinuationMessages = [
+                  ...seatMessages,
+                  {
+                    role: 'assistant',
+                    content: seatResponse || null,
+                    tool_calls: toolResolutions.map(
+                      ({ toolCall }, index) => ({
+                        id:
+                          toolCall.id ||
+                          `call_agentic_memory_${agenticMemoryRounds}_${index + 1}`,
+                        type: 'function',
+                        function: {
+                          name: toolCall.name,
+                          arguments:
+                            toolCall.rawArguments ||
+                            JSON.stringify(toolCall.arguments),
+                        },
+                      })
+                    ),
+                  } as any,
+                  ...toolResolutions.map(
+                    ({ toolCall, resolution }, index) =>
+                      ({
+                        role: 'tool',
+                        tool_call_id:
+                          toolCall.id ||
+                          `call_agentic_memory_${agenticMemoryRounds}_${index + 1}`,
+                        name: toolCall.name,
+                        content: JSON.stringify(resolution.result),
+                      }) as any
+                  ),
+                ];
+
+                // Keep the compact shared ledger visible to subsequent
+                // continuations and later configured seats without copying
+                // another seat's private reasoning.
+                const refreshedSharedEvidence =
+                  formatSharedAgenticEvidenceForPrompt(
+                    sharedAgenticEvidenceLedger
+                  );
+                seatMessages = refreshedSharedEvidence
+                  ? [
+                      ...memoryContinuationMessages,
+                      {
+                        role: 'system',
+                        content: refreshedSharedEvidence,
+                      } as any,
+                    ]
+                  : memoryContinuationMessages;
+
+                seatResponse = '';
+                seatUsage = null;
+                accumulatedToolCalls = [];
+                bufferedSeatChunks.length = 0;
+                seatWebCitations.length = 0;
+                seenCitationUrls.clear();
+
+                const continuationStartedAt = Date.now();
+                const memoryToolsStillAvailable =
+                  agenticMemoryRounds <
+                  MAX_AGENTIC_MEMORY_RETRIEVAL_ROUNDS;
+                const continuationTools = [
+                  {
+                    type: 'openrouter:web_search',
+                    parameters: {
+                      max_results: 3,
+                      max_total_results: 6,
+                    },
+                  },
+                  ...(isImageGenerationEnabledForSeat
+                    ? GEMINI_IMAGE_TOOLS
+                    : []),
+                  ...(isImageEditingEnabledForSeat
+                    ? GEMINI_IMAGE_EDIT_TOOLS
+                    : []),
+                  ...(sourceDocumentEditingForCurrentTurn
+                    ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                    : isDocumentCreationEnabledForSeat
+                      ? GPT_FILE_TOOLS
+                      : []),
+                  ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
+                  ...(memoryToolsStillAvailable
+                    ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                    : []),
+                ];
+
+                const memoryContinuationStream =
+                  await (openai.chat.completions.create as any)({
+                    model: primaryModel,
+                    models,
+                    messages: seatMessages,
+                    stream: true,
+                    temperature: 0.7,
+                    signal: seatAbortController.signal,
+                    tools: continuationTools,
+                    ...(discussionId
+                      ? {
+                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticMemoryRounds}`,
+                        }
+                      : {}),
+                    ...(needsPdfPlugin
+                      ? {
+                          plugins: [
+                            {
+                              id: 'file-parser',
+                              pdf: { engine: pdfEngine },
+                            },
+                          ],
+                        }
+                      : {}),
+                  });
+
+                let continuationModel = primaryModel;
+                for await (const chunk of memoryContinuationStream) {
+                  if (req.signal.aborted) break;
+                  if (chunk.model) {
+                    respondingModel = chunk.model;
+                    continuationModel = chunk.model;
+                  }
+                  if ((chunk as any).usage) {
+                    seatUsage = (chunk as any).usage;
+                  }
+
+                  const deltaAnnotations =
+                    (chunk.choices?.[0]?.delta as any)?.annotations;
+                  if (deltaAnnotations) {
+                    addFileAnnotations(deltaAnnotations);
+                    addWebCitations(deltaAnnotations);
+                  }
+
+                  const deltaToolCalls =
+                    (chunk.choices?.[0]?.delta as any)?.tool_calls;
+                  if (deltaToolCalls) {
+                    accumulatedToolCalls = mergeStreamingToolCalls(
+                      accumulatedToolCalls,
+                      deltaToolCalls
+                    );
+                  }
+
+                  const text =
+                    chunk.choices?.[0]?.delta?.content || '';
+                  if (text) {
+                    seatResponse += text;
+                    bufferedSeatChunks.push(text);
+                  }
+                }
+
+                const continuationCostUsd =
+                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                agenticModelCalls.push({
+                  round: agenticMemoryRounds,
+                  model: continuationModel,
+                  costUsd: continuationCostUsd,
+                  latencyMs: Date.now() - continuationStartedAt,
+                  tools:
+                    accumulatedToolCalls.length > 0
+                      ? finalizeAllToolCalls(accumulatedToolCalls).map(
+                          (call) => call.name
+                        )
+                      : [],
+                });
+              }
+
+              if (
+                incurredAgenticMemoryCostUsd > 0 &&
+                typeof seatUsage?.cost === 'number'
+              ) {
+                seatUsage = {
+                  ...seatUsage,
+                  cost: seatUsage.cost + incurredAgenticMemoryCostUsd,
+                };
+              }
+
+              if (agenticMemoryRounds > 0) {
+                console.log('[Agentic Memory Seat Summary]', {
+                  discussionId,
+                  seatId: seat.seatId,
+                  seatIndex,
+                  retrievalRounds: agenticMemoryRounds,
+                  ledgerSize: sharedAgenticEvidenceLedger.length,
+                  modelCalls: agenticModelCalls,
+                  totalAddedRetrievalCostUsd:
+                    incurredAgenticMemoryCostUsd,
+                  finalModel: respondingModel,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                });
               }
 
               // Fail-safe: a seat must not finalize "I can't see/access the document"
@@ -8133,7 +8477,10 @@ export async function POST(req: NextRequest) {
                       : isVisualUnavailable,
                     evidenceTurnDocuments,
                     visualDeliveryMismatch,
-                    runtimeProductContext
+                    runtimeProductContext,
+                    formatSharedAgenticEvidenceForPrompt(
+                      sharedAgenticEvidenceLedger
+                    )
                   );
 
                   const evidenceMessages = [
@@ -10613,7 +10960,11 @@ export async function POST(req: NextRequest) {
 
                 }
               } else if (
-                (isEvidenceEnabledForSeat || isDocumentCreationEnabledForSeat) &&
+                (
+                  isEvidenceEnabledForSeat ||
+                  isDocumentCreationEnabledForSeat ||
+                  isAgenticMemoryEnabledForSeat
+                ) &&
                 bufferedSeatChunks.length > 0
               ) {
                 // No custom tool call: release the buffered first-pass response unchanged.
