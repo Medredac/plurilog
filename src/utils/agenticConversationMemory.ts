@@ -38,6 +38,33 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'find_conversation_event',
+      description:
+        'Find the first or last historical occurrence of a topic/event in the discussion, using semantic retrieval followed by deterministic chronological selection. Use this for requests such as "the first time we discussed X" or "the last time Y came up".',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Focused description of the event or topic whose chronological occurrence must be resolved.',
+          },
+          occurrence: {
+            type: 'string',
+            enum: ['first', 'last'],
+          },
+          speaker: {
+            type: 'string',
+            enum: ['any', 'user', 'chatgpt', 'claude', 'gemini'],
+          },
+        },
+        required: ['query', 'occurrence'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'expand_conversation_evidence',
       description:
         'Expand one or more compact conversation evidence candidates already returned by memory search, chronology navigation, recent-history lookup, or inherited from an earlier configured seat. Use only when the compact snippet is insufficient.',
@@ -503,6 +530,181 @@ export async function resolveAgenticConversationTool(options: {
         candidates: candidates.map(publicEntry),
         note:
           'These are grounded historical candidates. Expand only the evidence IDs whose compact snippets are insufficient.',
+      },
+      addedEntries,
+      reusedEvidenceIds,
+      query,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'find_conversation_event') {
+    const query =
+      typeof toolArgs.query === 'string' ? toolArgs.query.trim().slice(0, 4000) : '';
+    const occurrence =
+      toolArgs.occurrence === 'first' || toolArgs.occurrence === 'last'
+        ? toolArgs.occurrence
+        : null;
+    const speaker = normalizeSpeaker(toolArgs.speaker);
+
+    if (!query || !occurrence) {
+      return {
+        toolName,
+        result: { ok: false, error: 'query_and_occurrence_required' },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const queryEmbedding = await embedQuery(openai, query, signal);
+    if (!queryEmbedding) {
+      return {
+        toolName,
+        result: { ok: false, error: 'embedding_unavailable' },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const { data: rows, error } = await serviceSupabase.rpc(
+      'search_discussion_memory_hybrid',
+      {
+        p_discussion_id: discussionId,
+        p_query_text: query,
+        p_query_embedding: queryEmbedding,
+        p_match_count: 30,
+      }
+    );
+
+    if (error || !Array.isArray(rows)) {
+      return {
+        toolName,
+        result: {
+          ok: false,
+          error: 'chronology_search_failed',
+          detail: error?.message || null,
+        },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const candidates = rows
+      .map((row: any) => {
+        const sourceUserMessageId =
+          typeof row?.source_user_message_id === 'string'
+            ? row.source_user_message_id
+            : null;
+        if (!sourceUserMessageId) return null;
+        const roundIndex = allRounds.findIndex(
+          (round) => round.userMessageId === sourceUserMessageId
+        );
+        if (roundIndex < 0) return null;
+        const round = allRounds[roundIndex];
+        const speakerText = speakerTextFromRound(round, speaker);
+        if (speaker !== 'any' && !speakerText.trim()) return null;
+        const rawMatchedText =
+          typeof row?.content === 'string' && row.content.trim()
+            ? row.content.trim()
+            : speakerText;
+        const sourceText = speaker === 'any' ? rawMatchedText : speakerText;
+        return {
+          row,
+          sourceUserMessageId,
+          roundIndex,
+          sourceText,
+        };
+      })
+      .filter(
+        (
+          candidate
+        ): candidate is {
+          row: any;
+          sourceUserMessageId: string;
+          roundIndex: number;
+          sourceText: string;
+        } => Boolean(candidate?.sourceText?.trim())
+      );
+
+    candidates.sort((a, b) =>
+      occurrence === 'first'
+        ? a.roundIndex - b.roundIndex
+        : b.roundIndex - a.roundIndex
+    );
+
+    const selected = candidates[0] || null;
+    if (!selected) {
+      return {
+        toolName,
+        result: {
+          ok: true,
+          query,
+          occurrence,
+          speaker,
+          evidence: null,
+          note: 'No grounded chronological candidate was found.',
+        },
+        addedEntries,
+        reusedEvidenceIds,
+        query,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const compactText = relevantWindow(
+      selected.sourceText,
+      query,
+      MAX_COMPACT_CHARS
+    );
+    const expandedText = relevantWindow(
+      selected.sourceText,
+      query,
+      MAX_EXPANDED_CHARS
+    );
+    const { entry, reused } = addOrReuseEntry({
+      ledger,
+      createEvidenceId,
+      kind: 'chronology',
+      sourceUserMessageId: selected.sourceUserMessageId,
+      roundIndex: selected.roundIndex,
+      speaker,
+      compactText,
+      expandedText,
+      query,
+      requestedBySeatId,
+      createdAt:
+        typeof selected.row?.created_at === 'string'
+          ? selected.row.created_at
+          : null,
+      semanticSimilarity:
+        typeof selected.row?.semantic_similarity === 'number'
+          ? selected.row.semantic_similarity
+          : null,
+      hybridScore:
+        typeof selected.row?.hybrid_score === 'number'
+          ? selected.row.hybrid_score
+          : null,
+    });
+
+    if (reused) reusedEvidenceIds.push(entry.evidenceId);
+    else addedEntries.push(entry);
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        query,
+        occurrence,
+        speaker,
+        evidence: publicEntry(entry),
+        note:
+          'The occurrence was chosen deterministically by chronological round order from grounded hybrid-search candidates.',
       },
       addedEntries,
       reusedEvidenceIds,
