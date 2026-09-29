@@ -707,9 +707,18 @@ export function applyDocumentJsonPatch<T extends Record<string, any>>(
       delete parent[leaf];
     } else if (operation.op === 'replace') {
       if (!(leaf in parent)) {
-        throw new Error(`Revision patch path does not exist: ${operation.path}`);
+        // Models commonly use "replace" when semantically setting an optional
+        // object property that is absent from the canonical snapshot. RFC 6902
+        // would reject that spelling, but treating a missing OBJECT LEAF as an
+        // add is safe and preserves the intended narrow revision. Missing
+        // parents and array indices remain strict above.
+        console.log('[Document Revision] Normalized replace-on-missing leaf to add', {
+          path: operation.path,
+        });
+        parent[leaf] = jsonClone(operation.value);
+      } else {
+        parent[leaf] = jsonClone(operation.value);
       }
-      parent[leaf] = jsonClone(operation.value);
     } else {
       parent[leaf] = jsonClone(operation.value);
     }
