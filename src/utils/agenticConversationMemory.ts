@@ -65,6 +65,27 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'expand_grounded_evidence',
+      description:
+        'Expand one or more grounded evidence IDs already returned by conversation-memory or document-evidence tools. Use this only when the compact snippet is insufficient for the task.',
+      parameters: {
+        type: 'object',
+        properties: {
+          evidence_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            minItems: 1,
+            maxItems: 3,
+          },
+        },
+        required: ['evidence_ids'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'expand_conversation_evidence',
       description:
         'Expand one or more compact conversation evidence candidates already returned by memory search, chronology navigation, recent-history lookup, or inherited from an earlier configured seat. Use only when the compact snippet is insufficient.',
@@ -773,6 +794,48 @@ export async function resolveAgenticConversationTool(options: {
       addedEntries,
       reusedEvidenceIds,
       query,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  if (toolName === 'expand_grounded_evidence') {
+    const rawIds = Array.isArray(toolArgs.evidence_ids)
+      ? toolArgs.evidence_ids
+      : [];
+    const evidenceIds = Array.from(
+      new Set(
+        rawIds
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      )
+    ).slice(0, 3);
+
+    const expanded = evidenceIds
+      .map((id) => ledger.find((entry) => entry.evidenceId === id))
+      .filter((entry): entry is AgenticEvidenceLedgerEntry => Boolean(entry))
+      .map((entry) => ({
+        evidence_id: entry.evidenceId,
+        kind: entry.kind,
+        source_user_message_id: entry.sourceUserMessageId,
+        speaker: entry.speaker,
+        artifact_kind: entry.artifactKind || null,
+        filename: entry.filename || null,
+        provenance_reason: entry.provenanceReason || null,
+        content: entry.expandedText,
+      }));
+
+    return {
+      toolName,
+      result: {
+        ok: true,
+        evidence: expanded,
+        missing_ids: evidenceIds.filter(
+          (id) => !ledger.some((entry) => entry.evidenceId === id)
+        ),
+      },
+      addedEntries,
+      reusedEvidenceIds: expanded.map((item) => item.evidence_id),
+      query: null,
       latencyMs: Date.now() - startedAt,
     };
   }
