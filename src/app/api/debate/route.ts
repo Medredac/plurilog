@@ -7389,7 +7389,7 @@ export async function POST(req: NextRequest) {
                 sendEvent('seat_activity', {
                   seatId: seat.seatId,
                   activity: 'reviewing_evidence',
-                  label: 'Reviewing what it found…',
+                  label: 'Reviewing findings…',
                 });
 
                 const memoryContinuationStream =
@@ -9404,7 +9404,7 @@ export async function POST(req: NextRequest) {
                   sendEvent('seat_activity', {
                     seatId: seat.seatId,
                     activity: 'reviewing_evidence',
-                    label: 'Reviewing the retrieved evidence…',
+                    label: 'Reviewing findings…',
                   });
 
                   const evidenceStream = await (openai.chat.completions.create as any)({
@@ -10241,7 +10241,7 @@ export async function POST(req: NextRequest) {
                     sendEvent('seat_activity', {
                       seatId: seat.seatId,
                       activity: 'reviewing_evidence',
-                      label: 'Reviewing what it found…',
+                      label: 'Reviewing findings…',
                     });
 
                     const iterativeStream =
