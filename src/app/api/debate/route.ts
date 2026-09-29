@@ -119,6 +119,11 @@ import {
   registerAgenticArtifactEvidence,
   type AgenticEvidenceLedgerEntry,
 } from '@/utils/agenticConversationMemory';
+import {
+  AGENTIC_DOCUMENT_EVIDENCE_TOOLS,
+  AGENTIC_DOCUMENT_TOOL_NAMES,
+  resolveAgenticDocumentEvidenceTool,
+} from '@/utils/agenticDocumentEvidence';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
 import {
   extractPdfEmbeddedImages,
@@ -6048,9 +6053,11 @@ export async function POST(req: NextRequest) {
 
           if (AGENTIC_MEMORY_EXPERIMENT) {
             // The agentic branch must never inherit a precomputed semantic
-            // conversation package. Document/artifact retrieval remains
-            // untouched; conversation history is pulled by seat tool calls.
+            // conversation or parsed-document evidence package. The active
+            // configured seat decides when it needs historical text; canonical
+            // artifact identity/state remains deterministic underneath.
             retrievedMemory = [];
+            retrievedDocuments = [];
           }
 
           // Strong deterministic provenance resolutions are authoritative for
@@ -6218,6 +6225,12 @@ export async function POST(req: NextRequest) {
               AGENTIC_MEMORY_EXPERIMENT &&
               Boolean(discussionId) &&
               Boolean(discussionMemory?.allRounds?.length);
+            const isAgenticDocumentEvidenceEnabledForSeat =
+              AGENTIC_MEMORY_EXPERIMENT &&
+              Boolean(discussionId) &&
+              Boolean(
+                discussionMemory?.knownDocuments?.length
+              );
             const isDocumentCreationEnabledForSeat =
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
@@ -6528,6 +6541,9 @@ export async function POST(req: NextRequest) {
                   ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
                   ...(isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                    : []),
+                  ...(isAgenticDocumentEvidenceEnabledForSeat
+                    ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
                 ],
                 ...(shouldForceEvidenceOnFirstPass
