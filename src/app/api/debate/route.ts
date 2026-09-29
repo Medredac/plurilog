@@ -6650,14 +6650,21 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                isAgenticMemoryEnabledForSeat &&
+                (isAgenticMemoryEnabledForSeat ||
+                  isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
                 const finalizedMemoryCandidateCalls =
                   finalizeAllToolCalls(accumulatedToolCalls);
                 const memoryCandidateCalls =
-                  finalizedMemoryCandidateCalls.filter((call) =>
-                    AGENTIC_CONVERSATION_TOOL_NAMES.has(call.name as any)
+                  finalizedMemoryCandidateCalls.filter(
+                    (call) =>
+                      AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                        call.name as any
+                      ) ||
+                      AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                        call.name as any
+                      )
                   );
 
                 if (memoryCandidateCalls.length === 0) break;
@@ -6667,11 +6674,14 @@ export async function POST(req: NextRequest) {
                     (call) =>
                       !AGENTIC_CONVERSATION_TOOL_NAMES.has(
                         call.name as any
+                      ) &&
+                      !AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                        call.name as any
                       )
                   );
                 if (deferredNonMemoryCalls.length > 0) {
                   console.log(
-                    '[Agentic Retrieval] Deferred non-memory calls until after grounded memory',
+                    '[Agentic Retrieval] Deferred non-retrieval calls until after grounded evidence',
                     {
                       seatId: seat.seatId,
                       deferredTools: deferredNonMemoryCalls.map(
@@ -6704,21 +6714,105 @@ export async function POST(req: NextRequest) {
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 incurredAgenticRetrievalCostUsd += priorPassCostUsd;
 
-                const toolResolutions = [];
+                const toolResolutions: Array<{
+                  toolCall: (typeof memoryCandidateCalls)[number];
+                  result: Record<string, unknown>;
+                }> = [];
+
                 for (const toolCall of memoryCandidateCalls) {
-                  const resolution = await resolveAgenticConversationTool({
-                    toolName: toolCall.name,
-                    toolArgs: (toolCall.arguments || {}) as Record<string, unknown>,
-                    serviceSupabase: supabase,
-                    openai,
-                    discussionId: discussionId!,
-                    allRounds: discussionMemory?.allRounds || [],
-                    ledger: sharedAgenticEvidenceLedger,
-                    requestedBySeatId: seat.seatId,
-                    createEvidenceId: createAgenticEvidenceId,
-                    signal: seatAbortController.signal,
+                  if (
+                    AGENTIC_DOCUMENT_TOOL_NAMES.has(
+                      toolCall.name as any
+                    )
+                  ) {
+                    const isOwner =
+                      await verifyDiscussionOwnership(
+                        supabase,
+                        discussionId!
+                      );
+
+                    const resolution = isOwner
+                      ? await resolveAgenticDocumentEvidenceTool({
+                          toolName: toolCall.name,
+                          toolArgs: (toolCall.arguments ||
+                            {}) as Record<string, unknown>,
+                          serviceSupabase: createServiceClient(),
+                          openai,
+                          discussionId: discussionId!,
+                          knownDocuments:
+                            discussionMemory?.knownDocuments ||
+                            [],
+                          ledger:
+                            sharedAgenticEvidenceLedger,
+                          requestedBySeatId:
+                            seat.seatId,
+                          createEvidenceId:
+                            createAgenticEvidenceId,
+                          signal:
+                            seatAbortController.signal,
+                        })
+                      : {
+                          toolName: toolCall.name,
+                          result: {
+                            ok: false,
+                            error:
+                              'discussion_ownership_required',
+                          },
+                          addedEvidenceIds: [],
+                          reusedEvidenceIds: [],
+                          query: null,
+                          latencyMs: 0,
+                        };
+
+                    toolResolutions.push({
+                      toolCall,
+                      result: resolution.result,
+                    });
+
+                    console.log(
+                      '[Agentic Document Evidence Tool]',
+                      {
+                        discussionId,
+                        seatId: seat.seatId,
+                        seatIndex,
+                        retrievalRound:
+                          agenticRetrievalRounds,
+                        tool: toolCall.name,
+                        query: resolution.query,
+                        addedEvidenceIds:
+                          resolution.addedEvidenceIds,
+                        reusedEvidenceIds:
+                          resolution.reusedEvidenceIds,
+                        latencyMs:
+                          resolution.latencyMs,
+                        ledgerSize:
+                          sharedAgenticEvidenceLedger.length,
+                      }
+                    );
+                    continue;
+                  }
+
+                  const resolution =
+                    await resolveAgenticConversationTool({
+                      toolName: toolCall.name,
+                      toolArgs: (toolCall.arguments ||
+                        {}) as Record<string, unknown>,
+                      serviceSupabase: supabase,
+                      openai,
+                      discussionId: discussionId!,
+                      allRounds:
+                        discussionMemory?.allRounds || [],
+                      ledger:
+                        sharedAgenticEvidenceLedger,
+                      requestedBySeatId: seat.seatId,
+                      createEvidenceId:
+                        createAgenticEvidenceId,
+                      signal: seatAbortController.signal,
+                    });
+                  toolResolutions.push({
+                    toolCall,
+                    result: resolution.result,
                   });
-                  toolResolutions.push({ toolCall, resolution });
 
                   console.log('[Agentic Memory Tool]', {
                     discussionId,
@@ -6727,12 +6821,15 @@ export async function POST(req: NextRequest) {
                     retrievalRound: agenticRetrievalRounds,
                     tool: toolCall.name,
                     query: resolution.query,
-                    addedEvidenceIds: resolution.addedEntries.map(
-                      (entry) => entry.evidenceId
-                    ),
-                    reusedEvidenceIds: resolution.reusedEvidenceIds,
+                    addedEvidenceIds:
+                      resolution.addedEntries.map(
+                        (entry) => entry.evidenceId
+                      ),
+                    reusedEvidenceIds:
+                      resolution.reusedEvidenceIds,
                     latencyMs: resolution.latencyMs,
-                    ledgerSize: sharedAgenticEvidenceLedger.length,
+                    ledgerSize:
+                      sharedAgenticEvidenceLedger.length,
                   });
                 }
 
@@ -6757,14 +6854,14 @@ export async function POST(req: NextRequest) {
                     ),
                   } as any,
                   ...toolResolutions.map(
-                    ({ toolCall, resolution }, index) =>
+                    ({ toolCall, result }, index) =>
                       ({
                         role: 'tool',
                         tool_call_id:
                           toolCall.id ||
                           `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
                         name: toolCall.name,
-                        content: JSON.stringify(resolution.result),
+                        content: JSON.stringify(result),
                       }) as any
                   ),
                 ];
@@ -6808,8 +6905,13 @@ export async function POST(req: NextRequest) {
                   isEvidenceEnabledForSeat
                     ? REQUEST_EVIDENCE_TOOL
                     : []),
-                  ...(retrievalToolsStillAvailable
+                  ...(retrievalToolsStillAvailable &&
+                  isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                    : []),
+                  ...(retrievalToolsStillAvailable &&
+                  isAgenticDocumentEvidenceEnabledForSeat
+                    ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
                 ];
 
