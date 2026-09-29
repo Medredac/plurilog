@@ -5552,7 +5552,11 @@ export async function POST(req: NextRequest) {
                     }
                   }
 
-                  if (!resolvedImage && knownSources.length > 1) {
+                  if (
+                    !AGENTIC_MEMORY_EXPERIMENT &&
+                    !resolvedImage &&
+                    knownSources.length > 1
+                  ) {
                     const activeFocusIds =
                       activeVisualContext?.focus_source_ids || [];
                     const jevScopesSystem2ToActiveFocus =
@@ -6259,6 +6263,7 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageGeneration === true &&
               isChatGPTImageGenerationEnabled();
             const isImageGenerationEnabledForSeat =
+              !isContinueRound &&
               !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
               (isGeminiImageEnabled || isChatGPTImageEnabled);
@@ -6271,6 +6276,7 @@ export async function POST(req: NextRequest) {
               getSeatCapabilities('chatgpt').imageEditing === true &&
               isChatGPTImageEditingEnabled();
             const isImageEditingEnabledForSeat =
+              !isContinueRound &&
               !isHistoryLookupTurn &&
               !documentCreatedThisTurn &&
               (isGeminiImageEditingEnabledForSeat ||
@@ -6295,6 +6301,7 @@ export async function POST(req: NextRequest) {
                 discussionMemory?.knownDocuments?.length
               );
             const isDocumentCreationEnabledForSeat =
+              !isContinueRound &&
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
@@ -8221,6 +8228,43 @@ export async function POST(req: NextRequest) {
                   };
 
                   const evidenceResolutionRecords: EvidenceResolutionRecord[] = [];
+                  const groundedImageSourceIds = new Set<string>();
+
+                  const rememberGroundedImageSources = (ev: any) => {
+                    if (!ev || ev.kind !== 'image') return;
+
+                    if (Array.isArray(ev.sourceIds)) {
+                      for (const sourceId of ev.sourceIds) {
+                        if (typeof sourceId === 'string' && sourceId) {
+                          groundedImageSourceIds.add(sourceId);
+                        }
+                      }
+                    }
+
+                    if (Array.isArray(ev.sources)) {
+                      for (const source of ev.sources) {
+                        const sourceId = source?.sourceId;
+                        if (typeof sourceId === 'string' && sourceId) {
+                          groundedImageSourceIds.add(sourceId);
+                        }
+                      }
+                    }
+
+                    if (
+                      groundedImageSourceIds.size === 0 &&
+                      ev.storagePath &&
+                      Array.isArray(latestKnownSources)
+                    ) {
+                      for (const source of latestKnownSources) {
+                        if (
+                          source?.sourceId &&
+                          source?.storagePath === ev.storagePath
+                        ) {
+                          groundedImageSourceIds.add(source.sourceId);
+                        }
+                      }
+                    }
+                  };
 
                   for (const toolCall of evidenceRequestCalls) {
                     const toolArgs = (toolCall.arguments || {}) as {
@@ -8518,6 +8562,7 @@ export async function POST(req: NextRequest) {
                       modelSafeBrokerResult.status === 'resolved'
                     ) {
                       const ev = brokerResult.evidence;
+                      rememberGroundedImageSources(ev);
                       const artifactRegistration =
                         registerAgenticArtifactEvidence({
                           ledger: sharedAgenticEvidenceLedger,
@@ -9422,6 +9467,7 @@ export async function POST(req: NextRequest) {
                           'resolved'
                       ) {
                         const ev = brokerResult.evidence;
+                        rememberGroundedImageSources(ev);
                         const registration =
                           registerAgenticArtifactEvidence({
                             ledger:
@@ -10872,49 +10918,7 @@ export async function POST(req: NextRequest) {
                             const priorSameRoundGeneratedSourceIds =
                               [...sameRoundGeneratedSourceIds];
                             const groundedEvidenceSourceIds =
-                              evidenceResolutionRecords.flatMap(
-                                (record) => {
-                                  const ev =
-                                    record.brokerResult.evidence;
-                                  if (
-                                    !ev ||
-                                    ev.kind !== 'image'
-                                  ) {
-                                    return [];
-                                  }
-                                  if (
-                                    Array.isArray(ev.sourceIds)
-                                  ) {
-                                    return ev.sourceIds;
-                                  }
-                                  if (
-                                    Array.isArray(ev.sources)
-                                  ) {
-                                    return ev.sources
-                                      .map(
-                                        (source) =>
-                                          source.sourceId
-                                      )
-                                      .filter(
-                                        (
-                                          id
-                                        ): id is string =>
-                                          Boolean(id)
-                                      );
-                                  }
-                                  return latestKnownSources
-                                    .filter(
-                                      (source) =>
-                                        source.storagePath &&
-                                        source.storagePath ===
-                                          ev.storagePath
-                                    )
-                                    .map(
-                                      (source) =>
-                                        source.sourceId
-                                    );
-                                }
-                              );
+                              Array.from(groundedImageSourceIds);
                             const transitionReferentSourceIds =
                               Array.from(
                                 new Set([
