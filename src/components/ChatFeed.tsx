@@ -236,12 +236,22 @@ function parseTrailingSources(rawContent: string): ParsedMessageSources {
   };
 }
 
-type SeatIndicatorStatus = SeatStatus;
+type SeatIndicatorStatus =
+  | SeatStatus
+  | 'analyzing_input'
+  | 'thinking_again'
+  | 'considering_context';
 
 function getSeatActivityLabel(status: SeatIndicatorStatus): string {
   switch (status) {
     case 'waiting':
       return 'Preparing…';
+    case 'analyzing_input':
+      return 'Analyzing input…';
+    case 'thinking_again':
+      return 'Thinking…';
+    case 'considering_context':
+      return 'Considering context…';
     case 'working':
       return 'Working through it…';
     case 'checking_documents':
@@ -340,10 +350,19 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       : `${minutes}m${String(seconds).padStart(2, '0')}`;
   })();
 
-  // Stay truthful while the model is reasoning silently. Concrete backend
-  // activity events replace this immediately when the agent chooses a tool.
-  const effectiveStatus: SeatIndicatorStatus =
-    status === 'thinking' && elapsedMs >= 22000 ? 'working' : status;
+  // Preserve the familiar fallback rhythm while the model is reasoning
+  // silently. Any concrete backend activity (memory search, chronology,
+  // document lookup, web search, generation/editing, etc.) replaces this
+  // immediately because status will no longer be "thinking".
+  const effectiveStatus: SeatIndicatorStatus = (() => {
+    if (status !== 'thinking') return status;
+
+    if (elapsedMs < 3000) return 'thinking';
+    if (elapsedMs < 10000) return 'analyzing_input';
+    if (elapsedMs < 15000) return 'thinking_again';
+    if (elapsedMs < 22000) return 'considering_context';
+    return 'working';
+  })();
   const displayLabel =
     activityLabel?.trim() || getSeatActivityLabel(effectiveStatus);
 
@@ -386,6 +405,12 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       case 'waiting':
         return Clock3;
       case 'working':
+        return Sparkles;
+      case 'analyzing_input':
+        return Brain;
+      case 'thinking_again':
+        return Brain;
+      case 'considering_context':
         return Sparkles;
       case 'checking_documents':
         return FileSearch;
