@@ -2228,6 +2228,12 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
 
   const systemContent = [
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
+    AGENTIC_MEMORY_EXPERIMENT
+      ? `AGENTIC CONVERSATION MEMORY:
+You have bounded tools for retrieving older conversation evidence. Use them autonomously when the user's request materially depends on a historical fact, wording, decision, event, speaker statement, or chronology detail that is not reliably present in the supplied baseline. Do not guess missing history and do not search merely because history exists.
+Start with compact retrieval. Expand only evidence that needs more context. For first/last occurrence questions, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. You may make another bounded retrieval if newly returned evidence reveals a genuine additional need.
+Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
+      : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     pdfDesignReferences?.text || '',
   ]
@@ -6550,22 +6556,10 @@ export async function POST(req: NextRequest) {
                   ),
                 ];
 
-                // Keep the compact shared ledger visible to subsequent
-                // continuations and later configured seats without copying
-                // another seat's private reasoning.
-                const refreshedSharedEvidence =
-                  formatSharedAgenticEvidenceForPrompt(
-                    sharedAgenticEvidenceLedger
-                  );
-                seatMessages = refreshedSharedEvidence
-                  ? [
-                      ...memoryContinuationMessages,
-                      {
-                        role: 'system',
-                        content: refreshedSharedEvidence,
-                      } as any,
-                    ]
-                  : memoryContinuationMessages;
+                // The current seat receives the newly grounded evidence as
+                // tool results. Later configured seats receive the compact
+                // shared ledger through buildPanelMessages.
+                seatMessages = memoryContinuationMessages;
 
                 seatResponse = '';
                 seatUsage = null;
