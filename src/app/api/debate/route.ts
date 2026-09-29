@@ -8220,173 +8220,64 @@ export async function POST(req: NextRequest) {
                       );
                     }
 
-                    let modelSafeBrokerResult =
-                      toModelSafeBrokerResult(brokerResult);
-                    const materializedEvidenceAttachments: RouteAttachment[] =
-                      [];
+                    const {
+                      modelSafeBrokerResult,
+                      materializedEvidenceAttachments,
+                    } = await materializeBrokerEvidenceForSeat({
+                      supabase,
+                      serviceClient: serviceClientForEvidence,
+                      discussionId: discussionId || '',
+                      sourceUserMessageId,
+                      brokerResult,
+                      signal: seatAbortController.signal,
+                    });
 
                     if (
                       brokerResult.status === 'resolved' &&
                       brokerResult.evidence &&
-                      serviceClientForEvidence
+                      modelSafeBrokerResult.status === 'resolved'
                     ) {
                       const ev = brokerResult.evidence;
-
-                      if (ev.kind === 'pdf' && ev.storagePath) {
-                        const { data: signedData, error: signErr } =
-                          await serviceClientForEvidence.storage
-                            .from('message-images')
-                            .createSignedUrl(ev.storagePath, 900);
-
-                        if (!signErr && signedData?.signedUrl) {
-                          materializedEvidenceAttachments.push({
-                            url: signedData.signedUrl,
-                            filename: ev.filename,
-                            provenance:
-                              ev.reason === 'user_uploaded_document_ordinal'
-                                ? 'historical_user_upload'
-                                : 'historical_assistant_generated',
-                          });
-                        } else {
-                          modelSafeBrokerResult = {
-                            status: 'not_found',
-                            kind: 'pdf',
-                            message:
-                              'The requested PDF visual evidence could not be retrieved for this call.',
-                          };
-                        }
-                      } else if (
-                        ev.kind === 'docx' &&
-                        ev.storagePath &&
-                        discussionId
-                      ) {
-                        try {
-                          const renderedPages =
-                            await materializeDocxRenderedPageAttachments({
-                              supabase,
-                              serviceClient: serviceClientForEvidence,
-                              discussionId,
-                              sourceUserMessageId,
-                              storagePath: ev.storagePath,
-                              filename: ev.filename,
-                              signal: seatAbortController.signal,
-                              registerImmediately: true,
-                            });
-
-                          if (renderedPages.length > 0) {
-                            materializedEvidenceAttachments.push(
-                              ...renderedPages
-                            );
-
-                            try {
-                              const embeddedImages =
-                                await materializeDocxEmbeddedImageAttachments({
-                                  supabase,
-                                  serviceClient: serviceClientForEvidence,
-                                  discussionId,
-                                  sourceMessageId: null,
-                                  storagePath: ev.storagePath,
-                                  filename: ev.filename,
-                                  signal: seatAbortController.signal,
-                                  registerImmediately: true,
-                                });
-                              materializedEvidenceAttachments.push(
-                                ...embeddedImages
-                              );
-                            } catch (embeddedImageErr) {
-                              console.warn(
-                                '[Evidence Broker] Non-critical DOCX embedded-image materialization error:',
-                                embeddedImageErr
-                              );
-                            }
-                          } else {
-                            modelSafeBrokerResult = {
-                              status: 'not_found',
-                              kind: 'docx',
-                              message:
-                                'The requested Word document could not be rendered for visual inspection in this call.',
-                            };
-                          }
-                        } catch (docxEvidenceErr) {
-                          console.warn(
-                            '[Evidence Broker] Non-critical DOCX visual materialization error:',
-                            docxEvidenceErr
-                          );
-                          modelSafeBrokerResult = {
-                            status: 'not_found',
-                            kind: 'docx',
-                            message:
-                              'The requested Word document could not be rendered for visual inspection in this call.',
-                          };
-                        }
-                      } else if (
-                        ev.kind === 'image' &&
-                        ev.sources &&
-                        ev.sources.length > 0
-                      ) {
-                        const signedImages: RouteAttachment[] = [];
-
-                        for (const source of ev.sources) {
-                          if (!source.storagePath) continue;
-                          const { data: signedData, error: signErr } =
-                            await serviceClientForEvidence.storage
-                              .from('message-images')
-                              .createSignedUrl(source.storagePath, 900);
-
-                          if (signErr || !signedData?.signedUrl) continue;
-
-                          let provenance:
-                            | AttachmentProvenance
-                            | undefined;
-                          let creatorSeatId: string | undefined;
-                          if (source.sender) {
-                            const senderLower = source.sender.toLowerCase();
-                            if (
-                              ['gemini', 'chatgpt', 'claude'].includes(
-                                senderLower
-                              )
-                            ) {
-                              provenance =
-                                'historical_assistant_generated';
-                              creatorSeatId = senderLower;
-                            } else if (senderLower === 'user') {
-                              provenance = 'historical_user_upload';
-                            }
-                          }
-
-                          signedImages.push({
-                            url: signedData.signedUrl,
-                            filename:
-                              source.filename || 'image.jpg',
-                            provenance,
-                            creatorSeatId,
-                          });
-                        }
-
-                        if (signedImages.length === ev.sources.length) {
-                          materializedEvidenceAttachments.push(
-                            ...signedImages
-                          );
-                        } else {
-                          modelSafeBrokerResult = {
-                            status: 'not_found',
-                            kind: 'image',
-                            message:
-                              'The requested image evidence could not be completely retrieved for this call.',
-                          };
-                        }
-                      }
-                    } else if (
-                      brokerResult.status === 'resolved' &&
-                      brokerResult.evidence &&
-                      !serviceClientForEvidence
-                    ) {
-                      modelSafeBrokerResult = {
-                        status: 'not_found',
-                        kind: brokerResult.kind,
-                        message:
-                          'The requested visual evidence could not be securely retrieved for this call.',
-                      };
+                      const artifactRegistration =
+                        registerAgenticArtifactEvidence({
+                          ledger: sharedAgenticEvidenceLedger,
+                          createEvidenceId: createAgenticEvidenceId,
+                          requestedBySeatId: seat.seatId,
+                          artifactKind: ev.kind,
+                          filename: ev.filename,
+                          provenanceReason: ev.reason || null,
+                          artifactIdentityKey:
+                            ev.documentId ||
+                            ev.storagePath ||
+                            (Array.isArray(ev.sourceIds)
+                              ? ev.sourceIds.join('|')
+                              : undefined) ||
+                            (Array.isArray(ev.sources)
+                              ? ev.sources
+                                  .map(
+                                    (source) =>
+                                      source.id ||
+                                      source.storagePath ||
+                                      source.filename ||
+                                      ''
+                                  )
+                                  .filter(Boolean)
+                                  .join('|')
+                              : undefined) ||
+                            `${ev.kind}|${ev.filename}|${ev.reason || ''}`,
+                          compactText:
+                            `${modelSafeBrokerResult.message}${
+                              materializedEvidenceAttachments.length > 0
+                                ? ` Materialized ${materializedEvidenceAttachments.length} inspectable resource${materializedEvidenceAttachments.length === 1 ? '' : 's'}.`
+                                : ''
+                            }`,
+                          expandedText:
+                            `${modelSafeBrokerResult.message} Canonical artifact identity and provenance were resolved deterministically by Plurilog's backend.`,
+                          query: toolNeed || prompt,
+                          sourceUserMessageId: null,
+                        });
+                      (modelSafeBrokerResult as any).evidence_id =
+                        artifactRegistration.entry.evidenceId;
                     }
 
                     evidenceResolutionRecords.push({
