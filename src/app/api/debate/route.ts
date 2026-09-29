@@ -142,8 +142,8 @@ export const maxDuration = 300;
 // codebase, but they are not executed or consulted for conversation-memory
 // decisions on preview/agentic-memory.
 const AGENTIC_MEMORY_EXPERIMENT = true;
-const AGENTIC_SOFT_RETRIEVAL_ROUNDS = 4;
-const AGENTIC_HARD_RETRIEVAL_ROUNDS = 6;
+const AGENTIC_SOFT_RETRIEVAL_ROUNDS = 3;
+const AGENTIC_HARD_RETRIEVAL_ROUNDS = 4;
 
 function buildAgenticRetrievalBudgetInstruction(
   retrievalRounds: number
