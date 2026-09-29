@@ -32,7 +32,7 @@ export function RoleMarquee() {
           {roles.map((role, idx) => (
             <span
               key={`role-1-${idx}`}
-              className="text-xs sm:text-sm font-medium text-zinc-400"
+              className="text-xs sm:text-sm font-normal text-zinc-400"
             >
               {role}
             </span>
@@ -46,7 +46,7 @@ export function RoleMarquee() {
           {roles.map((role, idx) => (
             <span
               key={`role-2-${idx}`}
-              className="text-xs sm:text-sm font-medium text-zinc-400"
+              className="text-xs sm:text-sm font-normal text-zinc-400"
             >
               {role}
             </span>
