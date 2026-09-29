@@ -2307,6 +2307,23 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
     }
   }
 
+  // 6.45. [independent verification of same-round image actions]
+  if (attachments && attachments.length > 0 && priorResponses.length > 0) {
+    const sameRoundAssistantImages = attachments.filter(
+      (a: RouteAttachment) =>
+        a?.provenance === 'same_round_assistant_generated' &&
+        isImageUrl(a?.url || '')
+    );
+    if (sameRoundAssistantImages.length > 0) {
+      sections.push(
+        `INDEPENDENT SAME-ROUND ARTIFACT VERIFICATION:
+An earlier panelist in this same user turn generated or edited image output that is supplied to you now. Treat the earlier panelist's claim that the action succeeded as provisional, not as source evidence.
+Before endorsing or describing success, inspect the actual supplied image independently against the user's exact request and any supplied source/referent image(s). Check, where relevant: whether the correct source image was used, whether the requested transformation actually occurred, and whether visible details contradict the earlier panelist's description.
+If the artifact is wrong or mismatched, say so plainly and correct the record. Do not describe details merely because another panelist claimed they are present.`
+      );
+    }
+  }
+
   // 6.5. [visual context provenance grounding]
   if (attachments && attachments.length > 0) {
     const nonCurrentImages = attachments.filter(
@@ -6103,20 +6120,23 @@ export async function POST(req: NextRequest) {
             retrievedDocuments = [];
           }
 
-          // Strong deterministic provenance resolutions are authoritative for
-          // the whole user turn. The action layer must consume the already
-          // resolved source rather than independently re-resolving it later.
-          // We deliberately limit this handoff to identity/provenance reasons
-          // whose source is objectively determined by the artifact graph.
+          // A single canonical source already resolved from the CURRENT user
+          // request is authoritative for the action layer. Do not let stale
+          // visual focus from a previous turn silently override it later.
+          // This covers deterministic lineage roots and grounded semantic
+          // referent resolution; ambiguous/multi-source results remain unlocked.
           if (
             !sameTurnEditReferentLock &&
             !hasCurrentImages &&
             pendingResolvedImageSources?.length === 1 &&
-            pendingResolvedImageReason === 'original_lineage_root'
+            (
+              pendingResolvedImageReason === 'original_lineage_root' ||
+              pendingResolvedImageReason === 'semantic_candidate_resolver'
+            )
           ) {
             sameTurnEditReferentLock = pendingResolvedImageSources[0];
             console.log(
-              '[Visual Referent Handoff] Locked authoritative turn-level provenance source',
+              '[Visual Referent Handoff] Locked authoritative current-turn visual source',
               {
                 discussionId,
                 reason: pendingResolvedImageReason,
