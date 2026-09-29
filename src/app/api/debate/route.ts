@@ -8828,6 +8828,707 @@ export async function POST(req: NextRequest) {
                     accumulatedToolCalls.length > 0
                       ? finalizeAllToolCalls(accumulatedToolCalls)
                       : [];
+
+                  while (evidenceContinuationCalls.length > 0) {
+                    const retrievalCalls =
+                      evidenceContinuationCalls.filter(
+                        (call) =>
+                          call?.name === 'request_evidence' ||
+                          AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                            call?.name as any
+                          )
+                      );
+
+                    if (retrievalCalls.length === 0) break;
+
+                    if (
+                      agenticRetrievalRounds >=
+                      MAX_AGENTIC_RETRIEVAL_ROUNDS
+                    ) {
+                      console.warn(
+                        '[Agentic Retrieval] Bound reached after artifact inspection',
+                        {
+                          discussionId,
+                          seatId: seat.seatId,
+                          maxRounds:
+                            MAX_AGENTIC_RETRIEVAL_ROUNDS,
+                          pendingTools: retrievalCalls.map(
+                            (call) => call.name
+                          ),
+                        }
+                      );
+                      evidenceContinuationCalls = [];
+                      accumulatedToolCalls = [];
+                      break;
+                    }
+
+                    const deferredActionCalls =
+                      evidenceContinuationCalls.filter(
+                        (call) =>
+                          call?.name !== 'request_evidence' &&
+                          !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                            call?.name as any
+                          )
+                      );
+                    if (deferredActionCalls.length > 0) {
+                      console.log(
+                        '[Agentic Retrieval] Deferred side-effect calls until evidence is grounded',
+                        {
+                          seatId: seat.seatId,
+                          deferredTools: deferredActionCalls.map(
+                            (call) => call.name
+                          ),
+                        }
+                      );
+                    }
+
+                    agenticRetrievalRounds += 1;
+                    const retrievalResults: Array<{
+                      toolCall: (typeof retrievalCalls)[number];
+                      result: Record<string, unknown>;
+                    }> = [];
+                    const iterativeNewAttachments: RouteAttachment[] =
+                      [];
+
+                    for (const toolCall of retrievalCalls) {
+                      if (
+                        AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                          toolCall.name as any
+                        )
+                      ) {
+                        const resolution =
+                          await resolveAgenticConversationTool({
+                            toolName: toolCall.name,
+                            toolArgs: (toolCall.arguments ||
+                              {}) as Record<string, unknown>,
+                            serviceSupabase: supabase,
+                            openai,
+                            discussionId: discussionId!,
+                            allRounds:
+                              discussionMemory?.allRounds || [],
+                            ledger: sharedAgenticEvidenceLedger,
+                            requestedBySeatId: seat.seatId,
+                            createEvidenceId:
+                              createAgenticEvidenceId,
+                            signal: seatAbortController.signal,
+                          });
+
+                        retrievalResults.push({
+                          toolCall,
+                          result: resolution.result,
+                        });
+
+                        console.log('[Agentic Memory Tool]', {
+                          discussionId,
+                          seatId: seat.seatId,
+                          seatIndex,
+                          retrievalRound:
+                            agenticRetrievalRounds,
+                          tool: toolCall.name,
+                          query: resolution.query,
+                          addedEvidenceIds:
+                            resolution.addedEntries.map(
+                              (entry) => entry.evidenceId
+                            ),
+                          reusedEvidenceIds:
+                            resolution.reusedEvidenceIds,
+                          latencyMs: resolution.latencyMs,
+                          ledgerSize:
+                            sharedAgenticEvidenceLedger.length,
+                        });
+                        continue;
+                      }
+
+                      const toolArgs = (toolCall.arguments || {}) as {
+                        resource_type?:
+                          | 'auto'
+                          | 'image'
+                          | 'document';
+                        need?: string;
+                        filename?: string;
+                      };
+                      const toolNeed =
+                        typeof toolArgs.need === 'string'
+                          ? toolArgs.need.trim()
+                          : '';
+                      const toolResourceType =
+                        toolArgs.resource_type || 'auto';
+                      const toolFilename =
+                        typeof toolArgs.filename === 'string'
+                          ? toolArgs.filename.trim()
+                          : undefined;
+
+                      const brokerResult =
+                        resolveRequestedEvidence(
+                          {
+                            modality: 'visual',
+                            resource_type: toolResourceType,
+                            need: toolNeed || prompt,
+                            filename: toolFilename,
+                          },
+                          {
+                            knownDocuments: brokerKnownDocuments,
+                            retrievedDocuments:
+                              jevAllowsDocumentSearch
+                                ? retrievedDocuments
+                                : [],
+                            recentRounds:
+                              jevAllowsDocumentSearch ||
+                              jevAllowsHistoricalVisualEvidence
+                                ? discussionMemory?.recentRounds
+                                : [],
+                            historicalRounds:
+                              jevAllowsHistoricalVisualEvidence
+                                ? discussionMemory?.allRounds
+                                : [],
+                            knownImageSources:
+                              jevAllowsHistoricalVisualEvidence
+                                ? latestKnownSources
+                                : [],
+                            lastRoundEvidence:
+                              jevAllowsHistoricalVisualEvidence
+                                ? lastRoundEvidenceForBroker
+                                : [],
+                            recentEvidenceSets: [],
+                            visualContext:
+                              jevAllowsHistoricalVisualEvidence &&
+                              isPersistentVisualContextReadsEnabled()
+                                ? visualContextState
+                                : null,
+                            previousUserPrompt:
+                              jevAllowsDocumentSearch ||
+                              jevAllowsHistoricalVisualEvidence
+                                ? lastRound?.userPrompt
+                                : undefined,
+                            currentUserPrompt:
+                              toolNeed || prompt,
+                            allUserMessageIds:
+                              jevAllowsDocumentSearch ||
+                              jevAllowsHistoricalVisualEvidence
+                                ? discussionMemory?.allUserMessageIds
+                                : [],
+                          }
+                        );
+
+                      const {
+                        modelSafeBrokerResult,
+                        materializedEvidenceAttachments,
+                      } = await materializeBrokerEvidenceForSeat({
+                        supabase,
+                        serviceClient:
+                          serviceClientForEvidence,
+                        discussionId: discussionId || '',
+                        sourceUserMessageId,
+                        brokerResult,
+                        signal: seatAbortController.signal,
+                      });
+
+                      if (
+                        brokerResult.status === 'resolved' &&
+                        brokerResult.evidence &&
+                        modelSafeBrokerResult.status ===
+                          'resolved'
+                      ) {
+                        const ev = brokerResult.evidence;
+                        const registration =
+                          registerAgenticArtifactEvidence({
+                            ledger:
+                              sharedAgenticEvidenceLedger,
+                            createEvidenceId:
+                              createAgenticEvidenceId,
+                            requestedBySeatId:
+                              seat.seatId,
+                            artifactKind: ev.kind,
+                            filename: ev.filename,
+                            provenanceReason:
+                              ev.reason || null,
+                            artifactIdentityKey:
+                              ev.documentId ||
+                              ev.storagePath ||
+                              (Array.isArray(ev.sourceIds)
+                                ? ev.sourceIds.join('|')
+                                : undefined) ||
+                              (Array.isArray(ev.sources)
+                                ? ev.sources
+                                    .map(
+                                      (source) =>
+                                        source.storagePath ||
+                                        source.filename ||
+                                        ''
+                                    )
+                                    .filter(Boolean)
+                                    .join('|')
+                                : undefined) ||
+                              `${ev.kind}|${ev.filename}|${ev.reason || ''}`,
+                            compactText:
+                              `${modelSafeBrokerResult.message}${
+                                materializedEvidenceAttachments.length >
+                                0
+                                  ? ` Materialized ${materializedEvidenceAttachments.length} inspectable resource${materializedEvidenceAttachments.length === 1 ? '' : 's'}.`
+                                  : ''
+                              }`,
+                            expandedText:
+                              `${modelSafeBrokerResult.message} Canonical artifact identity and provenance were resolved deterministically by Plurilog's backend.`,
+                            query: toolNeed || prompt,
+                            sourceUserMessageId: null,
+                          });
+                        (modelSafeBrokerResult as any).evidence_id =
+                          registration.entry.evidenceId;
+
+                        anyResolvedEvidence = true;
+                        aggregateModelSafeBrokerResult =
+                          modelSafeBrokerResult;
+
+                        if (
+                          (ev.kind === 'pdf' ||
+                            ev.kind === 'docx') &&
+                          ev.storagePath
+                        ) {
+                          resolvedEditableDocumentEvidence =
+                            ev;
+                          resolvedDocxEvidence =
+                            ev.kind === 'docx'
+                              ? ev
+                              : null;
+
+                          if (
+                            seat.seatId === 'chatgpt' &&
+                            isDocumentRevisionFollowUp &&
+                            serviceClientForEvidence
+                          ) {
+                            revisionParentState =
+                              await findDocumentStateSnapshot({
+                                serviceSupabase:
+                                  serviceClientForEvidence,
+                                discussionId,
+                                storagePath:
+                                  ev.storagePath || null,
+                                filename:
+                                  ev.filename || null,
+                                documentId:
+                                  ev.documentId || null,
+                              });
+
+                            if (ev.documentId) {
+                              const {
+                                data: revisionRow,
+                                error: revisionErr,
+                              } =
+                                await serviceClientForEvidence
+                                  .from(
+                                    'discussion_documents'
+                                  )
+                                  .select(
+                                    'id, filename, full_text'
+                                  )
+                                  .eq(
+                                    'discussion_id',
+                                    discussionId
+                                  )
+                                  .eq('id', ev.documentId)
+                                  .maybeSingle();
+
+                              if (
+                                !revisionErr &&
+                                revisionRow &&
+                                typeof revisionRow.full_text ===
+                                  'string' &&
+                                revisionRow.full_text.trim()
+                              ) {
+                                const hydrated = {
+                                  filename:
+                                    revisionRow.filename ||
+                                    ev.filename,
+                                  content:
+                                    revisionRow.full_text.trim(),
+                                };
+                                if (
+                                  !resolvedRevisionDocuments.some(
+                                    (doc) =>
+                                      doc.filename ===
+                                        hydrated.filename &&
+                                      doc.content ===
+                                        hydrated.content
+                                  )
+                                ) {
+                                  resolvedRevisionDocuments.push(
+                                    hydrated
+                                  );
+                                }
+                              }
+                            }
+                          }
+                        }
+                      } else {
+                        aggregateModelSafeBrokerResult =
+                          modelSafeBrokerResult;
+                      }
+
+                      const existingKeys = new Set(
+                        evidenceAttachments.map(
+                          (attachment) =>
+                            extractStoragePathFromSignedUrl(
+                              attachment.url
+                            ) ||
+                            `${attachment.filename || ''}|${attachment.url}`
+                        )
+                      );
+
+                      for (const attachment of
+                        materializedEvidenceAttachments) {
+                        const key =
+                          extractStoragePathFromSignedUrl(
+                            attachment.url
+                          ) ||
+                          `${attachment.filename || ''}|${attachment.url}`;
+                        if (existingKeys.has(key)) continue;
+                        existingKeys.add(key);
+                        iterativeNewAttachments.push(
+                          attachment
+                        );
+                        evidenceAttachments.push(
+                          attachment
+                        );
+                        currentRoundAttachments.push(
+                          attachment
+                        );
+                      }
+
+                      retrievalResults.push({
+                        toolCall,
+                        result:
+                          modelSafeBrokerResult as unknown as Record<
+                            string,
+                            unknown
+                          >,
+                      });
+
+                      console.log(
+                        '[Agentic Artifact Evidence Tool]',
+                        {
+                          discussionId,
+                          seatId: seat.seatId,
+                          seatIndex,
+                          retrievalRound:
+                            agenticRetrievalRounds,
+                          requestedResourceType:
+                            toolResourceType,
+                          need:
+                            toolNeed || prompt,
+                          status:
+                            modelSafeBrokerResult.status,
+                          kind:
+                            modelSafeBrokerResult.kind ||
+                            null,
+                          filename:
+                            modelSafeBrokerResult.filename ||
+                            null,
+                          attachedCount:
+                            materializedEvidenceAttachments.length,
+                          ledgerSize:
+                            sharedAgenticEvidenceLedger.length,
+                        }
+                      );
+                    }
+
+                    if (iterativeNewAttachments.length > 0) {
+                      evidenceWasMaterialized = true;
+                      console.log(
+                        '[Agentic Evidence Ledger] Shared additional artifact evidence with later seats',
+                        {
+                          seatId: seat.seatId,
+                          retrievalRound:
+                            agenticRetrievalRounds,
+                          sharedCount:
+                            iterativeNewAttachments.length,
+                          filenames:
+                            iterativeNewAttachments.map(
+                              (attachment) =>
+                                attachment.filename
+                            ),
+                        }
+                      );
+                    }
+
+                    evidenceSeatAttachments =
+                      seat.seatId === 'gemini'
+                        ? await prepareGeminiVisionAttachments(
+                            evidenceAttachments
+                          )
+                        : evidenceAttachments;
+                    evidenceHasPdf = evidenceAttachments.some(
+                      (attachment) =>
+                        attachment.url
+                          ?.split('?')[0]
+                          .split('#')[0]
+                          .toLowerCase()
+                          .endsWith('.pdf')
+                    );
+
+                    canonicalRevisionStateDocument =
+                      revisionParentState
+                        ? [
+                            {
+                              filename:
+                                `CANONICAL DOCUMENT STATE — ${revisionParentState.filename}.json`,
+                              content: JSON.stringify(
+                                revisionParentState.spec,
+                                null,
+                                2
+                              ),
+                            },
+                          ]
+                        : [];
+
+                    evidenceTurnDocuments = [
+                      ...(currentTurnDocuments || []),
+                      ...resolvedRevisionDocuments,
+                      ...canonicalRevisionStateDocument,
+                    ].filter(
+                      (doc, index, all) =>
+                        all.findIndex(
+                          (candidate) =>
+                            candidate.filename ===
+                              doc.filename &&
+                            candidate.content ===
+                              doc.content
+                        ) === index
+                    );
+
+                    evidenceContinuationCanCreateFile =
+                      seat.seatId === 'chatgpt' &&
+                      isDocumentCreationEnabledForSeat &&
+                      anyResolvedEvidence;
+                    evidenceContinuationCanSourceEdit =
+                      evidenceContinuationCanCreateFile &&
+                      isDocumentRevisionFollowUp &&
+                      Boolean(
+                        resolvedEditableDocumentEvidence
+                      ) &&
+                      (!revisionParentState ||
+                        isSourcePreservingDocumentState(
+                          revisionParentState
+                        ));
+                    evidenceContinuationCanReviseFile =
+                      evidenceContinuationCanCreateFile &&
+                      isDocumentRevisionFollowUp &&
+                      Boolean(revisionParentState) &&
+                      !isSourcePreservingDocumentState(
+                        revisionParentState
+                      );
+
+                    evidenceToolTranscript.push({
+                      role: 'assistant',
+                      content: seatResponse || null,
+                      tool_calls: retrievalResults.map(
+                        ({ toolCall }, index) => ({
+                          id:
+                            toolCall.id ||
+                            `call_agentic_retrieval_${agenticRetrievalRounds}_${index + 1}`,
+                          type: 'function',
+                          function: {
+                            name: toolCall.name,
+                            arguments:
+                              toolCall.rawArguments ||
+                              JSON.stringify(
+                                toolCall.arguments
+                              ),
+                          },
+                        })
+                      ),
+                    } as any);
+                    evidenceToolTranscript.push(
+                      ...retrievalResults.map(
+                        ({ toolCall, result }, index) =>
+                          ({
+                            role: 'tool',
+                            tool_call_id:
+                              toolCall.id ||
+                              `call_agentic_retrieval_${agenticRetrievalRounds}_${index + 1}`,
+                            name: toolCall.name,
+                            content: JSON.stringify(result),
+                          }) as any
+                      )
+                    );
+
+                    evidenceBaseMessages =
+                      buildPanelMessages(
+                        seat.name,
+                        prompt,
+                        priorResponses,
+                        panelDiscussionMemory,
+                        evidenceSeatAttachments,
+                        null,
+                        retrievedMemory,
+                        hasDeterministicRevisionTarget
+                          ? []
+                          : retrievedDocuments,
+                        evidenceWasMaterialized
+                          ? false
+                          : isVisualUnavailable,
+                        evidenceTurnDocuments,
+                        visualDeliveryMismatch,
+                        runtimeProductContext,
+                        formatSharedAgenticEvidenceForPrompt(
+                          sharedAgenticEvidenceLedger
+                        )
+                      );
+
+                    seatResponse = '';
+                    seatUsage = null;
+                    accumulatedToolCalls = [];
+                    evidenceContinuationChunks.length = 0;
+                    seatWebCitations.length = 0;
+                    seenCitationUrls.clear();
+
+                    const iterativeStartedAt = Date.now();
+                    const iterativeStream =
+                      await (openai.chat.completions.create as any)(
+                        {
+                          model: primaryModel,
+                          models,
+                          messages: [
+                            ...evidenceBaseMessages,
+                            ...evidenceToolTranscript,
+                          ],
+                          stream: true,
+                          temperature: 0.7,
+                          signal:
+                            seatAbortController.signal,
+                          tools: [
+                            {
+                              type:
+                                'openrouter:web_search',
+                              parameters: {
+                                max_results: 3,
+                                max_total_results: 6,
+                              },
+                            },
+                            ...(evidenceContinuationCanSourceEdit
+                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                              : evidenceContinuationCanReviseFile
+                                ? GPT_REVISE_FILE_TOOL
+                                : evidenceContinuationCanCreateFile
+                                  ? GPT_FILE_TOOLS
+                                  : []),
+                            ...(agenticRetrievalRounds <
+                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                            isEvidenceEnabledForSeat
+                              ? REQUEST_EVIDENCE_TOOL
+                              : []),
+                            ...(agenticRetrievalRounds <
+                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                            isAgenticMemoryEnabledForSeat
+                              ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                              : []),
+                          ],
+                          tool_choice: 'auto',
+                          ...(discussionId
+                            ? {
+                                session_id:
+                                  `${discussionId}:${seat.seatId}:evidence:${agenticRetrievalRounds}`,
+                              }
+                            : {}),
+                          ...(evidenceHasPdf
+                            ? {
+                                plugins: [
+                                  {
+                                    id: 'file-parser',
+                                    pdf: {
+                                      engine: 'native',
+                                    },
+                                  },
+                                ],
+                              }
+                            : {}),
+                        }
+                      );
+
+                    let iterativeModel =
+                      respondingModel || primaryModel;
+                    for await (const chunk of
+                      iterativeStream) {
+                      if (req.signal.aborted) break;
+                      if (chunk.model) {
+                        respondingModel = chunk.model;
+                        iterativeModel = chunk.model;
+                      }
+                      if ((chunk as any).usage) {
+                        seatUsage = (chunk as any).usage;
+                      }
+
+                      const deltaAnnotations =
+                        (chunk.choices?.[0]?.delta as any)
+                          ?.annotations;
+                      if (deltaAnnotations) {
+                        addWebCitations(deltaAnnotations);
+                      }
+
+                      const deltaToolCalls =
+                        (chunk.choices?.[0]?.delta as any)
+                          ?.tool_calls;
+                      if (deltaToolCalls) {
+                        accumulatedToolCalls =
+                          mergeStreamingToolCalls(
+                            accumulatedToolCalls,
+                            deltaToolCalls
+                          );
+                      }
+
+                      const text =
+                        chunk.choices?.[0]?.delta
+                          ?.content || '';
+                      if (text) {
+                        seatResponse += text;
+                        evidenceContinuationChunks.push(
+                          text
+                        );
+                      }
+                    }
+
+                    if (
+                      seatAbortController.signal.aborted &&
+                      !req.signal.aborted
+                    ) {
+                      throw new Error(
+                        `${seat.name} exceeded its ${Math.round(
+                          seatTimeoutMs / 1000
+                        )}-second turn budget.`
+                      );
+                    }
+
+                    if (req.signal.aborted) {
+                      safeClose();
+                      return;
+                    }
+
+                    const iterativeCostUsd =
+                      typeof seatUsage?.cost === 'number'
+                        ? seatUsage.cost
+                        : 0;
+                    incurredEvidenceSecondPassCostUsd +=
+                      iterativeCostUsd;
+
+                    evidenceContinuationCalls =
+                      accumulatedToolCalls.length > 0
+                        ? finalizeAllToolCalls(
+                            accumulatedToolCalls
+                          )
+                        : [];
+
+                    agenticModelCalls.push({
+                      round: agenticRetrievalRounds,
+                      model: iterativeModel,
+                      costUsd: iterativeCostUsd,
+                      latencyMs:
+                        Date.now() -
+                        iterativeStartedAt,
+                      tools:
+                        evidenceContinuationCalls.map(
+                          (call) => call.name
+                        ),
+                    });
+                  }
                   const evidenceCreateFileCalls =
                     evidenceContinuationCalls.filter(
                       (call) => call?.name === 'create_file'
