@@ -474,7 +474,7 @@ export default function LandingPage() {
             }}
             className="w-full lg:w-[55%] order-first lg:order-last"
           >
-            <img src="/herodraw.svg" alt="" className="w-full h-auto" />
+            <img src="/plurilog-laptop-robots.svg" alt="" className="w-full h-auto" />
           </motion.div>
         </section>
 
@@ -768,7 +768,7 @@ export default function LandingPage() {
                     <h3 className="text-lg font-semibold text-zinc-900">Free</h3>
                   </div>
                   <div className="flex items-baseline gap-1 mb-2">
-                    <span className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">$0</span>
+                    <span className="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-900">$0</span>
                   </div>
                   <p className="text-xs sm:text-sm text-zinc-500 leading-relaxed mb-6">
                     Try Plurilog with one-time starter usage.
@@ -834,7 +834,7 @@ export default function LandingPage() {
                     </span>
                   </div>
                   <div className="flex items-baseline gap-1.5 mb-2">
-                    <span className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">$19</span>
+                    <span className="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-900">$19</span>
                     <span className="text-xs sm:text-sm text-zinc-500 font-medium">/ month</span>
                   </div>
                   <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed mb-6">
