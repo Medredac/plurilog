@@ -161,6 +161,130 @@ You have already made ${retrievalRounds} grounded-evidence retrieval rounds. If 
   return null;
 }
 
+function buildAgenticSeatActivity(
+  toolName: string,
+  rawArgs: unknown
+): { activity: string; label: string } | null {
+  const args =
+    rawArgs && typeof rawArgs === 'object'
+      ? (rawArgs as Record<string, unknown>)
+      : {};
+
+  const speaker =
+    typeof args.speaker === 'string' ? args.speaker.toLowerCase() : 'any';
+  const speakerLabel =
+    speaker === 'chatgpt'
+      ? 'ChatGPT'
+      : speaker === 'claude'
+        ? 'Claude'
+        : speaker === 'gemini'
+          ? 'Gemini'
+          : speaker === 'user'
+            ? 'you'
+            : null;
+  const speakerPossessive =
+    speakerLabel === 'you'
+      ? 'your'
+      : speakerLabel
+        ? `${speakerLabel}’s`
+        : null;
+
+  const rawFilename =
+    typeof args.filename === 'string' ? args.filename.trim() : '';
+  const filename = rawFilename
+    ? rawFilename.split(/[\\/]/).pop()?.slice(0, 64) || rawFilename.slice(0, 64)
+    : '';
+
+  switch (toolName) {
+    case 'search_conversation_memory':
+      return {
+        activity: 'searching_conversation',
+        label: speakerPossessive
+          ? `Searching ${speakerPossessive} earlier messages…`
+          : 'Searching earlier messages…',
+      };
+
+    case 'find_conversation_event': {
+      const mode =
+        args.mode === 'speaker_boundary' ? 'speaker_boundary' : 'topic';
+      const occurrence = args.occurrence === 'last' ? 'last' : 'first';
+
+      if (mode === 'speaker_boundary' && speakerPossessive) {
+        return {
+          activity: 'checking_chronology',
+          label:
+            speakerLabel === 'you'
+              ? `Finding your ${occurrence === 'last' ? 'latest' : 'earliest'} message…`
+              : `Finding ${speakerPossessive} ${occurrence === 'last' ? 'latest' : 'earliest'} reply…`,
+        };
+      }
+
+      return {
+        activity: 'checking_chronology',
+        label:
+          occurrence === 'last'
+            ? 'Checking when this most recently came up…'
+            : 'Checking when this first came up…',
+      };
+    }
+
+    case 'navigate_conversation_evidence': {
+      const direction = args.direction === 'after' ? 'after' : 'before';
+      return {
+        activity: 'checking_chronology',
+        label: speakerPossessive
+          ? speakerLabel === 'you'
+            ? `Checking your ${direction === 'after' ? 'next' : 'previous'} message…`
+            : `Checking ${speakerPossessive} ${direction === 'after' ? 'next' : 'previous'} reply…`
+          : `Checking what came immediately ${direction}…`,
+      };
+    }
+
+    case 'expand_grounded_evidence':
+    case 'expand_conversation_evidence':
+      return {
+        activity: 'reading_context',
+        label: 'Reading more context…',
+      };
+
+    case 'get_recent_conversation':
+      return {
+        activity: 'reading_context',
+        label: speakerPossessive
+          ? speakerLabel === 'you'
+            ? 'Reviewing your recent messages…'
+            : `Reviewing ${speakerPossessive} recent replies…`
+          : 'Reviewing recent conversation…',
+      };
+
+    case 'search_document_evidence':
+      return {
+        activity: 'searching_documents',
+        label: filename
+          ? `Searching ${filename}…`
+          : 'Searching earlier documents…',
+      };
+
+    case 'request_evidence': {
+      const resourceType =
+        args.resource_type === 'image'
+          ? 'image'
+          : args.resource_type === 'document'
+            ? 'document'
+            : 'source';
+      return {
+        activity: 'locating_evidence',
+        label: filename
+          ? `Locating ${filename}…`
+          : `Locating the referenced ${resourceType}…`,
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
 const AGENTIC_EVIDENCE_HANDOFF_LIMIT = 12;
 
 function serializeAgenticEvidenceHandoff(
@@ -7030,6 +7154,17 @@ export async function POST(req: NextRequest) {
                 }> = [];
 
                 for (const toolCall of memoryCandidateCalls) {
+                  const liveActivity = buildAgenticSeatActivity(
+                    toolCall.name,
+                    toolCall.arguments
+                  );
+                  if (liveActivity) {
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      ...liveActivity,
+                    });
+                  }
+
                   if (
                     AGENTIC_DOCUMENT_TOOL_NAMES.has(
                       toolCall.name as any
@@ -7250,6 +7385,12 @@ export async function POST(req: NextRequest) {
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
                 ];
+
+                sendEvent('seat_activity', {
+                  seatId: seat.seatId,
+                  activity: 'reviewing_evidence',
+                  label: 'Reviewing what it found…',
+                });
 
                 const memoryContinuationStream =
                   await (openai.chat.completions.create as any)({
@@ -9249,6 +9390,12 @@ export async function POST(req: NextRequest) {
                     !isSourcePreservingDocumentState(revisionParentState);
                   const evidenceContinuationChunks: string[] = [];
 
+                  sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'reviewing_evidence',
+                    label: 'Reviewing the retrieved evidence…',
+                  });
+
                   const evidenceStream = await (openai.chat.completions.create as any)({
                     model: primaryModel,
                     models,
@@ -9496,6 +9643,17 @@ export async function POST(req: NextRequest) {
                       [];
 
                     for (const toolCall of retrievalCalls) {
+                      const liveActivity = buildAgenticSeatActivity(
+                        toolCall.name,
+                        toolCall.arguments
+                      );
+                      if (liveActivity) {
+                        sendEvent('seat_activity', {
+                          seatId: seat.seatId,
+                          ...liveActivity,
+                        });
+                      }
+
                       if (
                         AGENTIC_DOCUMENT_TOOL_NAMES.has(
                           toolCall.name as any
@@ -10069,6 +10227,12 @@ export async function POST(req: NextRequest) {
                       buildAgenticRetrievalBudgetInstruction(
                         agenticRetrievalRounds
                       );
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity: 'reviewing_evidence',
+                      label: 'Reviewing what it found…',
+                    });
+
                     const iterativeStream =
                       await (openai.chat.completions.create as any)(
                         {
