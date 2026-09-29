@@ -873,6 +873,19 @@ function isDocumentRevisionFollowUpQuery(
     /\b(?:smaller|larger|bigger|shorter|longer|lighter|darker|narrower|wider|higher|lower|more\s+compact|less\s+compact)\b/i;
   const webOrCodeSurface = hasWebOrCodeSurfaceCue(prompt);
 
+  // With an active document immediately in context, users often request a
+  // format conversion as a noun phrase rather than a full imperative:
+  // "Word version please", "PDF copy", "same DOCX version". Treat this
+  // as a document continuation only when the document context is already
+  // established, so ordinary questions mentioning Word/PDF do not authorize
+  // a durable side effect.
+  const contextualFormatShorthand =
+    hasImmediateDocumentContext &&
+    !webOrCodeSurface &&
+    /^(?:(?:ok(?:ay)?|good|great|nice|perfect|cool|thanks?|thank\s+you|now|then|also|and)[,!.\s-]*)*(?:(?:a|the|same)\s+)?(?:pdf|docx|word(?:\s+document)?)(?:\s+(?:version|copy|file|format|one))?(?:\s+please)?$/i.test(
+      prompt
+    );
+
   const explicitDocumentMutation =
     revisionVerb.test(prompt) && strongDocumentCue.test(prompt);
 
@@ -889,6 +902,7 @@ function isDocumentRevisionFollowUpQuery(
     );
 
   if (
+    contextualFormatShorthand ||
     explicitDocumentMutation ||
     explicitMakeMutation ||
     generatedAssetInsertionIntoNamedDocument
