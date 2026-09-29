@@ -142,7 +142,24 @@ export const maxDuration = 300;
 // codebase, but they are not executed or consulted for conversation-memory
 // decisions on preview/agentic-memory.
 const AGENTIC_MEMORY_EXPERIMENT = true;
-const MAX_AGENTIC_RETRIEVAL_ROUNDS = 4;
+const AGENTIC_SOFT_RETRIEVAL_ROUNDS = 4;
+const AGENTIC_HARD_RETRIEVAL_ROUNDS = 6;
+
+function buildAgenticRetrievalBudgetInstruction(
+  retrievalRounds: number
+): string | null {
+  if (retrievalRounds >= AGENTIC_HARD_RETRIEVAL_ROUNDS) {
+    return `AGENTIC RETRIEVAL CEILING REACHED:
+You have used the maximum grounded-evidence retrieval budget for this seat. Do not request more conversation, chronology, document, artifact, visual, or web evidence. Complete the user's request from the evidence already available. If a material fact remains unresolved, say exactly what remains uncertain rather than guessing. Reaching this ceiling is not an error and must not prevent you from giving the best possible final response. If the user explicitly requested an authorized creation/edit action and the grounded evidence is sufficient, perform that action exactly once.`;
+  }
+
+  if (retrievalRounds >= AGENTIC_SOFT_RETRIEVAL_ROUNDS) {
+    return `AGENTIC RETRIEVAL SOFT BUDGET:
+You have already made ${retrievalRounds} grounded-evidence retrieval rounds. If the available evidence is sufficient, finish now. Make another retrieval only when it can materially resolve a specific remaining uncertainty. The hard ceiling is ${AGENTIC_HARD_RETRIEVAL_ROUNDS} rounds.`;
+  }
+
+  return null;
+}
 
 export const GEMINI_IMAGE_TOOLS = [
   {
@@ -6715,12 +6732,12 @@ export async function POST(req: NextRequest) {
 
                 if (
                   agenticRetrievalRounds >=
-                  MAX_AGENTIC_RETRIEVAL_ROUNDS
+                  AGENTIC_HARD_RETRIEVAL_ROUNDS
                 ) {
                   console.warn('[Agentic Retrieval] Bound reached', {
                     discussionId,
                     seatId: seat.seatId,
-                    maxRounds: MAX_AGENTIC_RETRIEVAL_ROUNDS,
+                    maxRounds: AGENTIC_HARD_RETRIEVAL_ROUNDS,
                     pendingTools: memoryCandidateCalls.map(
                       (call) => call.name
                     ),
@@ -6891,7 +6908,19 @@ export async function POST(req: NextRequest) {
                 // The current seat receives the newly grounded evidence as
                 // tool results. Later configured seats receive the compact
                 // shared ledger through buildPanelMessages.
-                seatMessages = memoryContinuationMessages;
+                const retrievalBudgetInstruction =
+                  buildAgenticRetrievalBudgetInstruction(
+                    agenticRetrievalRounds
+                  );
+                seatMessages = retrievalBudgetInstruction
+                  ? [
+                      ...memoryContinuationMessages,
+                      {
+                        role: 'system',
+                        content: retrievalBudgetInstruction,
+                      } as any,
+                    ]
+                  : memoryContinuationMessages;
 
                 seatResponse = '';
                 seatUsage = null;
@@ -6903,15 +6932,19 @@ export async function POST(req: NextRequest) {
                 const continuationStartedAt = Date.now();
                 const retrievalToolsStillAvailable =
                   agenticRetrievalRounds <
-                  MAX_AGENTIC_RETRIEVAL_ROUNDS;
+                  AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
-                  {
-                    type: 'openrouter:web_search',
-                    parameters: {
-                      max_results: 3,
-                      max_total_results: 6,
-                    },
-                  },
+                  ...(retrievalToolsStillAvailable
+                    ? [
+                        {
+                          type: 'openrouter:web_search',
+                          parameters: {
+                            max_results: 3,
+                            max_total_results: 6,
+                          },
+                        },
+                      ]
+                    : []),
                   ...(isImageGenerationEnabledForSeat
                     ? GEMINI_IMAGE_TOOLS
                     : []),
@@ -8890,17 +8923,17 @@ export async function POST(req: NextRequest) {
                             ? GPT_FILE_TOOLS
                             : []),
                       ...(agenticRetrievalRounds <
-                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isEvidenceEnabledForSeat
                         ? REQUEST_EVIDENCE_TOOL
                         : []),
                       ...(agenticRetrievalRounds <
-                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isAgenticMemoryEnabledForSeat
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
                       ...(agenticRetrievalRounds <
-                        MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isAgenticDocumentEvidenceEnabledForSeat
                         ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                         : []),
@@ -8994,7 +9027,7 @@ export async function POST(req: NextRequest) {
 
                     if (
                       agenticRetrievalRounds >=
-                      MAX_AGENTIC_RETRIEVAL_ROUNDS
+                      AGENTIC_HARD_RETRIEVAL_ROUNDS
                     ) {
                       console.warn(
                         '[Agentic Retrieval] Bound reached after artifact inspection',
@@ -9002,7 +9035,7 @@ export async function POST(req: NextRequest) {
                           discussionId,
                           seatId: seat.seatId,
                           maxRounds:
-                            MAX_AGENTIC_RETRIEVAL_ROUNDS,
+                            AGENTIC_HARD_RETRIEVAL_ROUNDS,
                           pendingTools: retrievalCalls.map(
                             (call) => call.name
                           ),
@@ -9639,17 +9672,17 @@ export async function POST(req: NextRequest) {
                                   ? GPT_FILE_TOOLS
                                   : []),
                             ...(agenticRetrievalRounds <
-                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                              AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isEvidenceEnabledForSeat
                               ? REQUEST_EVIDENCE_TOOL
                               : []),
                             ...(agenticRetrievalRounds <
-                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                              AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticMemoryEnabledForSeat
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                               : []),
                             ...(agenticRetrievalRounds <
-                              MAX_AGENTIC_RETRIEVAL_ROUNDS &&
+                              AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticDocumentEvidenceEnabledForSeat
                               ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                               : []),
