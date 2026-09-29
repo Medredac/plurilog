@@ -170,8 +170,8 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
           onClick={handleLogoClick}
           className="flex items-center gap-2 group cursor-pointer shrink-0"
         >
-          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
-          <span className="font-semibold text-sm tracking-tight text-zinc-900">
+          <img src="/logo.svg" alt="Plurilog" className="w-[22px] h-[22px] rounded-md object-contain" />
+          <span className="font-medium text-sm tracking-tight text-zinc-900">
             Plurilog
           </span>
         </Link>
