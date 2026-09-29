@@ -6734,7 +6734,7 @@ export async function POST(req: NextRequest) {
                   agenticRetrievalRounds >=
                   AGENTIC_HARD_RETRIEVAL_ROUNDS
                 ) {
-                  console.warn('[Agentic Retrieval] Bound reached', {
+                  console.warn('[Agentic Retrieval] Hard ceiling reached; forcing graceful finalization', {
                     discussionId,
                     seatId: seat.seatId,
                     maxRounds: AGENTIC_HARD_RETRIEVAL_ROUNDS,
@@ -6742,9 +6742,57 @@ export async function POST(req: NextRequest) {
                       (call) => call.name
                     ),
                   });
+
                   accumulatedToolCalls = [];
                   seatResponse = '';
                   bufferedSeatChunks.length = 0;
+                  seatUsage = null;
+
+                  const gracefulFinalizationStream =
+                    await (openai.chat.completions.create as any)({
+                      model: primaryModel,
+                      models,
+                      messages: [
+                        ...seatMessages,
+                        {
+                          role: 'system',
+                          content:
+                            buildAgenticRetrievalBudgetInstruction(
+                              AGENTIC_HARD_RETRIEVAL_ROUNDS
+                            ),
+                        } as any,
+                      ],
+                      stream: true,
+                      temperature: 0.7,
+                      signal: seatAbortController.signal,
+                      ...(discussionId
+                        ? {
+                            session_id: `${discussionId}:${seat.seatId}:memory:finalize`,
+                          }
+                        : {}),
+                    });
+
+                  for await (const chunk of gracefulFinalizationStream) {
+                    if (req.signal.aborted) break;
+                    if (chunk.model) respondingModel = chunk.model;
+                    if ((chunk as any).usage) {
+                      seatUsage = (chunk as any).usage;
+                    }
+                    const text =
+                      chunk.choices?.[0]?.delta?.content || '';
+                    if (text) {
+                      seatResponse += text;
+                      bufferedSeatChunks.push(text);
+                    }
+                  }
+
+                  console.log('[Agentic Retrieval] Graceful finalization completed', {
+                    discussionId,
+                    seatId: seat.seatId,
+                    retrievalRounds: agenticRetrievalRounds,
+                    finalModel: respondingModel,
+                    finalTextChars: seatResponse.length,
+                  });
                   break;
                 }
 
@@ -9030,7 +9078,7 @@ export async function POST(req: NextRequest) {
                       AGENTIC_HARD_RETRIEVAL_ROUNDS
                     ) {
                       console.warn(
-                        '[Agentic Retrieval] Bound reached after artifact inspection',
+                        '[Agentic Retrieval] Hard ceiling reached after artifact inspection; forcing graceful finalization',
                         {
                           discussionId,
                           seatId: seat.seatId,
@@ -9041,8 +9089,62 @@ export async function POST(req: NextRequest) {
                           ),
                         }
                       );
+
                       evidenceContinuationCalls = [];
                       accumulatedToolCalls = [];
+                      seatResponse = '';
+                      evidenceContinuationChunks.length = 0;
+                      seatUsage = null;
+
+                      const evidenceFinalizationStream =
+                        await (openai.chat.completions.create as any)({
+                          model: primaryModel,
+                          models,
+                          messages: [
+                            ...evidenceBaseMessages,
+                            ...evidenceToolTranscript,
+                            {
+                              role: 'system',
+                              content:
+                                buildAgenticRetrievalBudgetInstruction(
+                                  AGENTIC_HARD_RETRIEVAL_ROUNDS
+                                ),
+                            } as any,
+                          ],
+                          stream: true,
+                          temperature: 0.7,
+                          signal: seatAbortController.signal,
+                          ...(discussionId
+                            ? {
+                                session_id: `${discussionId}:${seat.seatId}:evidence:finalize`,
+                              }
+                            : {}),
+                        });
+
+                      for await (const chunk of evidenceFinalizationStream) {
+                        if (req.signal.aborted) break;
+                        if (chunk.model) respondingModel = chunk.model;
+                        if ((chunk as any).usage) {
+                          seatUsage = (chunk as any).usage;
+                        }
+                        const text =
+                          chunk.choices?.[0]?.delta?.content || '';
+                        if (text) {
+                          seatResponse += text;
+                          evidenceContinuationChunks.push(text);
+                        }
+                      }
+
+                      console.log(
+                        '[Agentic Retrieval] Evidence graceful finalization completed',
+                        {
+                          discussionId,
+                          seatId: seat.seatId,
+                          retrievalRounds: agenticRetrievalRounds,
+                          finalModel: respondingModel,
+                          finalTextChars: seatResponse.length,
+                        }
+                      );
                       break;
                     }
 
@@ -9642,6 +9744,10 @@ export async function POST(req: NextRequest) {
                     seenCitationUrls.clear();
 
                     const iterativeStartedAt = Date.now();
+                    const iterativeBudgetInstruction =
+                      buildAgenticRetrievalBudgetInstruction(
+                        agenticRetrievalRounds
+                      );
                     const iterativeStream =
                       await (openai.chat.completions.create as any)(
                         {
@@ -9650,20 +9756,34 @@ export async function POST(req: NextRequest) {
                           messages: [
                             ...evidenceBaseMessages,
                             ...evidenceToolTranscript,
+                            ...(iterativeBudgetInstruction
+                              ? [
+                                  {
+                                    role: 'system',
+                                    content:
+                                      iterativeBudgetInstruction,
+                                  } as any,
+                                ]
+                              : []),
                           ],
                           stream: true,
                           temperature: 0.7,
                           signal:
                             seatAbortController.signal,
                           tools: [
-                            {
-                              type:
-                                'openrouter:web_search',
-                              parameters: {
-                                max_results: 3,
-                                max_total_results: 6,
-                              },
-                            },
+                            ...(agenticRetrievalRounds <
+                            AGENTIC_HARD_RETRIEVAL_ROUNDS
+                              ? [
+                                  {
+                                    type:
+                                      'openrouter:web_search',
+                                    parameters: {
+                                      max_results: 3,
+                                      max_total_results: 6,
+                                    },
+                                  },
+                                ]
+                              : []),
                             ...(evidenceContinuationCanSourceEdit
                               ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
                               : evidenceContinuationCanReviseFile
