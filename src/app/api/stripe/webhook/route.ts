@@ -2,8 +2,54 @@ import { NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { createServiceClient } from '@/utils/supabase/service';
 import Stripe from 'stripe';
+import { isMetaSignupSource, sendMetaConversionEvent } from '@/lib/metaConversions';
 
 const PLUS_MONTHLY_ALLOWANCE_CENTS = 900;
+
+async function reportInitialMetaPurchase({
+  userId,
+  email,
+  signupSource,
+  subscriptionId,
+  fbp,
+  fbc,
+  amountCents,
+  currency,
+  eventTime,
+}: {
+  userId: string;
+  email?: string | null;
+  signupSource?: string | null;
+  subscriptionId: string;
+  fbp?: string | null;
+  fbc?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  eventTime: number;
+}) {
+  if (!isMetaSignupSource(signupSource)) return;
+  if (typeof amountCents !== 'number' || amountCents <= 0 || !currency) return;
+
+  const result = await sendMetaConversionEvent({
+    eventName: 'Purchase',
+    eventId: `plurilog:${userId}:purchase:${subscriptionId}`,
+    email,
+    externalId: userId,
+    fbp,
+    fbc,
+    eventTime,
+    customData: {
+      currency: currency.toUpperCase(),
+      value: amountCents / 100,
+    },
+  });
+
+  if (!result.sent) {
+    console.warn(
+      `[Meta CAPI] Purchase not sent for subscription ${subscriptionId}: ${result.reason || 'unknown'}`
+    );
+  }
+}
 
 export async function POST(request: Request) {
   const body = await request.text(); // MUST be raw text, not .json() — signature verification requires the exact original bytes
@@ -35,13 +81,29 @@ export async function POST(request: Request) {
         // Fetch profile BEFORE provisioning to check replay
         const { data: profile, error: profileFetchError } = await supabase
           .from('profiles')
-          .select('id, plan, plan_status, stripe_subscription_id, current_period_end, period_reset_at')
+          .select('id, plan, plan_status, stripe_subscription_id, current_period_end, period_reset_at, email, signup_source')
           .eq('id', userId)
           .single();
 
         if (profileFetchError || !profile) {
           console.error(`[Stripe Webhook] Profile fetch failed for checkout.session.completed:`, profileFetchError);
           return NextResponse.json({ error: 'Failed to load profile for checkout provisioning' }, { status: 500 });
+        }
+
+        // Report the verified initial paid checkout to Meta. This is best-effort only:
+        // advertising telemetry must never block subscription provisioning.
+        if (session.payment_status === 'paid') {
+          await reportInitialMetaPurchase({
+            userId,
+            email: profile.email,
+            signupSource: profile.signup_source,
+            subscriptionId,
+            fbp: session.metadata?.plurilog_fbp || null,
+            fbc: session.metadata?.plurilog_fbc || null,
+            amountCents: session.amount_total,
+            currency: session.currency,
+            eventTime: event.created,
+          });
         }
 
         // Replay guard: same subscription ID must NEVER initialize credits twice, regardless of current plan.
@@ -102,14 +164,14 @@ export async function POST(request: Request) {
         // Fetch matching profile by subscriptionId, falling back to customerId
         let { data: profile, error: profileError } = await supabase
           .from('profiles')
-          .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at')
+          .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at, email, signup_source')
           .eq('stripe_subscription_id', subscriptionId)
           .maybeSingle();
 
         if (!profile && customerId) {
           const fallback = await supabase
             .from('profiles')
-            .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at')
+            .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at, email, signup_source')
             .eq('stripe_customer_id', customerId)
             .maybeSingle();
           profile = fallback.data;
@@ -124,6 +186,28 @@ export async function POST(request: Request) {
         if (!profile) {
           console.error(`[Stripe Webhook] No matching profile found for invoice.paid, subscriptionId: ${subscriptionId}`);
           return NextResponse.json({ error: 'Profile not found, retry later' }, { status: 500 });
+        }
+
+        // A paid first invoice is a second safe opportunity to report the initial
+        // subscription purchase. The stable event_id lets Meta deduplicate it if
+        // checkout.session.completed already reported the same conversion.
+        if ((invoice as any).billing_reason === 'subscription_create') {
+          try {
+            const initialSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+            await reportInitialMetaPurchase({
+              userId: profile.id,
+              email: profile.email,
+              signupSource: profile.signup_source,
+              subscriptionId,
+              fbp: initialSubscription.metadata?.plurilog_fbp || null,
+              fbc: initialSubscription.metadata?.plurilog_fbc || null,
+              amountCents: invoice.amount_paid,
+              currency: invoice.currency,
+              eventTime: event.created,
+            });
+          } catch (metaPurchaseErr) {
+            console.warn('[Meta CAPI] Initial invoice purchase reporting failed:', metaPurchaseErr);
+          }
         }
 
         // Subscription identity check
