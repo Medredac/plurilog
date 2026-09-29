@@ -7333,7 +7333,11 @@ export async function POST(req: NextRequest) {
 
                 let documentCalls = rawCreateFileCalls;
 
-                if (hasOnlyCreateFileCalls && rawCreateFileCalls.length > 1) {
+                if (
+                  !AGENTIC_MEMORY_EXPERIMENT &&
+                  hasOnlyCreateFileCalls &&
+                  rawCreateFileCalls.length > 1
+                ) {
                   const explicitlyRequestsMultipleDocuments =
                     /\b(?:both|multiple\s+(?:files|documents)|two\s+(?:files|documents)|separate\s+(?:files|documents)|(?:pdf\s*(?:and|&)\s*(?:word|docx))|(?:(?:word|docx)\s*(?:and|&)\s*pdf)|versions?)\b/i.test(
                       prompt || ''
@@ -8139,8 +8143,11 @@ export async function POST(req: NextRequest) {
                   const controllerDocumentReferenceRole =
                     jevEffectiveConstraints?.documentReferenceRole || null;
                   const userRequestedUserUploadedDocument =
-                    controllerDocumentReferenceRole === 'user_uploaded' ||
-                    promptReferencesUserUploadedDocument(prompt || '');
+                    !AGENTIC_MEMORY_EXPERIMENT &&
+                    (
+                      controllerDocumentReferenceRole === 'user_uploaded' ||
+                      promptReferencesUserUploadedDocument(prompt || '')
+                    );
 
                   let explicitlySelectedUserUploadedDocument:
                     | UserUploadedDocumentReference
@@ -8331,12 +8338,18 @@ export async function POST(req: NextRequest) {
                         ? toolArgs.filename.trim()
                         : undefined;
 
+                    const evidenceReferenceText =
+                      AGENTIC_MEMORY_EXPERIMENT
+                        ? [toolNeed, toolFilename || '']
+                            .filter(Boolean)
+                            .join(' ')
+                        : prompt || '';
                     const userExplicitlyRequestsHistoricalDocument =
                       /\b(?:previous|prior|earlier|older|old|first|original|historical)\s+(?:generated\s+)?(?:pdf|document|file|version|draft|rirekisho|履歴書)\b/i.test(
-                        prompt || ''
+                        evidenceReferenceText
                       ) ||
                       /\b(?:first|previous|prior|earlier|older|original)\s+(?:pdf|document|file)\s+(?:i\s+)?uploaded\b/i.test(
-                        prompt || ''
+                        evidenceReferenceText
                       );
 
                     const sameRoundGeneratedStoragePath =
@@ -10259,6 +10272,7 @@ export async function POST(req: NextRequest) {
                         ? evidenceReviseFileCalls
                         : evidenceCreateFileCalls;
                     if (
+                      !AGENTIC_MEMORY_EXPERIMENT &&
                       evidenceDocumentCalls.length > 1 &&
                       !hasOnlyEvidenceReviseFileCalls
                     ) {
