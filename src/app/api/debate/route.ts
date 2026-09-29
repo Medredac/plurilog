@@ -2359,7 +2359,12 @@ Respond as a normal panel reviewer/contributor. Do not repeat the user's creatio
       .join('\n\n');
 
     if (rawRoundsFormatted) {
-      sections.push(`Prior conversation rounds:\n${rawRoundsFormatted}`);
+      sections.push(
+        `AUTOMATICALLY SUPPLIED RECENT CONVERSATION CONTEXT
+This block is stored discussion history injected by Plurilog rather than text supplied in the current user message.
+
+${rawRoundsFormatted}`
+      );
     }
   }
 
