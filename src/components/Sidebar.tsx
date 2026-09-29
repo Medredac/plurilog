@@ -360,11 +360,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         <div className="flex flex-col h-full w-72">
-          {/* Top Brand Header: Logo, Bold Title (700) in dark grey (zinc-800), and Sidebar Toggle */}
+          {/* Top Brand Header: compact logo, medium-weight title, and Sidebar Toggle */}
             <div className="h-14 px-4.5 border-b border-zinc-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <img src="/logo.svg" alt="Plurilog" className="w-6 h-6 rounded-md object-contain" />
-                <span className="font-semibold text-sm tracking-tight text-zinc-900">
+                <img src="/logo.svg" alt="Plurilog" className="w-[22px] h-[22px] rounded-md object-contain" />
+                <span className="font-medium text-sm tracking-tight text-zinc-900">
                   Plurilog
                 </span>
               </div>
