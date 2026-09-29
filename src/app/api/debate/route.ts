@@ -8285,7 +8285,7 @@ export async function POST(req: NextRequest) {
                               ? ev.sources
                                   .map(
                                     (source) =>
-                                      source.id ||
+                                      source.sourceId ||
                                       source.storagePath ||
                                       source.filename ||
                                       ''
