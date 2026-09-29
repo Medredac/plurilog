@@ -2215,6 +2215,7 @@ If you choose to provide standalone vector artwork (for example a logo, icon, lo
   }
 
   if (
+    !AGENTIC_MEMORY_EXPERIMENT &&
     currentModelName === 'ChatGPT' &&
     isDocumentRevisionFollowUpQuery(prompt, {
       hasImmediateDocumentContext: Boolean(currentTurnDocuments?.length),
@@ -4798,7 +4799,8 @@ export async function POST(req: NextRequest) {
           const docxEmbeddedImageAttachments: RouteAttachment[] = [];
           const docxRenderedPageAttachments: RouteAttachment[] = [];
           const pdfEmbeddedImageAttachments: RouteAttachment[] = [];
-          const wantsCurrentDocxVisualInspection = isVisualEvidenceQuery(prompt);
+          const wantsCurrentDocxVisualInspection =
+            !AGENTIC_MEMORY_EXPERIMENT && isVisualEvidenceQuery(prompt);
 
           // Extract real raster images embedded in current PDF uploads before the
           // panel runs. This lets GPT reuse an exact CV headshot/logo/etc. inside a
@@ -6355,7 +6357,11 @@ export async function POST(req: NextRequest) {
             // When visual reinspection is active, every model seat must independently receive the visual PDF
             // with engine: 'native' rather than using text-only OCR annotation reuse.
             const isVisualInspectionActive =
-              hasPdf && (Boolean(visualAttachments && visualAttachments.length > 0) || isVisualQuery);
+              hasPdf &&
+              (
+                Boolean(visualAttachments && visualAttachments.length > 0) ||
+                (!AGENTIC_MEMORY_EXPERIMENT && isVisualQuery)
+              );
 
             // Only reuse text annotations when not in visual inspection mode AND annotations captured for ALL PDFs
             const hasAllPdfAnnotations =
@@ -11326,6 +11332,7 @@ export async function POST(req: NextRequest) {
                       prompt
                     ) || /\bimage\s+\d+\b/i.test(prompt);
                   const userClearlyDisambiguatedVisibleImage =
+                    AGENTIC_MEMORY_EXPERIMENT ||
                     promptNamesCurrentImage ||
                     promptUsesOrdinalImageSelector ||
                     isSemanticVisualQuery(prompt);
