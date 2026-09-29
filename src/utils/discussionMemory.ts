@@ -2109,7 +2109,8 @@ export async function getScopedDiscussionMemory(
   discussionId: string,
   currentPrompt: string,
   openai: OpenAI,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  options?: { agenticMode?: boolean }
 ): Promise<DiscussionMemoryResult> {
   if (!supabase || !discussionId) {
     return { recentRounds: [] };
@@ -2302,11 +2303,16 @@ export async function getScopedDiscussionMemory(
       parsedSummary.structured?._meta.summarized_rounds_count;
 
     const shouldRegenerateSummary =
+      !options?.agenticMode &&
       currentOlderCount > 0 &&
       (!rawStoredSummary ||
         (typeof summarizedRoundsCount === 'number'
           ? currentOlderCount - summarizedRoundsCount >= 5
           : Math.floor(currentOlderCount / 5) > Math.floor(previousOlderCount / 5)));
+
+    if (options?.agenticMode) {
+      console.log('[Agentic Memory] Skipping legacy rolling-summary generation');
+    }
 
     if (shouldRegenerateSummary) {
       const newStructured = await generateStructuredMemory(
@@ -2338,38 +2344,46 @@ export async function getScopedDiscussionMemory(
       }
     }
 
-    // Natural-language planner is the primary chronology-intent layer.
-    // It understands paraphrases and elliptical follow-ups, then delegates the
-    // factual answer to deterministic ordered-history execution. The legacy
-    // parser remains only as a fail-safe if the planner is unavailable.
-    const historyPlan = await planConversationHistoryLookup(
-      currentPrompt,
-      allRounds,
-      openai
-    );
+    // On the agentic preview, history intent and chronology are discovered by
+    // the active configured seat through bounded tools. Keep the legacy planner
+    // and deterministic pre-seat chronology intact for non-agentic branches.
+    let historyLookupIntent = false;
+    let chronologicalMemory: ChronologicalMemoryResult | null = null;
 
-    const historyLookupIntent = Boolean(
-      historyPlan?.is_history_lookup && historyPlan.confidence >= 0.55
-    );
-
-    let chronologicalMemory = historyPlan
-      ? await executeConversationHistoryPlan(historyPlan, allRounds, {
-          supabase,
-          openai,
-          discussionId,
-        })
-      : null;
-
-    if (!chronologicalMemory) {
-      chronologicalMemory = await resolveDeterministicChronology(
+    if (options?.agenticMode) {
+      console.log(
+        '[Agentic Memory] Skipping legacy history planner and pre-seat chronology'
+      );
+    } else {
+      const historyPlan = await planConversationHistoryLookup(
         currentPrompt,
         allRounds,
-        {
-          supabase,
-          openai,
-          discussionId,
-        }
+        openai
       );
+
+      historyLookupIntent = Boolean(
+        historyPlan?.is_history_lookup && historyPlan.confidence >= 0.55
+      );
+
+      chronologicalMemory = historyPlan
+        ? await executeConversationHistoryPlan(historyPlan, allRounds, {
+            supabase,
+            openai,
+            discussionId,
+          })
+        : null;
+
+      if (!chronologicalMemory) {
+        chronologicalMemory = await resolveDeterministicChronology(
+          currentPrompt,
+          allRounds,
+          {
+            supabase,
+            openai,
+            discussionId,
+          }
+        );
+      }
     }
 
     if (
@@ -2401,9 +2415,11 @@ export async function getScopedDiscussionMemory(
       );
     }
 
-    const formattedSummary = parsedSummary.structured
-      ? formatStructuredMemoryForContext(parsedSummary.structured)
-      : (parsedSummary.legacyProse || undefined);
+    const formattedSummary = options?.agenticMode
+      ? undefined
+      : parsedSummary.structured
+        ? formatStructuredMemoryForContext(parsedSummary.structured)
+        : (parsedSummary.legacyProse || undefined);
 
     return {
       summary: formattedSummary || undefined,
