@@ -40,13 +40,20 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
     function: {
       name: 'find_conversation_event',
       description:
-        'Find the first or last historical occurrence of a topic/event in the discussion, using semantic retrieval followed by deterministic chronological selection. Use this for requests such as "the first time we discussed X" or "the last time Y came up".',
+        'Find a first/last historical conversation occurrence. Use mode="topic" when chronology depends on a topic/event (for example, "the first time we discussed imperialism"); this uses semantic retrieval followed by deterministic chronological selection. Use mode="speaker_boundary" when the user asks for the absolute first or last contribution by one speaker in the discussion (for example, "the first thing Claude said"); this scans the full ordered discussion directly with no semantic prefilter.',
       parameters: {
         type: 'object',
         properties: {
+          mode: {
+            type: 'string',
+            enum: ['topic', 'speaker_boundary'],
+            description:
+              'Use topic for first/last occurrences of a subject or event. Use speaker_boundary for the absolute first/last contribution by a named speaker regardless of topic.',
+          },
           query: {
             type: 'string',
-            description: 'Focused description of the event or topic whose chronological occurrence must be resolved.',
+            description:
+              'Required only for mode="topic": focused description of the event or topic whose chronological occurrence must be resolved. Omit for speaker_boundary.',
           },
           occurrence: {
             type: 'string',
@@ -55,9 +62,11 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
           speaker: {
             type: 'string',
             enum: ['any', 'user', 'chatgpt', 'claude', 'gemini'],
+            description:
+              'Required for speaker_boundary. Optional constraint for topic mode.',
           },
         },
-        required: ['query', 'occurrence'],
+        required: ['mode', 'occurrence'],
         additionalProperties: false,
       },
     },
@@ -624,6 +633,8 @@ export async function resolveAgenticConversationTool(options: {
   }
 
   if (toolName === 'find_conversation_event') {
+    const mode =
+      toolArgs.mode === 'speaker_boundary' ? 'speaker_boundary' : 'topic';
     const query =
       typeof toolArgs.query === 'string' ? toolArgs.query.trim().slice(0, 4000) : '';
     const occurrence =
@@ -632,10 +643,115 @@ export async function resolveAgenticConversationTool(options: {
         : null;
     const speaker = normalizeSpeaker(toolArgs.speaker);
 
-    if (!query || !occurrence) {
+    if (!occurrence) {
       return {
         toolName,
-        result: { ok: false, error: 'query_and_occurrence_required' },
+        result: { ok: false, error: 'occurrence_required' },
+        addedEntries,
+        reusedEvidenceIds,
+        query: query || null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    if (mode === 'speaker_boundary') {
+      if (speaker === 'any') {
+        return {
+          toolName,
+          result: { ok: false, error: 'speaker_required_for_boundary' },
+          addedEntries,
+          reusedEvidenceIds,
+          query: null,
+          latencyMs: Date.now() - startedAt,
+        };
+      }
+
+      const indexes =
+        occurrence === 'first'
+          ? Array.from({ length: allRounds.length }, (_, index) => index)
+          : Array.from(
+              { length: allRounds.length },
+              (_, index) => allRounds.length - 1 - index
+            );
+
+      let selectedRoundIndex: number | null = null;
+      let selectedSourceText = '';
+      for (const roundIndex of indexes) {
+        const sourceText = speakerTextFromRound(allRounds[roundIndex], speaker);
+        if (!sourceText.trim()) continue;
+        selectedRoundIndex = roundIndex;
+        selectedSourceText = sourceText;
+        break;
+      }
+
+      if (selectedRoundIndex === null) {
+        return {
+          toolName,
+          result: {
+            ok: true,
+            mode,
+            occurrence,
+            speaker,
+            evidence: null,
+            note: 'No contribution from that speaker was found in the ordered discussion history.',
+          },
+          addedEntries,
+          reusedEvidenceIds,
+          query: null,
+          latencyMs: Date.now() - startedAt,
+        };
+      }
+
+      const selectedRound = allRounds[selectedRoundIndex];
+      const compactText = relevantWindow(
+        selectedSourceText,
+        '',
+        MAX_COMPACT_CHARS
+      );
+      const expandedText = relevantWindow(
+        selectedSourceText,
+        '',
+        MAX_EXPANDED_CHARS
+      );
+      const { entry, reused } = addOrReuseEntry({
+        ledger,
+        createEvidenceId,
+        kind: 'chronology',
+        sourceUserMessageId: selectedRound.userMessageId || null,
+        roundIndex: selectedRoundIndex,
+        speaker,
+        compactText,
+        expandedText,
+        query: null,
+        requestedBySeatId,
+        createdAt: null,
+      });
+
+      if (reused) reusedEvidenceIds.push(entry.evidenceId);
+      else addedEntries.push(entry);
+
+      return {
+        toolName,
+        result: {
+          ok: true,
+          mode,
+          occurrence,
+          speaker,
+          evidence: publicEntry(entry),
+          note:
+            'The absolute speaker boundary was selected deterministically from the full ordered discussion history with no semantic prefilter.',
+        },
+        addedEntries,
+        reusedEvidenceIds,
+        query: null,
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    if (!query) {
+      return {
+        toolName,
+        result: { ok: false, error: 'query_required_for_topic_chronology' },
         addedEntries,
         reusedEvidenceIds,
         query,
