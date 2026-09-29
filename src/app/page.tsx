@@ -378,36 +378,10 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.12,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="text-3xl sm:text-5xl font-bold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-3"
+              className="text-3xl sm:text-5xl font-semibold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-3"
             >
               Your AI Panel: ChatGPT, Claude and Gemini in One Conversation
             </motion.h1>
-
-            {/* Secondary Highlight Line */}
-            <motion.p
-              initial={{
-                opacity: shouldReduceMotion ? 1 : 0,
-                y: shouldReduceMotion ? 0 : 12,
-                filter: shouldReduceMotion ? 'blur(0px)' : 'blur(4px)',
-              }}
-              whileInView={{
-                opacity: 1,
-                y: 0,
-                filter: 'blur(0px)',
-              }}
-              viewport={{
-                once: false,
-                amount: 0.05,
-              }}
-              transition={{
-                duration: shouldReduceMotion ? 0.15 : 0.32,
-                delay: shouldReduceMotion ? 0 : 0.15,
-                ease: [0.21, 0.47, 0.32, 0.98],
-              }}
-              className="text-base sm:text-lg font-medium text-zinc-500 mb-4"
-            >
-              They respond to each other, too.
-            </motion.p>
 
             {/* Subheadline */}
             <motion.p
@@ -432,7 +406,7 @@ export default function LandingPage() {
               }}
               className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8"
             >
-              Ask once. Each model sees the same discussion, including what the others have said, so they can challenge ideas, add another perspective, or build on previous answers.
+              Ask once. Get three perspectives in one shared discussion.
             </motion.p>
 
             {/* Primary Action Button */}
@@ -500,7 +474,7 @@ export default function LandingPage() {
             }}
             className="w-full lg:w-[55%] order-first lg:order-last"
           >
-            <img src="/herodraw.svg" alt="" className="w-full h-auto" />
+            <img src="/plurilog-laptop-robots.svg" alt="" className="w-full h-auto" />
           </motion.div>
         </section>
 
@@ -517,7 +491,7 @@ export default function LandingPage() {
         {/* Section Header */}
         <section className="px-6 sm:px-12 pt-12 pb-8 max-w-6xl mx-auto w-full text-center">
           <motion.div {...scrollRevealProps(0.30)}>
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-snug mb-3">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 leading-snug mb-3">
               How many times have you had to fact-check an AI answer? <br />
               Or cross-check it with another AI to be sure?
             </h2>
@@ -543,7 +517,7 @@ export default function LandingPage() {
           {/* Left Column: Text */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
             <motion.div {...scrollRevealProps(0)}>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">
+              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 leading-tight mb-4">
                 You&apos;re in Full Control of Your AI Panel
               </h2>
               <div className="space-y-4 text-sm sm:text-base text-zinc-600 font-normal leading-relaxed">
@@ -634,7 +608,7 @@ export default function LandingPage() {
             <p className="text-xs sm:text-sm font-medium text-[#4880E6] mb-3">
               More than a multi-AI chat
             </p>
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 leading-tight">
+            <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 leading-tight">
               What Can You Do With Plurilog?
             </h2>
             <p className="mt-3 text-sm sm:text-base text-zinc-500 font-normal leading-relaxed">
@@ -775,7 +749,7 @@ export default function LandingPage() {
         >
           <div className="max-w-5xl mx-auto px-6 sm:px-12 py-16">
             <motion.div {...scrollRevealProps(0)}>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
+              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 text-center">
                 Simple pricing
               </h2>
               <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
@@ -918,7 +892,7 @@ export default function LandingPage() {
         >
           <div className="max-w-4xl mx-auto px-6 sm:px-12 py-16">
             <motion.div {...scrollRevealProps(0)}>
-              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 text-center">
+              <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 text-center">
                 Frequently Asked Questions
               </h2>
               <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
