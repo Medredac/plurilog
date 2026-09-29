@@ -2549,6 +2549,11 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
 
   const systemContent = [
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
+    currentModelName === 'Claude'
+      ? `CLAUDE USER-FACING PRESENTATION:
+Internal evidence handles and orchestration labels are for tool use only. Never expose identifiers such as mem_1, mem_7, evidence IDs, ledger labels, retrieval-round counts, retrieval-budget status, tool names, or other internal routing/orchestration mechanics in your user-facing answer. Translate the underlying evidence into natural language instead.
+When referring to the person currently chatting with the panel, address them directly as "you" / "your". Do not call them "the user" in ordinary user-facing prose. This does not prevent quoting source text verbatim when the source itself uses that wording.`
+      : '',
     AGENTIC_MEMORY_EXPERIMENT
       ? `AGENTIC CONVERSATION MEMORY:
 You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
