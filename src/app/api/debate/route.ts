@@ -645,7 +645,7 @@ export const REQUEST_EVIDENCE_TOOL = [
     function: {
       name: 'request_evidence',
       description:
-        'Request canonical visual evidence from earlier in this discussion when answering accurately requires the actual pixels or rendered document pages rather than text, OCR, filenames, memory, or another panelist\'s description. If the user asks about the visual appearance or contents of an earlier image, PDF, or Word document and that visual is not actually attached to your current call, call this tool BEFORE giving a substantive answer. Do not answer with a disclaimer such as "I cannot see it" or substitute generic advice when this tool is available. Use it for visual appearance, layout, colours, photographs, signatures, stamps, image comparison, or another visual detail that is not actually attached to your current call. Do not use it for ordinary document text or conversation history.',
+        'Request canonical visual evidence from earlier in this discussion when answering accurately requires the actual pixels or rendered document pages rather than text, OCR, filenames, memory, or another panelist\'s description. If the user asks about the visual appearance or contents of an earlier image, PDF, or Word document and that visual is not actually attached to your current call, call this tool BEFORE giving a substantive answer. After inspecting returned evidence, you may call this tool again with a refined or different need when the evidence is ambiguous, incorrect for the user\'s referent, incomplete, or reveals that another artifact/page/version is required. The backend resolves identity, lineage, version and provenance deterministically; never invent those facts yourself. Do not answer with a disclaimer such as "I cannot see it" or substitute generic advice when this tool is available. Do not use it for ordinary conversation history; use the conversation-memory tools for that.',
       parameters: {
         type: 'object',
         properties: {
@@ -2409,9 +2409,9 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
     AGENTIC_MEMORY_EXPERIMENT
       ? `AGENTIC CONVERSATION MEMORY:
-You have bounded tools for retrieving older conversation evidence. Use them autonomously when the user's request materially depends on a historical fact, wording, decision, event, speaker statement, or chronology detail that is not reliably present in the supplied baseline. Do not guess missing history and do not search merely because history exists.
-Start with compact retrieval. Expand only evidence that needs more context. For first/last occurrence questions, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. You may make another bounded retrieval if newly returned evidence reveals a genuine additional need.
-Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
+You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
+Start with compact retrieval. Expand only evidence that needs more context. For first/last conversation occurrences, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. Use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
+The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     pdfDesignReferences?.text || '',
