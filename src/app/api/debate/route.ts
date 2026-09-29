@@ -717,7 +717,7 @@ export const GPT_REVISE_FILE_TOOL = [
     function: {
       name: 'revise_file',
       description:
-        'Revise the canonical existing document state using JSON Patch. Use this instead of recreating the entire file when Plurilog provides a canonical document state for a revision follow-up. Patch only the properties the user asked to change; every unmentioned property is preserved by the server. For a narrow edit such as adding a photo, changing one heading, or adjusting spacing, do not replace the whole /blocks array. Use add/replace/remove operations at the smallest practical JSON-pointer path. The server will reject narrow revisions that silently delete unrelated existing content.',
+        'Revise the canonical existing document state using JSON Patch. Use this instead of recreating the entire file when Plurilog provides a canonical document state for a revision follow-up. Patch only the properties the user asked to change; every unmentioned property is preserved by the server. For a narrow edit such as adding a photo, changing one heading, or adjusting spacing, do not replace the whole /blocks array. Use add/replace/remove operations at the smallest practical JSON-pointer path. Prefer add when setting an optional property that may not already exist in the canonical state; replace is for an existing value. The runtime safely normalizes replace on a missing object leaf, but missing parent paths and array positions remain strict. The server will reject narrow revisions that silently delete unrelated existing content.',
       parameters: {
         type: 'object',
         properties: {
