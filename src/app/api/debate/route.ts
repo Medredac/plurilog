@@ -4404,10 +4404,13 @@ export async function POST(req: NextRequest) {
           );
 
           const shouldRunHistoricalRetrieval =
-            !jevControllerOwnsConversationMemory
-              ? !discussionMemory?.chronologicalMemory
-              : jevAllowsSemanticConversationMemory ||
-                jevAllowsDocumentSearch;
+            !AGENTIC_MEMORY_EXPERIMENT &&
+            (
+              !jevControllerOwnsConversationMemory
+                ? !discussionMemory?.chronologicalMemory
+                : jevAllowsSemanticConversationMemory ||
+                  jevAllowsDocumentSearch
+            );
 
           if (
             discussionId &&
