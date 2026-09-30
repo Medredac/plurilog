@@ -146,6 +146,7 @@ function MetaPixelTracker() {
   const lastTrackedPathRef = useRef<string | null>(null);
   const isInitializedRef = useRef(false);
   const hasHandledRegisteredRef = useRef(false);
+  const geoEligibleRef = useRef<boolean | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -153,73 +154,109 @@ function MetaPixelTracker() {
     const isPublic = isPublicMetaRoute(pathname);
 
     if (!isPublic) {
-      // If user navigates away from public routes, reset last tracked path
+      // Meta remains silent on authenticated/private application routes.
       lastTrackedPathRef.current = null;
       return;
     }
 
-    // Lazy initialize on first visit to an eligible public route
-    if (!isInitializedRef.current) {
-      initMetaPixel(META_PIXEL_ID);
-      isInitializedRef.current = true;
-    }
-
-    // Track PageView once per unique public pathname
-    if (pathname && lastTrackedPathRef.current !== pathname && typeof window.fbq === 'function') {
-      lastTrackedPathRef.current = pathname;
-      window.fbq('track', 'PageView');
-    }
-
-    // Process deterministic Google OAuth registration bridge
+    let cancelled = false;
     let postFireTimer: NodeJS.Timeout | null = null;
 
-    if (!hasHandledRegisteredRef.current) {
+    const finishRegistrationBridge = () => {
       try {
-        const searchParams = new URLSearchParams(window.location.search);
-        if (searchParams.get('registered') === 'true') {
-          hasHandledRegisteredRef.current = true;
-
-          const finishBridge = () => {
-            try {
-              const currentParams = new URLSearchParams(window.location.search);
-              currentParams.delete('registered');
-              const remainingQuery = currentParams.toString();
-              const cleanUrl = remainingQuery
-                ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
-                : `${window.location.pathname}${window.location.hash}`;
-              window.history.replaceState(window.history.state, '', cleanUrl);
-            } catch (err) {
-              console.error('[MetaPixel] Error cleaning registered parameter:', err);
-            }
-
-            // Signal landing page that registration bridge is complete
-            window.dispatchEvent(new CustomEvent(REGISTRATION_BRIDGE_EVENT));
-          };
-
-          waitForMetaPixelReady(
-            () => {
-              // Real library is loaded; fire event on public landing page
-              if (typeof window.fbq === 'function') {
-                window.fbq('track', 'CompleteRegistration');
-              }
-              // Short post-fire grace period allowing loaded library to dispatch beacon over network before full document unload
-              postFireTimer = setTimeout(() => {
-                finishBridge();
-              }, 250);
-            },
-            () => {
-              // Failed or timed out (e.g. ad blocker); release bridge without fabricating events
-              finishBridge();
-            },
-            1500
-          );
-        }
+        const currentParams = new URLSearchParams(window.location.search);
+        currentParams.delete('registered');
+        const remainingQuery = currentParams.toString();
+        const cleanUrl = remainingQuery
+          ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
+          : `${window.location.pathname}${window.location.hash}`;
+        window.history.replaceState(window.history.state, '', cleanUrl);
       } catch (err) {
-        console.error('[MetaPixel] Error handling registered parameter:', err);
+        console.error('[MetaPixel] Error cleaning registered parameter:', err);
       }
-    }
+
+      window.dispatchEvent(new CustomEvent(REGISTRATION_BRIDGE_EVENT));
+    };
+
+    const hasRegistrationBridge = () => {
+      try {
+        return new URLSearchParams(window.location.search).get('registered') === 'true';
+      } catch {
+        return false;
+      }
+    };
+
+    const releaseBridgeWithoutTracking = () => {
+      if (!hasHandledRegisteredRef.current && hasRegistrationBridge()) {
+        hasHandledRegisteredRef.current = true;
+        finishRegistrationBridge();
+      }
+    };
+
+    const run = async () => {
+      let eligible = geoEligibleRef.current;
+
+      if (eligible === null) {
+        try {
+          const response = await fetch('/api/meta/eligibility', {
+            method: 'GET',
+            cache: 'no-store',
+            credentials: 'same-origin',
+          });
+          eligible = response.ok
+            ? Boolean((await response.json())?.eligible)
+            : false;
+        } catch {
+          eligible = false;
+        }
+
+        geoEligibleRef.current = eligible;
+      }
+
+      if (cancelled) return;
+
+      if (!eligible) {
+        // Fail closed for advertising tracking, but never strand the OAuth
+        // registration bridge if geolocation is unavailable or ineligible.
+        releaseBridgeWithoutTracking();
+        return;
+      }
+
+      if (!isInitializedRef.current) {
+        initMetaPixel(META_PIXEL_ID);
+        isInitializedRef.current = true;
+      }
+
+      if (pathname && lastTrackedPathRef.current !== pathname && typeof window.fbq === 'function') {
+        lastTrackedPathRef.current = pathname;
+        window.fbq('track', 'PageView');
+      }
+
+      if (!hasHandledRegisteredRef.current && hasRegistrationBridge()) {
+        hasHandledRegisteredRef.current = true;
+
+        waitForMetaPixelReady(
+          () => {
+            if (typeof window.fbq === 'function') {
+              window.fbq('track', 'CompleteRegistration');
+            }
+            postFireTimer = setTimeout(() => {
+              finishRegistrationBridge();
+            }, 250);
+          },
+          () => {
+            // Ad blockers or Meta failures must not interfere with registration.
+            finishRegistrationBridge();
+          },
+          1500
+        );
+      }
+    };
+
+    void run();
 
     return () => {
+      cancelled = true;
       if (postFireTimer) {
         clearTimeout(postFireTimer);
       }

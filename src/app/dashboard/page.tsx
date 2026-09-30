@@ -57,6 +57,19 @@ const DEFAULT_ACTIVE_MODELS: ModelId[] = [
   'chatgpt',
 ];
 
+async function trackMetaEngagementMilestone(userId: string) {
+  if (typeof window === 'undefined' || !userId) return;
+
+  try {
+    await fetch('/api/meta/engagement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.warn('[Meta Engagement] Non-critical milestone tracking error:', error);
+  }
+}
+
 interface PanelLayoutPreference {
   seatOrder: ModelId[];
   activeModels: ModelId[];
@@ -2432,6 +2445,12 @@ export default function DashboardPage() {
         } else {
           console.log('[Supabase Success] Inserted user message ID:', insertedUserMsg?.[0]?.id);
           insertedUserMessageId = insertedUserMsg?.[0]?.id || null;
+
+          // Non-blocking advertising milestone telemetry. The server counts
+          // persisted user messages and only reports events for Meta-attributed users.
+          if (insertedUserMessageId && userId) {
+            void trackMetaEngagementMilestone(userId);
+          }
         }
       } catch (insertUserErr) {
         console.error('[Supabase Exception] Error persisting user message:', insertUserErr);
