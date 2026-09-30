@@ -11,15 +11,6 @@ import {
 const ACTIVATED_THRESHOLD = 5;
 const DEEP_ENGAGEMENT_THRESHOLD = 10;
 
-function completedLevelFromProfile(profile: {
-  meta_activated_at?: string | null;
-  meta_deep_engagement_at?: string | null;
-} | null): 0 | 1 | 2 {
-  if (profile?.meta_deep_engagement_at) return 2;
-  if (profile?.meta_activated_at) return 1;
-  return 0;
-}
-
 export async function POST(request: Request) {
   const countryCode = request.headers.get('x-vercel-ip-country');
   const eventSourceUrl = `${new URL(request.url).origin}/dashboard`;
