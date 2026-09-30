@@ -7,6 +7,7 @@ export type MetaEventName = 'Activated' | 'DeepEngagement' | 'Purchase';
 
 export interface MetaConversionInput {
   eventName: MetaEventName;
+  countryCode?: string | null;
   eventId: string;
   email?: string | null;
   externalId: string;
@@ -43,9 +44,32 @@ export function isMetaSignupSource(source?: string | null): boolean {
   );
 }
 
+const META_TRACKING_COUNTRIES = new Set(['US', 'AU', 'NZ']);
+
+export function isMetaTrackingCountry(countryCode?: string | null): boolean {
+  const normalized = countryCode?.trim().toUpperCase();
+  return normalized ? META_TRACKING_COUNTRIES.has(normalized) : false;
+}
+
+export function isMetaTrackingAllowedForRequest(countryCode?: string | null): boolean {
+  if (isMetaTrackingCountry(countryCode)) return true;
+
+  // Preview is a controlled test environment. Allow the existing Meta Test Events
+  // setup to exercise the funnel from any developer location without weakening the
+  // production geo gate.
+  return (
+    process.env.VERCEL_ENV === 'preview' &&
+    Boolean(process.env.META_TEST_EVENT_CODE?.trim())
+  );
+}
+
 export async function sendMetaConversionEvent(
   input: MetaConversionInput
 ): Promise<MetaConversionResult> {
+  if (!isMetaTrackingAllowedForRequest(input.countryCode)) {
+    return { sent: false, reason: 'geo_not_eligible' };
+  }
+
   const token = process.env.META_CONVERSIONS_API_TOKEN?.trim();
   if (!token) {
     console.warn('[Meta CAPI] META_CONVERSIONS_API_TOKEN is not configured.');
