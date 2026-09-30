@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { createServiceClient } from '@/utils/supabase/service';
 import Stripe from 'stripe';
@@ -16,6 +16,7 @@ async function reportInitialMetaPurchase({
   amountCents,
   currency,
   eventTime,
+  countryCode,
 }: {
   userId: string;
   email?: string | null;
@@ -26,12 +27,14 @@ async function reportInitialMetaPurchase({
   amountCents?: number | null;
   currency?: string | null;
   eventTime: number;
+  countryCode?: string | null;
 }) {
   if (!isMetaSignupSource(signupSource)) return;
   if (typeof amountCents !== 'number' || amountCents <= 0 || !currency) return;
 
   const result = await sendMetaConversionEvent({
     eventName: 'Purchase',
+    countryCode,
     eventId: `plurilog:${userId}:purchase:${subscriptionId}`,
     email,
     externalId: userId,
@@ -90,19 +93,26 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'Failed to load profile for checkout provisioning' }, { status: 500 });
         }
 
-        // Report the verified initial paid checkout to Meta. This is best-effort only:
-        // advertising telemetry must never block subscription provisioning.
+        // Meta reporting is analytics only. Schedule it after the webhook response so
+        // Meta latency or failure cannot delay or block subscription provisioning.
         if (session.payment_status === 'paid') {
-          await reportInitialMetaPurchase({
-            userId,
-            email: profile.email,
-            signupSource: profile.signup_source,
-            subscriptionId,
-            fbp: session.metadata?.plurilog_fbp || null,
-            fbc: session.metadata?.plurilog_fbc || null,
-            amountCents: session.amount_total,
-            currency: session.currency,
-            eventTime: event.created,
+          after(async () => {
+            try {
+              await reportInitialMetaPurchase({
+                userId,
+                email: profile.email,
+                signupSource: profile.signup_source,
+                subscriptionId,
+                fbp: session.metadata?.plurilog_fbp || null,
+                fbc: session.metadata?.plurilog_fbc || null,
+                amountCents: session.amount_total,
+                currency: session.currency,
+                eventTime: event.created,
+                countryCode: session.metadata?.plurilog_meta_country || null,
+              });
+            } catch (metaPurchaseErr) {
+              console.warn('[Meta CAPI] Checkout purchase reporting failed:', metaPurchaseErr);
+            }
           });
         }
 
@@ -189,25 +199,28 @@ export async function POST(request: Request) {
         }
 
         // A paid first invoice is a second safe opportunity to report the initial
-        // subscription purchase. The stable event_id lets Meta deduplicate it if
-        // checkout.session.completed already reported the same conversion.
+        // subscription purchase. Keep the entire Meta path out of the payment-critical
+        // work; the stable event_id lets Meta deduplicate a checkout report.
         if ((invoice as any).billing_reason === 'subscription_create') {
-          try {
-            const initialSubscription = await stripe.subscriptions.retrieve(subscriptionId);
-            await reportInitialMetaPurchase({
-              userId: profile.id,
-              email: profile.email,
-              signupSource: profile.signup_source,
-              subscriptionId,
-              fbp: initialSubscription.metadata?.plurilog_fbp || null,
-              fbc: initialSubscription.metadata?.plurilog_fbc || null,
-              amountCents: invoice.amount_paid,
-              currency: invoice.currency,
-              eventTime: event.created,
-            });
-          } catch (metaPurchaseErr) {
-            console.warn('[Meta CAPI] Initial invoice purchase reporting failed:', metaPurchaseErr);
-          }
+          after(async () => {
+            try {
+              const initialSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+              await reportInitialMetaPurchase({
+                userId: profile.id,
+                email: profile.email,
+                signupSource: profile.signup_source,
+                subscriptionId,
+                fbp: initialSubscription.metadata?.plurilog_fbp || null,
+                fbc: initialSubscription.metadata?.plurilog_fbc || null,
+                amountCents: invoice.amount_paid,
+                currency: invoice.currency,
+                eventTime: event.created,
+                countryCode: initialSubscription.metadata?.plurilog_meta_country || null,
+              });
+            } catch (metaPurchaseErr) {
+              console.warn('[Meta CAPI] Initial invoice purchase reporting failed:', metaPurchaseErr);
+            }
+          });
         }
 
         // Subscription identity check
