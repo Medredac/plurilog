@@ -11,16 +11,19 @@ import {
 const ACTIVATED_THRESHOLD = 5;
 const DEEP_ENGAGEMENT_THRESHOLD = 10;
 
-function normalizeKnownLevel(value: unknown): 0 | 1 | 2 {
-  const n = Number(value);
-  if (n >= 2) return 2;
-  if (n >= 1) return 1;
+function completedLevelFromProfile(profile: {
+  meta_activated_at?: string | null;
+  meta_deep_engagement_at?: string | null;
+} | null): 0 | 1 | 2 {
+  if (profile?.meta_deep_engagement_at) return 2;
+  if (profile?.meta_activated_at) return 1;
   return 0;
 }
 
 export async function POST(request: Request) {
   const countryCode = request.headers.get('x-vercel-ip-country');
   const eventSourceUrl = `${new URL(request.url).origin}/dashboard`;
+
   if (!isMetaTrackingAllowedForRequest(countryCode)) {
     return NextResponse.json({
       eligible: false,
@@ -38,19 +41,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  let knownLevel: 0 | 1 | 2 = 0;
-  try {
-    const body = await request.json();
-    knownLevel = normalizeKnownLevel(body?.knownLevel);
-  } catch {
-    knownLevel = 0;
-  }
-
   const service = createServiceClient();
 
   const { data: profile, error: profileError } = await service
     .from('profiles')
-    .select('signup_source, email')
+    .select('signup_source, email, meta_activated_at, meta_deep_engagement_at')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -63,6 +58,15 @@ export async function POST(request: Request) {
     return NextResponse.json({
       eligible: false,
       completedLevel: 2,
+    });
+  }
+
+  let completedLevel = completedLevelFromProfile(profile);
+  if (completedLevel >= 2) {
+    return NextResponse.json({
+      eligible: true,
+      completedLevel,
+      alreadyCompleted: true,
     });
   }
 
@@ -81,7 +85,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       eligible: true,
       userMessageCount: 0,
-      completedLevel: knownLevel,
+      completedLevel,
     });
   }
 
@@ -102,9 +106,8 @@ export async function POST(request: Request) {
   const fbp = cookieStore.get('_fbp')?.value || null;
   const fbc = cookieStore.get('_fbc')?.value || null;
   const email = profile?.email || user.email || null;
-  let completedLevel: 0 | 1 | 2 = knownLevel;
 
-  if (userMessageCount >= ACTIVATED_THRESHOLD && completedLevel < 1) {
+  if (userMessageCount >= ACTIVATED_THRESHOLD && !profile?.meta_activated_at) {
     const result = await sendMetaConversionEvent({
       eventName: 'Activated',
       countryCode,
@@ -126,10 +129,31 @@ export async function POST(request: Request) {
       });
     }
 
+    const activatedAt = new Date().toISOString();
+    const { error: stampError } = await service
+      .from('profiles')
+      .update({ meta_activated_at: activatedAt })
+      .eq('id', user.id)
+      .is('meta_activated_at', null);
+
+    if (stampError) {
+      console.error('[Meta Engagement] Failed to persist Activated milestone:', stampError);
+      return NextResponse.json({
+        eligible: true,
+        userMessageCount,
+        completedLevel,
+        pending: 'ActivatedPersistence',
+      });
+    }
+
+    profile.meta_activated_at = activatedAt;
     completedLevel = 1;
   }
 
-  if (userMessageCount >= DEEP_ENGAGEMENT_THRESHOLD && completedLevel < 2) {
+  if (
+    userMessageCount >= DEEP_ENGAGEMENT_THRESHOLD &&
+    !profile?.meta_deep_engagement_at
+  ) {
     const result = await sendMetaConversionEvent({
       eventName: 'DeepEngagement',
       countryCode,
@@ -151,6 +175,24 @@ export async function POST(request: Request) {
       });
     }
 
+    const deepEngagementAt = new Date().toISOString();
+    const { error: stampError } = await service
+      .from('profiles')
+      .update({ meta_deep_engagement_at: deepEngagementAt })
+      .eq('id', user.id)
+      .is('meta_deep_engagement_at', null);
+
+    if (stampError) {
+      console.error('[Meta Engagement] Failed to persist DeepEngagement milestone:', stampError);
+      return NextResponse.json({
+        eligible: true,
+        userMessageCount,
+        completedLevel,
+        pending: 'DeepEngagementPersistence',
+      });
+    }
+
+    profile.meta_deep_engagement_at = deepEngagementAt;
     completedLevel = 2;
   }
 
