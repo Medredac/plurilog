@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import {
   isMetaSignupSource,
+  isMetaTrackingAllowedForRequest,
   sendMetaConversionEvent,
 } from '@/lib/metaConversions';
 
@@ -18,6 +19,15 @@ function normalizeKnownLevel(value: unknown): 0 | 1 | 2 {
 }
 
 export async function POST(request: Request) {
+  const countryCode = request.headers.get('x-vercel-ip-country');
+  if (!isMetaTrackingAllowedForRequest(countryCode)) {
+    return NextResponse.json({
+      eligible: false,
+      completedLevel: 2,
+      reason: 'geo_not_eligible',
+    });
+  }
+
   const userSupabase = await createClient();
   const {
     data: { user },
@@ -96,6 +106,7 @@ export async function POST(request: Request) {
   if (userMessageCount >= ACTIVATED_THRESHOLD && completedLevel < 1) {
     const result = await sendMetaConversionEvent({
       eventName: 'Activated',
+      countryCode,
       eventId: `plurilog:${user.id}:activated:v1`,
       email,
       externalId: user.id,
@@ -119,6 +130,7 @@ export async function POST(request: Request) {
   if (userMessageCount >= DEEP_ENGAGEMENT_THRESHOLD && completedLevel < 2) {
     const result = await sendMetaConversionEvent({
       eventName: 'DeepEngagement',
+      countryCode,
       eventId: `plurilog:${user.id}:deep-engagement:v1`,
       email,
       externalId: user.id,
