@@ -20,6 +20,7 @@ function normalizeKnownLevel(value: unknown): 0 | 1 | 2 {
 
 export async function POST(request: Request) {
   const countryCode = request.headers.get('x-vercel-ip-country');
+  const eventSourceUrl = `${new URL(request.url).origin}/dashboard`;
   if (!isMetaTrackingAllowedForRequest(countryCode)) {
     return NextResponse.json({
       eligible: false,
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
       externalId: user.id,
       fbp,
       fbc,
+      eventSourceUrl,
     });
 
     if (!result.sent) {
@@ -136,6 +138,7 @@ export async function POST(request: Request) {
       externalId: user.id,
       fbp,
       fbc,
+      eventSourceUrl,
     });
 
     if (!result.sent) {
