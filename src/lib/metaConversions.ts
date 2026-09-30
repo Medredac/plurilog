@@ -21,6 +21,7 @@ export interface MetaConversionInput {
 export interface MetaConversionResult {
   sent: boolean;
   reason?: string;
+  eventsReceived?: number;
 }
 
 function sha256(value: string): string {
@@ -123,8 +124,9 @@ export async function sendMetaConversionEvent(
       signal: AbortSignal.timeout(3500),
     });
 
+    const responseBody = await response.text().catch(() => '');
+
     if (!response.ok) {
-      const responseBody = await response.text().catch(() => '');
       console.error(
         `[Meta CAPI] ${input.eventName} failed with status ${response.status}:`,
         responseBody.slice(0, 1000)
@@ -132,8 +134,30 @@ export async function sendMetaConversionEvent(
       return { sent: false, reason: `http_${response.status}` };
     }
 
-    console.log(`[Meta CAPI] Sent ${input.eventName} (${input.eventId}).`);
-    return { sent: true };
+    let eventsReceived: number | undefined;
+    try {
+      const parsed = responseBody ? JSON.parse(responseBody) : null;
+      if (typeof parsed?.events_received === 'number') {
+        eventsReceived = parsed.events_received;
+      }
+    } catch {
+      // A successful HTTP response with a non-JSON body is still unexpected.
+    }
+
+    if (eventsReceived !== undefined && eventsReceived < 1) {
+      console.warn(
+        `[Meta CAPI] ${input.eventName} returned 200 but accepted 0 events:`,
+        responseBody.slice(0, 1000)
+      );
+      return { sent: false, reason: 'zero_events_received', eventsReceived };
+    }
+
+    console.log(
+      `[Meta CAPI] Sent ${input.eventName} (${input.eventId})` +
+      (eventsReceived !== undefined ? ` — events_received=${eventsReceived}` : '') +
+      '.'
+    );
+    return { sent: true, eventsReceived };
   } catch (error) {
     console.error(`[Meta CAPI] ${input.eventName} request failed:`, error);
     return { sent: false, reason: 'request_failed' };
