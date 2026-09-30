@@ -57,46 +57,14 @@ const DEFAULT_ACTIVE_MODELS: ModelId[] = [
   'chatgpt',
 ];
 
-const META_ENGAGEMENT_STORAGE_PREFIX = 'plurilog-meta-engagement-level';
-
 async function trackMetaEngagementMilestone(userId: string) {
   if (typeof window === 'undefined' || !userId) return;
 
-  const storageKey = `${META_ENGAGEMENT_STORAGE_PREFIX}:${userId}`;
-  let knownLevel = 0;
-
   try {
-    knownLevel = Math.max(0, Math.min(2, Number(localStorage.getItem(storageKey) || '0')));
-  } catch {
-    knownLevel = 0;
-  }
-
-  if (knownLevel >= 2) return;
-
-  try {
-    const response = await fetch('/api/meta/engagement', {
+    await fetch('/api/meta/engagement', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ knownLevel }),
     });
-
-    if (!response.ok) return;
-
-    const result = await response.json();
-
-    if (result?.eligible === false) {
-      try {
-        localStorage.setItem(storageKey, '2');
-      } catch {}
-      return;
-    }
-
-    const completedLevel = Number(result?.completedLevel);
-    if (Number.isFinite(completedLevel) && completedLevel > knownLevel) {
-      try {
-        localStorage.setItem(storageKey, String(Math.min(2, completedLevel)));
-      } catch {}
-    }
   } catch (error) {
     console.warn('[Meta Engagement] Non-critical milestone tracking error:', error);
   }
