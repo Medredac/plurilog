@@ -61,7 +61,9 @@ export async function POST(request: Request) {
     });
   }
 
-  let completedLevel = completedLevelFromProfile(profile);
+  let activatedAt = profile?.meta_activated_at || null;
+  let deepEngagementAt = profile?.meta_deep_engagement_at || null;
+  let completedLevel: 0 | 1 | 2 = deepEngagementAt ? 2 : activatedAt ? 1 : 0;
   if (completedLevel >= 2) {
     return NextResponse.json({
       eligible: true,
@@ -107,7 +109,7 @@ export async function POST(request: Request) {
   const fbc = cookieStore.get('_fbc')?.value || null;
   const email = profile?.email || user.email || null;
 
-  if (userMessageCount >= ACTIVATED_THRESHOLD && !profile?.meta_activated_at) {
+  if (userMessageCount >= ACTIVATED_THRESHOLD && !activatedAt) {
     const result = await sendMetaConversionEvent({
       eventName: 'Activated',
       countryCode,
@@ -129,10 +131,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const activatedAt = new Date().toISOString();
+    const activatedAtValue = new Date().toISOString();
     const { error: stampError } = await service
       .from('profiles')
-      .update({ meta_activated_at: activatedAt })
+      .update({ meta_activated_at: activatedAtValue })
       .eq('id', user.id)
       .is('meta_activated_at', null);
 
@@ -146,13 +148,13 @@ export async function POST(request: Request) {
       });
     }
 
-    profile.meta_activated_at = activatedAt;
+    activatedAt = activatedAtValue;
     completedLevel = 1;
   }
 
   if (
     userMessageCount >= DEEP_ENGAGEMENT_THRESHOLD &&
-    !profile?.meta_deep_engagement_at
+    !deepEngagementAt
   ) {
     const result = await sendMetaConversionEvent({
       eventName: 'DeepEngagement',
@@ -175,10 +177,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const deepEngagementAt = new Date().toISOString();
+    const deepEngagementAtValue = new Date().toISOString();
     const { error: stampError } = await service
       .from('profiles')
-      .update({ meta_deep_engagement_at: deepEngagementAt })
+      .update({ meta_deep_engagement_at: deepEngagementAtValue })
       .eq('id', user.id)
       .is('meta_deep_engagement_at', null);
 
@@ -192,7 +194,7 @@ export async function POST(request: Request) {
       });
     }
 
-    profile.meta_deep_engagement_at = deepEngagementAt;
+    deepEngagementAt = deepEngagementAtValue;
     completedLevel = 2;
   }
 
