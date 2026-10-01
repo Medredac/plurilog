@@ -1047,6 +1047,84 @@ async function installChromiumPdfDependencies(
   return { chromePath };
 }
 
+export interface CreateRichPdfRendererSnapshotResult {
+  snapshotId: string;
+  chromeVersion: string;
+  elapsedMs: number;
+}
+
+export async function createRichPdfRendererSnapshot(): Promise<CreateRichPdfRendererSnapshotResult> {
+  const startedAt = Date.now();
+  const sandbox = await Sandbox.create({
+    persistent: false,
+    timeout: 5 * 60 * 1000,
+    networkPolicy: 'allow-all',
+  });
+  let snapshotted = false;
+
+  try {
+    const { chromePath } = await installChromiumPdfDependencies(sandbox);
+    const version = await sandbox.runCommand({
+      cmd: chromePath,
+      args: ['--version'],
+    });
+    await assertSandboxCommand(version, 'Chrome version check');
+
+    // Smoke-test the exact headless print path before freezing the image.
+    const smokeHtml = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+body{font-family:Arial,sans-serif;margin:24mm;color:#172033}
+h1{font-size:28px;margin:0 0 12px}
+.card{padding:16px;border:1px solid #d9dde5;border-radius:12px;background:#f7f8fa}
+</style></head><body><h1>Plurilog PDF Renderer</h1><div class="card">Snapshot smoke test</div></body></html>`;
+
+    await sandbox.writeFiles([
+      {
+        path: '/vercel/sandbox/snapshot-smoke.html',
+        content: Buffer.from(smokeHtml, 'utf8'),
+      },
+    ]);
+
+    const smokePdf = await sandbox.runCommand({
+      cmd: chromePath,
+      args: [
+        '--headless',
+        '--no-sandbox',
+        '--disable-gpu',
+        '--disable-dev-shm-usage',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--print-to-pdf-no-header',
+        '--no-pdf-header-footer',
+        '--print-to-pdf=/vercel/sandbox/snapshot-smoke.pdf',
+        'file:///vercel/sandbox/snapshot-smoke.html',
+      ],
+    });
+    await assertSandboxCommand(smokePdf, 'Chrome PDF snapshot smoke test');
+
+    const smokeInfo = await sandbox.runCommand({
+      cmd: 'pdfinfo',
+      args: ['/vercel/sandbox/snapshot-smoke.pdf'],
+    });
+    await assertSandboxCommand(smokeInfo, 'PDF snapshot smoke-test inspection');
+
+    const snapshot = await sandbox.snapshot({ expiration: 0 });
+    snapshotted = true;
+
+    return {
+      snapshotId: snapshot.snapshotId,
+      chromeVersion: (await version.stdout()).trim(),
+      elapsedMs: Date.now() - startedAt,
+    };
+  } finally {
+    if (!snapshotted) {
+      await sandbox.stop().catch(() => undefined);
+    }
+  }
+}
+
 async function inspectPdfPageCount(
   sandbox: InstanceType<typeof Sandbox>,
   path: string
