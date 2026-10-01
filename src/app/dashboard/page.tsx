@@ -2986,7 +2986,7 @@ export default function DashboardPage() {
                       onToggleModel={handleToggleModel}
                     />
 
-                    <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                    <div className="mt-3 hidden flex-wrap items-center justify-center gap-2 sm:flex">
                       <button
                         type="button"
                         onClick={() => primeComposer('Generate an image of ')}
