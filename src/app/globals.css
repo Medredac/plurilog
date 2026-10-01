@@ -471,11 +471,6 @@ body {
   color: #1C1B1A;
 }
 
-.plurilog-dashboard .font-hand {
-  font-family: var(--font-gochi-hand), "Comic Sans MS", cursive;
-  letter-spacing: 0;
-}
-
 .plurilog-dashboard .dashboard-input-shadow {
   box-shadow: 0 2px 12px rgba(28, 27, 26, 0.06);
 }
