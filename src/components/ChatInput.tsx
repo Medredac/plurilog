@@ -316,7 +316,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const containerClasses = isCentered
     ? 'w-full pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-right))]'
-    : 'shrink-0 bg-transparent pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] max-w-[760px] mx-auto w-full z-10';
+    : 'shrink-0 bg-transparent pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] max-w-[760px] mx-auto w-full z-30';
 
   return (
     <div className={containerClasses}>
