@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId } from '../types/chat';
-import { ProviderIcon } from './ProviderIcon';
 import { ProviderBadge } from './ProviderBadge';
 
 interface AiSeatsControlProps {
@@ -362,7 +361,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       <div className="min-w-0 flex-1 text-left">
                         <div
                           className={`truncate text-[15px] font-medium leading-5 ${
-                            isActive ? 'text-zinc-800' : 'text-zinc-500'
+                            isActive ? 'text-[#1C1B1A]' : 'text-[#6A675F]'
                           }`}
                         >
                           {member?.name || id}
