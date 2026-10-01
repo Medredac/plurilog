@@ -202,13 +202,20 @@ export function SeoFeaturePage({
       <footer className="px-6 sm:px-12 py-6 border-t border-zinc-100 bg-white flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-zinc-400">
         <div className="flex items-center gap-2">
           <PlurilogMark className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-          <span>Plurilog © {new Date().getFullYear()}</span>
+          <span>Plurilog &copy; {new Date().getFullYear()}</span>
         </div>
-        <div className="flex items-center gap-4 text-[11px]">
+
+        <nav
+          aria-label="Footer navigation"
+          className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px]"
+        >
+          <Link href="/#about" className="hover:text-zinc-600 transition-colors">About</Link>
+          <Link href="/#pricing" className="hover:text-zinc-600 transition-colors">Pricing</Link>
+          <Link href="/#faq" className="hover:text-zinc-600 transition-colors">FAQ</Link>
           <Link href="/blog" className="hover:text-zinc-600 transition-colors">Blog</Link>
-          <Link href="/privacy" className="hover:text-zinc-600 transition-colors">Privacy Policy</Link>
-          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms of Service</Link>
-        </div>
+          <Link href="/privacy" className="hover:text-zinc-600 transition-colors">Privacy</Link>
+          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms</Link>
+        </nav>
       </footer>
     </div>
   );

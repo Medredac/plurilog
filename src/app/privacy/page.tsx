@@ -63,7 +63,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p>
-              We may use advertising measurement tools, such as the Meta Pixel and Meta&apos;s Conversions API, to understand the effectiveness of our advertising campaigns. For users attributable to a Meta campaign, we may report limited conversion milestones such as registration, reaching defined usage thresholds, and a paid subscription. We do not send Meta the contents of your prompts, AI responses, uploaded files, filenames, or documents. Matching information used for server-side conversion attribution is limited to the identifiers needed for attribution, such as hashed account identifiers and Meta attribution cookies when available.
+              On our public marketing pages, we may use advertising measurement tools, such as the Meta Pixel, and related attribution technologies to understand the effectiveness of our advertising campaigns. We do not use advertising trackers within your authenticated discussion dashboard.
             </p>
           </MotionReveal>
 
@@ -106,7 +106,7 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">PostHog</strong> &mdash; provides privacy-focused public website analytics and public-page session replay without cookies or persistent browser storage to help us understand how public pages are navigated.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution, including limited registration, usage-milestone, and subscription events for users attributable to Meta campaigns.
+                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution for our public marketing campaigns.
               </li>
             </ul>
             <p>
@@ -195,10 +195,17 @@ export default function PrivacyPage() {
           <span>Plurilog &copy; {new Date().getFullYear()}</span>
         </div>
 
-        <div className="flex items-center gap-4 text-[11px]">
-          <Link href="/privacy" className="hover:text-zinc-600 transition-colors font-medium text-zinc-600">Privacy Policy</Link>
-          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms of Service</Link>
-        </div>
+        <nav
+          aria-label="Footer navigation"
+          className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px]"
+        >
+          <Link href="/#about" className="hover:text-zinc-600 transition-colors">About</Link>
+          <Link href="/#pricing" className="hover:text-zinc-600 transition-colors">Pricing</Link>
+          <Link href="/#faq" className="hover:text-zinc-600 transition-colors">FAQ</Link>
+          <Link href="/blog" className="hover:text-zinc-600 transition-colors">Blog</Link>
+          <Link href="/privacy" className="hover:text-zinc-600 transition-colors font-medium text-zinc-600">Privacy</Link>
+          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms</Link>
+        </nav>
       </footer>
     </div>
   );
