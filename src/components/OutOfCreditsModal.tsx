@@ -1,20 +1,45 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import { Check } from 'lucide-react';
+
+import React, { useEffect, useState } from 'react';
+import { Check, X } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, onClose }) => {
+const PLAN_FEATURES = [
+  'Everything in Free',
+  'Monthly usage refreshed every billing cycle',
+  'ChatGPT, Claude and Gemini available',
+  'Shared memory, files and retrieval',
+  'Cancel anytime',
+];
+
+const RobotHeads = () => (
+  <div
+    className="pointer-events-none absolute -top-[23px] right-4 flex items-end -space-x-2.5"
+    aria-hidden="true"
+  >
+    <img src="/robot-head-claude.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+    <img src="/robot-head-chatgpt.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+    <img src="/robot-head-gemini.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+  </div>
+);
+
+export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
+    if (isOpen) setIsRedirecting(false);
+  }, [isOpen]);
+
+  useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) {
-        setIsRedirecting(false);
-      }
+      if (event.persisted) setIsRedirecting(false);
     };
     window.addEventListener('pageshow', handlePageShow);
     return () => window.removeEventListener('pageshow', handlePageShow);
@@ -40,53 +65,89 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div onClick={onClose} className="fixed inset-0 bg-black/20 backdrop-blur-xs transition-opacity" />
-      <div className="relative w-full max-w-xs sm:max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-xl z-10 animate-in fade-in zoom-in-95 duration-150 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col">
-        <div className="flex items-center gap-2 mb-3">
-          <img src="/logo.svg" alt="Plurilog" className="w-6 h-6" />
-          <span className="text-xs font-medium text-zinc-500">You've used all your free credit</span>
-        </div>
-        <h3 className="text-2xl font-semibold text-zinc-900 tracking-tight mb-1.5">
-          Upgrade to Plus
-        </h3>
-        <p className="text-sm text-zinc-500 leading-relaxed mb-5">
-          To keep the conversation going.
-        </p>
-        <div className="bg-zinc-50 border border-zinc-200/80 rounded-xl p-4 mb-5 text-left">
-          <div className="flex items-baseline gap-1 mb-0.5">
-            <span className="text-2xl font-semibold text-zinc-900">$19</span>
-            <span className="text-xs text-zinc-500">/ month</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+      <button
+        type="button"
+        onClick={onClose}
+        className="fixed inset-0 cursor-default bg-[rgba(28,27,26,0.26)] backdrop-blur-[1px]"
+        aria-label="Close upgrade prompt"
+      />
+
+      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[420px] flex-col overflow-hidden rounded-[18px] border border-[#E2E0DB] bg-white dashboard-menu-shadow animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
+          <div className="min-w-0">
+            <div className="mb-2 flex items-center gap-2">
+              <img src="/logo.svg" alt="" className="h-[22px] w-[22px] shrink-0 object-contain" />
+              <span className="text-[11px] font-medium text-[#6A675F]">
+                You’ve used all your free credit
+              </span>
+            </div>
+            <h3 className="text-[22px] font-semibold tracking-[-0.02em] text-[#1C1B1A]">
+              Keep the conversation going
+            </h3>
+            <p className="mt-1 text-[12px] leading-5 text-[#6A675F]">
+              Upgrade to Plus for refreshed monthly usage and continued access to the full panel.
+            </p>
           </div>
-          <p className="text-[11px] text-zinc-400 mb-3">Plurilog Plus</p>
-          <div className="space-y-2">
-            <div className="flex items-start gap-2">
-              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-              <span className="text-xs text-zinc-700">File upload</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-              <span className="text-xs text-zinc-700">Image upload</span>
-            </div>
-            <div className="flex items-start gap-2">
-              <Check className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-              <span className="text-xs text-zinc-700">More extensive use</span>
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2.5">
-          <button
-            type="button"
-            onClick={handleUpgrade}
-            disabled={isRedirecting}
-            className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-zinc-900 hover:bg-zinc-800 transition-colors cursor-pointer shadow-sm disabled:opacity-60"
-          >
-            {isRedirecting ? 'Redirecting…' : 'Upgrade'}
-          </button>
+
           <button
             type="button"
             onClick={onClose}
-            className="w-full px-4 py-2 rounded-xl text-xs font-medium text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors cursor-pointer"
+            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] text-[#8A867D] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
+            title="Close"
+            aria-label="Close"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-3 sm:px-6 sm:pb-6">
+          <div className="relative mt-3 rounded-[16px] border border-[#8A867D] bg-white px-5 pb-4 pt-5">
+            <RobotHeads />
+
+            <div className="mb-2 flex items-center gap-2">
+              <h4 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h4>
+              <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
+                Recommended
+              </span>
+            </div>
+
+            <div className="mb-1 flex items-end gap-1.5">
+              <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">
+                $19
+              </span>
+              <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
+            </div>
+
+            <p className="mb-4 text-[11px] leading-5 text-[#6A675F]">
+              For ongoing use of Plurilog.
+            </p>
+
+            <ul className="space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
+              {PLAN_FEATURES.map((feature) => (
+                <li key={feature} className="flex items-start gap-2">
+                  <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
+                    <Check className="h-2.5 w-2.5 stroke-[2.5]" />
+                  </span>
+                  <span>{feature}</span>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              type="button"
+              onClick={handleUpgrade}
+              disabled={isRedirecting}
+              className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRedirecting ? 'Redirecting…' : 'Get Plus'}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center rounded-[10px] text-[11px] font-medium text-[#6A675F] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
           >
             Maybe later
           </button>
