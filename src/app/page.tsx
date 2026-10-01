@@ -623,7 +623,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.04)}
               className="rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 pt-1">
                   Multi-model
                 </p>
@@ -633,7 +633,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
@@ -654,7 +654,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.08)}
               className="rounded-2xl border border-zinc-200/90 bg-[#FBFCFF] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] pt-1">
                   Documents
                 </p>
@@ -664,7 +664,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
@@ -685,7 +685,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.12)}
               className="rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 pt-1">
                   Editing
                 </p>
@@ -695,7 +695,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
@@ -716,7 +716,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.16)}
               className="rounded-2xl border border-zinc-200/90 bg-[#FBFCFF] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] pt-1">
                   Images
                 </p>
@@ -726,7 +726,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
@@ -747,7 +747,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.20)}
               className="rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 pt-1">
                   Analysis
                 </p>
@@ -757,7 +757,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
@@ -781,7 +781,7 @@ export default function LandingPage() {
               {...scrollRevealProps(0.24)}
               className="rounded-2xl border border-zinc-200/90 bg-[#FFFCF8] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <div className="flex items-center justify-between gap-3 mb-3 h-[48px]">
+              <div className="flex items-start justify-between gap-3 mb-2 h-[56px]">
                 <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 pt-1">
                   Research
                 </p>
@@ -791,7 +791,7 @@ export default function LandingPage() {
                   aria-hidden="true"
                   loading="lazy"
                   draggable={false}
-                  className="w-[92px] h-[92px] sm:w-[98px] sm:h-[98px] -mt-5 -mb-5 -mr-2 object-contain shrink-0 pointer-events-none select-none"
+                  className="w-[78px] h-[78px] sm:w-[84px] sm:h-[84px] -mt-3 -mr-1 object-contain shrink-0 pointer-events-none select-none"
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
