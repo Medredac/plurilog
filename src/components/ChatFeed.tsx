@@ -1496,10 +1496,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-[88%] sm:max-w-[480px] w-fit bg-[#EFEDE9] rounded-[18px_18px_6px_18px] px-4 py-3 relative min-w-0 text-[16px] leading-6 text-[#1C1B1A]">
-                  {/* Attached files */}
+                {/* Attached files */}
                   {attachments.length > 0 && (
-                    <div className="mb-2.5 flex max-w-full min-w-0 flex-wrap gap-2 sm:gap-2.5">
+                    <div className="mb-2.5 flex w-full max-w-[480px] min-w-0 flex-wrap justify-end gap-2 sm:gap-2.5">
                       {attachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
                         const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
@@ -1635,6 +1634,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     </div>
                   )}
 
+
+
+                {message.content?.trim() ? (
+                  <div className="max-w-[88%] sm:max-w-[480px] w-fit bg-[#EFEDE9] rounded-[18px_18px_6px_18px] px-4 py-3 relative min-w-0 text-[16px] leading-6 text-[#1C1B1A]">
                   {/* Message Body with truncation if long (only if text exists) */}
                   {message.content?.trim() ? (
                     <div className="relative min-w-0 max-w-full">
@@ -1668,7 +1671,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       )}
                     </div>
                   ) : null}
-                </div>
+                  </div>
+                ) : null}
 
                 {message.content?.trim() ? (
                   <button
