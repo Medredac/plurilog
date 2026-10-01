@@ -116,7 +116,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           event.stopPropagation();
           onToggleModel(id);
         }}
-        className={`relative h-[22px] w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF] focus-visible:ring-offset-2 ${
+        className={`relative h-[26px] w-11 sm:h-[22px] sm:w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF] focus-visible:ring-offset-2 ${
           isActive ? 'bg-[#1C1B1A]' : 'bg-[#D9D6CF]'
         } ${
           disabled || isLastActive
@@ -125,7 +125,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
         }`}
       >
         <motion.span
-          className="absolute left-[2px] top-[2px] block h-[18px] w-[18px] rounded-full bg-white shadow-sm"
+          className="absolute left-[2px] top-[2px] block h-[22px] w-[22px] sm:h-[18px] sm:w-[18px] rounded-full bg-white shadow-sm"
           animate={{ x: isActive ? 18 : 0 }}
           transition={{ type: 'spring', stiffness: 520, damping: 34, mass: 0.55 }}
         />
@@ -146,7 +146,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        className={`inline-flex h-9 items-center gap-1.5 rounded-[10px] border bg-white px-2.5 text-[13px] font-medium text-[#1C1B1A] transition-all ${
+        className={`inline-flex h-11 sm:h-9 items-center gap-1.5 rounded-[14px] sm:rounded-[10px] border bg-white px-2.5 text-[13px] font-medium text-[#1C1B1A] transition-all ${
           isOpen
             ? 'border-[#D9D6CF] ring-2 ring-[#E7E5E0]/70'
             : 'border-[#E2E0DB] hover:border-[#D9D6CF] hover:bg-[#F7F6F3]'
@@ -350,7 +350,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       <span className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
                         isActive ? 'bg-[#1C1B1A] text-white' : 'bg-[#ECEAE5] text-[#8A867D]'
                       }`}>
-                        {isActive ? index + 1 : '–'}
+                        {isActive ? position : '–'}
                       </span>
 
                       <ProviderBadge provider={id} size="sm" />
