@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId } from '../types/chat';
 import { ProviderIcon } from './ProviderIcon';
+import { ProviderBadge } from './ProviderBadge';
 
 interface AiSeatsControlProps {
   seatOrder: ModelId[];
@@ -113,8 +114,8 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           event.stopPropagation();
           onToggleModel(id);
         }}
-        className={`relative h-[22px] w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#EAD9AE] focus-visible:ring-offset-2 ${
-          isActive ? 'bg-zinc-900' : 'bg-zinc-200'
+        className={`relative h-[22px] w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF] focus-visible:ring-offset-2 ${
+          isActive ? 'bg-[#1C1B1A]' : 'bg-[#D9D6CF]'
         } ${
           disabled || isLastActive
             ? 'cursor-not-allowed opacity-55'
@@ -140,10 +141,10 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        className={`inline-flex h-8 items-center gap-1.5 rounded-xl border bg-white px-2 text-[11px] font-medium text-zinc-700 shadow-2xs transition-all ${
+        className={`inline-flex h-9 items-center gap-1.5 rounded-[10px] border bg-white px-2.5 text-[13px] font-medium text-[#1C1B1A] transition-all ${
           isOpen
-            ? 'border-[#DCC7A1] ring-2 ring-[#F7E8B8]/45'
-            : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
+            ? 'border-[#D9D6CF] ring-2 ring-[#E7E5E0]/70'
+            : 'border-[#E2E0DB] hover:border-[#D9D6CF] hover:bg-[#F7F6F3]'
         } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
       >
         <span className="flex items-center overflow-visible">
@@ -155,25 +156,25 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                 key={id}
                 initial={false}
                 animate={{
-                  width: isActive ? 14 : 0,
+                  width: isActive ? 18 : 0,
                   opacity: isActive ? 1 : 0,
                 }}
                 transition={{
                   width: { duration: 0.2, ease: 'easeInOut' },
                   opacity: { duration: isActive ? 0.18 : 0.12, ease: 'easeOut' },
                 }}
-                className="relative h-[18px] shrink-0 overflow-visible"
+                className="relative h-6 shrink-0 overflow-visible"
                 aria-hidden={!isActive}
               >
-                <span className="absolute left-0 top-0 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white">
-                  <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+                <span className="absolute left-0 top-[-3px]">
+                  <ProviderBadge provider={id} size="sm" />
                 </span>
               </motion.span>
             );
           })}
         </span>
 
-        <span className="relative inline-flex min-w-[30px] overflow-hidden">
+        <span className="relative inline-flex min-w-[36px] overflow-hidden">
           <AnimatePresence initial={false} mode="popLayout">
             <motion.span
               key={countLabel}
@@ -186,11 +187,11 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
             </motion.span>
           </AnimatePresence>
         </span>
-        <span className="text-zinc-300">·</span>
-        <span className="text-zinc-500">Edit</span>
+        <span className="text-[#D9D6CF]">·</span>
+        <span className="text-[#6A675F]">Edit</span>
 
         <ChevronDown
-          className={`h-3 w-3 text-zinc-400 transition-transform ${
+          className={`h-3 w-3 text-[#8A867D] transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -202,13 +203,13 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           <div
             role="dialog"
             aria-label="Who’s in this chat"
-            className="absolute bottom-full left-0 mb-2 hidden w-[336px] rounded-2xl border border-zinc-200/90 bg-white p-3 text-left shadow-[0_16px_45px_rgba(24,24,27,0.14)] sm:block"
+            className="absolute bottom-full left-0 mb-2 hidden w-[336px] rounded-[14px] border border-[#E2E0DB] bg-white p-1.5 text-left dashboard-menu-shadow sm:block"
           >
-            <div className="px-1 pb-3 text-left">
-              <h3 className="text-left text-base font-semibold leading-6 text-zinc-900">
+            <div className="px-3 pt-2.5 pb-2 text-left">
+              <h3 className="text-left text-base font-semibold leading-6 text-[#1C1B1A]">
                 Who’s in this chat
               </h3>
-              <p className="mt-1 text-left text-xs leading-5 text-zinc-500">
+              <p className="mt-1 text-left text-xs leading-5 text-[#6A675F]">
                 Switch an AI off to take it out of the conversation. Drag to reorder.
               </p>
             </div>
@@ -261,33 +262,33 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                         : 'cursor-grab active:cursor-grabbing'
                     } ${
                       isActive
-                        ? 'bg-white hover:bg-zinc-50'
-                        : 'bg-zinc-50 hover:bg-zinc-100/80'
+                        ? 'bg-white hover:bg-[#F7F6F3]'
+                        : 'bg-[#F7F6F3] hover:bg-[#EFEDE9]'
                     } ${isDragging ? 'opacity-45 shadow-sm' : ''} ${
                       isDragTarget
-                        ? 'ring-2 ring-[#EAD9AE] ring-offset-1 ring-offset-white'
+                        ? 'ring-2 ring-[#D9D6CF] ring-offset-1 ring-offset-white'
                         : ''
                     }`}
                     title={disabled ? undefined : `Drag ${member?.name || id} to reorder`}
                   >
                     <span
-                      className="flex h-8 w-5 shrink-0 items-center justify-center text-zinc-300 pointer-events-none"
+                      className="flex h-8 w-5 shrink-0 items-center justify-center text-[#B9B5AC] pointer-events-none"
                       aria-hidden="true"
                     >
                       <GripVertical className="h-4 w-4" />
                     </span>
 
-                    <ProviderIcon provider={id} className="h-4 w-4 shrink-0 pointer-events-none" />
+                    <ProviderBadge provider={id} size="sm" className="pointer-events-none" />
 
                     <div className="min-w-0 flex-1 text-left pointer-events-none">
                       <div
-                        className={`truncate text-sm font-medium leading-5 ${
-                          isActive ? 'text-zinc-800' : 'text-zinc-500'
+                        className={`truncate text-[15px] font-medium leading-5 ${
+                          isActive ? 'text-[#1C1B1A]' : 'text-[#6A675F]'
                         }`}
                       >
                         {member?.name || id}
                       </div>
-                      <div className="text-[11px] leading-4 text-zinc-400">
+                      <div className="text-[11px] leading-4 text-[#8A867D]">
                         {isActive ? 'Answering' : 'Sitting out'}
                       </div>
                     </div>
@@ -309,18 +310,18 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
             <button
               type="button"
               aria-label="Close AI seats"
-              className="absolute inset-0 h-full w-full bg-zinc-900/30 backdrop-blur-[1px]"
+              className="absolute inset-0 h-full w-full bg-[rgba(28,27,26,0.38)] backdrop-blur-[1px]"
               onClick={() => setIsOpen(false)}
             />
 
-            <div className="absolute inset-x-0 bottom-0 rounded-t-[22px] border-t border-zinc-200 bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 text-left shadow-[0_-16px_45px_rgba(24,24,27,0.15)]">
-              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-300" />
+            <div className="absolute inset-x-0 bottom-0 rounded-t-[24px] border-t border-[#E2E0DB] bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 text-left dashboard-menu-shadow">
+              <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-[#D9D6CF]" />
 
               <div className="px-1 text-left">
-                <h3 className="text-left text-lg font-semibold tracking-tight text-zinc-900">
+                <h3 className="text-left text-[20px] font-semibold tracking-tight text-[#1C1B1A]">
                   AI seats
                 </h3>
-                <p className="mt-1 max-w-[330px] text-left text-xs leading-5 text-zinc-500">
+                <p className="mt-1 max-w-[360px] text-left text-[14px] leading-5 text-[#6A675F]">
                   AIs answer in this order. Switch one off to take it out of the chat.
                 </p>
               </div>
@@ -330,34 +331,37 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                   const member = COUNCIL_MEMBERS[id];
                   const isActive = activeSet.has(id);
                   const position = activePosition(id);
+                  const isLastActive = isActive && activeCount === 1;
 
                   return (
                     <motion.div
                       key={id}
                       layout="position"
                       transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
-                      className={`flex min-h-[54px] items-center gap-2 rounded-xl px-2 py-1.5 ${
-                        isActive ? 'bg-zinc-50' : 'bg-zinc-100/80'
+                      className={`flex min-h-16 items-center gap-2 rounded-[14px] px-2.5 py-2 ${
+                        isActive ? 'bg-[#F7F6F3]' : 'bg-white'
                       }`}
                     >
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-[10px] font-semibold text-white">
-                        {index + 1}
+                      <span className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                        isActive ? 'bg-[#1C1B1A] text-white' : 'bg-[#ECEAE5] text-[#8A867D]'
+                      }`}>
+                        {isActive ? index + 1 : '–'}
                       </span>
 
-                      <ProviderIcon provider={id} className="h-4 w-4 shrink-0" />
+                      <ProviderBadge provider={id} size="sm" />
 
                       <div className="min-w-0 flex-1 text-left">
                         <div
-                          className={`truncate text-sm font-medium leading-5 ${
+                          className={`truncate text-[15px] font-medium leading-5 ${
                             isActive ? 'text-zinc-800' : 'text-zinc-500'
                           }`}
                         >
                           {member?.name || id}
                         </div>
-                        <div className="text-[11px] leading-4 text-zinc-400">
+                        <div className="text-[11px] leading-4 text-[#8A867D]">
                           {isActive
-                            ? `Answers ${ordinal(position)}`
-                            : 'Sitting out'}
+                            ? `Answers ${ordinal(position)}${isLastActive ? ' · keep at least one' : ''}`
+                            : 'Off, not in this chat'}
                         </div>
                       </div>
 
@@ -366,7 +370,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                         onClick={() => moveSeat(index, index - 1)}
                         disabled={disabled || index === 0}
                         aria-label={`Move ${member?.name || id} earlier`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 shadow-2xs transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-30"
+                        className="flex h-11 w-10 items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#F7F6F3] disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         <ChevronUp className="h-3.5 w-3.5" />
                       </button>
@@ -376,7 +380,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                         onClick={() => moveSeat(index, index + 1)}
                         disabled={disabled || index === seatOrder.length - 1}
                         aria-label={`Move ${member?.name || id} later`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-500 shadow-2xs transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-30"
+                        className="flex h-11 w-10 items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#F7F6F3] disabled:cursor-not-allowed disabled:opacity-30"
                       >
                         <ChevronDown className="h-3.5 w-3.5" />
                       </button>
@@ -390,7 +394,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-zinc-900 text-xs font-semibold text-white transition-colors hover:bg-zinc-800 active:bg-black"
+                className="mt-4 flex h-[52px] w-full items-center justify-center rounded-[14px] bg-[#1C1B1A] text-sm font-medium text-white transition-colors hover:bg-[#2A2927] active:bg-black"
               >
                 Done
               </button>
