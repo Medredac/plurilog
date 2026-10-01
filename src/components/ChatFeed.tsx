@@ -1497,9 +1497,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 }`}
               >
                 <div className="max-w-[88%] sm:max-w-[480px] w-fit bg-[#EFEDE9] rounded-[18px_18px_6px_18px] px-4 py-3 relative min-w-0 text-[16px] leading-6 text-[#1C1B1A]">
-                  {/* Attached Files (Images or PDFs) if present */}
+                  {/* Attached files */}
                   {attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
+                    <div className="mb-2.5 flex max-w-full min-w-0 flex-wrap gap-2 sm:gap-2.5">
                       {attachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
                         const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
@@ -1510,33 +1510,82 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         const isText = isTextFileUrl(cleanLower) || isTextFileName(fnLower);
                         const isImage = isImageUrl(url, filename);
 
+                        if (isPdf || isDocx) {
+                          const documentTypeLabel = isPdf ? 'PDF document' : 'Word document';
+                          const documentIconSrc = isPdf
+                            ? '/file-icon-pdf.svg'
+                            : '/file-icon-docx.svg';
+                          const openPreview = () =>
+                            onPreviewDocument?.({ url, filename });
+
+                          return (
+                            <div
+                              key={`${message.id}-attachment-${i}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={openPreview}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  openPreview();
+                                }
+                              }}
+                              className="group flex min-h-[64px] w-[330px] max-w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-white px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
+                              title={`Preview ${filename}`}
+                              aria-label={`Preview ${filename}`}
+                            >
+                              <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                                <img
+                                  src={documentIconSrc}
+                                  alt=""
+                                  className="h-14 w-11 object-contain"
+                                  aria-hidden="true"
+                                />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
+                                  title={filename}
+                                >
+                                  {filename}
+                                </p>
+                                <p className="mt-1 text-[10px] leading-4 text-[#6A675F]">
+                                  {documentTypeLabel}
+                                </p>
+                              </div>
+
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openPreview();
+                                  }}
+                                  className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                  title={`Preview ${filename}`}
+                                  aria-label={`Preview ${filename}`}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </button>
+                                <a
+                                  href={url}
+                                  download={filename}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                  title={`Download ${filename}`}
+                                  aria-label={`Download ${filename}`}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            {isPdf ? (
-                              <button
-                                type="button"
-                                onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Preview ${filename}`}
-                              >
-                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
-                                  PDF
-                                </span>
-                              </button>
-                            ) : isDocx ? (
-                              <button
-                                type="button"
-                                onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Preview ${filename}`}
-                              >
-                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
-                                  DOCX
-                                </span>
-                              </button>
-                            ) : isText ? (
+                            {isText ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
@@ -1683,10 +1732,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         };
         const activityRingColor =
           modelKey === 'claude'
-            ? '#E0644B'
+            ? '#EA8A75'
             : modelKey === 'gemini'
-              ? '#4880E6'
-              : '#3A3A3C';
+              ? '#82A7EC'
+              : '#858589';
 
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
@@ -1763,9 +1812,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 >
                   {message.isStreaming && (
                     <span
-                      className="plurilog-thinking-ring absolute -inset-[3px] rounded-full"
+                      className="plurilog-thinking-ring absolute -inset-[1.5px] rounded-full"
                       style={{
-                        background: `conic-gradient(from 0deg, transparent 0deg 225deg, ${activityRingColor} 255deg 320deg, transparent 350deg 360deg)`,
+                        background: `conic-gradient(from 0deg, transparent 0deg 292deg, ${activityRingColor} 292deg 344deg, transparent 344deg 360deg)`,
                       }}
                       aria-hidden="true"
                     />
@@ -1812,7 +1861,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             key={id}
                             provider={id}
                             size="sm"
-                            showBorder={false}
                           />
                         ))}
                       </span>
