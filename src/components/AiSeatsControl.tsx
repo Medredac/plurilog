@@ -146,32 +146,32 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
             : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
         } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
       >
-        <motion.span
-          layout
-          className="flex items-center -space-x-1"
-          transition={{ layout: { type: 'tween', duration: 0.2, ease: 'easeInOut' } }}
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            {orderedActive.map((id) => (
+        <span className="flex items-center overflow-visible">
+          {seatOrder.map((id) => {
+            const isActive = activeSet.has(id);
+
+            return (
               <motion.span
                 key={id}
-                layout
-                initial={{ opacity: 0, scale: 0.72, x: -5 }}
-                animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{
-                  opacity: { duration: 0.14, ease: 'easeOut' },
-                  scale: { duration: 0.18, ease: 'easeOut' },
-                  x: { duration: 0.18, ease: 'easeOut' },
-                  layout: { type: 'tween', duration: 0.2, ease: 'easeInOut' },
+                initial={false}
+                animate={{
+                  width: isActive ? 14 : 0,
+                  opacity: isActive ? 1 : 0,
                 }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white"
+                transition={{
+                  width: { duration: 0.2, ease: 'easeInOut' },
+                  opacity: { duration: isActive ? 0.18 : 0.12, ease: 'easeOut' },
+                }}
+                className="relative h-[18px] shrink-0 overflow-visible"
+                aria-hidden={!isActive}
               >
-                <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+                <span className="absolute left-0 top-0 flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white">
+                  <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+                </span>
               </motion.span>
-            ))}
-          </AnimatePresence>
-        </motion.span>
+            );
+          })}
+        </span>
 
         <span className="relative inline-flex min-w-[30px] overflow-hidden">
           <AnimatePresence initial={false} mode="popLayout">
