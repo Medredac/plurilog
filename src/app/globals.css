@@ -136,37 +136,38 @@ body {
 
 
 /* Active AI: animated Plurilog gradient stroke, without the legacy amber fill */
-@property --plurilog-stroke-angle {
-  syntax: "<angle>";
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes plurilogStrokeOrbit {
-  to {
-    --plurilog-stroke-angle: 360deg;
+@keyframes plurilogStrokeFlow {
+  0% {
+    background-position: 0 0, 0% 50%;
+  }
+  50% {
+    background-position: 0 0, 100% 50%;
+  }
+  100% {
+    background-position: 0 0, 0% 50%;
   }
 }
 
 .plurilog-speaking-stroke {
-  --plurilog-stroke-angle: 0deg;
   border-color: transparent !important;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.97)) padding-box,
-    conic-gradient(
-      from var(--plurilog-stroke-angle),
-      #F5A623 0deg,
-      #FF7A59 78deg,
-      #E46BB2 150deg,
-      #7C6CF2 225deg,
-      #4880E6 300deg,
-      #F5A623 360deg
+    linear-gradient(#FFFFFF, #FFFFFF) padding-box,
+    linear-gradient(
+      110deg,
+      #F5A623 0%,
+      #FF7A59 18%,
+      #E46BB2 38%,
+      #7C6CF2 60%,
+      #4880E6 80%,
+      #F5A623 100%
     ) border-box;
+  background-size: 100% 100%, 240% 240%;
+  background-position: 0 0, 0% 50%;
   box-shadow:
     0 1px 2px rgba(24, 24, 27, 0.05),
-    0 0 9px rgba(72, 128, 230, 0.13),
-    0 0 13px rgba(245, 166, 35, 0.08);
-  animation: plurilogStrokeOrbit 3.6s linear infinite;
+    0 0 8px rgba(124, 108, 242, 0.14),
+    0 0 14px rgba(72, 128, 230, 0.08);
+  animation: plurilogStrokeFlow 2.8s ease-in-out infinite;
 }
 
 /* Subtle, light gray grid pattern on pure white */
@@ -427,7 +428,7 @@ body {
 
   .plurilog-speaking-stroke {
     animation: none;
-    --plurilog-stroke-angle: 28deg;
+    background-position: 0 0, 55% 50%;
   }
 }
 
