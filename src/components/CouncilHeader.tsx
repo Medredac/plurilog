@@ -149,7 +149,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
               isMobilePanelOpen
                 ? 'bg-zinc-100 text-zinc-900 border-zinc-300 shadow-2xs'
                 : isDebating
-                ? 'plurilog-speaking-stroke text-zinc-800 shadow-2xs'
+                ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-2xs'
                 : 'bg-zinc-50 hover:bg-zinc-100 text-zinc-700 border-zinc-200/80'
             }`}
             aria-haspopup="dialog"
@@ -159,11 +159,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
             title="Toggle Panel Configuration"
           >
             {isDebating ? (
-              activeSpeaker ? (
-                <ProviderIcon provider={activeSpeaker} className="w-3.5 h-3.5 shrink-0" />
-              ) : (
-                <Loader2 className="w-3 h-3 animate-spin text-zinc-400 shrink-0" />
-              )
+              <Loader2 className="w-3 h-3 animate-spin text-amber-700 shrink-0" />
             ) : (
               <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 shrink-0" />
             )}
@@ -217,7 +213,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   isTargetOver ? 'ring-2 ring-amber-400 ring-offset-1' : ''
                 } ${
                   isSpeaking
-                    ? 'plurilog-speaking-stroke text-zinc-800 shadow-2xs font-medium'
+                    ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
                     : isSelected
                     ? 'bg-zinc-50 text-zinc-600 border-zinc-200/80 hover:bg-zinc-100/70 hover:text-zinc-800 font-medium'
                     : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50 hover:opacity-75 font-normal'
@@ -368,7 +364,7 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   }}
                   className={`flex items-center justify-between px-2.5 py-1 rounded-xl border transition-colors select-none min-h-[44px] ${
                     isSpeaking
-                      ? 'plurilog-speaking-stroke text-zinc-800 shadow-2xs'
+                      ? 'bg-amber-50 text-zinc-800 border-amber-300 shadow-2xs'
                       : isSelected
                       ? 'bg-zinc-50 text-zinc-700 border-zinc-200/80'
                       : 'bg-white text-zinc-400 border-zinc-200/50 opacity-50'
