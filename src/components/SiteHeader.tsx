@@ -109,6 +109,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
     setIsMobileMenuOpen(false);
     if (pathname === '/') {
       e.preventDefault();
+      window.history.pushState(null, '', '/');
       const heroEl = document.getElementById('hero');
       if (heroEl) {
         heroEl.scrollIntoView({ behavior: 'smooth' });
@@ -135,6 +136,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
     }
 
     e.preventDefault();
+    window.history.pushState(null, '', `/#${sectionId}`);
 
     if (isMobileMenuOpen) {
       pendingSectionScrollRef.current = sectionId;
@@ -151,6 +153,10 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
 
   const handlePricingClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     handleSectionClick(e, 'pricing');
+  };
+
+  const handleFaqClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    handleSectionClick(e, 'faq');
   };
 
   const handleMobileMenuExitComplete = () => {
@@ -193,6 +199,19 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
             Pricing
           </Link>
           <Link
+            href="/#faq"
+            onClick={handleFaqClick}
+            className="hover:text-zinc-900 transition-colors cursor-pointer"
+          >
+            FAQ
+          </Link>
+          <Link
+            href="/blog"
+            className="hover:text-zinc-900 transition-colors cursor-pointer"
+          >
+            Blog
+          </Link>
+          <Link
             href="/terms"
             className="hover:text-zinc-900 transition-colors cursor-pointer"
           >
@@ -203,12 +222,6 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
             className="hover:text-zinc-900 transition-colors cursor-pointer"
           >
             Privacy
-          </Link>
-          <Link
-            href="/blog"
-            className="hover:text-zinc-900 transition-colors cursor-pointer"
-          >
-            Blog
           </Link>
         </nav>
 
@@ -308,6 +321,20 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
                 Pricing
               </Link>
               <Link
+                href="/#faq"
+                onClick={handleFaqClick}
+                className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+              >
+                FAQ
+              </Link>
+              <Link
+                href="/blog"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
+              >
+                Blog
+              </Link>
+              <Link
                 href="/terms"
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
@@ -320,13 +347,6 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({ onGetStartedClick }) => 
                 className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
               >
                 Privacy
-              </Link>
-              <Link
-                href="/blog"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="px-2.5 py-2 rounded-lg hover:bg-zinc-50 hover:text-zinc-900 transition-colors cursor-pointer"
-              >
-                Blog
               </Link>
             </motion.nav>
           </motion.div>
