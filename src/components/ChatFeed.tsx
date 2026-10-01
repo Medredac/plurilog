@@ -1681,6 +1681,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           statusDotColor: 'bg-zinc-500',
           status: 'Ready',
         };
+        const activityRingColor =
+          modelKey === 'claude'
+            ? '#E0644B'
+            : modelKey === 'gemini'
+              ? '#4880E6'
+              : '#3A3A3C';
 
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
@@ -1758,12 +1764,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   {message.isStreaming && (
                     <span
                       className="plurilog-thinking-ring absolute -inset-[3px] rounded-full"
+                      style={{
+                        background: `conic-gradient(from 0deg, transparent 0deg 225deg, ${activityRingColor} 255deg 320deg, transparent 350deg 360deg)`,
+                      }}
                       aria-hidden="true"
                     />
                   )}
                   <ProviderBadge
                     provider={modelKey}
                     size={viewMode === 'side-by-side' ? 'md' : 'lg'}
+                    showBorder={false}
                     className="relative z-[1]"
                   />
                 </div>
@@ -1802,7 +1812,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             key={id}
                             provider={id}
                             size="sm"
-                            className="ring-1 ring-[#F7F6F3]"
+                            showBorder={false}
                           />
                         ))}
                       </span>
