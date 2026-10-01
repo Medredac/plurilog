@@ -171,7 +171,7 @@ export const ResponsiveDocumentViewer: React.FC<
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-zinc-100">
+      <div className="flex h-full items-center justify-center bg-[#F7F6F3]">
         <div className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-xs text-zinc-500 shadow-sm">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Preparing preview…
@@ -182,7 +182,7 @@ export const ResponsiveDocumentViewer: React.FC<
 
   if (!preview || previewError) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-zinc-100 p-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#F7F6F3] p-6 text-center">
         <p className="text-sm text-zinc-600">
           {previewError || 'Preview unavailable.'}
         </p>
@@ -201,8 +201,8 @@ export const ResponsiveDocumentViewer: React.FC<
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-zinc-200">
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-zinc-700 bg-zinc-800 px-2.5 text-zinc-100">
+    <div className="flex h-full min-h-0 flex-col bg-[#F7F6F3]">
+      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[#2A2927] bg-[#1C1B1A] px-2.5 text-[#F7F6F3]">
         <button
           type="button"
           onClick={() => setThumbnailsOpen((current) => !current)}
@@ -265,7 +265,7 @@ export const ResponsiveDocumentViewer: React.FC<
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div
-          className={`shrink-0 overflow-hidden bg-zinc-900 transition-[width] duration-200 ease-out ${
+          className={`shrink-0 overflow-hidden bg-[#1C1B1A] transition-[width] duration-200 ease-out ${
             thumbnailsOpen ? 'w-[150px] sm:w-[170px]' : 'w-0'
           }`}
           aria-hidden={!thumbnailsOpen}
@@ -307,7 +307,7 @@ export const ResponsiveDocumentViewer: React.FC<
         <div
           ref={scrollRef}
           onScroll={updateCurrentPage}
-          className="min-w-0 flex-1 overflow-auto bg-zinc-200"
+          className="min-w-0 flex-1 overflow-auto bg-[#F7F6F3]"
         >
           <div className="flex min-h-full w-full flex-col items-center gap-4 px-3 py-4 sm:px-4">
             {preview.pages.map((page) => (
