@@ -2841,7 +2841,7 @@ export default function DashboardPage() {
                     />
                   </div>
 
-                  <h2 className="text-[38px] sm:text-[52px] font-semibold leading-[1.05] text-[#1C1B1A] tracking-[-0.02em] mb-3 animate-drop-fade">
+                  <h2 className="text-[38px] sm:text-[52px] font-medium leading-[1.05] text-[#1C1B1A] tracking-[-0.02em] mb-3 animate-drop-fade">
                     <span>Hello, </span>
                     <span className="relative inline-block">
                       {displayFirstName || 'there'}
