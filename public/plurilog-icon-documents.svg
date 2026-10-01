@@ -12,11 +12,13 @@
 .pop{transform-origin:50% 100%;animation:pop 6s ease-out infinite}
 .bob{transform-origin:50% 100%;animation:bob 6s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){*{animation:none !important}}
+
 .tagA{animation:tagA 6s ease-in-out infinite}.tagB{animation:tagB 6s ease-in-out infinite}
 @keyframes tagA{0%,45%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}55%{transform:translateY(0)}}
 @keyframes tagB{0%,70%,100%{transform:translateY(0)}75%{transform:translateY(-5px)}80%{transform:translateY(0)}}
 .img{animation:imgin 6s ease-in-out infinite}
 @keyframes imgin{0%,20%{opacity:0}32%,88%{opacity:1}96%,100%{opacity:0}}
+
 .rb{transform-box:fill-box;transform-origin:50% 100%;animation:rb 3s ease-in-out infinite}
 @keyframes rb{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .wv{transform-box:fill-box;transform-origin:0% 100%;animation:wv 1.5s ease-in-out infinite}
