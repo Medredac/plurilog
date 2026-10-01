@@ -153,6 +153,8 @@ export interface RenderRichPdfResult {
   elapsedMs: number;
 }
 
+export const DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID = 'snap_LtrBqpBOaEyb0vj8kVHuIHLW7o7O';
+
 const DEFAULT_DESIGN: Required<Omit<PdfDesign, 'locale'>> & { locale: string } = {
   pageSize: 'A4',
   orientation: 'portrait',
@@ -1148,7 +1150,7 @@ export async function createRichPdfRenderSession(
   const snapshotId =
     options.snapshotId?.trim() ||
     process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() ||
-    process.env.DOCX_RENDERER_SNAPSHOT_ID?.trim();
+    DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID;
   const usedSnapshot = Boolean(snapshotId);
   const timeoutMs = Math.max(25_000, Math.min(options.timeoutMs ?? 90_000, 120_000));
 
