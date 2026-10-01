@@ -1839,13 +1839,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             : isTextDocument
                               ? `${documentBadge} document`
                               : 'Document';
-                        const badgeClass = isPdfDocument
-                          ? 'bg-[#E8604C]'
+                        const documentIconSrc = isPdfDocument
+                          ? '/file-icon-pdf.svg'
                           : isDocxDocument
-                            ? 'bg-[#4880E6]'
-                            : isTextDocument
-                              ? 'bg-[#4F8A68]'
-                              : 'bg-[#6A675F]';
+                            ? '/file-icon-docx.svg'
+                            : null;
+                        const fallbackBadgeClass = isTextDocument
+                          ? 'bg-[#4F8A68]'
+                          : 'bg-[#6A675F]';
 
                         const openPreview = () =>
                           onPreviewDocument?.({ url, filename });
@@ -1866,13 +1867,24 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             title={`Preview ${filename}`}
                             aria-label={`Preview ${filename}`}
                           >
-                            <div className="relative flex h-11 w-9 shrink-0 items-center justify-center">
-                              <FileText className="h-10 w-10 text-[#B7B3AA]" />
-                              <span
-                                className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${badgeClass}`}
-                              >
-                                {documentBadge}
-                              </span>
+                            <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                              {documentIconSrc ? (
+                                <img
+                                  src={documentIconSrc}
+                                  alt=""
+                                  className="h-14 w-11 object-contain"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <div className="relative flex h-11 w-9 items-center justify-center">
+                                  <FileText className="h-10 w-10 text-[#B7B3AA]" />
+                                  <span
+                                    className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${fallbackBadgeClass}`}
+                                  >
+                                    {documentBadge}
+                                  </span>
+                                </div>
+                              )}
                             </div>
 
                             <div className="min-w-0 flex-1">
