@@ -307,15 +307,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     .filter((id) => activeModels.includes(id))
     .map((id) => COUNCIL_MEMBERS[id]?.name || id);
 
-  const formatSeatNames = (names: string[]) => {
-    if (names.length <= 1) return names[0] || 'your AIs';
-    if (names.length === 2) return `${names[0]} and ${names[1]}`;
-    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-  };
+  const composerTarget =
+    activeSeatNames.length === 1 ? activeSeatNames[0] : 'the panel';
 
   const composerPlaceholder = isCentered
-    ? `Ask ${formatSeatNames(activeSeatNames)} anything…`
-    : `Reply to ${formatSeatNames(activeSeatNames)}…`;
+    ? `Ask ${composerTarget}…`
+    : `Reply to ${composerTarget}…`;
 
   const containerClasses = isCentered
     ? 'w-full pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-right))]'
