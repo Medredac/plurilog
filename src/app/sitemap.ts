@@ -4,7 +4,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
       url: 'https://plurilogai.com/',
-      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+      lastModified: new Date('2026-09-30T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/chatgpt-claude-gemini',
