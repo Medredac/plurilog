@@ -1419,12 +1419,27 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
+          const hasAnswerBeforeNextUser = (continueIndex: number) => {
+            for (let index = continueIndex + 1; index < messages.length; index += 1) {
+              const item = messages[index];
+              if (item.role === 'user') return false;
+              if (item.role === 'model' && item.content.trim()) return true;
+            }
+            return false;
+          };
+
+          if (!hasAnswerBeforeNextUser(idx)) {
+            return null;
+          }
+
           let roundNumber = 0;
           for (let index = idx; index >= 0; index -= 1) {
             const item = messages[index];
             if (item.role !== 'user') continue;
             if (item.content !== 'Continue') break;
-            roundNumber += 1;
+            if (hasAnswerBeforeNextUser(index)) {
+              roundNumber += 1;
+            }
           }
 
           return (
