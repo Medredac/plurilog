@@ -252,7 +252,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onNewDebate}
-            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="New Discussion"
             aria-label="New Discussion"
           >
@@ -364,7 +364,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-[#E2E0DB] lg:bg-white shrink-0">
           <button
             onClick={toggleDesktop}
-            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="Open sidebar"
             aria-label="Open sidebar"
           >
