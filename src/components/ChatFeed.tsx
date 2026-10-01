@@ -375,8 +375,9 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
     if (elapsedMs < 22000) return 'considering_context';
     return 'working';
   })();
-  const displayLabel =
+  const rawDisplayLabel =
     activityLabel?.trim() || getSeatActivityLabel(effectiveStatus);
+  const displayLabel = rawDisplayLabel.replace(/(?:…|\.\.\.)\s*$/, '');
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -397,8 +398,11 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       : null;
   const faviconUrl = getSearchFaviconUrl(activeSource);
 
-  const iconClass =
-    'h-3.5 w-3.5 shrink-0 text-[#F2C94C]';
+  const providerAccent: Record<ModelId, string> = {
+    claude: '#E0644B',
+    gemini: '#4880E6',
+    chatgpt: '#3A3A3C',
+  };
   const iconMotion =
     reduceMotion
       ? {}
@@ -460,12 +464,6 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
     }
   })();
 
-  const dotColor: Record<ModelId, string> = {
-    claude: '#E0644B',
-    gemini: '#4880E6',
-    chatgpt: '#3A3A3C',
-  };
-
   return (
     <div className="py-0.5 flex min-w-0 items-center animate-in fade-in duration-150">
       <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[#E2E0DB] bg-white px-3 py-2 text-[14px] text-[#1C1B1A]">
@@ -484,7 +482,10 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
           className="flex h-4 w-4 shrink-0 items-center justify-center"
           aria-hidden="true"
         >
-          <ActivityIcon className="h-3.5 w-3.5 text-[#6A675F]" />
+          <ActivityIcon
+            className="h-3.5 w-3.5"
+            style={{ color: providerAccent[provider] }}
+          />
         </motion.div>
 
         <AnimatePresence mode="wait" initial={false}>
@@ -494,19 +495,25 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -2 }}
             transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
-            className="min-w-0 truncate whitespace-nowrap font-normal"
+            className="animate-text-shimmer min-w-0 truncate whitespace-nowrap font-normal tracking-tight select-none"
           >
             {displayLabel}
           </motion.span>
         </AnimatePresence>
 
-        <span className="inline-flex shrink-0 items-center gap-1" aria-hidden="true">
-          {[1, 0.6, 0.3].map((opacity, index) => (
+        <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+          {[0, 1, 2].map((_, index) => (
             <motion.span
               key={index}
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: dotColor[provider], opacity }}
-              animate={reduceMotion ? undefined : { y: [0, -2, 0] }}
+              className="thinking-dot-shimmer h-1 w-1 rounded-full"
+              animate={
+                reduceMotion
+                  ? undefined
+                  : {
+                      y: [0, -1.5, 0],
+                      opacity: [0.5, 1, 0.5],
+                    }
+              }
               transition={{
                 duration: 0.9,
                 repeat: Infinity,
