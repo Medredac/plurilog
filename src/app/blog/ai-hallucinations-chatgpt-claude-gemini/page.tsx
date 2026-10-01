@@ -729,10 +729,17 @@ export default function AiHallucinationsBlogPost() {
           <span>Plurilog &copy; {new Date().getFullYear()}</span>
         </div>
 
-        <div className="flex items-center gap-4 text-[11px]">
-          <Link href="/privacy" className="hover:text-zinc-600 transition-colors">Privacy Policy</Link>
-          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms of Service</Link>
-        </div>
+        <nav
+          aria-label="Footer navigation"
+          className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[11px]"
+        >
+          <Link href="/#about" className="hover:text-zinc-600 transition-colors">About</Link>
+          <Link href="/#pricing" className="hover:text-zinc-600 transition-colors">Pricing</Link>
+          <Link href="/#faq" className="hover:text-zinc-600 transition-colors">FAQ</Link>
+          <Link href="/blog" className="hover:text-zinc-600 transition-colors font-medium text-zinc-600">Blog</Link>
+          <Link href="/privacy" className="hover:text-zinc-600 transition-colors">Privacy</Link>
+          <Link href="/terms" className="hover:text-zinc-600 transition-colors">Terms</Link>
+        </nav>
       </footer>
     </div>
   );
