@@ -26,7 +26,7 @@ const PLAN_FEATURES = [
 ];
 
 const RobotHeads = () => (
-  <div className="pointer-events-none absolute -top-[19px] right-4 flex items-end -space-x-2.5" aria-hidden="true">
+  <div className="pointer-events-none absolute -top-[23px] right-4 flex items-end -space-x-2.5" aria-hidden="true">
     <img src="/robot-head-claude.svg" alt="" className="h-[35px] w-[33px] object-contain" />
     <img src="/robot-head-chatgpt.svg" alt="" className="h-[35px] w-[33px] object-contain" />
     <img src="/robot-head-gemini.svg" alt="" className="h-[35px] w-[33px] object-contain" />
