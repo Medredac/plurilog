@@ -146,7 +146,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           <div
             role="dialog"
             aria-label="Who’s in this chat"
-            className="absolute bottom-full left-0 mb-2 hidden w-[318px] rounded-2xl border border-zinc-200/90 bg-white p-3 shadow-[0_16px_45px_rgba(24,24,27,0.14)] sm:block"
+            className="absolute bottom-full left-0 mb-2 hidden w-[318px] rounded-2xl border border-zinc-200/90 bg-white p-3 text-left shadow-[0_16px_45px_rgba(24,24,27,0.14)] sm:block"
           >
             <div className="px-1 pb-2">
               <h3 className="text-xs font-semibold text-zinc-900">Who’s in this chat</h3>
@@ -171,13 +171,13 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       isActive ? 'bg-white' : 'bg-zinc-50'
                     } ${draggedId === id ? 'opacity-45' : ''}`}
                   >
-                    <GripVertical className="h-3.5 w-3.5 shrink-0 text-zinc-300" />
+                    <span className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center text-zinc-300 active:cursor-grabbing" title="Drag to reorder" aria-hidden="true">\n                      <GripVertical className="h-3.5 w-3.5" />\n                    </span>
                     <ProviderIcon provider={id} className="h-4 w-4 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className={`truncate text-[11px] font-medium ${isActive ? 'text-zinc-800' : 'text-zinc-500'}`}>
+                      <div className={`truncate text-[13px] font-medium leading-4 ${isActive ? 'text-zinc-800' : 'text-zinc-500'}`}>
                         {member?.name || id}
                       </div>
-                      <div className="mt-0.5 text-[9px] leading-none text-zinc-400">
+                      <div className="mt-0.5 text-[10px] leading-3 text-zinc-400">
                         {isActive ? 'Answering' : 'Sitting out'}
                       </div>
                     </div>
@@ -196,7 +196,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
               className="absolute inset-0 h-full w-full bg-zinc-900/30 backdrop-blur-[1px]"
               onClick={() => setIsOpen(false)}
             />
-            <div className="absolute inset-x-0 bottom-0 rounded-t-[22px] border-t border-zinc-200 bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-16px_45px_rgba(24,24,27,0.15)]">
+            <div className="absolute inset-x-0 bottom-0 rounded-t-[22px] border-t border-zinc-200 bg-white px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 text-left shadow-[0_-16px_45px_rgba(24,24,27,0.15)]">
               <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-zinc-300" />
               <div className="px-1">
                 <h3 className="text-base font-semibold tracking-tight text-zinc-900">AI seats</h3>
@@ -222,7 +222,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       </span>
                       <ProviderIcon provider={id} className="h-4 w-4 shrink-0" />
                       <div className="min-w-0 flex-1">
-                        <div className={`truncate text-[12px] font-medium ${isActive ? 'text-zinc-800' : 'text-zinc-500'}`}>
+                        <div className={`truncate text-[13px] font-medium leading-4 ${isActive ? 'text-zinc-800' : 'text-zinc-500'}`}>
                           {member?.name || id}
                         </div>
                         <div className="mt-0.5 text-[9px] leading-none text-zinc-400">
