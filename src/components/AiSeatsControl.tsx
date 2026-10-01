@@ -177,7 +177,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           })}
         </span>
 
-        <span className="relative inline-flex min-w-[36px] overflow-hidden">
+        <span className="relative ml-1.5 inline-flex min-w-[36px] overflow-hidden">
           <AnimatePresence initial={false} mode="popLayout">
             <motion.span
               key={countLabel}
