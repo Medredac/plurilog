@@ -194,7 +194,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                     layout="position"
                     transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
                     draggable={!disabled}
-                    onDragStart={(event) => {
+                    onDragStart={(event: any) => {
                       const target = event.target as HTMLElement;
                       if (target.closest('[data-seat-toggle="true"]')) {
                         event.preventDefault();
@@ -206,7 +206,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       setDraggedId(id);
                       setDragOverId(null);
                     }}
-                    onDragOver={(event) => {
+                    onDragOver={(event: any) => {
                       event.preventDefault();
                       if (!draggedId || draggedId === id) return;
                       event.dataTransfer.dropEffect = 'move';
@@ -215,7 +215,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                     onDragLeave={() => {
                       if (dragOverId === id) setDragOverId(null);
                     }}
-                    onDrop={(event) => {
+                    onDrop={(event: any) => {
                       event.preventDefault();
                       moveDraggedSeat(id);
                     }}
