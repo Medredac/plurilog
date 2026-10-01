@@ -36,7 +36,6 @@ import {
 } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
-import { ProviderIcon } from './ProviderIcon';
 import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
@@ -761,14 +760,14 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
   return (
     <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden group text-left w-full max-w-full min-w-0">
       {/* Top Header Bar with Language tag and Copy Button (Neutral light grey styling) */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-zinc-500 min-w-0">
-        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-zinc-500 truncate">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-[#6A675F] min-w-0">
+        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-[#6A675F] truncate">
           {language !== 'text' ? language : 'code'}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-zinc-500 hover:text-[#1C1B1A] hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
+          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-[#6A675F] hover:text-[#1C1B1A] hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
           title="Copy code"
         >
           {copied ? (
@@ -1803,7 +1802,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               />
                             </button>
                             <span
-                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              className="text-[10px] sm:text-[11px] font-mono text-[#6A675F] hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
                               title={filename}
                             >
                               {filename}
@@ -1855,7 +1854,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               </span>
                             </button>
                             <span
-                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              className="text-[10px] sm:text-[11px] font-mono text-[#6A675F] hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
                               title={filename}
                             >
                               {filename}
