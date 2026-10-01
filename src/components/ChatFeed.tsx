@@ -2108,7 +2108,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         );
       })}
 
-      {/* Continue discussion: branded round control */}
+      {/* Continue discussion: only when the latest user turn has real AI output */}
       {canContinue && !isDebating && messages.length > 0 && onContinue && (() => {
         const lastUserIndex = [...messages]
           .map((item, index) => ({ item, index }))
@@ -2129,12 +2129,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           )
         ) as ModelId[];
 
+        if (latestModels.length === 0) return null;
+
+        const expectedAnswers = Math.max(1, activeModels.length);
+        const answerLabel =
+          latestModels.length >= expectedAnswers
+            ? `All ${latestModels.length} answered`
+            : `${latestModels.length} of ${expectedAnswers} answered`;
+
         return (
           <div className="col-span-full pt-6 pb-2 animate-in fade-in duration-200 min-w-0">
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-[#E7E5E0]" />
               <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
-                All {Math.max(1, latestModels.length)} answered
+                {answerLabel}
               </span>
               <button
                 type="button"
