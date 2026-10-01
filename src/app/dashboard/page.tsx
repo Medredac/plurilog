@@ -2691,15 +2691,13 @@ export default function DashboardPage() {
           />
         </Suspense>
         <div className="plurilog-dashboard bg-tech-grid flex h-screen w-screen items-center justify-center text-[#1C1B1A] font-sans">
-          <div className="flex flex-col items-center gap-3.5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#E2E0DB] bg-white dashboard-input-shadow">
-              <img
-                src="/logo.svg"
-                alt="Plurilog"
-                className="h-7 w-7 object-contain"
-              />
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white/90 px-3 py-2 text-xs font-medium text-[#6A675F] dashboard-input-shadow backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-3">
+            <img
+              src="/logo.svg"
+              alt="Plurilog"
+              className="h-8 w-8 object-contain"
+            />
+            <div className="inline-flex items-center gap-2 text-xs font-medium text-[#6A675F]">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8A867D]" />
               <span>Verifying session…</span>
             </div>
