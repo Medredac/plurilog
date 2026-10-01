@@ -116,19 +116,23 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           event.stopPropagation();
           onToggleModel(id);
         }}
-        className={`relative h-[26px] w-11 sm:h-[22px] sm:w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF] focus-visible:ring-offset-2 ${
-          isActive ? 'bg-[#1C1B1A]' : 'bg-[#D9D6CF]'
-        } ${
+        className={`relative flex h-11 w-11 sm:h-[22px] sm:w-[40px] shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF] focus-visible:ring-offset-2 ${
           disabled || isLastActive
             ? 'cursor-not-allowed opacity-55'
             : 'cursor-pointer'
         }`}
       >
-        <motion.span
-          className="absolute left-[2px] top-[2px] block h-[22px] w-[22px] sm:h-[18px] sm:w-[18px] rounded-full bg-white shadow-sm"
-          animate={{ x: isActive ? 18 : 0 }}
-          transition={{ type: 'spring', stiffness: 520, damping: 34, mass: 0.55 }}
-        />
+        <span
+          className={`relative block h-[26px] w-11 sm:h-[22px] sm:w-[40px] rounded-full transition-colors duration-200 ${
+            isActive ? 'bg-[#1C1B1A]' : 'bg-[#D9D6CF]'
+          }`}
+        >
+          <motion.span
+            className="absolute left-[2px] top-[2px] block h-[22px] w-[22px] sm:h-[18px] sm:w-[18px] rounded-full bg-white shadow-sm"
+            animate={{ x: isActive ? 18 : 0 }}
+            transition={{ type: 'spring', stiffness: 520, damping: 34, mass: 0.55 }}
+          />
+        </span>
       </button>
     );
   };
