@@ -1050,6 +1050,11 @@ export default function DashboardPage() {
     msgId: string;
   }
 
+  interface ContinueMarker {
+    uiMessageId: string;
+    persistedMessageId?: string | null;
+  }
+
   // Executes sequential SSE relay stream for either new user message or continue round
   const runRelay = async (
     promptToSend: string,
@@ -1060,7 +1065,8 @@ export default function DashboardPage() {
     sourceUserMessageId?: string | null,
     retrySnapshot?: FailedTurnState | null,
     optimisticPlaceholder?: OptimisticPlaceholder | null,
-    existingController?: AbortController | null
+    existingController?: AbortController | null,
+    continueMarker?: ContinueMarker | null
   ) => {
     const controller = existingController || new AbortController();
     abortControllerRef.current = controller;
@@ -1073,6 +1079,28 @@ export default function DashboardPage() {
     let uiReleasedForReady = false;
     const currentAttemptModelMsgIds = new Set<string>();
     const pendingSeatPlaceholders = new Map<ModelId, string>();
+
+    const removeUnansweredContinueMarker = async () => {
+      if (!isContinueRound || !continueMarker) return;
+
+      setMessages((prev) =>
+        prev.filter((message) => message.id !== continueMarker.uiMessageId)
+      );
+
+      if (continueMarker.persistedMessageId) {
+        const { error: deleteContinueErr } = await supabase
+          .from('messages')
+          .delete()
+          .eq('id', continueMarker.persistedMessageId);
+
+        if (deleteContinueErr) {
+          console.error(
+            '[Continue Cleanup] Failed to remove unanswered Continue marker:',
+            deleteContinueErr
+          );
+        }
+      }
+    };
 
     const insertAttemptMessageBySeatOrder = (
       current: ChatMessage[],
@@ -1173,6 +1201,7 @@ export default function DashboardPage() {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticPlaceholder.msgId));
         }
       }
+      await removeUnansweredContinueMarker();
       return;
     }
 
@@ -1967,6 +1996,13 @@ export default function DashboardPage() {
       if (isAborted) {
         console.log('[Relay Stopped] Discussion stream was stopped by user.');
 
+        const hasStoppedOutput =
+          completedSeatsCount > 0 || Boolean(inProgressContent.trim());
+
+        if (!hasStoppedOutput) {
+          await removeUnansweredContinueMarker();
+        }
+
         // If stopped mid-stream, persist whatever partial response was already received
         if (discussionId && inProgressModelId && inProgressContent.trim()) {
           try {
@@ -1991,9 +2027,6 @@ export default function DashboardPage() {
         }
 
         if (activeDebateIdRef.current === discussionId) {
-          const hasStoppedOutput =
-            completedSeatsCount > 0 || Boolean(inProgressContent.trim());
-
           setSeatStatuses(INITIAL_SEAT_STATUSES);
           setActiveSpeaker(null);
           setIsDebating(false);
@@ -2692,19 +2725,48 @@ export default function DashboardPage() {
       initialModelMsg ? [...prev, userMsg, initialModelMsg] : [...prev, userMsg]
     );
 
+    let persistedContinueMessageId: string | null = null;
     try {
-      await supabase.from('messages').insert({
-        discussion_id: activeDebateId,
-        sender: 'user',
-        content: 'Continue',
-      });
+      const { data: insertedContinue, error: insertContinueErr } = await supabase
+        .from('messages')
+        .insert({
+          discussion_id: activeDebateId,
+          sender: 'user',
+          content: 'Continue',
+        })
+        .select('id')
+        .single();
+
+      if (insertContinueErr) {
+        console.error('[Supabase Error] Error persisting continue message:', insertContinueErr);
+      } else {
+        persistedContinueMessageId = insertedContinue?.id || null;
+      }
     } catch (err) {
       console.error('[Supabase Exception] Error persisting continue message:', err);
     }
 
+    const continueMarker: ContinueMarker = {
+      uiMessageId: tempUserMsgId,
+      persistedMessageId: persistedContinueMessageId,
+    };
+
     if (controller.signal.aborted) {
-      if (optimisticFirstModelMsgId) {
-        setMessages((prev) => prev.filter((m) => m.id !== optimisticFirstModelMsgId));
+      setMessages((prev) =>
+        prev.filter(
+          (m) =>
+            m.id !== optimisticFirstModelMsgId &&
+            m.id !== tempUserMsgId
+        )
+      );
+      if (persistedContinueMessageId) {
+        const { error: deleteContinueErr } = await supabase
+          .from('messages')
+          .delete()
+          .eq('id', persistedContinueMessageId);
+        if (deleteContinueErr) {
+          console.error('[Continue Cleanup] Failed to remove unanswered Continue marker:', deleteContinueErr);
+        }
       }
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
@@ -2719,7 +2781,18 @@ export default function DashboardPage() {
         : null;
 
     // 2. Trigger relay with empty string prompt, isContinueRound flag, and optimisticPlaceholder
-    await runRelay('', activeDebateId, activeSeatOrder, true, null, null, null, optimisticPlaceholder, controller);
+    await runRelay(
+      '',
+      activeDebateId,
+      activeSeatOrder,
+      true,
+      null,
+      null,
+      null,
+      optimisticPlaceholder,
+      controller,
+      continueMarker
+    );
   };
 
   if (isLoadingAuth) {
