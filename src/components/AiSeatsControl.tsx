@@ -128,7 +128,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           }`}
         >
           <motion.span
-            className="absolute left-[2px] top-[2px] block h-[22px] w-[22px] sm:h-[18px] sm:w-[18px] rounded-full bg-white shadow-sm"
+            className="absolute left-[2px] top-[2px] block h-[22px] w-[22px] sm:h-[18px] sm:w-[18px] rounded-full bg-white"
             animate={{ x: isActive ? 18 : 0 }}
             transition={{ type: 'spring', stiffness: 520, damping: 34, mass: 0.55 }}
           />
@@ -273,7 +273,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                       isActive
                         ? 'bg-white hover:bg-[#F7F6F3]'
                         : 'bg-[#F7F6F3] hover:bg-[#EFEDE9]'
-                    } ${isDragging ? 'opacity-45 shadow-sm' : ''} ${
+                    } ${isDragging ? 'opacity-45' : ''} ${
                       isDragTarget
                         ? 'ring-2 ring-[#D9D6CF] ring-offset-1 ring-offset-white'
                         : ''
