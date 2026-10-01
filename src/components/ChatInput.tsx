@@ -13,6 +13,7 @@ import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser'
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
   isLoading?: boolean;
+  isLocked?: boolean;
   onStop?: () => void;
   isCentered?: boolean;
   autoFocus?: boolean;
@@ -33,6 +34,7 @@ interface AttachedFileItem {
 export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
+  isLocked = false,
   onStop,
   isCentered = false,
   autoFocus = false,
@@ -277,7 +279,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, []);
 
   const handleSend = () => {
-    if ((!inputVal.trim() && attachedFiles.length === 0) || isLoading) return;
+    if ((!inputVal.trim() && attachedFiles.length === 0) || isLoading || isLocked) return;
     onSendMessage(inputVal.trim(), attachedFiles.length > 0 ? attachedFiles.map(item => item.file) : undefined);
     
     setInputVal('');
@@ -538,9 +540,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!inputVal.trim() && attachedFiles.length === 0}
+                disabled={isLocked || (!inputVal.trim() && attachedFiles.length === 0)}
                 className={`w-11 h-11 sm:w-10 sm:h-10 rounded-[10px] flex items-center justify-center transition-all shrink-0 active:scale-95 ${
-                  inputVal.trim() || attachedFiles.length > 0
+                  !isLocked && (inputVal.trim() || attachedFiles.length > 0)
                     ? 'bg-[#1C1B1A] hover:bg-[#2A2927] text-white cursor-pointer'
                     : 'bg-[#EFEDE9] text-[#8A867D] cursor-not-allowed'
                 }`}
