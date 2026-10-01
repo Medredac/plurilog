@@ -250,6 +250,7 @@ export default function DashboardPage() {
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const [isDebating, setIsDebating] = useState<boolean>(false);
+  const [isStopRequested, setIsStopRequested] = useState<boolean>(false);
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [seatActivityLabels, setSeatActivityLabels] = useState<
@@ -285,6 +286,12 @@ export default function DashboardPage() {
   const isNearBottomRef = useRef(true);
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isDebating) {
+      setIsStopRequested(false);
+    }
+  }, [isDebating]);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -1017,6 +1024,8 @@ export default function DashboardPage() {
 
   // Stop / Cancel currently in-progress debate relay
   const handleStop = () => {
+    setIsStopRequested(true);
+
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
     if (activeGen) {
@@ -1025,7 +1034,15 @@ export default function DashboardPage() {
     }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      return;
     }
+
+    // Defensive UI release if a stale loading state ever survives without
+    // an abortable controller.
+    setSeatStatuses(INITIAL_SEAT_STATUSES);
+    setActiveSpeaker(null);
+    setIsDebating(false);
+    setCanContinue(hasModelResponseAfterLatestUser(messages));
   };
 
   interface OptimisticPlaceholder {
@@ -2053,6 +2070,7 @@ export default function DashboardPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    setIsStopRequested(false);
     setCanContinue(false);
     setErrorMessage(null);
     if (failedTurn) {
@@ -2539,6 +2557,7 @@ export default function DashboardPage() {
     retryInFlightRef.current = true;
     setFailedTurn(null);
     setErrorMessage(null);
+    setIsStopRequested(false);
     setCanContinue(false);
     setIsDebating(true);
 
@@ -2614,6 +2633,7 @@ export default function DashboardPage() {
     abortControllerRef.current = controller;
 
     const firstSeatId = activeSeatOrder[0];
+    setIsStopRequested(false);
     setCanContinue(false);
     setErrorMessage(null);
     setFailedTurn(null);
@@ -2862,7 +2882,8 @@ export default function DashboardPage() {
 
                     <ChatInput
                       onSendMessage={handleSendMessage}
-                      isLoading={isDebating}
+                      isLoading={isDebating && !isStopRequested}
+                      isLocked={isDebating}
                       onStop={handleStop}
                       isCentered
                       autoFocus
@@ -2953,7 +2974,8 @@ export default function DashboardPage() {
           {messages.length > 0 && (
             <ChatInput
               onSendMessage={handleSendMessage}
-              isLoading={isDebating}
+              isLoading={isDebating && !isStopRequested}
+              isLocked={isDebating}
               onStop={handleStop}
               focusTrigger={activeDebateId}
               restoreDraft={restoreDraft}
