@@ -22,6 +22,8 @@ interface ChatInputProps {
   activeModels: ModelId[];
   onReorderSeats: (newOrder: ModelId[]) => void;
   onToggleModel: (id: ModelId) => void;
+  showSeatHint?: boolean;
+  onSeatsUsed?: () => void;
 }
 
 interface AttachedFileItem {
@@ -42,6 +44,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   activeModels,
   onReorderSeats,
   onToggleModel,
+  showSeatHint = false,
+  onSeatsUsed,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFileItem[]>([]);
@@ -350,7 +354,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       />
 
       {/* Inner Composer Container: Applies max-w-2xl (672px) directly to composer content on desktop without consuming outer padding */}
-      <div className={isCentered ? 'w-full max-w-[720px] mx-auto' : 'w-full'}>
+      <div className={isCentered ? 'relative w-full max-w-[720px] mx-auto' : 'relative w-full'}>
         {/* Voice Error Notification Banner */}
         {voiceError && (
           <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200/80 rounded-xl px-3 py-1.5 flex items-center justify-between animate-in fade-in">
@@ -366,6 +370,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         )}
 
+        {isCentered && showSeatHint && (
+          <div className="pointer-events-none absolute -left-[182px] top-1 hidden lg:block w-[160px] -rotate-[4deg] text-left text-[#1C1B1A]">
+            <div className="font-hand text-[24px] leading-none">pick your AIs here</div>
+            <svg
+              className="mt-1 ml-7 h-10 w-24 overflow-visible"
+              viewBox="0 0 96 40"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 7C20 9 29 28 61 29C72 29 80 26 88 22"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+              <path
+                d="M79 18L89 22L82 30"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+        )}
+
         {/* Sleek, Wide Pill-Shaped Input Card */}
         <div className="relative rounded-[20px] bg-white border border-[#E2E0DB] pt-2.5 pr-2.5 pb-2 pl-3 transition-colors focus-within:border-[#D9D6CF] flex flex-col gap-2 min-w-0 max-w-full dashboard-input-shadow">
         {/* AI Seats: primary participant control, shared across desktop and mobile */}
@@ -375,6 +405,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onReorderSeats={onReorderSeats}
           onToggleModel={onToggleModel}
           disabled={isLoading}
+          onInteract={onSeatsUsed}
         />
 
         {/* Attached Files Preview Row */}
