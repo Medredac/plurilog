@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId, SeatStatus } from '../types/chat';
+import { ProviderIcon } from './ProviderIcon';
 
 interface CouncilHeaderProps {
   seatOrder: ModelId[];
@@ -242,15 +243,10 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
 
-                {/* Status Dot */}
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 mx-1.5 ${
-                    isSpeaking
-                      ? 'bg-amber-500 animate-pulse'
-                      : isSelected
-                      ? member?.statusDotColor || 'bg-zinc-500'
-                      : 'bg-zinc-300'
-                  }`}
+                {/* Provider Icon */}
+                <ProviderIcon
+                  provider={id}
+                  className="w-3.5 h-3.5 shrink-0 mx-1.5"
                 />
 
                 {/* Model Name */}
@@ -376,14 +372,9 @@ export const CouncilHeader: React.FC<CouncilHeaderProps> = ({
                 >
                   {/* Left: Status Dot & Model Name */}
                   <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${
-                        isSpeaking
-                          ? 'bg-amber-500 animate-pulse'
-                          : isSelected
-                          ? member?.statusDotColor || 'bg-zinc-500'
-                          : 'bg-zinc-300'
-                      }`}
+                    <ProviderIcon
+                      provider={id}
+                      className="w-4 h-4 shrink-0"
                     />
                     <span className={`text-xs font-medium truncate ${!isSelected ? 'text-zinc-400' : 'text-zinc-700'}`}>
                       {member?.name || id}
