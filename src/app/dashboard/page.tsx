@@ -470,6 +470,24 @@ export default function DashboardPage() {
       });
   }, [supabase]);
 
+  const hasModelResponseAfterLatestUser = (items: ChatMessage[]): boolean => {
+    let lastUserIndex = -1;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index]?.role === 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
+
+    return items
+      .slice(lastUserIndex + 1)
+      .some(
+        (item) =>
+          item.role === 'model' &&
+          Boolean(item.content?.trim())
+      );
+  };
+
   // Fetch messages for a specific discussion and populate canvas atomically
   const fetchDiscussionMessages = useCallback(async (discussionId: string, isInitialMount: boolean = false) => {
     if (!discussionId) {
@@ -579,7 +597,7 @@ export default function DashboardPage() {
         setActiveSpeaker(activeGen.activeSpeaker);
       } else {
         setMessages(formatted);
-        setCanContinue(formatted.length > 0);
+        setCanContinue(hasModelResponseAfterLatestUser(formatted));
         setErrorMessage(null);
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
@@ -1133,7 +1151,7 @@ export default function DashboardPage() {
         setSeatStatuses(INITIAL_SEAT_STATUSES);
         setActiveSpeaker(null);
         setIsDebating(false);
-        setCanContinue(true);
+        setCanContinue(false);
         if (optimisticPlaceholder?.msgId) {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticPlaceholder.msgId));
         }
@@ -1956,9 +1974,13 @@ export default function DashboardPage() {
         }
 
         if (activeDebateIdRef.current === discussionId) {
+          const hasStoppedOutput =
+            completedSeatsCount > 0 || Boolean(inProgressContent.trim());
+
           setSeatStatuses(INITIAL_SEAT_STATUSES);
           setActiveSpeaker(null);
-          setCanContinue(true);
+          setIsDebating(false);
+          setCanContinue(hasStoppedOutput);
           setMessages((prev) =>
             prev
               .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
@@ -2176,7 +2198,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
@@ -2242,7 +2264,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       await cleanupNewlyCreatedDiscussion();
       return;
     }
@@ -2406,7 +2428,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       await cleanupNewlyCreatedDiscussion();
       return;
     }
@@ -2449,7 +2471,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
@@ -2667,7 +2689,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
