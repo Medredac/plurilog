@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRichPdfRendererSnapshot } from '@/utils/richPdfRenderer';
+import { renderRichPdf } from '@/utils/richPdfRenderer';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
   if (process.env.VERCEL_ENV !== 'preview') {
@@ -14,8 +14,42 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await createRichPdfRendererSnapshot();
-    return NextResponse.json(result);
+    const result = await renderRichPdf(
+      {
+        filename: 'snapshot-smoke.pdf',
+        title: 'Snapshot Smoke Test',
+        design: {
+          accentColor: '#1f5f74',
+          accentColor2: '#3459a6',
+          backgroundColor: '#ffffff',
+        },
+        blocks: [
+          {
+            type: 'banner',
+            eyebrow: 'PLURILOG',
+            title: 'Rich PDF renderer',
+            subtitle: 'Prebuilt Chrome snapshot restore test',
+          },
+          {
+            type: 'cards',
+            cardColumns: 2,
+            cards: [
+              { title: 'Modern layout', text: 'HTML/CSS rendering is active.' },
+              { title: 'Visual review', text: 'Rendered pages are available.' },
+            ],
+          },
+        ],
+      },
+      { timeoutMs: 60_000 }
+    );
+
+    return NextResponse.json({
+      ok: true,
+      usedSnapshot: result.usedSnapshot,
+      pageCount: result.totalPageCount,
+      byteSize: result.buffer.length,
+      reviewPageCount: result.reviewPages.length,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message || String(error) },
