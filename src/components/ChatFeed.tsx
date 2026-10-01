@@ -36,6 +36,7 @@ import {
 } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
+import { ProviderIcon } from './ProviderIcon';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
@@ -1719,7 +1720,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               {/* Header: Model name & timestamp only */}
               <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className={`w-2 h-2 rounded-full ${member.statusDotColor} shrink-0`} />
+                  <ProviderIcon provider={modelKey} className="w-3.5 h-3.5 shrink-0" />
                   <span className="font-semibold text-xs text-zinc-700 truncate">
                     {member.name}
                   </span>
