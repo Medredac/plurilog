@@ -2690,16 +2690,18 @@ export default function DashboardPage() {
             urlDiscussionId={urlDiscussionId}
           />
         </Suspense>
-        <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
-          <div className="flex flex-col items-center gap-3">
-            <img
-              src="/logo.svg"
-              alt="Plurilog"
-              className="w-8 h-8 rounded-lg object-contain"
-            />
-            <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
-              <span>Verifying session...</span>
+        <div className="plurilog-dashboard bg-tech-grid flex h-screen w-screen items-center justify-center text-[#1C1B1A] font-sans">
+          <div className="flex flex-col items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#E2E0DB] bg-white dashboard-input-shadow">
+              <img
+                src="/logo.svg"
+                alt="Plurilog"
+                className="h-7 w-7 object-contain"
+              />
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white/90 px-3 py-2 text-xs font-medium text-[#6A675F] dashboard-input-shadow backdrop-blur-[2px]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8A867D]" />
+              <span>Verifying session…</span>
             </div>
           </div>
         </div>
@@ -2855,7 +2857,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => primeComposer('Generate an image of ')}
-                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors"
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
                       >
                         <ImageIcon className="w-3.5 h-3.5 text-[#4880E6]" />
                         Generate an image
@@ -2863,7 +2865,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => primeComposer('Create a document about ')}
-                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors"
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
                       >
                         <FilePlus2 className="w-3.5 h-3.5 text-[#E0644B]" />
                         Create a document
@@ -2871,7 +2873,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => primeComposer('Fact-check this: ')}
-                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors"
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
                       >
                         <BadgeCheck className="w-3.5 h-3.5 text-[#3A3A3C]" />
                         Fact-check something
