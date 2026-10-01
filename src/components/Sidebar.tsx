@@ -210,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {drawerOpen && (
         <div
           onClick={toggleDrawer}
-          className="absolute inset-0 bg-black/10 backdrop-blur-xs z-30 lg:hidden transition-opacity"
+          className="absolute inset-0 bg-[rgba(28,27,26,0.38)] backdrop-blur-[1px] z-30 lg:hidden transition-opacity"
         />
       )}
 
@@ -308,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* User Profile Header in Menu */}
               <div className="px-2.5 py-2 border-b border-[#E7E5E0] mb-1">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                     {userAvatarUrl ? (
                       <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                     ) : (
@@ -335,7 +335,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }}
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                 >
-                  <Settings className="w-4 h-4 text-zinc-400" />
+                  <Settings className="w-4 h-4 text-[#8A867D]" />
                   <span className="font-normal">Account Settings</span>
                 </button>
 
@@ -426,9 +426,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 pb-2">
               <div className="relative">
                 {isSearchingDb ? (
-                  <Loader2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 animate-spin" />
+                  <Loader2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A867D] animate-spin" />
                 ) : (
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A867D]" />
                 )}
                 <input
                   type="text"
@@ -544,7 +544,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {/* User Profile Header in Menu */}
                   <div className="px-2.5 py-2 border-b border-[#E7E5E0] mb-1">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
+                      <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                         {userAvatarUrl ? (
                           <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                         ) : (
@@ -571,7 +571,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }}
                       className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                     >
-                      <Settings className="w-4 h-4 text-zinc-400" />
+                      <Settings className="w-4 h-4 text-[#8A867D]" />
                       <span className="font-normal">Account Settings</span>
                     </button>
 
@@ -585,7 +585,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }}
                         className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                       >
-                        <LogOut className="w-4 h-4 text-zinc-400" />
+                        <LogOut className="w-4 h-4 text-[#8A867D]" />
                         <span className="font-normal">Log Out</span>
                       </button>
                     )}
@@ -600,7 +600,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           }}
                           className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                         >
-                          <Trash2 className="w-4 h-4 text-zinc-400" />
+                          <Trash2 className="w-4 h-4 text-[#8A867D]" />
                           <span className="font-normal">Delete account</span>
                         </button>
                       </>
@@ -620,7 +620,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                     {userAvatarUrl ? (
                       <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                     ) : (
@@ -689,7 +689,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                   setConfirmDeleteDebate(null);
                 }}
-                className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs flex items-center target-secondary"
+                className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-[#B5432E] hover:bg-[#963824] active:bg-[#7D2F20] transition-colors cursor-pointer flex items-center target-secondary"
               >
                 Delete
               </button>
