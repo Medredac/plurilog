@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
   ArrowRight, 
-  Sparkles, 
   AlertCircle, 
   X, 
   Check, 
@@ -330,7 +329,7 @@ export default function LandingPage() {
         <section id="hero" className="px-6 sm:px-12 pt-20 pb-16 max-w-6xl mx-auto w-full flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
           {/* Left Column: Text & Actions */}
           <div className="w-full lg:w-[45%] text-left flex flex-col items-start">
-            {/* Subtle Pill Tag */}
+            {/* Multi-model reasoning eyebrow */}
             <motion.div
               initial={{
                 opacity: shouldReduceMotion ? 1 : 0,
@@ -351,10 +350,9 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.07,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200/80 text-amber-950 text-xs font-medium mb-6 shadow-2xs"
+              className="text-sm sm:text-base text-zinc-600 font-medium mb-6"
             >
-              <Sparkles className="w-3 h-3 text-amber-700" />
-              <span>The Best AIs. One Room.</span>
+              <span>Multi-model reasoning. One shared context.</span>
             </motion.div>
 
             {/* Headline */}
