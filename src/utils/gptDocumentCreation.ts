@@ -23,6 +23,7 @@ import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
 import { persistPdfRenderedPages } from '@/utils/pdfRenderedPages';
 import {
   createRichPdfRenderSession,
+  DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID,
   type PdfDesign,
   type RichDocumentBlock,
   type RenderedPdfReviewPage,
@@ -2012,7 +2013,8 @@ export async function executeGptDocumentCreation(
     };
 
     const dedicatedPdfSnapshotId =
-      process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() || null;
+      process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() ||
+      DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID;
 
     if (!dedicatedPdfSnapshotId) {
       const fallback = await renderPdfViaDocxFallback(
