@@ -227,7 +227,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <img
               src="/logo.svg"
               alt=""
-              className="w-4 h-4 object-contain"
+              className="w-[18px] h-[18px] object-contain"
             />
           </button>
         </div>
