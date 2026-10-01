@@ -26,7 +26,8 @@ import {
   Globe2,
   Clock3,
   History,
-  BookOpen
+  BookOpen,
+  RefreshCw
 } from 'lucide-react';
 import {
   ChatMessage,
@@ -1961,28 +1962,21 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         return (
           <div className="col-span-full pt-6 pb-2 animate-in fade-in duration-200 min-w-0">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-[#E7E5E0]" />
-              <span className="text-xs text-[#6A675F] whitespace-nowrap">
+              <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
                 All {Math.max(1, latestModels.length)} answered
               </span>
               <button
                 type="button"
                 onClick={onContinue}
-                className="h-12 inline-flex items-center gap-2.5 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-3.5 pr-5 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
-                title="Let the AIs read each other's replies and answer back"
+                className="h-12 inline-flex items-center gap-2.5 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-5 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
+                title="Let them keep discussing"
               >
-                <span className="inline-flex items-center -space-x-2 rounded-full bg-white px-1.5 py-1">
-                  {(latestModels.length ? latestModels : ['chatgpt', 'claude', 'gemini']).map((id) => (
-                    <ProviderBadge key={id} provider={id as ModelId} size="sm" />
-                  ))}
-                </span>
+                <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span>Let them keep discussing</span>
               </button>
               <div className="h-px flex-1 bg-[#E7E5E0]" />
-            </div>
-            <div className="mt-2 text-center font-hand text-[19px] leading-5 text-[#6A675F]">
-              they’ll read each other’s replies and answer back
             </div>
           </div>
         );
