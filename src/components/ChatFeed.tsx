@@ -1970,10 +1970,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               <button
                 type="button"
                 onClick={onContinue}
-                className="h-12 inline-flex items-center gap-2.5 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-5 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
+                className="h-10 inline-flex items-center gap-2 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-4 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
                 title="Let them keep discussing"
               >
-                <RefreshCw className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>Let them keep discussing</span>
               </button>
               <div className="h-px flex-1 bg-[#E7E5E0]" />
