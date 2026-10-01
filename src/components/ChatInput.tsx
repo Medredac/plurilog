@@ -7,6 +7,7 @@ import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
 import { AiSeatsControl } from './AiSeatsControl';
 import { ModelId } from '../types/chat';
+import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 
 interface ChatInputProps {
@@ -302,9 +303,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const activeSeatNames = seatOrder
+    .filter((id) => activeModels.includes(id))
+    .map((id) => COUNCIL_MEMBERS[id]?.name || id);
+
+  const formatSeatNames = (names: string[]) => {
+    if (names.length <= 1) return names[0] || 'your AIs';
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  };
+
+  const composerPlaceholder = isCentered
+    ? `Ask ${formatSeatNames(activeSeatNames)} anything…`
+    : `Reply to ${formatSeatNames(activeSeatNames)}…`;
+
   const containerClasses = isCentered
     ? 'w-full pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),1.5rem),env(safe-area-inset-right))]'
-    : 'shrink-0 bg-linear-to-t from-white via-white/95 to-transparent pt-2 pb-[max(clamp(0.75rem,calc(1.5vw_+_0.375rem),1.25rem),env(safe-area-inset-bottom))] pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] max-w-5xl mx-auto w-full z-10';
+    : 'shrink-0 bg-transparent pt-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] max-w-[760px] mx-auto w-full z-10';
 
   return (
     <div className={containerClasses}>
@@ -335,7 +350,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       />
 
       {/* Inner Composer Container: Applies max-w-2xl (672px) directly to composer content on desktop without consuming outer padding */}
-      <div className={isCentered ? 'w-full max-w-2xl mx-auto' : 'w-full'}>
+      <div className={isCentered ? 'w-full max-w-[720px] mx-auto' : 'w-full'}>
         {/* Voice Error Notification Banner */}
         {voiceError && (
           <div className="mb-2 text-xs text-red-600 bg-red-50 border border-red-200/80 rounded-xl px-3 py-1.5 flex items-center justify-between animate-in fade-in">
@@ -352,9 +367,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         )}
 
         {/* Sleek, Wide Pill-Shaped Input Card */}
-        <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 min-w-0 max-w-full ${
-          isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
-        }`}>
+        <div className="relative rounded-[20px] bg-white border border-[#E2E0DB] pt-2.5 pr-2.5 pb-2 pl-3 transition-colors focus-within:border-[#D9D6CF] flex flex-col gap-2 min-w-0 max-w-full dashboard-input-shadow">
         {/* AI Seats: primary participant control, shared across desktop and mobile */}
         <AiSeatsControl
           seatOrder={seatOrder}
@@ -427,7 +440,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(item.id)}
-                    className="absolute -top-1.5 -right-1.5 w-6 h-6 lg:w-5 lg:h-5 rounded-full bg-zinc-900 text-white flex items-center justify-center shadow-md hover:bg-zinc-700 active:scale-95 transition-all cursor-pointer z-10"
+                    className="absolute -top-1.5 -right-1.5 w-6 h-6 lg:w-5 lg:h-5 rounded-full bg-[#1C1B1A] text-white flex items-center justify-center shadow-md hover:bg-[#2A2927] active:scale-95 transition-all cursor-pointer z-10"
                     title="Remove attachment"
                     aria-label="Remove attachment"
                   >
@@ -456,10 +469,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
                 title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
                 aria-label={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
-                className={`p-2 rounded-lg transition-colors flex items-center justify-center cursor-pointer target-primary ${
+                className={`w-11 h-11 rounded-[10px] transition-colors flex items-center justify-center cursor-pointer shrink-0 ${
                   isUploadDrawerOpen
-                    ? 'text-zinc-700 bg-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60'
+                    ? 'text-[#1C1B1A] bg-[#EFEDE9]'
+                    : 'text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#F7F6F3] active:bg-[#EFEDE9]'
                 }`}
               >
                 <Plus
@@ -493,8 +506,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               value={inputVal}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              placeholder="Type a topic..."
-              className="w-full resize-none text-base sm:text-base font-normal text-zinc-900 placeholder:text-zinc-400 bg-transparent focus:outline-none py-[9px] sm:py-1.5 px-1 max-h-[160px] min-w-0"
+              placeholder={composerPlaceholder}
+              className="w-full resize-none text-base sm:text-[15px] font-normal text-[#1C1B1A] placeholder:text-[#8A867D] bg-transparent focus:outline-none py-[11px] px-1 max-h-[160px] min-w-0"
             />
 
             {/* Voice Dictation Button */}
@@ -506,7 +519,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setVoiceError(null);
                   setIsRecording(true);
                 }}
-                className="p-2 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 active:bg-zinc-200/60 transition-colors cursor-pointer shrink-0 sm:mb-0.5 flex items-center justify-center target-primary"
+                className="w-11 h-11 rounded-[10px] text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#F7F6F3] active:bg-[#EFEDE9] transition-colors cursor-pointer shrink-0 flex items-center justify-center"
                 title="Voice dictation"
                 aria-label="Voice dictation"
               >
@@ -519,7 +532,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={onStop}
-                className="w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 cursor-pointer bg-zinc-900 hover:bg-zinc-800 active:scale-95 text-white shadow-2xs target-primary"
+                className="w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer bg-[#1C1B1A] hover:bg-[#2A2927] active:scale-95 text-white"
                 title="Stop generation"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
@@ -529,10 +542,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={handleSend}
                 disabled={!inputVal.trim() && attachedFiles.length === 0}
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 active:scale-95 target-primary ${
+                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0 active:scale-95 ${
                   inputVal.trim() || attachedFiles.length > 0
-                    ? 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-2xs cursor-pointer'
-                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                    ? 'bg-[#1C1B1A] hover:bg-[#2A2927] text-white cursor-pointer'
+                    : 'bg-[#EFEDE9] text-[#8A867D] cursor-not-allowed'
                 }`}
                 title="Send"
               >
