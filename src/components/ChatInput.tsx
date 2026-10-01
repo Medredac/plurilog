@@ -5,6 +5,8 @@ import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
+import { AiSeatsControl } from './AiSeatsControl';
+import { ModelId } from '../types/chat';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 
 interface ChatInputProps {
@@ -15,6 +17,10 @@ interface ChatInputProps {
   autoFocus?: boolean;
   focusTrigger?: any;
   restoreDraft?: { text: string; files?: File[]; trigger: number } | null;
+  seatOrder: ModelId[];
+  activeModels: ModelId[];
+  onReorderSeats: (newOrder: ModelId[]) => void;
+  onToggleModel: (id: ModelId) => void;
 }
 
 interface AttachedFileItem {
@@ -31,6 +37,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   autoFocus = false,
   focusTrigger,
   restoreDraft,
+  seatOrder,
+  activeModels,
+  onReorderSeats,
+  onToggleModel,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFileItem[]>([]);
@@ -345,6 +355,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         <div className={`relative rounded-2xl bg-zinc-50 border border-zinc-200/80 p-2.5 sm:p-3 transition-all focus-within:bg-white focus-within:border-zinc-300 focus-within:ring-1 focus-within:ring-zinc-300 flex flex-col gap-2 min-w-0 max-w-full ${
           isCentered ? 'shadow-md shadow-zinc-100 hover:border-zinc-300' : 'shadow-sm'
         }`}>
+        {/* AI Seats: primary participant control, shared across desktop and mobile */}
+        <AiSeatsControl
+          seatOrder={seatOrder}
+          activeModels={activeModels}
+          onReorderSeats={onReorderSeats}
+          onToggleModel={onToggleModel}
+          disabled={isLoading}
+        />
+
         {/* Attached Files Preview Row */}
         {attachedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2.5 pt-0.5 animate-in fade-in zoom-in-95 duration-150 min-w-0 max-w-full">
