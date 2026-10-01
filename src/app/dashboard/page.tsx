@@ -2805,7 +2805,7 @@ export default function DashboardPage() {
                     />
                   </div>
 
-                  <h2 className="text-[38px] sm:text-[52px] font-medium leading-[1.05] text-[#1C1B1A] tracking-[-0.02em] mb-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                  <h2 className="text-[32px] sm:text-[40px] font-medium leading-tight text-[#1C1B1A] tracking-tight mb-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
                     {greetingWords.map((word, idx) => (
                       <span
                         key={idx}
@@ -2818,7 +2818,7 @@ export default function DashboardPage() {
                   </h2>
 
                   <p
-                    className="text-[14px] sm:text-[16px] leading-6 font-normal text-[#6A675F] mb-6 animate-simple-fade"
+                    className="text-xs sm:text-sm font-normal text-[#6A675F] mb-6 animate-simple-fade"
                     style={{ animationDelay: '350ms' }}
                   >
                     Your AI seats are in the box below. Swap or remove any of them.
