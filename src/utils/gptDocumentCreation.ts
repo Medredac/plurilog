@@ -1991,33 +1991,42 @@ export async function executeGptDocumentCreation(
         signal: durableSignal,
         timeoutMs: 60_000,
       });
-
-      finalBuffer = converted.buffer;
-      finalFilename = args.filename.toLowerCase().endsWith('.pdf')
+      const filename = args.filename.toLowerCase().endsWith('.pdf')
         ? args.filename
         : `${args.filename}.pdf`;
-      renderedFullText = parsedFallbackDocx.markdown || '';
-      generatedPdfPageCount = converted.totalPageCount;
-      finalPageCount = generatedPdfPageCount;
-      finalSpecForState = sanitizeDocumentSpecForState({
-        ...args,
-        filename: finalFilename,
-      }) as GptCreateFileArgs;
 
       console.log('[Generated PDF] DOCX conversion fallback complete', {
-        filename: finalFilename,
-        byteSize: finalBuffer.length,
-        pageCount: generatedPdfPageCount,
+        filename,
+        byteSize: converted.buffer.length,
+        pageCount: converted.totalPageCount,
         usedSnapshot: converted.usedSnapshot,
         elapsedMs: converted.elapsedMs,
       });
+
+      return {
+        buffer: converted.buffer,
+        filename,
+        fullText: parsedFallbackDocx.markdown || '',
+        pageCount: converted.totalPageCount,
+      };
     };
 
     const dedicatedPdfSnapshotId =
       process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() || null;
 
     if (!dedicatedPdfSnapshotId) {
-      await renderPdfViaDocxFallback('No dedicated PDF renderer snapshot is configured.');
+      const fallback = await renderPdfViaDocxFallback(
+        'No dedicated PDF renderer snapshot is configured.'
+      );
+      finalBuffer = fallback.buffer;
+      finalFilename = fallback.filename;
+      renderedFullText = fallback.fullText;
+      generatedPdfPageCount = fallback.pageCount;
+      finalPageCount = fallback.pageCount;
+      finalSpecForState = sanitizeDocumentSpecForState({
+        ...args,
+        filename: fallback.filename,
+      }) as GptCreateFileArgs;
     } else {
       try {
         const renderSession = await createRichPdfRenderSession({
@@ -2139,9 +2148,18 @@ export async function executeGptDocumentCreation(
         }
       } catch (richPdfErr: any) {
         if (durableSignal?.aborted) throw richPdfErr;
-        await renderPdfViaDocxFallback(
+        const fallback = await renderPdfViaDocxFallback(
           richPdfErr?.message || 'Rich PDF renderer failed.'
         );
+        finalBuffer = fallback.buffer;
+        finalFilename = fallback.filename;
+        renderedFullText = fallback.fullText;
+        generatedPdfPageCount = fallback.pageCount;
+        finalPageCount = fallback.pageCount;
+        finalSpecForState = sanitizeDocumentSpecForState({
+          ...args,
+          filename: fallback.filename,
+        }) as GptCreateFileArgs;
       }
     }
   } else {
