@@ -14,6 +14,7 @@ interface AiSeatsControlProps {
   onReorderSeats: (newOrder: ModelId[]) => void;
   onToggleModel: (id: ModelId) => void;
   disabled?: boolean;
+  onInteract?: () => void;
 }
 
 const ordinal = (position: number) => {
@@ -29,6 +30,7 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
   onReorderSeats,
   onToggleModel,
   disabled = false,
+  onInteract,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [draggedId, setDraggedId] = useState<ModelId | null>(null);
@@ -136,7 +138,10 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
       <button
         type="button"
         onClick={() => {
-          if (!disabled) setIsOpen((prev) => !prev);
+          if (!disabled) {
+            onInteract?.();
+            setIsOpen((prev) => !prev);
+          }
         }}
         disabled={disabled}
         aria-haspopup="dialog"
