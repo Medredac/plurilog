@@ -322,6 +322,7 @@ function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
 
 interface SeatActivityIndicatorProps {
   status: SeatStatus;
+  provider?: ModelId;
   startedAt?: string;
   searchSources?: SeatSearchSource[];
   activityLabel?: string | null;
@@ -330,6 +331,7 @@ interface SeatActivityIndicatorProps {
 
 const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   status,
+  provider = 'chatgpt',
   startedAt,
   searchSources = [],
   activityLabel = null,
@@ -457,74 +459,62 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
     }
   })();
 
-  return (
-    <div className="py-0.5 flex min-w-0 items-center gap-2.5 animate-in fade-in duration-150">
-      <motion.div
-        key={effectiveStatus}
-        animate={iconMotion}
-        transition={
-          reduceMotion
-            ? { duration: 0 }
-            : {
-                duration: effectiveStatus === 'searching_web' ? 1.1 : 1.4,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }
-        }
-        className="flex h-4 w-4 shrink-0 items-center justify-center"
-        aria-hidden="true"
-      >
-        <ActivityIcon className={iconClass} />
-      </motion.div>
+  const dotColor: Record<ModelId, string> = {
+    claude: '#E0644B',
+    gemini: '#4880E6',
+    chatgpt: '#3A3A3C',
+  };
 
-      <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
+  return (
+    <div className="py-0.5 flex min-w-0 items-center animate-in fade-in duration-150">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[#E2E0DB] bg-white px-3 py-2 text-[14px] text-[#1C1B1A]">
+        <motion.div
+          key={effectiveStatus}
+          animate={iconMotion}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : {
+                  duration: effectiveStatus === 'searching_web' ? 1.1 : 1.4,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }
+          }
+          className="flex h-4 w-4 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          <ActivityIcon className="h-3.5 w-3.5 text-[#6A675F]" />
+        </motion.div>
+
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={`${effectiveStatus}:${displayLabel}`}
-            initial={
-              reduceMotion
-                ? false
-                : {
-                    opacity: 0,
-                    filter: 'blur(2px)',
-                    clipPath: 'inset(0 100% 0 0)',
-                    y: 1,
-                  }
-            }
-            animate={{
-              opacity: 1,
-              filter: 'blur(0px)',
-              clipPath: 'inset(0 0% 0 0)',
-              y: 0,
-            }}
-            exit={
-              reduceMotion
-                ? { opacity: 0 }
-                : {
-                    opacity: 0,
-                    filter: 'blur(2px)',
-                    clipPath: 'inset(0 0% 0 4%)',
-                    y: -1,
-                  }
-            }
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : {
-                    opacity: { duration: 0.13 },
-                    filter: { duration: 0.13 },
-                    y: { duration: 0.13 },
-                    clipPath: {
-                      duration: 0.34,
-                      ease: [0.16, 1, 0.3, 1],
-                    },
-                  }
-            }
-            className="animate-text-shimmer whitespace-nowrap font-normal tracking-tight select-none"
+            initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -2 }}
+            transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
+            className="min-w-0 truncate whitespace-nowrap font-normal"
           >
             {displayLabel}
           </motion.span>
         </AnimatePresence>
+
+        <span className="inline-flex shrink-0 items-center gap-1" aria-hidden="true">
+          {[1, 0.6, 0.3].map((opacity, index) => (
+            <motion.span
+              key={index}
+              className="h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: dotColor[provider], opacity }}
+              animate={reduceMotion ? undefined : { y: [0, -2, 0] }}
+              transition={{
+                duration: 0.9,
+                repeat: Infinity,
+                delay: index * 0.12,
+                ease: 'easeInOut',
+              }}
+            />
+          ))}
+        </span>
 
         {activeSource && (
           <motion.span
@@ -532,11 +522,11 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             initial={reduceMotion ? false : { opacity: 0, x: 4 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.18 }}
-            className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 rounded-full border border-[#E2E0DB] bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-500"
+            className="inline-flex min-w-0 max-w-[170px] items-center gap-1.5 rounded-full border border-[#E2E0DB] bg-[#F7F6F3] px-2 py-0.5 text-[10px] font-medium text-[#6A675F]"
             title={activeSource.title || activeSource.hostname}
           >
             <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
-              <Globe2 className="absolute h-3 w-3 text-zinc-400" />
+              <Globe2 className="absolute h-3 w-3 text-[#8A867D]" />
               {faviconUrl && (
                 <img
                   src={faviconUrl}
@@ -552,7 +542,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
           </motion.span>
         )}
 
-        <span className="ml-0.5 inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-zinc-400">
+        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-[#8A867D]">
           <Clock3 className="h-3 w-3" aria-hidden="true" />
           {elapsedLabel}
         </span>
@@ -1769,6 +1759,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               <div className="col-start-2 min-w-0">
               {isThinking ? (
                 <SeatActivityIndicator
+                  provider={modelKey}
                   status={seatStatuses[modelKey] || 'thinking'}
                   startedAt={message.createdAt}
                   searchSources={seatSearchSources[modelKey] || []}
