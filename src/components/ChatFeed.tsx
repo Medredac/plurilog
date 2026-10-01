@@ -37,6 +37,7 @@ import {
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
 import { ProviderIcon } from './ProviderIcon';
+import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
@@ -63,6 +64,13 @@ function formatConversationDate(dateInput?: string): string {
   const d = new Date(dateInput);
   if (Number.isNaN(d.getTime())) return '';
 
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (target === today) return 'Today';
+  if (target === today - dayMs) return 'Yesterday';
   return conversationDateFormatter.format(d);
 }
 
@@ -387,7 +395,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   const faviconUrl = getSearchFaviconUrl(activeSource);
 
   const iconClass =
-    'h-3.5 w-3.5 shrink-0 text-amber-500';
+    'h-3.5 w-3.5 shrink-0 text-[#F2C94C]';
   const iconMotion =
     reduceMotion
       ? {}
@@ -524,7 +532,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             initial={reduceMotion ? false : { opacity: 0, x: 4 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.18 }}
-            className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-500"
+            className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 rounded-full border border-[#E2E0DB] bg-white px-2 py-0.5 text-[10px] font-medium text-zinc-500"
             title={activeSource.title || activeSource.hostname}
           >
             <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
@@ -688,7 +696,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
           <button
             type="button"
             onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title="Download SVG"
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -697,7 +705,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title="Copy SVG code"
           >
             {copied ? (
@@ -713,7 +721,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
               event.stopPropagation();
               setShowCode((current) => !current);
             }}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title={showCode ? 'Hide SVG code' : 'View SVG code'}
           >
             {showCode ? (
@@ -770,7 +778,7 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
+          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-zinc-500 hover:text-[#1C1B1A] hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
           title="Copy code"
         >
           {copied ? (
@@ -822,7 +830,7 @@ const markdownComponents: Components = {
     if (!isFenced) {
       return (
         <code
-          className="font-mono text-[0.875em] bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal break-words [overflow-wrap:anywhere]"
+          className="font-mono text-[0.875em] bg-zinc-100 text-[#1C1B1A] px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal break-words [overflow-wrap:anywhere]"
           {...props}
         >
           {children}
@@ -843,42 +851,42 @@ const markdownComponents: Components = {
     return <CodeBlock className={className}>{children}</CodeBlock>;
   },
   p: ({ children }) => (
-    <p className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">
+    <p className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">
       {children}
     </p>
   ),
   ul: ({ children }) => (
-    <ul className="my-2.5 pl-5 list-disc space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <ul className="my-2.5 pl-5 list-disc space-y-1 text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </ol>
   ),
   li: ({ children }) => (
-    <li className="leading-relaxed text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <li className="leading-relaxed text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </li>
   ),
   h1: ({ children }) => (
-    <h1 className="font-semibold text-lg sm:text-xl text-zinc-900 mt-4 mb-2 break-words">
+    <h1 className="font-semibold text-lg sm:text-xl text-[#1C1B1A] mt-4 mb-2 break-words">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="font-semibold text-base sm:text-lg text-zinc-900 mt-3.5 mb-1.5 break-words">
+    <h2 className="font-semibold text-base sm:text-lg text-[#1C1B1A] mt-3.5 mb-1.5 break-words">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="font-semibold text-sm sm:text-base text-zinc-900 mt-3 mb-1 break-words">
+    <h3 className="font-semibold text-sm sm:text-base text-[#1C1B1A] mt-3 mb-1 break-words">
       {children}
     </h3>
   ),
   strong: ({ children }) => (
-    <strong className="font-semibold text-zinc-900">{children}</strong>
+    <strong className="font-semibold text-[#1C1B1A]">{children}</strong>
   ),
   em: ({ children }) => <em className="italic">{children}</em>,
   blockquote: ({ children }) => (
@@ -891,7 +899,7 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-zinc-900 hover:text-zinc-600 underline underline-offset-2 font-medium transition-colors break-words [overflow-wrap:anywhere]"
+      className="text-[#1C1B1A] hover:text-zinc-600 underline underline-offset-2 font-medium transition-colors break-words [overflow-wrap:anywhere]"
     >
       {children}
     </a>
@@ -907,13 +915,13 @@ const markdownComponents: Components = {
     <thead className="bg-zinc-50/90 text-zinc-700 font-semibold">{children}</thead>
   ),
   tbody: ({ children }) => (
-    <tbody className="divide-y divide-zinc-100 bg-white text-zinc-800">{children}</tbody>
+    <tbody className="divide-y divide-zinc-100 bg-white text-[#1C1B1A]">{children}</tbody>
   ),
   tr: ({ children }) => (
     <tr className="hover:bg-zinc-50/50 transition-colors">{children}</tr>
   ),
   th: ({ children }) => (
-    <th className="px-3 py-2 text-xs font-semibold text-zinc-900 whitespace-nowrap">
+    <th className="px-3 py-2 text-xs font-semibold text-[#1C1B1A] whitespace-nowrap">
       {children}
     </th>
   ),
@@ -953,6 +961,7 @@ interface ChatFeedProps {
   newlySentUserMessageId?: string | null;
   onNewlySentAnimationComplete?: () => void;
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
+  viewMode?: 'discussion' | 'side-by-side';
 }
 
 /**
@@ -1211,7 +1220,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
       {/* Message Body with real ReactMarkdown rendering */}
-      <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
+      <div className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
@@ -1239,7 +1248,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
                   href={source.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-[#1C1B1A] text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
                   title={source.title}
                 >
                   <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
@@ -1303,6 +1312,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   newlySentUserMessageId = null,
   onNewlySentAnimationComplete,
   onPreviewDocument,
+  viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1382,10 +1392,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div className="pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-4 sm:pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col min-w-0">
+    <div className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
+      viewMode === 'side-by-side'
+        ? 'max-w-[1040px] grid grid-cols-1 sm:grid-cols-3 gap-x-[14px] gap-y-4'
+        : 'max-w-[760px] flex flex-col'
+    }`}>
       {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
-        <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full">
+        <div className="col-span-full p-3.5 mb-5 rounded-[14px] bg-white border border-[#E2E0DB] text-[#B5432E] text-xs flex items-start gap-2.5 min-w-0 max-w-full">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
           <div className="space-y-1 min-w-0">
             <span className="font-semibold block">Notice</span>
@@ -1410,28 +1424,33 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
+          const roundNumber =
+            messages
+              .slice(0, idx + 1)
+              .filter((item) => item.role === 'user' && item.content === 'Continue').length + 1;
+
           return (
             <React.Fragment key={message.id}>
               {shouldShowDate && formattedDate && (
                 <div
-                  className={`flex justify-center select-none ${
+                  className={`col-span-full flex justify-center select-none ${
                     idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                   }`}
                 >
-                  <span className="text-xs font-medium text-zinc-400">
+                  <span className="text-xs font-normal text-[#8A867D]">
                     {formattedDate}
                   </span>
                 </div>
               )}
               <div
                 id={message.id}
-                className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${
-                  shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
-                }`}
+                className="col-span-full flex items-center gap-3 py-5 scroll-mt-6 sm:scroll-mt-8"
               >
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-400">
-                  <CornerDownRight className="w-3.5 h-3.5" />
-                </div>
+                <div className="h-px flex-1 bg-[#E7E5E0]" />
+                <span className="text-xs font-medium text-[#6A675F]">
+                  Round {roundNumber}
+                </span>
+                <div className="h-px flex-1 bg-[#E7E5E0]" />
               </div>
             </React.Fragment>
           );
@@ -1452,11 +1471,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <React.Fragment key={message.id}>
               {shouldShowDate && formattedDate && (
                 <div
-                  className={`flex justify-center select-none ${
+                  className={`col-span-full flex justify-center select-none ${
                     idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                   }`}
                 >
-                  <span className="text-xs font-medium text-zinc-400">
+                  <span className="text-xs font-normal text-[#8A867D]">
                     {formattedDate}
                   </span>
                 </div>
@@ -1478,11 +1497,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     onNewlySentAnimationComplete();
                   }
                 }}
-                className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
+                className={`col-span-full flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-[24px] p-3.5 sm:p-4.5 relative min-w-0">
+                <div className="max-w-[88%] sm:max-w-[480px] w-fit bg-[#EFEDE9] rounded-[18px_18px_6px_18px] px-4 py-3 relative min-w-0 text-[16px] leading-6 text-[#1C1B1A]">
                   {/* Attached Files (Images or PDFs) if present */}
                   {attachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
@@ -1502,11 +1521,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   PDF
                                 </span>
                               </button>
@@ -1514,11 +1533,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   DOCX
                                 </span>
                               </button>
@@ -1526,11 +1545,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   {getTextFileDisplayBadge(filename)}
                                 </span>
                               </button>
@@ -1538,7 +1557,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setLightboxImageUrl(url)}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <img
@@ -1551,11 +1570,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-zinc-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   FILE
                                 </span>
                               </button>
@@ -1588,7 +1607,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         <button
                           type="button"
                           onClick={() => toggleExpand(message.id)}
-                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer min-h-[32px] sm:min-h-0"
+                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-[#D9D6CF] cursor-pointer min-h-[32px] sm:min-h-0"
                         >
                           {isExpanded ? (
                             <>
@@ -1611,7 +1630,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   <button
                     type="button"
                     onClick={() => handleCopy(message.id, message.content)}
-                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-zinc-900 transition-colors cursor-pointer"
+                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-[#1C1B1A] transition-colors cursor-pointer"
                     aria-label={copiedId === message.id ? 'Copied' : 'Copy message'}
                     title={copiedId === message.id ? 'Copied' : 'Copy'}
                   >
@@ -1625,7 +1644,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                 {/* Inline Failed Turn State: Active failure (with Try again button) */}
                 {failedTurn && failedTurn.uiMessageId === message.id ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-2.5 sm:py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150 max-w-full min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-2.5 sm:py-2 mt-2.5 rounded-xl bg-[#EFEDE9]/90 border border-[#D9D6CF] text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150 max-w-full min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                       <span className="font-normal text-stone-700 truncate">Something went wrong.</span>
@@ -1634,7 +1653,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       type="button"
                       onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
                       disabled={isDebating}
-                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 active:bg-stone-200/70 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[32px] sm:min-h-0 flex items-center"
+                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 active:bg-stone-200/70 border border-[#D9D6CF] text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[32px] sm:min-h-0 flex items-center"
                     >
                       Try again
                     </button>
@@ -1671,11 +1690,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
         // - Smaller cohesive gap following another model response (Model -> Model)
-        const spacingClass = shouldShowDate || idx === 0 
-          ? 'mt-0' 
-          : isPrevUser 
-            ? 'mt-7 sm:mt-8' 
-            : 'mt-3.5 sm:mt-4';
+        const spacingClass =
+          viewMode === 'side-by-side'
+            ? 'mt-0'
+            : shouldShowDate || idx === 0
+              ? 'mt-0'
+              : isPrevUser
+                ? 'mt-7 sm:mt-8'
+                : 'mt-4 sm:mt-[18px]';
 
         const isThinking = message.isStreaming && !message.content.trim();
         const attachments: string[] =
@@ -1704,34 +1726,47 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           <React.Fragment key={message.id}>
             {shouldShowDate && formattedDate && (
               <div
-                className={`flex justify-center select-none ${
+                className={`col-span-full flex justify-center select-none ${
                   idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                 }`}
               >
-                <span className="text-xs font-medium text-zinc-400">
+                <span className="text-xs font-normal text-[#8A867D]">
                   {formattedDate}
                 </span>
               </div>
             )}
             <div
               id={message.id}
-              className={`rounded-[24px] border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
+              className={`scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
+                viewMode === 'side-by-side'
+                  ? 'rounded-2xl border border-[#E7E5E0] bg-white p-4'
+                  : 'bg-transparent'
+              }`}
             >
-              {/* Header: Model name & timestamp only */}
-              <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ProviderIcon provider={modelKey} className="w-3.5 h-3.5 shrink-0" />
-                  <span className="font-semibold text-xs text-zinc-700 truncate">
+              <div
+                className={`grid gap-x-3 min-w-0 ${
+                  viewMode === 'side-by-side'
+                    ? 'grid-cols-[32px_minmax(0,1fr)]'
+                    : 'grid-cols-[44px_minmax(0,1fr)]'
+                }`}
+              >
+                <ProviderBadge
+                  provider={modelKey}
+                  size={viewMode === 'side-by-side' ? 'md' : 'lg'}
+                  className="row-span-3"
+                />
+
+                <div className="col-start-2 flex items-baseline gap-2 min-w-0 mb-1">
+                  <span className="font-semibold text-[14px] text-[#1C1B1A] truncate">
                     {member.name}
+                  </span>
+                  <span className="text-[12px] text-[#8A867D] shrink-0">
+                    {message.timestamp}
                   </span>
                 </div>
 
-                <span className="text-[10px] font-mono text-zinc-400 shrink-0">
-                  {message.timestamp}
-                </span>
-              </div>
-
               {/* Message Body */}
+              <div className="col-start-2 min-w-0">
               {isThinking ? (
                 <SeatActivityIndicator
                   status={seatStatuses[modelKey] || 'thinking'}
@@ -1849,7 +1884,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-white/0 via-white/80 to-white"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-[#F7F6F3]/0 via-[#F7F6F3]/80 to-[#F7F6F3]"
                         aria-hidden="true"
                       />
                     )}
@@ -1857,25 +1892,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </motion.div>
               )}
 
+              </div>
+
               {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
               {!isThinking && (
-                <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs min-w-0">
+                <div className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       onClick={() => handleCopy(message.id, message.content)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
-                      title="Copy text"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                      title={`Copy ${member.name}'s reply`}
+                aria-label={`Copy ${member.name}'s reply`}
                     >
                       {copiedId === message.id ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
-                        </>
+                        <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
                       ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 shrink-0" />
-                          <span className="text-[10px]">Copy</span>
-                        </>
+                        <Copy className="w-4 h-4 shrink-0" />
                       )}
                     </button>
 
@@ -1883,7 +1915,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       <button
                         type="button"
                         onClick={() => onExportMessage(message)}
-                        className="flex items-center justify-center p-1.5 px-2 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
                         title="Download response as PDF"
                         aria-label="Download response as PDF"
                       >
@@ -1896,7 +1928,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleAiCollapse(message.id)}
-                      className="flex items-center justify-center p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
                       title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
                       aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
                       aria-expanded={!isAiCollapsed}
@@ -1910,34 +1942,67 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   )}
                 </div>
               )}
+              </div>
             </div>
           </React.Fragment>
         );
       })}
 
-      {/* Continue Discussion Button - Fades in below final message bubble, bottom-right */}
-      {canContinue && !isDebating && messages.length > 0 && onContinue && (
-        <div className="w-full max-w-full flex justify-end pt-3 animate-in fade-in zoom-in-95 duration-200 min-w-0">
-          <button
-            type="button"
-            onClick={onContinue}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-amber-50/80 active:bg-amber-100/70 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group max-w-full active:scale-98 shrink-0 target-secondary"
-            title="Trigger another deliberation round on this topic"
-          >
-            <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors shrink-0" />
-            <span className="truncate">
-              <span className="sm:hidden">Keep discussing</span>
-              <span className="hidden sm:inline">Let them keep discussing</span>
-            </span>
-          </button>
-        </div>
-      )}
+      {/* Continue discussion: branded round control */}
+      {canContinue && !isDebating && messages.length > 0 && onContinue && (() => {
+        const lastUserIndex = [...messages]
+          .map((item, index) => ({ item, index }))
+          .reverse()
+          .find(({ item }) => item.role === 'user')?.index ?? -1;
+
+        const latestModels = Array.from(
+          new Set(
+            messages
+              .slice(lastUserIndex + 1)
+              .filter((item) => item.role === 'model' && item.content.trim())
+              .map((item) => {
+                const raw = String(item.modelId || item.authorName || '').toLowerCase();
+                if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+                if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+                return 'gemini';
+              })
+          )
+        ) as ModelId[];
+
+        return (
+          <div className="col-span-full pt-6 pb-2 animate-in fade-in duration-200 min-w-0">
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+              <span className="text-xs text-[#6A675F] whitespace-nowrap">
+                All {Math.max(1, latestModels.length)} answered
+              </span>
+              <button
+                type="button"
+                onClick={onContinue}
+                className="h-12 inline-flex items-center gap-2.5 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-3.5 pr-5 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
+                title="Let the AIs read each other's replies and answer back"
+              >
+                <span className="inline-flex items-center -space-x-2 rounded-full bg-white px-1.5 py-1">
+                  {(latestModels.length ? latestModels : ['chatgpt', 'claude', 'gemini']).map((id) => (
+                    <ProviderBadge key={id} provider={id as ModelId} size="sm" />
+                  ))}
+                </span>
+                <span>Let them keep discussing</span>
+              </button>
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+            </div>
+            <div className="mt-2 text-center font-hand text-[19px] leading-5 text-[#6A675F]">
+              they’ll read each other’s replies and answer back
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dynamic bottom spacer: untransitioned/instant height change so scrollHeight is immediately accurate during deliberation */}
-      <div className={`w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
+      <div className={`col-span-full w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
 
       {/* Invisible anchor for auto-scroll on discussion load */}
-      <div ref={bottomRef} className="h-1 w-full" />
+      <div ref={bottomRef} className="col-span-full h-1 w-full" />
 
       {/* Image Lightbox Modal */}
       <ImageLightbox
