@@ -390,7 +390,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="h-[60px] px-4 border-b border-[#E2E0DB] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img src="/logo.svg" alt="Plurilog" className="w-[22px] h-[22px] rounded-md object-contain" />
-                <span className="font-semibold text-[16px] tracking-tight text-[#1C1B1A]">
+                <span className="font-medium text-[16px] tracking-tight text-[#1C1B1A]">
                   Plurilog
                 </span>
               </div>
