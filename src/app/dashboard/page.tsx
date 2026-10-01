@@ -19,7 +19,7 @@ import {
   SeatStatus,
   SeatSearchSource,
 } from '../../types/chat';
-import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, MessagesSquare, FilePlus2, BadgeCheck } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
 
@@ -2854,11 +2854,11 @@ export default function DashboardPage() {
                     <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={() => primeComposer('Compare three answers about ')}
+                        onClick={() => primeComposer('Generate an image of ')}
                         className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors"
                       >
-                        <MessagesSquare className="w-3.5 h-3.5 text-[#4880E6]" />
-                        Compare three answers
+                        <ImageIcon className="w-3.5 h-3.5 text-[#4880E6]" />
+                        Generate an image
                       </button>
                       <button
                         type="button"
