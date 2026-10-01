@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
-import { CouncilHeader } from '../../components/CouncilHeader';
 import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
 import { DocumentPreviewDrawer } from '../../components/DocumentPreviewDrawer';
 import { ChatInput } from '../../components/ChatInput';
@@ -2767,33 +2766,9 @@ export default function DashboardPage() {
 
         {/* Main Chamber */}
         <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
-          {/* Simplified Header */}
-          <CouncilHeader
-            seatOrder={seatOrder}
-            onReorderSeats={handleReorderSeats}
-            activeModels={activeModels}
-            onToggleModel={handleToggleModel}
-            isDebating={isDebating}
-            activeSpeaker={activeSpeaker}
-            seatStatuses={seatStatuses}
-            isOutOfCredits={isOutOfCredits}
-            isLowCredit={userPlan === 'free' && remainingCents > 0 && remainingCents <= 25}
-            onUpgradeClick={async () => {
-              try {
-                const res = await fetch('/api/stripe/checkout', { method: 'POST' });
-                const data = await res.json();
-                if (data.url) {
-                  window.location.href = data.url;
-                }
-              } catch (err) {
-                console.error('[Header Upgrade] Failed to start checkout:', err);
-              }
-            }}
-          />
-
           {/* Whole Discussion PDF Export Button */}
           {messages.length > 0 && (
-            <div className="absolute top-14 lg:top-16 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
+            <div className="absolute top-4 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
               <button
                 type="button"
                 onClick={() => handleTriggerPrint('discussion', messages)}
@@ -2889,6 +2864,10 @@ export default function DashboardPage() {
                       isCentered
                       autoFocus
                       restoreDraft={restoreDraft}
+                      seatOrder={seatOrder}
+                      activeModels={activeModels}
+                      onReorderSeats={handleReorderSeats}
+                      onToggleModel={handleToggleModel}
                     />
                   </div>
                 </div>
@@ -2946,6 +2925,10 @@ export default function DashboardPage() {
               onStop={handleStop}
               focusTrigger={activeDebateId}
               restoreDraft={restoreDraft}
+              seatOrder={seatOrder}
+              activeModels={activeModels}
+              onReorderSeats={handleReorderSeats}
+              onToggleModel={handleToggleModel}
             />
           )}
         </main>
