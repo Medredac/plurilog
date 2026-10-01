@@ -1419,10 +1419,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
-          const roundNumber =
-            messages
-              .slice(0, idx + 1)
-              .filter((item) => item.role === 'user' && item.content === 'Continue').length + 1;
+          let roundNumber = 0;
+          for (let index = idx; index >= 0; index -= 1) {
+            const item = messages[index];
+            if (item.role !== 'user') continue;
+            if (item.content !== 'Continue') break;
+            roundNumber += 1;
+          }
 
           return (
             <React.Fragment key={message.id}>
