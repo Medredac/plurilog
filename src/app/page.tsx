@@ -886,59 +886,56 @@ export default function LandingPage() {
               {/* Plus Card */}
               <motion.div
                 {...scrollRevealProps(0.12)}
-                className="relative rounded-2xl border-2 border-amber-300 bg-amber-50/40 p-6 sm:p-8 flex flex-col justify-between shadow-sm hover:border-amber-400 transition-colors"
+                className="relative flex flex-col justify-between rounded-[16px] border border-[#8A867D] bg-white px-5 pb-4 pt-5"
               >
+                <div
+                  className="pointer-events-none absolute -top-[19px] right-4 flex items-end -space-x-2.5"
+                  aria-hidden="true"
+                >
+                  <img src="/robot-head-claude.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+                  <img src="/robot-head-chatgpt.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+                  <img src="/robot-head-gemini.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+                </div>
+
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <h3 className="text-lg font-semibold text-zinc-900">Plus</h3>
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-xs font-medium border border-amber-200/80">
+                  <div className="mb-2 flex items-center gap-2">
+                    <h3 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h3>
+                    <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
                       Recommended
                     </span>
                   </div>
-                  <div className="flex items-baseline gap-1.5 mb-2">
-                    <span className="text-3xl sm:text-4xl font-semibold tracking-tight text-zinc-900">$19</span>
-                    <span className="text-xs sm:text-sm text-zinc-500 font-medium">/ month</span>
+
+                  <div className="mb-1 flex items-end gap-1.5">
+                    <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">$19</span>
+                    <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
                   </div>
-                  <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed mb-6">
+
+                  <p className="mb-4 text-[11px] leading-5 text-[#6A675F]">
                     For ongoing use of Plurilog.
                   </p>
-                  <ul className="space-y-3 text-xs sm:text-sm text-zinc-700 mb-8">
-                    <li className="flex items-start gap-2.5">
-                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
-                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                      <span className="font-medium">Everything in Free</span>
-                    </li>
-                    <li className="flex items-start gap-2.5">
-                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
-                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                      <span>Monthly usage refreshed every billing cycle</span>
-                    </li>
-                    <li className="flex items-start gap-2.5">
-                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
-                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                      <span>ChatGPT, Claude and Gemini available</span>
-                    </li>
-                    <li className="flex items-start gap-2.5">
-                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
-                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                      <span>Shared memory, files and retrieval</span>
-                    </li>
-                    <li className="flex items-start gap-2.5">
-                      <div className="w-4 h-4 rounded-full bg-amber-100 border border-amber-200/80 flex items-center justify-center text-amber-900 shrink-0 mt-0.5">
-                        <Check className="w-2.5 h-2.5 stroke-[2.5]" />
-                      </div>
-                      <span>Cancel anytime</span>
-                    </li>
+
+                  <ul className="space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
+                    {[
+                      'Everything in Free',
+                      'Monthly usage refreshed every billing cycle',
+                      'ChatGPT, Claude and Gemini available',
+                      'Shared memory, files and retrieval',
+                      'Cancel anytime',
+                    ].map((feature) => (
+                      <li key={feature} className="flex items-start gap-2">
+                        <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
+                          <Check className="h-2.5 w-2.5 stroke-[2.5]" />
+                        </span>
+                        <span>{feature}</span>
+                      </li>
+                    ))}
                   </ul>
                 </div>
+
                 <button
                   type="button"
                   onClick={handleGetPlus}
-                  className="w-full py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm transition-all cursor-pointer shadow-sm hover:shadow"
+                  className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927]"
                 >
                   Get Plus
                 </button>
