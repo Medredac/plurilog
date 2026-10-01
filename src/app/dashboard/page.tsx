@@ -277,7 +277,6 @@ export default function DashboardPage() {
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>(undefined);
   const [userId, setUserId] = useState<string | undefined>(undefined);
   const [viewMode, setViewMode] = useState<'discussion' | 'side-by-side'>('discussion');
-  const [showSeatHint, setShowSeatHint] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [canContinue, setCanContinue] = useState<boolean>(false);
@@ -403,19 +402,6 @@ export default function DashboardPage() {
   useEffect(() => {
     activeDebateIdRef.current = activeDebateId;
   }, [activeDebateId]);
-
-  useEffect(() => {
-    if (!userId || typeof window === 'undefined') return;
-    const key = `plurilog-seats-hint-seen:${userId}`;
-    setShowSeatHint(localStorage.getItem(key) !== '1');
-  }, [userId]);
-
-  const markSeatHintUsed = useCallback(() => {
-    setShowSeatHint(false);
-    if (userId && typeof window !== 'undefined') {
-      localStorage.setItem(`plurilog-seats-hint-seen:${userId}`, '1');
-    }
-  }, [userId]);
 
   // Load all discussions for current user ordered by most recent activity (updated_at desc)
   const fetchDiscussions = useCallback(async (uid: string) => {
@@ -2910,8 +2896,6 @@ export default function DashboardPage() {
                       activeModels={activeModels}
                       onReorderSeats={handleReorderSeats}
                       onToggleModel={handleToggleModel}
-                      showSeatHint={showSeatHint}
-                      onSeatsUsed={markSeatHintUsed}
                     />
 
                     <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
@@ -3001,7 +2985,6 @@ export default function DashboardPage() {
               activeModels={activeModels}
               onReorderSeats={handleReorderSeats}
               onToggleModel={handleToggleModel}
-              onSeatsUsed={markSeatHintUsed}
             />
           )}
         </main>
