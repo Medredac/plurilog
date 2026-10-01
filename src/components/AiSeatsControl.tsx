@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ModelId } from '../types/chat';
@@ -113,15 +113,19 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
           event.stopPropagation();
           onToggleModel(id);
         }}
-        className={`flex h-[22px] w-[40px] shrink-0 items-center rounded-full p-[2px] transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#EAD9AE] focus-visible:ring-offset-2 ${
-          isActive ? 'justify-end bg-zinc-900' : 'justify-start bg-zinc-200'
+        className={`relative h-[22px] w-[40px] shrink-0 rounded-full p-[2px] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#EAD9AE] focus-visible:ring-offset-2 ${
+          isActive ? 'bg-zinc-900' : 'bg-zinc-200'
         } ${
           disabled || isLastActive
             ? 'cursor-not-allowed opacity-55'
             : 'cursor-pointer'
         }`}
       >
-        <span className="block h-[18px] w-[18px] rounded-full bg-white shadow-sm" />
+        <motion.span
+          className="absolute left-[2px] top-[2px] block h-[18px] w-[18px] rounded-full bg-white shadow-sm"
+          animate={{ x: isActive ? 18 : 0 }}
+          transition={{ type: 'spring', stiffness: 520, damping: 34, mass: 0.55 }}
+        />
       </button>
     );
   };
@@ -142,18 +146,46 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
             : 'border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50'
         } ${disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
       >
-        <span className="flex items-center -space-x-1">
-          {orderedActive.map((id) => (
-            <span
-              key={id}
-              className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white"
-            >
-              <ProviderIcon provider={id} className="h-3.5 w-3.5" />
-            </span>
-          ))}
-        </span>
+        <motion.span
+          layout
+          className="flex items-center -space-x-1"
+          transition={{ layout: { type: 'tween', duration: 0.2, ease: 'easeInOut' } }}
+        >
+          <AnimatePresence initial={false} mode="popLayout">
+            {orderedActive.map((id) => (
+              <motion.span
+                key={id}
+                layout
+                initial={{ opacity: 0, scale: 0.72, x: -5 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.72, x: -5 }}
+                transition={{
+                  opacity: { duration: 0.16 },
+                  scale: { duration: 0.18 },
+                  x: { duration: 0.18 },
+                  layout: { type: 'tween', duration: 0.2, ease: 'easeInOut' },
+                }}
+                className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white"
+              >
+                <ProviderIcon provider={id} className="h-3.5 w-3.5" />
+              </motion.span>
+            ))}
+          </AnimatePresence>
+        </motion.span>
 
-        <span>{countLabel}</span>
+        <span className="relative inline-flex min-w-[30px] overflow-hidden">
+          <AnimatePresence initial={false} mode="popLayout">
+            <motion.span
+              key={countLabel}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+            >
+              {countLabel}
+            </motion.span>
+          </AnimatePresence>
+        </span>
         <span className="text-zinc-300">·</span>
         <span className="text-zinc-500">Edit</span>
 
