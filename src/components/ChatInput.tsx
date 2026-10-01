@@ -390,28 +390,35 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
               return (
                 <div key={item.id} className="relative self-start group">
-                  {isPdf ? (
+                  {isPdf || isDocx ? (
                     <button
                       type="button"
-                      onClick={() => window.open(item.previewUrl, '_blank')}
-                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-zinc-200/60 transition-colors p-1"
-                      title={`Click to view ${item.file.name} in new tab`}
+                      onClick={() => {
+                        if (isPdf) window.open(item.previewUrl, '_blank');
+                      }}
+                      className={`flex min-h-[52px] w-[228px] max-w-[calc(100vw-5rem)] items-center gap-2.5 rounded-[12px] border border-[#E2E0DB] bg-[#F7F6F3] px-2.5 py-1.5 text-left transition-colors ${isPdf ? 'cursor-pointer hover:bg-[#EFEDE9] hover:border-[#D9D6CF]' : 'cursor-default'}`}
+                      title={isPdf ? `Preview ${item.file.name}` : item.file.name}
                     >
-                      <FileText className="w-5 h-5 text-red-500" />
-                      <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
-                        PDF
-                      </span>
+                      <div className="flex h-10 w-8 shrink-0 items-center justify-center">
+                        <img
+                          src={isPdf ? '/file-icon-pdf.svg' : '/file-icon-docx.svg'}
+                          alt=""
+                          className="h-10 w-8 object-contain"
+                          aria-hidden="true"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="truncate text-[11px] font-medium leading-4 text-[#1C1B1A]"
+                          title={item.file.name}
+                        >
+                          {item.file.name}
+                        </p>
+                        <p className="mt-0.5 text-[9px] leading-3 text-[#6A675F]">
+                          {isPdf ? 'PDF document' : 'Word document'}
+                        </p>
+                      </div>
                     </button>
-                  ) : isDocx ? (
-                    <div
-                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
-                      title={item.file.name}
-                    >
-                      <FileText className="w-5 h-5 text-blue-600" />
-                      <span className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.2 rounded border border-zinc-200/60">
-                        DOCX
-                      </span>
-                    </div>
                   ) : isTextFile ? (
                     <div
                       className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
