@@ -463,7 +463,7 @@ body {
   background-image:
     linear-gradient(to right, rgba(28, 27, 26, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(28, 27, 26, 0.05) 1px, transparent 1px);
-  background-size: 48px 48px;
+  background-size: 32px 32px;
 }
 
 .plurilog-dashboard ::selection {
