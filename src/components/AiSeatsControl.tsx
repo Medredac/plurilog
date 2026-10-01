@@ -158,11 +158,11 @@ export const AiSeatsControl: React.FC<AiSeatsControlProps> = ({
                 layout
                 initial={{ opacity: 0, scale: 0.72, x: -5 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0, scale: 0.72, x: -5 }}
+                exit={{ opacity: 0 }}
                 transition={{
-                  opacity: { duration: 0.16 },
-                  scale: { duration: 0.18 },
-                  x: { duration: 0.18 },
+                  opacity: { duration: 0.14, ease: 'easeOut' },
+                  scale: { duration: 0.18, ease: 'easeOut' },
+                  x: { duration: 0.18, ease: 'easeOut' },
                   layout: { type: 'tween', duration: 0.2, ease: 'easeInOut' },
                 }}
                 className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-white bg-white"
