@@ -398,11 +398,6 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       : null;
   const faviconUrl = getSearchFaviconUrl(activeSource);
 
-  const providerAccent: Record<ModelId, string> = {
-    claude: '#E0644B',
-    gemini: '#4880E6',
-    chatgpt: '#3A3A3C',
-  };
   const iconMotion =
     reduceMotion
       ? {}
@@ -465,8 +460,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   })();
 
   return (
-    <div className="py-0.5 flex min-w-0 items-center animate-in fade-in duration-150">
-      <div className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-[#E2E0DB] bg-white px-3 py-2 text-[14px] text-[#1C1B1A]">
+    <div className="py-0.5 inline-flex max-w-full min-w-0 items-center gap-2 text-[13px] animate-in fade-in duration-150">
         <motion.div
           key={effectiveStatus}
           animate={iconMotion}
@@ -482,10 +476,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
           className="flex h-4 w-4 shrink-0 items-center justify-center"
           aria-hidden="true"
         >
-          <ActivityIcon
-            className="h-3.5 w-3.5"
-            style={{ color: providerAccent[provider] }}
-          />
+          <ActivityIcon className="thinking-icon-silver h-3.5 w-3.5" />
         </motion.div>
 
         <AnimatePresence mode="wait" initial={false}>
@@ -554,7 +545,6 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
           <Clock3 className="h-3 w-3" aria-hidden="true" />
           {elapsedLabel}
         </span>
-      </div>
     </div>
   );
 };
@@ -946,6 +936,8 @@ interface ChatFeedProps {
   seatStatuses?: Record<ModelId, SeatStatus>;
   seatActivityLabels?: Record<ModelId, string | null>;
   seatSearchSources?: Record<ModelId, SeatSearchSource[]>;
+  seatOrder?: ModelId[];
+  activeModels?: ModelId[];
   isDebating?: boolean;
   errorMessage?: string | null;
   canContinue?: boolean;
@@ -1297,6 +1289,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     claude: [],
     chatgpt: [],
   },
+  seatOrder = ['chatgpt', 'claude', 'gemini'],
+  activeModels = ['chatgpt', 'claude', 'gemini'],
   isDebating = false,
   errorMessage = null,
   canContinue = false,
@@ -1388,6 +1382,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  const activeModelSet = new Set(activeModels);
+  const orderedActiveModels = seatOrder.filter((id) => activeModelSet.has(id));
 
   return (
     <div className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
@@ -1698,6 +1695,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 : 'mt-4 sm:mt-[18px]';
 
         const isThinking = message.isStreaming && !message.content.trim();
+        const activeSeatIndex = orderedActiveModels.indexOf(modelKey);
+        const upNextModels =
+          isThinking && activeSeatIndex >= 0
+            ? orderedActiveModels.slice(activeSeatIndex + 1)
+            : [];
         const attachments: string[] =
           message.attachment_urls && message.attachment_urls.length > 0
             ? message.attachment_urls
@@ -1748,11 +1750,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     : 'grid-cols-[44px_minmax(0,1fr)]'
                 }`}
               >
-                <ProviderBadge
-                  provider={modelKey}
-                  size={viewMode === 'side-by-side' ? 'md' : 'lg'}
-                  className="row-span-3"
-                />
+                <div
+                  className={`relative row-span-3 shrink-0 ${
+                    viewMode === 'side-by-side' ? 'h-8 w-8' : 'h-11 w-11'
+                  }`}
+                >
+                  {message.isStreaming && (
+                    <span
+                      className="plurilog-thinking-ring absolute -inset-[3px] rounded-full"
+                      aria-hidden="true"
+                    />
+                  )}
+                  <ProviderBadge
+                    provider={modelKey}
+                    size={viewMode === 'side-by-side' ? 'md' : 'lg'}
+                    className="relative z-[1]"
+                  />
+                </div>
 
                 <div className="col-start-2 flex items-baseline gap-2 min-w-0 mb-1">
                   <span className="font-semibold text-[14px] text-[#1C1B1A] truncate">
@@ -1766,14 +1780,41 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               {/* Message Body */}
               <div className="col-start-2 min-w-0">
               {isThinking ? (
-                <SeatActivityIndicator
-                  provider={modelKey}
-                  status={seatStatuses[modelKey] || 'thinking'}
-                  startedAt={message.createdAt}
-                  searchSources={seatSearchSources[modelKey] || []}
-                  activityLabel={seatActivityLabels[modelKey] || null}
-                  reduceMotion={Boolean(shouldReduceMotion)}
-                />
+                <div className="flex min-w-0 flex-col items-start">
+                  <SeatActivityIndicator
+                    provider={modelKey}
+                    status={seatStatuses[modelKey] || 'thinking'}
+                    startedAt={message.createdAt}
+                    searchSources={seatSearchSources[modelKey] || []}
+                    activityLabel={seatActivityLabels[modelKey] || null}
+                    reduceMotion={Boolean(shouldReduceMotion)}
+                  />
+                  {upNextModels.length > 0 && (
+                    <motion.div
+                      initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: shouldReduceMotion ? 0 : 0.18, ease: 'easeOut' }}
+                      className="mt-2 inline-flex items-center gap-2 text-[12px] text-[#6A675F]"
+                    >
+                      <span className="flex -space-x-1.5" aria-hidden="true">
+                        {upNextModels.map((id) => (
+                          <ProviderBadge
+                            key={id}
+                            provider={id}
+                            size="sm"
+                            className="ring-1 ring-[#F7F6F3]"
+                          />
+                        ))}
+                      </span>
+                      <span>
+                        {upNextModels.map((id) => COUNCIL_MEMBERS[id]?.name || id).join(
+                          upNextModels.length === 2 ? ' and ' : ', '
+                        )}{' '}
+                        {upNextModels.length === 1 ? 'is' : 'are'} up next
+                      </span>
+                    </motion.div>
+                  )}
+                </div>
               ) : (
                 <motion.div
                   initial={false}
