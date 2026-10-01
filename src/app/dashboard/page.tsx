@@ -19,7 +19,7 @@ import {
   SeatStatus,
   SeatSearchSource,
 } from '../../types/chat';
-import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle } from 'lucide-react';
+import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
 
@@ -263,6 +263,7 @@ export default function DashboardPage() {
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const [isDebating, setIsDebating] = useState<boolean>(false);
+  const [isStopRequested, setIsStopRequested] = useState<boolean>(false);
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [seatActivityLabels, setSeatActivityLabels] = useState<
@@ -298,6 +299,12 @@ export default function DashboardPage() {
   const isNearBottomRef = useRef(true);
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isDebating) {
+      setIsStopRequested(false);
+    }
+  }, [isDebating]);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -483,6 +490,24 @@ export default function DashboardPage() {
       });
   }, [supabase]);
 
+  const hasModelResponseAfterLatestUser = (items: ChatMessage[]): boolean => {
+    let lastUserIndex = -1;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      if (items[index]?.role === 'user') {
+        lastUserIndex = index;
+        break;
+      }
+    }
+
+    return items
+      .slice(lastUserIndex + 1)
+      .some(
+        (item) =>
+          item.role === 'model' &&
+          Boolean(item.content?.trim())
+      );
+  };
+
   // Fetch messages for a specific discussion and populate canvas atomically
   const fetchDiscussionMessages = useCallback(async (discussionId: string, isInitialMount: boolean = false) => {
     if (!discussionId) {
@@ -592,7 +617,7 @@ export default function DashboardPage() {
         setActiveSpeaker(activeGen.activeSpeaker);
       } else {
         setMessages(formatted);
-        setCanContinue(formatted.length > 0);
+        setCanContinue(hasModelResponseAfterLatestUser(formatted));
         setErrorMessage(null);
         setFailedTurn(null);
         setAbandonedFailedTurnIds([]);
@@ -1012,6 +1037,8 @@ export default function DashboardPage() {
 
   // Stop / Cancel currently in-progress debate relay
   const handleStop = () => {
+    setIsStopRequested(true);
+
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
     if (activeGen) {
@@ -1020,12 +1047,25 @@ export default function DashboardPage() {
     }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
+      return;
     }
+
+    // Defensive UI release if a stale loading state ever survives without
+    // an abortable controller.
+    setSeatStatuses(INITIAL_SEAT_STATUSES);
+    setActiveSpeaker(null);
+    setIsDebating(false);
+    setCanContinue(hasModelResponseAfterLatestUser(messages));
   };
 
   interface OptimisticPlaceholder {
     firstSeatId: ModelId;
     msgId: string;
+  }
+
+  interface ContinueMarker {
+    uiMessageId: string;
+    persistedMessageId?: string | null;
   }
 
   // Executes sequential SSE relay stream for either new user message or continue round
@@ -1038,7 +1078,8 @@ export default function DashboardPage() {
     sourceUserMessageId?: string | null,
     retrySnapshot?: FailedTurnState | null,
     optimisticPlaceholder?: OptimisticPlaceholder | null,
-    existingController?: AbortController | null
+    existingController?: AbortController | null,
+    continueMarker?: ContinueMarker | null
   ) => {
     const controller = existingController || new AbortController();
     abortControllerRef.current = controller;
@@ -1051,6 +1092,28 @@ export default function DashboardPage() {
     let uiReleasedForReady = false;
     const currentAttemptModelMsgIds = new Set<string>();
     const pendingSeatPlaceholders = new Map<ModelId, string>();
+
+    const removeUnansweredContinueMarker = async () => {
+      if (!isContinueRound || !continueMarker) return;
+
+      setMessages((prev) =>
+        prev.filter((message) => message.id !== continueMarker.uiMessageId)
+      );
+
+      if (continueMarker.persistedMessageId) {
+        const { error: deleteContinueErr } = await supabase
+          .from('messages')
+          .delete()
+          .eq('id', continueMarker.persistedMessageId);
+
+        if (deleteContinueErr) {
+          console.error(
+            '[Continue Cleanup] Failed to remove unanswered Continue marker:',
+            deleteContinueErr
+          );
+        }
+      }
+    };
 
     const insertAttemptMessageBySeatOrder = (
       current: ChatMessage[],
@@ -1146,11 +1209,12 @@ export default function DashboardPage() {
         setSeatStatuses(INITIAL_SEAT_STATUSES);
         setActiveSpeaker(null);
         setIsDebating(false);
-        setCanContinue(true);
+        setCanContinue(false);
         if (optimisticPlaceholder?.msgId) {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticPlaceholder.msgId));
         }
       }
+      await removeUnansweredContinueMarker();
       return;
     }
 
@@ -1945,6 +2009,13 @@ export default function DashboardPage() {
       if (isAborted) {
         console.log('[Relay Stopped] Discussion stream was stopped by user.');
 
+        const hasStoppedOutput =
+          completedSeatsCount > 0 || Boolean(inProgressContent.trim());
+
+        if (!hasStoppedOutput) {
+          await removeUnansweredContinueMarker();
+        }
+
         // If stopped mid-stream, persist whatever partial response was already received
         if (discussionId && inProgressModelId && inProgressContent.trim()) {
           try {
@@ -1971,7 +2042,8 @@ export default function DashboardPage() {
         if (activeDebateIdRef.current === discussionId) {
           setSeatStatuses(INITIAL_SEAT_STATUSES);
           setActiveSpeaker(null);
-          setCanContinue(true);
+          setIsDebating(false);
+          setCanContinue(hasStoppedOutput);
           setMessages((prev) =>
             prev
               .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
@@ -2044,6 +2116,7 @@ export default function DashboardPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    setIsStopRequested(false);
     setCanContinue(false);
     setErrorMessage(null);
     if (failedTurn) {
@@ -2189,7 +2262,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
@@ -2255,7 +2328,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       await cleanupNewlyCreatedDiscussion();
       return;
     }
@@ -2419,7 +2492,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       await cleanupNewlyCreatedDiscussion();
       return;
     }
@@ -2468,7 +2541,7 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
@@ -2536,6 +2609,7 @@ export default function DashboardPage() {
     retryInFlightRef.current = true;
     setFailedTurn(null);
     setErrorMessage(null);
+    setIsStopRequested(false);
     setCanContinue(false);
     setIsDebating(true);
 
@@ -2611,6 +2685,7 @@ export default function DashboardPage() {
     abortControllerRef.current = controller;
 
     const firstSeatId = activeSeatOrder[0];
+    setIsStopRequested(false);
     setCanContinue(false);
     setErrorMessage(null);
     setFailedTurn(null);
@@ -2669,24 +2744,53 @@ export default function DashboardPage() {
       initialModelMsg ? [...prev, userMsg, initialModelMsg] : [...prev, userMsg]
     );
 
+    let persistedContinueMessageId: string | null = null;
     try {
-      await supabase.from('messages').insert({
-        discussion_id: activeDebateId,
-        sender: 'user',
-        content: 'Continue',
-      });
+      const { data: insertedContinue, error: insertContinueErr } = await supabase
+        .from('messages')
+        .insert({
+          discussion_id: activeDebateId,
+          sender: 'user',
+          content: 'Continue',
+        })
+        .select('id')
+        .single();
+
+      if (insertContinueErr) {
+        console.error('[Supabase Error] Error persisting continue message:', insertContinueErr);
+      } else {
+        persistedContinueMessageId = insertedContinue?.id || null;
+      }
     } catch (err) {
       console.error('[Supabase Exception] Error persisting continue message:', err);
     }
 
+    const continueMarker: ContinueMarker = {
+      uiMessageId: tempUserMsgId,
+      persistedMessageId: persistedContinueMessageId,
+    };
+
     if (controller.signal.aborted) {
-      if (optimisticFirstModelMsgId) {
-        setMessages((prev) => prev.filter((m) => m.id !== optimisticFirstModelMsgId));
+      setMessages((prev) =>
+        prev.filter(
+          (m) =>
+            m.id !== optimisticFirstModelMsgId &&
+            m.id !== tempUserMsgId
+        )
+      );
+      if (persistedContinueMessageId) {
+        const { error: deleteContinueErr } = await supabase
+          .from('messages')
+          .delete()
+          .eq('id', persistedContinueMessageId);
+        if (deleteContinueErr) {
+          console.error('[Continue Cleanup] Failed to remove unanswered Continue marker:', deleteContinueErr);
+        }
       }
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(true);
+      setCanContinue(false);
       return;
     }
 
@@ -2696,7 +2800,18 @@ export default function DashboardPage() {
         : null;
 
     // 2. Trigger relay with empty string prompt, isContinueRound flag, and optimisticPlaceholder
-    await runRelay('', activeDebateId, activeSeatOrder, true, null, null, null, optimisticPlaceholder, controller);
+    await runRelay(
+      '',
+      activeDebateId,
+      activeSeatOrder,
+      true,
+      null,
+      null,
+      null,
+      optimisticPlaceholder,
+      controller,
+      continueMarker
+    );
   };
 
   if (isLoadingAuth) {
@@ -2709,16 +2824,16 @@ export default function DashboardPage() {
             urlDiscussionId={urlDiscussionId}
           />
         </Suspense>
-        <div className="flex h-screen w-screen items-center justify-center bg-white text-zinc-900 font-sans">
+        <div className="plurilog-dashboard bg-tech-grid flex h-screen w-screen items-center justify-center text-[#1C1B1A] font-sans">
           <div className="flex flex-col items-center gap-3">
             <img
               src="/logo.svg"
               alt="Plurilog"
-              className="w-8 h-8 rounded-lg object-contain"
+              className="h-8 w-8 object-contain"
             />
-            <div className="flex items-center gap-2 text-xs text-zinc-500 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-600" />
-              <span>Verifying session...</span>
+            <div className="inline-flex items-center gap-2 text-xs font-medium text-[#6A675F]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-[#8A867D]" />
+              <span>Verifying session…</span>
             </div>
           </div>
         </div>
@@ -2731,6 +2846,10 @@ export default function DashboardPage() {
     ? ['Hello,', displayFirstName]
     : ['Hello', 'there!'];
 
+  const primeComposer = (text: string) => {
+    setRestoreDraft({ text, trigger: Date.now() });
+  };
+
   return (
     <>
       <Suspense fallback={null}>
@@ -2741,7 +2860,7 @@ export default function DashboardPage() {
         />
       </Suspense>
       <div 
-        className="flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-white text-zinc-900 font-sans print:hidden"
+        className="plurilog-dashboard flex fixed lg:static inset-x-0 top-0 h-[100dvh] lg:h-screen w-full lg:w-screen overflow-hidden bg-[#F7F6F3] text-[#1C1B1A] font-sans print:hidden"
       >
         {/* Left Collapsible Sidebar with real fetched discussions and delete action */}
         <Sidebar
@@ -2766,17 +2885,17 @@ export default function DashboardPage() {
 
         {/* Main Chamber */}
         <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
-          {/* Whole Discussion PDF Export Button */}
           {messages.length > 0 && (
             <div className="absolute top-4 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
               <button
                 type="button"
                 onClick={() => handleTriggerPrint('discussion', messages)}
-                className="pointer-events-auto flex items-center justify-center p-2 rounded-lg bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-2xs hover:shadow-xs transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in target-secondary"
-                title="Download discussion as PDF"
-                aria-label="Download discussion as PDF"
+                className="pointer-events-auto h-10 inline-flex items-center gap-2 rounded-xl border border-[#D9D6CF] bg-[#F7F6F3]/90 px-3 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#EFEDE9] backdrop-blur-[2px] transition-colors cursor-pointer"
+                title="Export discussion"
+                aria-label="Export discussion"
               >
                 <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Export</span>
               </button>
             </div>
           )}
@@ -2804,14 +2923,12 @@ export default function DashboardPage() {
                   <p className="text-xs text-zinc-400">Loading conversation...</p>
                 </div>
               ) : messages.length === 0 ? (
-                /* Claude-style Clean Centered Empty State with Staggered Entrance Animation */
-                <div 
+                <div
                   key={activeDebateId || 'empty-state-view'}
-                  className="flex-1 flex flex-col items-center justify-center pl-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(1rem,calc(2vw_+_0.5rem),2rem),env(safe-area-inset-right))] max-w-3xl mx-auto w-full text-center my-auto pb-12 sm:pb-16"
+                  className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 w-full text-center my-auto pb-10 sm:pb-14"
                 >
-                  {/* Animated Plurilog panel illustration */}
-                  <div 
-                    className="w-52 sm:w-60 mb-2 flex items-center justify-center animate-drop-fade"
+                  <div
+                    className="w-[230px] sm:w-[250px] mb-1 flex items-center justify-center animate-drop-fade"
                     style={{ animationDelay: '0ms' }}
                   >
                     <img
@@ -2822,8 +2939,7 @@ export default function DashboardPage() {
                     />
                   </div>
 
-                  {/* Staggered Drop-Fade Heading Words */}
-                  <h2 className="text-[32px] sm:text-[40px] font-medium leading-tight text-zinc-900 tracking-tight mb-1.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                  <h2 className="text-[32px] sm:text-[40px] font-medium leading-tight text-[#1C1B1A] tracking-tight mb-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
                     {greetingWords.map((word, idx) => (
                       <span
                         key={idx}
@@ -2835,31 +2951,31 @@ export default function DashboardPage() {
                     ))}
                   </h2>
 
-                  {/* Warmer Panel Subtext (Simple Fade-In) */}
-                  <p 
-                    className="text-xs sm:text-sm font-normal text-zinc-400 mb-6 animate-simple-fade"
+                  <p
+                    className="text-xs sm:text-sm font-normal text-[#6A675F] mb-6 animate-simple-fade"
                     style={{ animationDelay: '350ms' }}
                   >
-                    Gemini, Claude, and ChatGPT are here to help
+                    Your AI seats are in the box below. Swap or remove any of them.
                   </p>
 
-                  {/* Centered Input (Simple Fade-In) */}
-                  <div 
-                    className="w-full animate-simple-fade"
-                    style={{ animationDelay: '420ms' }}
+                  <div
+                    className="w-full max-w-[720px] animate-simple-fade"
+                    style={{ animationDelay: '340ms' }}
                   >
                     {errorMessage && (
-                      <div className="p-3.5 mb-4 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full text-left">
-                        <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                      <div className="p-3.5 mb-4 rounded-[14px] bg-white border border-[#E2E0DB] text-[#B5432E] text-xs flex items-start gap-2.5 min-w-0 max-w-full text-left">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                         <div className="space-y-1 min-w-0">
                           <span className="font-semibold block">Notice</span>
                           <p className="leading-relaxed break-words whitespace-pre-line">{errorMessage}</p>
                         </div>
                       </div>
                     )}
+
                     <ChatInput
                       onSendMessage={handleSendMessage}
-                      isLoading={isDebating}
+                      isLoading={isDebating && !isStopRequested}
+                      isLocked={isDebating}
                       onStop={handleStop}
                       isCentered
                       autoFocus
@@ -2869,6 +2985,33 @@ export default function DashboardPage() {
                       onReorderSeats={handleReorderSeats}
                       onToggleModel={handleToggleModel}
                     />
+
+                    <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => primeComposer('Generate an image of ')}
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5 text-[#4880E6]" />
+                        Generate an image
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => primeComposer('Create a document about ')}
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
+                      >
+                        <FilePlus2 className="w-3.5 h-3.5 text-[#E0644B]" />
+                        Create a document
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => primeComposer('Fact-check this: ')}
+                        className="h-10 inline-flex items-center gap-2 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
+                      >
+                        <BadgeCheck className="w-3.5 h-3.5 text-[#3A3A3C]" />
+                        Fact-check something
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -2879,6 +3022,8 @@ export default function DashboardPage() {
                   seatStatuses={seatStatuses}
                   seatActivityLabels={seatActivityLabels}
                   seatSearchSources={seatSearchSources}
+                  seatOrder={seatOrder}
+                  activeModels={activeModels}
                   isDebating={isDebating}
                   errorMessage={errorMessage}
                   canContinue={canContinue}
@@ -2907,7 +3052,7 @@ export default function DashboardPage() {
                       behavior: 'smooth',
                     });
                   }}
-                  className="pointer-events-auto flex items-center justify-center w-9 h-9 rounded-full bg-white/95 hover:bg-white text-zinc-600 hover:text-zinc-900 border border-zinc-200/90 shadow-md hover:shadow-lg transition-all duration-150 cursor-pointer backdrop-blur-xs active:scale-95 animate-in fade-in zoom-in-95 target-primary"
+                  className="pointer-events-auto flex items-center justify-center w-10 h-10 rounded-full bg-white text-[#6A675F] hover:text-[#1C1B1A] border border-[#E2E0DB] dashboard-input-shadow transition-all duration-150 cursor-pointer active:scale-95 animate-in fade-in zoom-in-95 target-primary"
                   title="Scroll to bottom"
                   aria-label="Scroll to bottom"
                 >
@@ -2921,7 +3066,8 @@ export default function DashboardPage() {
           {messages.length > 0 && (
             <ChatInput
               onSendMessage={handleSendMessage}
-              isLoading={isDebating}
+              isLoading={isDebating && !isStopRequested}
+              isLocked={isDebating}
               onStop={handleStop}
               focusTrigger={activeDebateId}
               restoreDraft={restoreDraft}

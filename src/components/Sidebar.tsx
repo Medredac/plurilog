@@ -146,6 +146,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return matchesTitle || matchesContent;
   });
 
+  const groupedDebates = (() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+    const weekStart = todayStart - 7 * 24 * 60 * 60 * 1000;
+
+    const groups: Array<{ label: string; items: DebateTopic[] }> = [
+      { label: 'Today', items: [] },
+      { label: 'Yesterday', items: [] },
+      { label: 'Last 7 days', items: [] },
+      { label: 'Earlier', items: [] },
+    ];
+
+    for (const debate of filteredDebates) {
+      const stamp = debate.updatedAt || debate.createdAt;
+      const time = stamp ? new Date(stamp).getTime() : Number.NaN;
+
+      if (Number.isNaN(time) || time >= todayStart) groups[0].items.push(debate);
+      else if (time >= yesterdayStart) groups[1].items.push(debate);
+      else if (time >= weekStart) groups[2].items.push(debate);
+      else groups[3].items.push(debate);
+    }
+
+    return groups.filter((group) => group.items.length > 0);
+  })();
+
   // Close drop-up menus when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -184,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {drawerOpen && (
         <div
           onClick={toggleDrawer}
-          className="absolute inset-0 bg-black/10 backdrop-blur-xs z-30 lg:hidden transition-opacity"
+          className="absolute inset-0 bg-[rgba(28,27,26,0.38)] backdrop-blur-[1px] z-30 lg:hidden transition-opacity"
         />
       )}
 
@@ -208,7 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* Intermediate Persistent 56px Rail (Rendered between 680px and 1023px) */}
-      <aside className="hidden nav-rail:flex lg:hidden flex-col justify-between items-center w-14 h-full bg-white border-r border-zinc-100 py-3 shrink-0 z-20 select-none">
+      <aside className="hidden nav-rail:flex lg:hidden flex-col justify-between items-center w-14 h-full bg-white border-r border-[#E2E0DB] py-3 shrink-0 z-20 select-none">
         {/* Top Navigation Actions */}
         <div className="flex flex-col items-center gap-3 w-full px-2">
           {/* Plurilog Logo */}
@@ -226,7 +252,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onNewDebate}
-            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 active:bg-zinc-200/60 bg-zinc-50 border border-zinc-200/70 transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="New Discussion"
             aria-label="New Discussion"
           >
@@ -262,7 +288,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-            className="w-8 h-8 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden hover:ring-2 hover:ring-zinc-300 transition-all cursor-pointer target-primary"
+            className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden hover:ring-2 hover:ring-zinc-300 transition-all cursor-pointer target-primary"
             title={`Account (${displayName})`}
             aria-label={`Account (${displayName})`}
           >
@@ -277,12 +303,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {isProfileMenuOpen && (
             <div
               ref={menuRef}
-              className="absolute bottom-full left-2 mb-2 w-60 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
+              className="absolute bottom-full left-2 mb-2 w-60 bg-white rounded-xl border border-[#E2E0DB] dashboard-menu-shadow p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
             >
               {/* User Profile Header in Menu */}
-              <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
+              <div className="px-2.5 py-2 border-b border-[#E7E5E0] mb-1">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                     {userAvatarUrl ? (
                       <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                     ) : (
@@ -307,13 +333,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     setIsProfileMenuOpen(false);
                     onOpenAccountSettings?.();
                   }}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                 >
-                  <Settings className="w-4 h-4 text-zinc-400" />
+                  <Settings className="w-4 h-4 text-[#8A867D]" />
                   <span className="font-normal">Account Settings</span>
                 </button>
 
-                <div className="border-t border-zinc-100 my-1" />
+                <div className="border-t border-[#E7E5E0] my-1" />
 
                 {onSignOut && (
                   <button
@@ -321,7 +347,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setIsProfileMenuOpen(false);
                       onSignOut();
                     }}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                   >
                     <LogOut className="w-4 h-4" />
                     <span className="font-normal">Log Out</span>
@@ -335,10 +361,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Desktop Collapsed Strip (Preserves existing desktop collapse UX on >= 1024px) */}
       {!desktopOpen && (
-        <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-zinc-100 lg:bg-white shrink-0">
+        <div className="hidden lg:flex lg:flex-col lg:items-center lg:py-2.5 lg:px-2 lg:border-r lg:border-[#E2E0DB] lg:bg-white shrink-0">
           <button
             onClick={toggleDesktop}
-            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white shadow-2xs transition-colors cursor-pointer target-primary flex items-center justify-center"
+            className="p-2 rounded-lg text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80 bg-white transition-colors cursor-pointer target-primary flex items-center justify-center"
             title="Open sidebar"
             aria-label="Open sidebar"
           >
@@ -349,22 +375,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Full Sidebar / Slide-Over Drawer */}
       <aside
-        className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-zinc-100 transition-all duration-200 ease-in-out ${
+        className={`absolute lg:static top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-[#E2E0DB] transition-all duration-200 ease-in-out ${
           drawerOpen
-            ? 'w-72 translate-x-0 shadow-xl'
-            : 'w-72 -translate-x-full overflow-hidden'
+            ? 'w-[272px] translate-x-0 dashboard-menu-shadow'
+            : 'w-[272px] -translate-x-full overflow-hidden'
         } ${
           desktopOpen
-            ? 'lg:w-72 lg:translate-x-0 lg:shadow-none'
+            ? 'lg:w-[272px] lg:translate-x-0 lg:shadow-none'
             : 'lg:w-0 lg:translate-x-0 lg:overflow-hidden'
         }`}
       >
-        <div className="flex flex-col h-full w-72">
+        <div className="flex flex-col h-full w-[272px]">
           {/* Top Brand Header: compact logo, medium-weight title, and Sidebar Toggle */}
-            <div className="h-14 px-4.5 border-b border-zinc-100 flex items-center justify-between">
+            <div className="h-14 px-4.5 border-b border-[#E2E0DB] flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <img src="/logo.svg" alt="Plurilog" className="w-[22px] h-[22px] rounded-md object-contain" />
-                <span className="font-medium text-sm tracking-tight text-zinc-900">
+                <span className="font-medium text-sm tracking-tight text-[#1C1B1A]">
                   Plurilog
                 </span>
               </div>
@@ -386,13 +412,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             {/* Action Bar: "New Discussion" Button in graduated grey */}
-            <div className="p-3">
+            <div className="px-3 pt-3 pb-2">
               <button
                 onClick={onNewDebate}
-                className="w-full flex items-center gap-2 py-2.5 px-3.5 rounded-lg bg-zinc-50 hover:bg-zinc-100/90 text-zinc-500 hover:text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
+                className="w-full h-11 flex items-center gap-2 px-3.5 rounded-xl bg-[#1C1B1A] hover:bg-[#2A2927] text-white font-medium text-sm transition-colors cursor-pointer"
               >
-                <Plus className="w-4 h-4 text-zinc-500" />
-                <span>New Discussion</span>
+                <Plus className="w-4 h-4 text-white" />
+                <span>New discussion</span>
               </button>
             </div>
 
@@ -400,123 +426,125 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 pb-2">
               <div className="relative">
                 {isSearchingDb ? (
-                  <Loader2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 animate-spin" />
+                  <Loader2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A867D] animate-spin" />
                 ) : (
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8A867D]" />
                 )}
                 <input
                   type="text"
-                  placeholder="Search discussions..."
+                  placeholder="Search"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm touch-input-safe text-zinc-700 font-normal rounded-lg border border-zinc-200/60 bg-zinc-50 placeholder:text-zinc-400 focus:outline-none focus:bg-white focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300 transition-all"
+                  className="w-full h-10 pl-9 pr-3 text-sm touch-input-safe text-[#1C1B1A] font-normal rounded-xl border-0 bg-[#F4F3F0] placeholder:text-[#8A867D] focus:outline-none focus:ring-2 focus:ring-[#D9D6CF]/60 transition-all"
                 />
               </div>
             </div>
 
             {/* Discussions List */}
-            <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-1">
-              {/* Normal/regular font weight, mid-grey label */}
-              <div className="px-2.5 py-1 text-xs font-normal text-zinc-400 flex items-center justify-between">
-                <span>Discussions</span>
-                <span className="font-mono text-xs font-normal text-zinc-400">{filteredDebates.length}</span>
-              </div>
-
+            <div className="flex-1 min-h-0 overflow-y-auto px-2.5 py-2 dashboard-scrollbar">
               {filteredDebates.length === 0 ? (
-                <div className="p-4 text-center text-sm font-light text-zinc-400">
+                <div className="p-4 text-center text-sm font-normal text-[#8A867D]">
                   {debouncedQuery.trim() ? 'No discussions found' : 'No discussions yet'}
                 </div>
               ) : (
-                filteredDebates.map((debate) => {
-                  const isActive = debate.id === activeDebateId;
-                  const isMenuOpen = menuOpenDebateId === debate.id;
-                  const isTitlePending = pendingTitleDiscussionIds?.has(debate.id) ?? false;
+                <div className="space-y-3">
+                  {groupedDebates.map((group) => (
+                    <section key={group.label}>
+                      <div className="px-2 py-1 text-[12px] font-normal text-[#6A675F]">
+                        {group.label}
+                      </div>
 
-                  return (
-                    <div
-                      key={debate.id}
-                      onClick={() => onSelectDebate(debate.id)}
-                      className={`group/item relative w-full text-left px-3 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
-                        isTitlePending
-                          ? isActive
-                            ? 'bg-zinc-200/80 shadow-2xs text-zinc-900 animate-[pulse_1s_ease-in-out_infinite]'
-                            : 'bg-zinc-200/70 text-zinc-600 animate-[pulse_1s_ease-in-out_infinite]'
-                          : isActive
-                            ? 'bg-zinc-100 shadow-2xs text-zinc-900'
-                            : 'bg-white hover:bg-zinc-50/80 text-zinc-600'
-                      }`}
-                    >
-                      {isTitlePending ? (
-                        <div className="flex-1 min-w-0 h-5" />
-                      ) : (
-                        <span className={`text-[13px] truncate flex-1 ${
-                          isActive ? 'font-normal text-zinc-900' : 'font-normal text-zinc-600 group-hover/item:text-zinc-800'
-                        }`}>
-                          {debate.title}
-                        </span>
-                      )}
-                      
-                      {/* Three-Dot Menu Trigger */}
-                      {onDeleteDebate && (
-                        <div className="relative flex items-center justify-end shrink-0 -mr-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setMenuOpenDebateId(isMenuOpen ? null : debate.id);
-                            }}
-                            className={`p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition-colors cursor-pointer flex items-center justify-center target-secondary ${
-                              isMenuOpen
-                                ? 'flex text-zinc-700 bg-zinc-200/60 opacity-100'
-                                : 'flex text-zinc-400 opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/item:opacity-100 focus-within:opacity-100'
-                            }`}
-                            title="More options"
-                            aria-label="More options"
-                          >
-                            <MoreVertical className="w-3.5 h-3.5 shrink-0" />
-                          </button>
+                      <div className="space-y-0.5">
+                        {group.items.map((debate) => {
+                          const isActive = debate.id === activeDebateId;
+                          const isMenuOpen = menuOpenDebateId === debate.id;
+                          const isTitlePending = pendingTitleDiscussionIds?.has(debate.id) ?? false;
 
-                          {/* Dropdown Menu */}
-                          {isMenuOpen && (
+                          return (
                             <div
-                              ref={dropdownMenuRef}
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-0 top-full mt-1 w-28 rounded-xl bg-white border border-zinc-200/90 shadow-lg p-1 z-30 animate-in fade-in zoom-in-95 duration-100 text-left"
+                              key={debate.id}
+                              onClick={() => onSelectDebate(debate.id)}
+                              className={`group/item relative w-full h-9 text-left px-2.5 rounded-[10px] transition-colors cursor-pointer flex items-center justify-between gap-1.5 ${
+                                isTitlePending
+                                  ? 'bg-[#EFEDE9] text-[#1C1B1A] animate-[pulse_1s_ease-in-out_infinite]'
+                                  : isActive
+                                    ? 'bg-[#EFEDE9] text-[#1C1B1A]'
+                                    : 'bg-transparent hover:bg-[#F4F3F0] text-[#6A675F]'
+                              }`}
                             >
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMenuOpenDebateId(null);
-                                  setConfirmDeleteDebate(debate);
-                                }}
-                                className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-zinc-600 hover:bg-zinc-50 active:bg-zinc-100 hover:text-zinc-800 transition-colors cursor-pointer target-secondary"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
-                              </button>
+                              {isTitlePending ? (
+                                <div className="flex-1 min-w-0 h-4" />
+                              ) : (
+                                <span className={`text-[14px] truncate flex-1 ${
+                                  isActive ? 'font-medium text-[#1C1B1A]' : 'font-normal text-[#1C1B1A]'
+                                }`}>
+                                  {debate.title}
+                                </span>
+                              )}
+
+                              {onDeleteDebate && (
+                                <div className="relative flex items-center justify-end shrink-0 -mr-1">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setMenuOpenDebateId(isMenuOpen ? null : debate.id);
+                                    }}
+                                    className={`p-1.5 rounded-lg text-[#8A867D] hover:text-[#1C1B1A] hover:bg-[#E7E5E0] transition-colors cursor-pointer flex items-center justify-center target-secondary ${
+                                      isMenuOpen
+                                        ? 'flex bg-[#E7E5E0] opacity-100'
+                                        : 'flex opacity-100 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/item:opacity-100 focus-within:opacity-100'
+                                    }`}
+                                    title="More options"
+                                    aria-label="More options"
+                                  >
+                                    <MoreVertical className="w-3.5 h-3.5 shrink-0" />
+                                  </button>
+
+                                  {isMenuOpen && (
+                                    <div
+                                      ref={dropdownMenuRef}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="absolute right-0 top-full mt-1 w-32 rounded-[14px] bg-white border border-[#E2E0DB] dashboard-menu-shadow p-1.5 z-30 animate-in fade-in zoom-in-95 duration-100 text-left"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setMenuOpenDebateId(null);
+                                          setConfirmDeleteDebate(debate);
+                                        }}
+                                        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-[10px] text-xs text-[#B5432E] hover:bg-[#F7F6F3] transition-colors cursor-pointer target-secondary"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Delete</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
               )}
             </div>
 
             {/* Bottom User Profile Section with Drop-up Menu */}
-            <div className="relative p-2.5 border-t border-zinc-100 bg-white">
+            <div className="relative p-3 border-t border-[#E2E0DB] bg-white">
               {/* Drop-up Popover Menu */}
               {isProfileMenuOpen && (
                 <div
                   ref={menuRef}
-                  className="absolute bottom-full left-2 right-2 mb-2 bg-white rounded-xl border border-zinc-200/90 shadow-lg p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
+                  className="absolute bottom-full left-2 right-2 mb-2 bg-white rounded-xl border border-[#E2E0DB] dashboard-menu-shadow p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-[calc(100dvh-5rem)] overflow-y-auto"
                 >
                   {/* User Profile Header in Menu */}
-                  <div className="px-2.5 py-2 border-b border-zinc-100 mb-1">
+                  <div className="px-2.5 py-2 border-b border-[#E7E5E0] mb-1">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                      <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                         {userAvatarUrl ? (
                           <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                         ) : (
@@ -541,13 +569,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsProfileMenuOpen(false);
                         onOpenAccountSettings?.();
                       }}
-                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                      className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                     >
-                      <Settings className="w-4 h-4 text-zinc-400" />
+                      <Settings className="w-4 h-4 text-[#8A867D]" />
                       <span className="font-normal">Account Settings</span>
                     </button>
 
-                    <div className="border-t border-zinc-100 my-1" />
+                    <div className="border-t border-[#E7E5E0] my-1" />
 
                     {onSignOut && (
                       <button
@@ -555,24 +583,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setIsProfileMenuOpen(false);
                           onSignOut();
                         }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                       >
-                        <LogOut className="w-4 h-4 text-zinc-400" />
+                        <LogOut className="w-4 h-4 text-[#8A867D]" />
                         <span className="font-normal">Log Out</span>
                       </button>
                     )}
 
                     {onDeleteProfileClick && (
                       <>
-                        <div className="border-t border-zinc-100 my-1" />
+                        <div className="border-t border-[#E7E5E0] my-1" />
                         <button
                           onClick={() => {
                             setIsProfileMenuOpen(false);
                             onDeleteProfileClick();
                           }}
-                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left target-secondary"
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-[#6A675F] hover:text-[#1C1B1A] transition-colors cursor-pointer text-left target-secondary"
                         >
-                          <Trash2 className="w-4 h-4 text-zinc-400" />
+                          <Trash2 className="w-4 h-4 text-[#8A867D]" />
                           <span className="font-normal">Delete account</span>
                         </button>
                       </>
@@ -585,14 +613,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 ref={triggerRef}
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                className={`w-full flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer ${
+                className={`w-full min-h-11 flex items-center justify-between px-2 py-1.5 rounded-xl border transition-colors cursor-pointer ${
                   isProfileMenuOpen
-                    ? 'bg-zinc-50 border-zinc-300 shadow-2xs'
-                    : 'bg-white hover:bg-zinc-50 border-zinc-200/80 shadow-2xs'
+                    ? 'bg-[#F4F3F0] border-[#D9D6CF]'
+                    : 'bg-white hover:bg-[#F7F6F3] border-transparent'
                 }`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-full bg-amber-50/80 text-amber-900 flex items-center justify-center font-semibold text-xs border border-amber-200/80 shrink-0 overflow-hidden">
+                  <div className="w-8 h-8 rounded-full bg-[#D3E0F8] text-[#1C1B1A] flex items-center justify-center font-semibold text-xs border border-white shrink-0 overflow-hidden">
                     {userAvatarUrl ? (
                       <img src={userAvatarUrl} alt={displayName} className="w-full h-full object-cover" />
                     ) : (
@@ -602,17 +630,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="text-left min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span 
-                        className="text-sm font-medium text-zinc-700 truncate max-w-[130px]" 
+                        className="text-sm font-medium text-[#1C1B1A] truncate max-w-[130px]" 
                         title={displayName}
                       >
                         {firstName}
                       </span>
                       <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
                         userPlan === 'paid'
-                          ? 'bg-zinc-100 text-zinc-700 border-zinc-200/80'
-                          : 'bg-zinc-100 text-zinc-500 border-zinc-200/60'
+                          ? 'bg-white text-[#1C1B1A] border-[#D9D6CF]'
+                          : 'bg-white text-[#6A675F] border-[#D9D6CF]'
                       }`}>
-                        {userPlan === 'paid' ? 'Plus' : 'Free'}
+                        {userPlan === 'paid' ? 'Plus' : 'Free · Upgrade'}
                       </span>
                     </div>
                   </div>
@@ -661,7 +689,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   }
                   setConfirmDeleteDebate(null);
                 }}
-                className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 transition-colors cursor-pointer shadow-2xs flex items-center target-secondary"
+                className="px-4 py-2.5 rounded-xl text-xs font-medium text-white bg-[#B5432E] hover:bg-[#963824] active:bg-[#7D2F20] transition-colors cursor-pointer flex items-center target-secondary"
               >
                 Delete
               </button>

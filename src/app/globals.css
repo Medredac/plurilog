@@ -134,6 +134,40 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+
+/* Active AI: animated Plurilog gradient stroke, without the legacy amber fill */
+@keyframes plurilogStrokeFlow {
+  0% {
+    background-position: 0 0, 0% 50%;
+  }
+  50% {
+    background-position: 0 0, 100% 50%;
+  }
+  100% {
+    background-position: 0 0, 0% 50%;
+  }
+}
+
+.plurilog-speaking-stroke {
+  border-color: transparent !important;
+  background:
+    linear-gradient(#FFFFFF, #FFFFFF) padding-box,
+    linear-gradient(
+      110deg,
+      #F7E8B8 0%,
+      #EAD9AE 34%,
+      #F3E7C9 66%,
+      #DCC7A1 100%
+    ) border-box;
+  background-size: 100% 100%, 240% 240%;
+  background-position: 0 0, 0% 50%;
+  box-shadow:
+    0 1px 2px rgba(24, 24, 27, 0.04),
+    0 0 7px rgba(234, 217, 174, 0.16),
+    0 0 12px rgba(220, 199, 161, 0.08);
+  animation: plurilogStrokeFlow 2.8s ease-in-out infinite;
+}
+
 /* Subtle, light gray grid pattern on pure white */
 .bg-tech-grid {
   background-color: #FFFFFF;
@@ -290,6 +324,28 @@ body {
   animation: textShimmer 2s linear infinite;
 }
 
+.thinking-dot-shimmer {
+  background: linear-gradient(90deg, #a1a1aa 20%, #e4e4e7 50%, #a1a1aa 80%);
+  background-size: 200% auto;
+  box-shadow: 0 0 4px rgba(228, 228, 231, 0.8);
+  animation: textShimmer 2s linear infinite;
+}
+
+.thinking-icon-silver {
+  color: #B4B4BA;
+  filter: drop-shadow(0 0 2.5px rgba(228, 228, 231, 0.85));
+}
+
+@keyframes plurilogThinkingRingRotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.plurilog-thinking-ring {
+  animation: plurilogThinkingRingRotate 1.55s linear infinite;
+}
+
 /* Responsive Interaction & Capability Utilities */
 @layer utilities {
   /* Primary Actions: Compact (36px) on precision mouse, generous (42px) on coarse touch */
@@ -389,5 +445,73 @@ body {
     filter: none;
     opacity: 1;
   }
+
+  .plurilog-speaking-stroke {
+    animation: none;
+    background-position: 0 0, 55% 50%;
+  }
+
+  .plurilog-thinking-ring {
+    animation: none;
+  }
 }
 
+
+
+/* -------------------------------------------------------------------------- */
+/* Plurilog dashboard redesign — warm premium workspace                       */
+/* -------------------------------------------------------------------------- */
+.plurilog-dashboard {
+  --pl-canvas: #F7F6F3;
+  --pl-surface: #FFFFFF;
+  --pl-ink: #1C1B1A;
+  --pl-muted: #6A675F;
+  --pl-faint: #8A867D;
+  --pl-border: #E2E0DB;
+  --pl-divider: #E7E5E0;
+  --pl-control-border: #D9D6CF;
+  --pl-selected: #EFEDE9;
+  --pl-search: #F4F3F0;
+  --pl-destructive: #B5432E;
+  --pl-claude: #E0644B;
+  --pl-claude-tint: #F6D3C9;
+  --pl-gemini: #4880E6;
+  --pl-gemini-tint: #D3E0F8;
+  --pl-chatgpt: #3A3A3C;
+  --pl-chatgpt-tint: #E6E5E2;
+  --pl-yellow: #F2C94C;
+  color: var(--pl-ink);
+  background: var(--pl-canvas);
+}
+
+.plurilog-dashboard .bg-tech-grid {
+  background-color: var(--pl-canvas);
+  background-image:
+    linear-gradient(to right, rgba(28, 27, 26, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(28, 27, 26, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.plurilog-dashboard ::selection {
+  background: #E6E5E2;
+  color: #1C1B1A;
+}
+
+.plurilog-dashboard .dashboard-input-shadow {
+  box-shadow: 0 2px 12px rgba(28, 27, 26, 0.06);
+}
+
+.plurilog-dashboard .dashboard-menu-shadow {
+  box-shadow: 0 12px 32px rgba(28, 27, 26, 0.14);
+}
+
+.plurilog-dashboard .dashboard-scrollbar::-webkit-scrollbar-thumb {
+  background: #D9D6CF;
+}
+
+@media (any-pointer: coarse) {
+  .plurilog-dashboard button,
+  .plurilog-dashboard [role="button"] {
+    min-height: 44px;
+  }
+}

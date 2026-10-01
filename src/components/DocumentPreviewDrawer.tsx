@@ -316,7 +316,7 @@ export const DocumentPreviewDrawer: React.FC<DocumentPreviewDrawerProps> = ({
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden bg-zinc-100">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-[#F7F6F3]">
         {canPreview ? (
           isText ? (
             <div className="h-full overflow-auto px-3 py-4 sm:px-6 sm:py-6">

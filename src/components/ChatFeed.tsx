@@ -15,6 +15,7 @@ import {
   ChevronUp,
   FileText,
   Download,
+  Eye,
   Brain,
   Search,
   FileSearch,
@@ -26,7 +27,8 @@ import {
   Globe2,
   Clock3,
   History,
-  BookOpen
+  BookOpen,
+  RefreshCw
 } from 'lucide-react';
 import {
   ChatMessage,
@@ -36,7 +38,7 @@ import {
 } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
-import { ProviderIcon } from './ProviderIcon';
+import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 
@@ -63,6 +65,13 @@ function formatConversationDate(dateInput?: string): string {
   const d = new Date(dateInput);
   if (Number.isNaN(d.getTime())) return '';
 
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (target === today) return 'Today';
+  if (target === today - dayMs) return 'Yesterday';
   return conversationDateFormatter.format(d);
 }
 
@@ -314,6 +323,7 @@ function getSearchFaviconUrl(source?: SeatSearchSource | null): string | null {
 
 interface SeatActivityIndicatorProps {
   status: SeatStatus;
+  provider?: ModelId;
   startedAt?: string;
   searchSources?: SeatSearchSource[];
   activityLabel?: string | null;
@@ -322,6 +332,7 @@ interface SeatActivityIndicatorProps {
 
 const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   status,
+  provider = 'chatgpt',
   startedAt,
   searchSources = [],
   activityLabel = null,
@@ -364,8 +375,9 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
     if (elapsedMs < 22000) return 'considering_context';
     return 'working';
   })();
-  const displayLabel =
+  const rawDisplayLabel =
     activityLabel?.trim() || getSeatActivityLabel(effectiveStatus);
+  const displayLabel = rawDisplayLabel.replace(/(?:…|\.\.\.)\s*$/, '');
 
   useEffect(() => {
     if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
@@ -386,8 +398,6 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
       : null;
   const faviconUrl = getSearchFaviconUrl(activeSource);
 
-  const iconClass =
-    'h-3.5 w-3.5 shrink-0 text-amber-500';
   const iconMotion =
     reduceMotion
       ? {}
@@ -450,73 +460,60 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   })();
 
   return (
-    <div className="py-0.5 flex min-w-0 items-center gap-2.5 animate-in fade-in duration-150">
-      <motion.div
-        key={effectiveStatus}
-        animate={iconMotion}
-        transition={
-          reduceMotion
-            ? { duration: 0 }
-            : {
-                duration: effectiveStatus === 'searching_web' ? 1.1 : 1.4,
-                repeat: Infinity,
-                ease: 'easeInOut',
-              }
-        }
-        className="flex h-4 w-4 shrink-0 items-center justify-center"
-        aria-hidden="true"
-      >
-        <ActivityIcon className={iconClass} />
-      </motion.div>
+    <div className="py-0.5 inline-flex max-w-full min-w-0 items-center gap-2 text-[13px] animate-in fade-in duration-150">
+        <motion.div
+          key={effectiveStatus}
+          animate={iconMotion}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : {
+                  duration: effectiveStatus === 'searching_web' ? 1.1 : 1.4,
+                  repeat: Infinity,
+                  ease: 'easeInOut',
+                }
+          }
+          className="flex h-4 w-4 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          <ActivityIcon className="thinking-icon-silver h-3.5 w-3.5" />
+        </motion.div>
 
-      <div className="flex min-w-0 items-center gap-2 text-xs tracking-tight">
         <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={`${effectiveStatus}:${displayLabel}`}
-            initial={
-              reduceMotion
-                ? false
-                : {
-                    opacity: 0,
-                    filter: 'blur(2px)',
-                    clipPath: 'inset(0 100% 0 0)',
-                    y: 1,
-                  }
-            }
-            animate={{
-              opacity: 1,
-              filter: 'blur(0px)',
-              clipPath: 'inset(0 0% 0 0)',
-              y: 0,
-            }}
-            exit={
-              reduceMotion
-                ? { opacity: 0 }
-                : {
-                    opacity: 0,
-                    filter: 'blur(2px)',
-                    clipPath: 'inset(0 0% 0 4%)',
-                    y: -1,
-                  }
-            }
-            transition={
-              reduceMotion
-                ? { duration: 0 }
-                : {
-                    opacity: { duration: 0.13 },
-                    filter: { duration: 0.13 },
-                    y: { duration: 0.13 },
-                    clipPath: {
-                      duration: 0.34,
-                      ease: [0.16, 1, 0.3, 1],
-                    },
-                  }
-            }
-            className="animate-text-shimmer whitespace-nowrap font-normal tracking-tight select-none"
+            initial={reduceMotion ? false : { opacity: 0, y: 2 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -2 }}
+            transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
+            className="animate-text-shimmer min-w-0 truncate whitespace-nowrap font-normal tracking-tight select-none"
           >
             {displayLabel}
           </motion.span>
         </AnimatePresence>
+
+        <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+          {[0, 1, 2].map((_, index) => (
+            <motion.span
+              key={index}
+              className="thinking-dot-shimmer h-1 w-1 rounded-full"
+              animate={
+                reduceMotion
+                  ? undefined
+                  : {
+                      y: [0, -1.5, 0],
+                      opacity: [0.5, 1, 0.5],
+                    }
+              }
+              transition={{
+                duration: 0.9,
+                repeat: Infinity,
+                delay: index * 0.12,
+                ease: 'easeInOut',
+              }}
+            />
+          ))}
+        </span>
 
         {activeSource && (
           <motion.span
@@ -524,11 +521,11 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             initial={reduceMotion ? false : { opacity: 0, x: 4 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.18 }}
-            className="inline-flex min-w-0 max-w-[190px] items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-medium text-zinc-500"
+            className="inline-flex min-w-0 max-w-[170px] items-center gap-1.5 rounded-full border border-[#E2E0DB] bg-[#F7F6F3] px-2 py-0.5 text-[10px] font-medium text-[#6A675F]"
             title={activeSource.title || activeSource.hostname}
           >
             <span className="relative flex h-3 w-3 shrink-0 items-center justify-center">
-              <Globe2 className="absolute h-3 w-3 text-zinc-400" />
+              <Globe2 className="absolute h-3 w-3 text-[#8A867D]" />
               {faviconUrl && (
                 <img
                   src={faviconUrl}
@@ -544,11 +541,10 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
           </motion.span>
         )}
 
-        <span className="ml-0.5 inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-zinc-400">
+        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-[#8A867D]">
           <Clock3 className="h-3 w-3" aria-hidden="true" />
           {elapsedLabel}
         </span>
-      </div>
     </div>
   );
 };
@@ -678,7 +674,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
   };
 
   return (
-    <div className="my-3 w-full max-w-full overflow-hidden rounded-xl border border-zinc-200/80 bg-white shadow-2xs">
+    <div className="my-3 w-full max-w-full overflow-hidden rounded-xl border border-zinc-200/80 bg-white">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200/70 bg-[#f8f8f8] px-3.5 py-2">
         <div className="flex items-center gap-2 text-zinc-600">
           <ImageIcon className="h-4 w-4" aria-hidden="true" />
@@ -688,7 +684,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
           <button
             type="button"
             onClick={handleDownload}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title="Download SVG"
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
@@ -697,7 +693,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title="Copy SVG code"
           >
             {copied ? (
@@ -713,7 +709,7 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
               event.stopPropagation();
               setShowCode((current) => !current);
             }}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-zinc-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-200/70 hover:text-[#1C1B1A]"
             title={showCode ? 'Hide SVG code' : 'View SVG code'}
           >
             {showCode ? (
@@ -761,16 +757,16 @@ const CodeBlock: React.FC<{ children?: React.ReactNode; className?: string }> = 
   };
 
   return (
-    <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden shadow-2xs group text-left w-full max-w-full min-w-0">
+    <div className="relative my-3 rounded-xl border border-zinc-200/80 bg-[#f8f8f8] overflow-hidden group text-left w-full max-w-full min-w-0">
       {/* Top Header Bar with Language tag and Copy Button (Neutral light grey styling) */}
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-zinc-500 min-w-0">
-        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-zinc-500 truncate">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-[#f4f4f4] border-b border-zinc-200/70 text-[#6A675F] min-w-0">
+        <span className="text-[11px] font-mono font-medium lowercase tracking-wide text-[#6A675F] truncate">
           {language !== 'text' ? language : 'code'}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
+          className="flex items-center gap-1 px-2 py-1 sm:py-0.5 rounded-md text-[#6A675F] hover:text-[#1C1B1A] hover:bg-zinc-200/70 active:bg-zinc-300/60 transition-colors cursor-pointer shrink-0"
           title="Copy code"
         >
           {copied ? (
@@ -822,7 +818,7 @@ const markdownComponents: Components = {
     if (!isFenced) {
       return (
         <code
-          className="font-mono text-[0.875em] bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal break-words [overflow-wrap:anywhere]"
+          className="font-mono text-[0.875em] bg-zinc-100 text-[#1C1B1A] px-1.5 py-0.5 rounded-md border border-zinc-200/60 font-normal break-words [overflow-wrap:anywhere]"
           {...props}
         >
           {children}
@@ -843,42 +839,42 @@ const markdownComponents: Components = {
     return <CodeBlock className={className}>{children}</CodeBlock>;
   },
   p: ({ children }) => (
-    <p className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">
+    <p className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">
       {children}
     </p>
   ),
   ul: ({ children }) => (
-    <ul className="my-2.5 pl-5 list-disc space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <ul className="my-2.5 pl-5 list-disc space-y-1 text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </ul>
   ),
   ol: ({ children }) => (
-    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <ol className="my-2.5 pl-5 list-decimal space-y-1 text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </ol>
   ),
   li: ({ children }) => (
-    <li className="leading-relaxed text-zinc-800 text-base sm:text-[16.5px] break-words">
+    <li className="leading-relaxed text-[#1C1B1A] text-base sm:text-[16.5px] break-words">
       {children}
     </li>
   ),
   h1: ({ children }) => (
-    <h1 className="font-semibold text-lg sm:text-xl text-zinc-900 mt-4 mb-2 break-words">
+    <h1 className="font-semibold text-lg sm:text-xl text-[#1C1B1A] mt-4 mb-2 break-words">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="font-semibold text-base sm:text-lg text-zinc-900 mt-3.5 mb-1.5 break-words">
+    <h2 className="font-semibold text-base sm:text-lg text-[#1C1B1A] mt-3.5 mb-1.5 break-words">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="font-semibold text-sm sm:text-base text-zinc-900 mt-3 mb-1 break-words">
+    <h3 className="font-semibold text-sm sm:text-base text-[#1C1B1A] mt-3 mb-1 break-words">
       {children}
     </h3>
   ),
   strong: ({ children }) => (
-    <strong className="font-semibold text-zinc-900">{children}</strong>
+    <strong className="font-semibold text-[#1C1B1A]">{children}</strong>
   ),
   em: ({ children }) => <em className="italic">{children}</em>,
   blockquote: ({ children }) => (
@@ -891,7 +887,7 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-zinc-900 hover:text-zinc-600 underline underline-offset-2 font-medium transition-colors break-words [overflow-wrap:anywhere]"
+      className="text-[#1C1B1A] hover:text-zinc-600 underline underline-offset-2 font-medium transition-colors break-words [overflow-wrap:anywhere]"
     >
       {children}
     </a>
@@ -907,13 +903,13 @@ const markdownComponents: Components = {
     <thead className="bg-zinc-50/90 text-zinc-700 font-semibold">{children}</thead>
   ),
   tbody: ({ children }) => (
-    <tbody className="divide-y divide-zinc-100 bg-white text-zinc-800">{children}</tbody>
+    <tbody className="divide-y divide-zinc-100 bg-white text-[#1C1B1A]">{children}</tbody>
   ),
   tr: ({ children }) => (
     <tr className="hover:bg-zinc-50/50 transition-colors">{children}</tr>
   ),
   th: ({ children }) => (
-    <th className="px-3 py-2 text-xs font-semibold text-zinc-900 whitespace-nowrap">
+    <th className="px-3 py-2 text-xs font-semibold text-[#1C1B1A] whitespace-nowrap">
       {children}
     </th>
   ),
@@ -940,6 +936,8 @@ interface ChatFeedProps {
   seatStatuses?: Record<ModelId, SeatStatus>;
   seatActivityLabels?: Record<ModelId, string | null>;
   seatSearchSources?: Record<ModelId, SeatSearchSource[]>;
+  seatOrder?: ModelId[];
+  activeModels?: ModelId[];
   isDebating?: boolean;
   errorMessage?: string | null;
   canContinue?: boolean;
@@ -953,6 +951,7 @@ interface ChatFeedProps {
   newlySentUserMessageId?: string | null;
   onNewlySentAnimationComplete?: () => void;
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
+  viewMode?: 'discussion' | 'side-by-side';
 }
 
 /**
@@ -1211,7 +1210,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
       {/* Message Body with real ReactMarkdown rendering */}
-      <div className="text-base sm:text-[16.5px] text-zinc-800 leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
+      <div className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
@@ -1239,7 +1238,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
                   href={source.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-zinc-900 text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-50 hover:bg-zinc-100 active:bg-zinc-200/70 border border-zinc-200/80 text-zinc-700 hover:text-[#1C1B1A] text-xs font-medium transition-colors group cursor-pointer max-w-full min-w-0"
                   title={source.title}
                 >
                   <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
@@ -1290,6 +1289,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     claude: [],
     chatgpt: [],
   },
+  seatOrder = ['chatgpt', 'claude', 'gemini'],
+  activeModels = ['chatgpt', 'claude', 'gemini'],
   isDebating = false,
   errorMessage = null,
   canContinue = false,
@@ -1303,6 +1304,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   newlySentUserMessageId = null,
   onNewlySentAnimationComplete,
   onPreviewDocument,
+  viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1381,11 +1383,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const activeModelSet = new Set(activeModels);
+  const orderedActiveModels = seatOrder.filter((id) => activeModelSet.has(id));
+
   return (
-    <div className="pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-4 sm:pt-6 pb-6 max-w-5xl mx-auto w-full flex flex-col min-w-0">
+    <div className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
+      viewMode === 'side-by-side'
+        ? 'max-w-[1040px] grid grid-cols-1 sm:grid-cols-3 gap-x-[14px] gap-y-4'
+        : 'max-w-[760px] flex flex-col'
+    }`}>
       {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
-        <div className="p-3.5 mb-5 rounded-xl bg-red-50 border border-red-200/80 text-red-800 text-xs flex items-start gap-2.5 shadow-2xs min-w-0 max-w-full">
+        <div className="col-span-full p-3.5 mb-5 rounded-[14px] bg-white border border-[#E2E0DB] text-[#B5432E] text-xs flex items-start gap-2.5 min-w-0 max-w-full">
           <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
           <div className="space-y-1 min-w-0">
             <span className="font-semibold block">Notice</span>
@@ -1410,28 +1419,51 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
+          const hasAnswerBeforeNextUser = (continueIndex: number) => {
+            for (let index = continueIndex + 1; index < messages.length; index += 1) {
+              const item = messages[index];
+              if (item.role === 'user') return false;
+              if (item.role === 'model' && item.content.trim()) return true;
+            }
+            return false;
+          };
+
+          if (!hasAnswerBeforeNextUser(idx)) {
+            return null;
+          }
+
+          let roundNumber = 0;
+          for (let index = idx; index >= 0; index -= 1) {
+            const item = messages[index];
+            if (item.role !== 'user') continue;
+            if (item.content !== 'Continue') break;
+            if (hasAnswerBeforeNextUser(index)) {
+              roundNumber += 1;
+            }
+          }
+
           return (
             <React.Fragment key={message.id}>
               {shouldShowDate && formattedDate && (
                 <div
-                  className={`flex justify-center select-none ${
+                  className={`col-span-full flex justify-center select-none ${
                     idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                   }`}
                 >
-                  <span className="text-xs font-medium text-zinc-400">
+                  <span className="text-xs font-normal text-[#8A867D]">
                     {formattedDate}
                   </span>
                 </div>
               )}
               <div
                 id={message.id}
-                className={`flex justify-end scroll-mt-6 sm:scroll-mt-8 ${
-                  shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
-                }`}
+                className="col-span-full flex items-center gap-3 py-5 scroll-mt-6 sm:scroll-mt-8"
               >
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-100 text-zinc-400">
-                  <CornerDownRight className="w-3.5 h-3.5" />
-                </div>
+                <div className="h-px flex-1 bg-[#E7E5E0]" />
+                <span className="text-xs font-medium text-[#6A675F]">
+                  Round {roundNumber}
+                </span>
+                <div className="h-px flex-1 bg-[#E7E5E0]" />
               </div>
             </React.Fragment>
           );
@@ -1452,11 +1484,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <React.Fragment key={message.id}>
               {shouldShowDate && formattedDate && (
                 <div
-                  className={`flex justify-center select-none ${
+                  className={`col-span-full flex justify-center select-none ${
                     idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                   }`}
                 >
-                  <span className="text-xs font-medium text-zinc-400">
+                  <span className="text-xs font-normal text-[#8A867D]">
                     {formattedDate}
                   </span>
                 </div>
@@ -1478,14 +1510,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     onNewlySentAnimationComplete();
                   }
                 }}
-                className={`flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
+                className={`col-span-full flex flex-col items-end scroll-mt-6 sm:scroll-mt-8 w-full min-w-0 ${
                   shouldShowDate || idx === 0 ? 'mt-0' : 'mt-10 sm:mt-12'
                 }`}
               >
-                <div className="max-w-[80%] sm:max-w-3xl w-fit bg-stone-100 rounded-[24px] p-3.5 sm:p-4.5 relative min-w-0">
-                  {/* Attached Files (Images or PDFs) if present */}
+                {/* Attached files */}
                   {attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mb-2.5 max-w-full min-w-0">
+                    <div className="mb-2.5 flex w-full max-w-[480px] min-w-0 flex-wrap justify-end gap-2 sm:gap-2.5">
                       {attachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
                         const cleanLower = (url.split('?')[0].split('#')[0] || '').toLowerCase();
@@ -1496,41 +1527,90 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         const isText = isTextFileUrl(cleanLower) || isTextFileName(fnLower);
                         const isImage = isImageUrl(url, filename);
 
+                        if (isPdf || isDocx) {
+                          const documentTypeLabel = isPdf ? 'PDF document' : 'Word document';
+                          const documentIconSrc = isPdf
+                            ? '/file-icon-pdf.svg'
+                            : '/file-icon-docx.svg';
+                          const openPreview = () =>
+                            onPreviewDocument?.({ url, filename });
+
+                          return (
+                            <div
+                              key={`${message.id}-attachment-${i}`}
+                              role="button"
+                              tabIndex={0}
+                              onClick={openPreview}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  openPreview();
+                                }
+                              }}
+                              className="group flex min-h-[64px] w-[330px] max-w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-white px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
+                              title={`Preview ${filename}`}
+                              aria-label={`Preview ${filename}`}
+                            >
+                              <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                                <img
+                                  src={documentIconSrc}
+                                  alt=""
+                                  className="h-14 w-11 object-contain"
+                                  aria-hidden="true"
+                                />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <p
+                                  className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
+                                  title={filename}
+                                >
+                                  {filename}
+                                </p>
+                                <p className="mt-1 text-[10px] leading-4 text-[#6A675F]">
+                                  {documentTypeLabel}
+                                </p>
+                              </div>
+
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openPreview();
+                                  }}
+                                  className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                  title={`Preview ${filename}`}
+                                  aria-label={`Preview ${filename}`}
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </button>
+                                <a
+                                  href={url}
+                                  download={filename}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                  title={`Download ${filename}`}
+                                  aria-label={`Download ${filename}`}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            {isPdf ? (
+                            {isText ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Preview ${filename}`}
-                              >
-                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-red-500" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
-                                  PDF
-                                </span>
-                              </button>
-                            ) : isDocx ? (
-                              <button
-                                type="button"
-                                onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
-                                title={`Preview ${filename}`}
-                              >
-                                <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
-                                  DOCX
-                                </span>
-                              </button>
-                            ) : isText ? (
-                              <button
-                                type="button"
-                                onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Preview ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-emerald-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   {getTextFileDisplayBadge(filename)}
                                 </span>
                               </button>
@@ -1538,7 +1618,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => setLightboxImageUrl(url)}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <img
@@ -1551,11 +1631,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}
-                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-stone-200/90 bg-stone-200/50 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
+                                className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-[#D9D6CF] bg-stone-200/50 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-stone-200/80 transition-colors p-1.5 sm:p-2 shrink-0"
                                 title={`Click to view ${filename}`}
                               >
                                 <FileText className="w-6 h-6 sm:w-8 sm:h-8 text-zinc-600" />
-                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-stone-200/60">
+                                <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-[#D9D6CF]">
                                   FILE
                                 </span>
                               </button>
@@ -1572,6 +1652,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     </div>
                   )}
 
+
+
+                {message.content?.trim() ? (
+                  <div className="max-w-[88%] sm:max-w-[480px] w-fit bg-[#EFEDE9] rounded-[18px_18px_6px_18px] px-4 py-3 relative min-w-0 text-[16px] leading-6 text-[#1C1B1A]">
                   {/* Message Body with truncation if long (only if text exists) */}
                   {message.content?.trim() ? (
                     <div className="relative min-w-0 max-w-full">
@@ -1588,7 +1672,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         <button
                           type="button"
                           onClick={() => toggleExpand(message.id)}
-                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-stone-200/60 cursor-pointer min-h-[32px] sm:min-h-0"
+                          className="w-full mt-2 pt-1.5 flex items-center justify-center gap-1 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors border-t border-[#D9D6CF] cursor-pointer min-h-[32px] sm:min-h-0"
                         >
                           {isExpanded ? (
                             <>
@@ -1605,13 +1689,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       )}
                     </div>
                   ) : null}
-                </div>
+                  </div>
+                ) : null}
 
                 {message.content?.trim() ? (
                   <button
                     type="button"
                     onClick={() => handleCopy(message.id, message.content)}
-                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-zinc-900 transition-colors cursor-pointer"
+                    className="mt-1 mr-1 inline-flex h-7 w-7 items-center justify-center text-zinc-400 hover:text-zinc-700 active:text-[#1C1B1A] transition-colors cursor-pointer"
                     aria-label={copiedId === message.id ? 'Copied' : 'Copy message'}
                     title={copiedId === message.id ? 'Copied' : 'Copy'}
                   >
@@ -1625,7 +1710,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                 {/* Inline Failed Turn State: Active failure (with Try again button) */}
                 {failedTurn && failedTurn.uiMessageId === message.id ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-2.5 sm:py-2 mt-2.5 rounded-xl bg-stone-100/90 border border-stone-200/90 text-xs text-stone-600 shadow-2xs animate-in fade-in duration-150 max-w-full min-w-0">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 px-3.5 py-2.5 sm:py-2 mt-2.5 rounded-xl bg-[#EFEDE9]/90 border border-[#D9D6CF] text-xs text-stone-600 animate-in fade-in duration-150 max-w-full min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                       <span className="font-normal text-stone-700 truncate">Something went wrong.</span>
@@ -1634,7 +1719,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       type="button"
                       onClick={() => onRetryTurn && onRetryTurn(failedTurn)}
                       disabled={isDebating}
-                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 active:bg-stone-200/70 border border-stone-200/90 text-stone-800 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[32px] sm:min-h-0 flex items-center"
+                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 active:bg-stone-200/70 border border-[#D9D6CF] text-stone-800 text-xs font-medium transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[32px] sm:min-h-0 flex items-center"
                     >
                       Try again
                     </button>
@@ -1667,17 +1752,31 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           statusDotColor: 'bg-zinc-500',
           status: 'Ready',
         };
+        const activityRingColor =
+          modelKey === 'claude'
+            ? '#EA8A75'
+            : modelKey === 'gemini'
+              ? '#82A7EC'
+              : '#858589';
 
         // Gap calculation:
         // - Larger noticeable gap following a user message (User -> Model)
         // - Smaller cohesive gap following another model response (Model -> Model)
-        const spacingClass = shouldShowDate || idx === 0 
-          ? 'mt-0' 
-          : isPrevUser 
-            ? 'mt-7 sm:mt-8' 
-            : 'mt-3.5 sm:mt-4';
+        const spacingClass =
+          viewMode === 'side-by-side'
+            ? 'mt-0'
+            : shouldShowDate || idx === 0
+              ? 'mt-0'
+              : isPrevUser
+                ? 'mt-7 sm:mt-8'
+                : 'mt-4 sm:mt-[18px]';
 
         const isThinking = message.isStreaming && !message.content.trim();
+        const activeSeatIndex = orderedActiveModels.indexOf(modelKey);
+        const upNextModels =
+          isThinking && activeSeatIndex >= 0
+            ? orderedActiveModels.slice(activeSeatIndex + 1)
+            : [];
         const attachments: string[] =
           message.attachment_urls && message.attachment_urls.length > 0
             ? message.attachment_urls
@@ -1704,42 +1803,98 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           <React.Fragment key={message.id}>
             {shouldShowDate && formattedDate && (
               <div
-                className={`flex justify-center select-none ${
+                className={`col-span-full flex justify-center select-none ${
                   idx === 0 ? 'mb-4' : 'mt-6 mb-4'
                 }`}
               >
-                <span className="text-xs font-medium text-zinc-400">
+                <span className="text-xs font-normal text-[#8A867D]">
                   {formattedDate}
                 </span>
               </div>
             )}
             <div
               id={message.id}
-              className={`rounded-[24px] border border-zinc-100 bg-white p-4 sm:p-6 shadow-sm transition-all hover:border-zinc-200 scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass}`}
+              className={`scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
+                viewMode === 'side-by-side'
+                  ? 'rounded-2xl border border-[#E7E5E0] bg-white p-4'
+                  : 'bg-transparent'
+              }`}
             >
-              {/* Header: Model name & timestamp only */}
-              <div className="flex items-center justify-between gap-2 pb-2.5 mb-3 border-b border-zinc-100 min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <ProviderIcon provider={modelKey} className="w-3.5 h-3.5 shrink-0" />
-                  <span className="font-semibold text-xs text-zinc-700 truncate">
+              <div
+                className={`grid gap-x-3 min-w-0 ${
+                  viewMode === 'side-by-side'
+                    ? 'grid-cols-[32px_minmax(0,1fr)]'
+                    : 'grid-cols-[44px_minmax(0,1fr)]'
+                }`}
+              >
+                <div
+                  className={`relative row-span-3 shrink-0 ${
+                    viewMode === 'side-by-side' ? 'h-8 w-8' : 'h-11 w-11'
+                  }`}
+                >
+                  {message.isStreaming && (
+                    <span
+                      className="plurilog-thinking-ring absolute -inset-[1.5px] rounded-full"
+                      style={{
+                        background: `conic-gradient(from 0deg, transparent 0deg 292deg, ${activityRingColor} 292deg 344deg, transparent 344deg 360deg)`,
+                      }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <ProviderBadge
+                    provider={modelKey}
+                    size={viewMode === 'side-by-side' ? 'md' : 'lg'}
+                    showBorder={false}
+                    className="relative z-[1]"
+                  />
+                </div>
+
+                <div className="col-start-2 flex items-baseline gap-2 min-w-0 mb-1">
+                  <span className="font-semibold text-[14px] text-[#1C1B1A] truncate">
                     {member.name}
+                  </span>
+                  <span className="text-[12px] text-[#8A867D] shrink-0">
+                    {message.timestamp}
                   </span>
                 </div>
 
-                <span className="text-[10px] font-mono text-zinc-400 shrink-0">
-                  {message.timestamp}
-                </span>
-              </div>
-
               {/* Message Body */}
+              <div className="col-start-2 min-w-0">
               {isThinking ? (
-                <SeatActivityIndicator
-                  status={seatStatuses[modelKey] || 'thinking'}
-                  startedAt={message.createdAt}
-                  searchSources={seatSearchSources[modelKey] || []}
-                  activityLabel={seatActivityLabels[modelKey] || null}
-                  reduceMotion={Boolean(shouldReduceMotion)}
-                />
+                <div className="flex min-w-0 flex-col items-start">
+                  <SeatActivityIndicator
+                    provider={modelKey}
+                    status={seatStatuses[modelKey] || 'thinking'}
+                    startedAt={message.createdAt}
+                    searchSources={seatSearchSources[modelKey] || []}
+                    activityLabel={seatActivityLabels[modelKey] || null}
+                    reduceMotion={Boolean(shouldReduceMotion)}
+                  />
+                  {upNextModels.length > 0 && (
+                    <motion.div
+                      initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: shouldReduceMotion ? 0 : 0.18, ease: 'easeOut' }}
+                      className="mt-2 inline-flex items-center gap-2 text-[12px] text-[#6A675F]"
+                    >
+                      <span className="flex -space-x-1.5" aria-hidden="true">
+                        {upNextModels.map((id) => (
+                          <ProviderBadge
+                            key={id}
+                            provider={id}
+                            size="sm"
+                          />
+                        ))}
+                      </span>
+                      <span>
+                        {upNextModels.map((id) => COUNCIL_MEMBERS[id]?.name || id).join(
+                          upNextModels.length === 2 ? ' and ' : ', '
+                        )}{' '}
+                        {upNextModels.length === 1 ? 'is' : 'are'} up next
+                      </span>
+                    </motion.div>
+                  )}
+                </div>
               ) : (
                 <motion.div
                   initial={false}
@@ -1767,7 +1922,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             <button
                               type="button"
                               onClick={() => setLightboxImageUrl(url)}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
                               title={`Click to view ${filename}`}
                             >
                               <img
@@ -1777,7 +1932,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                               />
                             </button>
                             <span
-                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                              className="text-[10px] sm:text-[11px] font-mono text-[#6A675F] hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
                               title={filename}
                             >
                               {filename}
@@ -1790,7 +1945,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                   {/* Generated/downloadable documents (if present) */}
                   {documentAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
+                    <div className="mt-3 flex w-full max-w-[330px] flex-col gap-2 min-w-0">
                       {documentAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
                         const lowerFilename = filename.toLowerCase();
@@ -1805,35 +1960,97 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                             : isTextDocument
                               ? getTextFileDisplayBadge(filename)
                               : 'FILE';
-                        const documentIconClass = isPdfDocument
-                          ? 'text-red-500'
+                        const documentTypeLabel = isPdfDocument
+                          ? 'PDF document'
                           : isDocxDocument
-                            ? 'text-blue-600'
+                            ? 'Word document'
                             : isTextDocument
-                              ? 'text-emerald-600'
-                              : 'text-zinc-600';
+                              ? `${documentBadge} document`
+                              : 'Document';
+                        const documentIconSrc = isPdfDocument
+                          ? '/file-icon-pdf.svg'
+                          : isDocxDocument
+                            ? '/file-icon-docx.svg'
+                            : null;
+                        const fallbackBadgeClass = isTextDocument
+                          ? 'bg-[#4F8A68]'
+                          : 'bg-[#6A675F]';
+
+                        const openPreview = () =>
+                          onPreviewDocument?.({ url, filename });
 
                         return (
-                          <div key={`${url}-doc-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => onPreviewDocument?.({ url, filename })}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 shadow-2xs flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:bg-zinc-200/70 transition-colors p-1.5 sm:p-2 shrink-0"
-                              title={`Preview ${filename}`}
-                            >
-                              <FileText
-                                className={`w-6 h-6 sm:w-8 sm:h-8 ${documentIconClass}`}
-                              />
-                              <span className="text-[10px] sm:text-xs font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1.5 sm:px-2 py-0.5 rounded border border-zinc-200/60">
-                                {documentBadge}
-                              </span>
-                            </button>
-                            <span
-                              className="text-[10px] sm:text-[11px] font-mono text-zinc-500 hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
-                              title={filename}
-                            >
-                              {filename}
-                            </span>
+                          <div
+                            key={`${url}-doc-${i}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={openPreview}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openPreview();
+                              }
+                            }}
+                            className="group flex min-h-[64px] w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-white px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
+                            title={`Preview ${filename}`}
+                            aria-label={`Preview ${filename}`}
+                          >
+                            <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                              {documentIconSrc ? (
+                                <img
+                                  src={documentIconSrc}
+                                  alt=""
+                                  className="h-14 w-11 object-contain"
+                                  aria-hidden="true"
+                                />
+                              ) : (
+                                <div className="relative flex h-11 w-9 items-center justify-center">
+                                  <FileText className="h-10 w-10 text-[#B7B3AA]" />
+                                  <span
+                                    className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${fallbackBadgeClass}`}
+                                  >
+                                    {documentBadge}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
+                                title={filename}
+                              >
+                                {filename}
+                              </p>
+                              <p className="mt-1 text-[10px] leading-4 text-[#6A675F]">
+                                {documentTypeLabel}
+                              </p>
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openPreview();
+                                }}
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                title={`Preview ${filename}`}
+                                aria-label={`Preview ${filename}`}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                              <a
+                                href={url}
+                                download={filename}
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                title={`Download ${filename}`}
+                                aria-label={`Download ${filename}`}
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
                           </div>
                         );
                       })}
@@ -1849,7 +2066,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-white/0 via-white/80 to-white"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-[#F7F6F3]/0 via-[#F7F6F3]/80 to-[#F7F6F3]"
                         aria-hidden="true"
                       />
                     )}
@@ -1857,25 +2074,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </motion.div>
               )}
 
+              </div>
+
               {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
               {!isThinking && (
-                <div className="mt-3 pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2 text-xs min-w-0">
+                <div className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       onClick={() => handleCopy(message.id, message.content)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
-                      title="Copy text"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                      title={`Copy ${member.name}'s reply`}
+                aria-label={`Copy ${member.name}'s reply`}
                     >
                       {copiedId === message.id ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                          <span className="text-[10px] text-emerald-600 font-medium">Copied</span>
-                        </>
+                        <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
                       ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 shrink-0" />
-                          <span className="text-[10px]">Copy</span>
-                        </>
+                        <Copy className="w-4 h-4 shrink-0" />
                       )}
                     </button>
 
@@ -1883,7 +2097,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       <button
                         type="button"
                         onClick={() => onExportMessage(message)}
-                        className="flex items-center justify-center p-1.5 px-2 rounded-md text-zinc-400 hover:text-zinc-700 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
                         title="Download response as PDF"
                         aria-label="Download response as PDF"
                       >
@@ -1896,7 +2110,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleAiCollapse(message.id)}
-                      className="flex items-center justify-center p-1.5 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 active:bg-zinc-100 transition-colors cursor-pointer target-secondary"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
                       title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
                       aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
                       aria-expanded={!isAiCollapsed}
@@ -1910,34 +2124,68 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   )}
                 </div>
               )}
+              </div>
             </div>
           </React.Fragment>
         );
       })}
 
-      {/* Continue Discussion Button - Fades in below final message bubble, bottom-right */}
-      {canContinue && !isDebating && messages.length > 0 && onContinue && (
-        <div className="w-full max-w-full flex justify-end pt-3 animate-in fade-in zoom-in-95 duration-200 min-w-0">
-          <button
-            type="button"
-            onClick={onContinue}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-amber-50/80 active:bg-amber-100/70 border border-zinc-200/80 hover:border-amber-200/90 text-zinc-700 hover:text-zinc-900 text-xs font-medium shadow-2xs hover:shadow-xs transition-all cursor-pointer group max-w-full active:scale-98 shrink-0 target-secondary"
-            title="Trigger another deliberation round on this topic"
-          >
-            <CornerDownRight className="w-3.5 h-3.5 text-zinc-400 group-hover:text-amber-800 transition-colors shrink-0" />
-            <span className="truncate">
-              <span className="sm:hidden">Keep discussing</span>
-              <span className="hidden sm:inline">Let them keep discussing</span>
-            </span>
-          </button>
-        </div>
-      )}
+      {/* Continue discussion: only when the latest user turn has real AI output */}
+      {canContinue && !isDebating && messages.length > 0 && onContinue && (() => {
+        const lastUserIndex = [...messages]
+          .map((item, index) => ({ item, index }))
+          .reverse()
+          .find(({ item }) => item.role === 'user')?.index ?? -1;
+
+        const latestModels = Array.from(
+          new Set(
+            messages
+              .slice(lastUserIndex + 1)
+              .filter((item) => item.role === 'model' && item.content.trim())
+              .map((item) => {
+                const raw = String(item.modelId || item.authorName || '').toLowerCase();
+                if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+                if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+                return 'gemini';
+              })
+          )
+        ) as ModelId[];
+
+        if (latestModels.length === 0) return null;
+
+        const expectedAnswers = Math.max(1, activeModels.length);
+        const answerLabel =
+          latestModels.length >= expectedAnswers
+            ? `All ${latestModels.length} answered`
+            : `${latestModels.length} of ${expectedAnswers} answered`;
+
+        return (
+          <div className="col-span-full pt-6 pb-2 animate-in fade-in duration-200 min-w-0">
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+              <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
+                {answerLabel}
+              </span>
+              <button
+                type="button"
+                onClick={onContinue}
+                className="h-10 inline-flex items-center gap-2 rounded-full bg-[#1C1B1A] hover:bg-[#2A2927] px-4 text-white text-[14px] font-medium transition-colors cursor-pointer shrink-0"
+                title="Let them keep discussing"
+              >
+                <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>Let them keep discussing</span>
+              </button>
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Dynamic bottom spacer: untransitioned/instant height change so scrollHeight is immediately accurate during deliberation */}
-      <div className={`w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
+      <div className={`col-span-full w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
 
       {/* Invisible anchor for auto-scroll on discussion load */}
-      <div ref={bottomRef} className="h-1 w-full" />
+      <div ref={bottomRef} className="col-span-full h-1 w-full" />
 
       {/* Image Lightbox Modal */}
       <ImageLightbox
