@@ -1969,122 +1969,180 @@ export async function executeGptDocumentCreation(
       elapsedMs: converted.elapsedMs,
     });
   } else if (args.format === 'pdf') {
-    const renderSession = await createRichPdfRenderSession({
-      signal,
-      timeoutMs: 90_000,
-    });
-
-    try {
-      const initialPdf = await renderSession.render({
+    const renderPdfViaDocxFallback = async (reason: string) => {
+      console.warn('[Generated PDF] Using DOCX conversion fallback', {
         filename: args.filename,
-        title: args.title,
-        design: args.design,
-        blocks: resolvedDocument.blocks,
+        reason,
       });
 
-      let selectedPdf = initialPdf;
-      let selectedPdfArgs: GptCreateFileArgs = args;
+      const fallbackDocxFilename = args.filename.toLowerCase().endsWith('.pdf')
+        ? args.filename.replace(/\.pdf$/i, '.docx')
+        : `${args.filename}.docx`;
+      const fallbackDocx = renderDocx({
+        filename: fallbackDocxFilename,
+        title: args.title,
+        design: args.design,
+        blocks: coerceRichBlocksForDocx(
+          resolvedDocument.blocks
+        ) as DocxBlock[],
+      });
+      const parsedFallbackDocx = await parseDocx(fallbackDocx.buffer);
+      const converted = await convertDocxToPdf(fallbackDocx.buffer, {
+        signal: durableSignal,
+        timeoutMs: 60_000,
+      });
 
-      if (reviewModel && initialPdf.reviewPages.length > 0) {
-        try {
-          const review = await reviewRenderedPdfWithGpt({
-            openai,
-            model: reviewModel,
-            models: reviewModels.length > 0 ? reviewModels : [reviewModel],
-            args,
-            pages: initialPdf.reviewPages,
-            originalUserPrompt,
-            signal,
-            sessionId: reviewSessionId,
-          });
-          visualReviewCostUsd += review.costUsd;
-
-          console.log('[Generated PDF Visual Review]', {
-            applied: review.applied,
-            respondingModel: review.respondingModel,
-            initialPageCount: initialPdf.totalPageCount,
-            rationale: review.rationale,
-          });
-
-          if (review.applied && !protectNarrowRevisionFromVisualMutation) {
-            const blocksWithReusedImages = reuseResolvedImagePayloads(
-              review.args.blocks,
-              resolvedDocument.blocks
-            );
-            const reviewedResolvedDocument = await resolveDocumentBlocks(
-              blocksWithReusedImages,
-              serviceClient,
-              availableImages,
-              resourceContext,
-              signal,
-              costAwareCallback,
-              resolvedDocument.imageBindings,
-              onActivity,
-              supabase,
-              seatId
-            );
-
-            const reviewedPdf = await renderSession.render({
-              filename: review.args.filename,
-              title: review.args.title,
-              design: review.args.design,
-              blocks: reviewedResolvedDocument.blocks,
-            });
-
-            selectedPdf = reviewedPdf;
-            selectedPdfArgs = review.args;
-            finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
-            finalImageBindings = reviewedResolvedDocument.imageBindings;
-            visualReviewApplied = true;
-
-            console.log('[Generated PDF Visual Review] Final render:', {
-              initialPageCount: initialPdf.totalPageCount,
-              finalPageCount: reviewedPdf.totalPageCount,
-              initialBytes: initialPdf.buffer.length,
-              finalBytes: reviewedPdf.buffer.length,
-            });
-          }
-          else if (review.applied && protectNarrowRevisionFromVisualMutation) {
-            console.log(
-              '[Generated PDF Visual Review] Ignored layout mutation for protected narrow revision',
-              {
-                parentSnapshotId:
-                  revisionContext?.parentSnapshot?.id || null,
-                filename: args.filename,
-                rationale: review.rationale,
-              }
-            );
-          }
-        } catch (reviewErr) {
-          console.warn(
-            '[Generated PDF Visual Review] Non-critical review failure; using first render:',
-            reviewErr
-          );
-        }
-      }
-
-      finalBuffer = selectedPdf.buffer;
-      finalFilename = selectedPdf.filename;
-      renderedFullText = selectedPdf.fullText;
-      generatedPdfPageCount = selectedPdf.totalPageCount;
-      finalPdfReviewPages = selectedPdf.reviewPages;
+      finalBuffer = converted.buffer;
+      finalFilename = args.filename.toLowerCase().endsWith('.pdf')
+        ? args.filename
+        : `${args.filename}.pdf`;
+      renderedFullText = parsedFallbackDocx.markdown || '';
+      generatedPdfPageCount = converted.totalPageCount;
       finalPageCount = generatedPdfPageCount;
       finalSpecForState = sanitizeDocumentSpecForState({
-        ...selectedPdfArgs,
+        ...args,
         filename: finalFilename,
       }) as GptCreateFileArgs;
 
-      console.log('[Generated PDF] Rendered rich PDF:', {
+      console.log('[Generated PDF] DOCX conversion fallback complete', {
         filename: finalFilename,
         byteSize: finalBuffer.length,
         pageCount: generatedPdfPageCount,
-        visualReviewApplied,
-        visualReviewCostUsd,
-        usedSnapshot: selectedPdf.usedSnapshot,
-        elapsedMs: selectedPdf.elapsedMs,
+        usedSnapshot: converted.usedSnapshot,
+        elapsedMs: converted.elapsedMs,
       });
-    } finally {
-      await renderSession.close();
+    };
+
+    const dedicatedPdfSnapshotId =
+      process.env.PDF_RENDERER_SNAPSHOT_ID?.trim() || null;
+
+    if (!dedicatedPdfSnapshotId) {
+      await renderPdfViaDocxFallback('No dedicated PDF renderer snapshot is configured.');
+    } else {
+      try {
+        const renderSession = await createRichPdfRenderSession({
+          signal: durableSignal,
+          snapshotId: dedicatedPdfSnapshotId,
+          timeoutMs: 90_000,
+        });
+
+        try {
+          const initialPdf = await renderSession.render({
+            filename: args.filename,
+            title: args.title,
+            design: args.design,
+            blocks: resolvedDocument.blocks,
+          });
+
+          let selectedPdf = initialPdf;
+          let selectedPdfArgs: GptCreateFileArgs = args;
+
+          if (reviewModel && initialPdf.reviewPages.length > 0) {
+            try {
+              const review = await reviewRenderedPdfWithGpt({
+                openai,
+                model: reviewModel,
+                models: reviewModels.length > 0 ? reviewModels : [reviewModel],
+                args,
+                pages: initialPdf.reviewPages,
+                originalUserPrompt,
+                signal,
+                sessionId: reviewSessionId,
+              });
+              visualReviewCostUsd += review.costUsd;
+
+              console.log('[Generated PDF Visual Review]', {
+                applied: review.applied,
+                respondingModel: review.respondingModel,
+                initialPageCount: initialPdf.totalPageCount,
+                rationale: review.rationale,
+              });
+
+              if (review.applied && !protectNarrowRevisionFromVisualMutation) {
+                const blocksWithReusedImages = reuseResolvedImagePayloads(
+                  review.args.blocks,
+                  resolvedDocument.blocks
+                );
+                const reviewedResolvedDocument = await resolveDocumentBlocks(
+                  blocksWithReusedImages,
+                  serviceClient,
+                  availableImages,
+                  resourceContext,
+                  signal,
+                  costAwareCallback,
+                  resolvedDocument.imageBindings,
+                  onActivity,
+                  supabase,
+                  seatId
+                );
+
+                const reviewedPdf = await renderSession.render({
+                  filename: review.args.filename,
+                  title: review.args.title,
+                  design: review.args.design,
+                  blocks: reviewedResolvedDocument.blocks,
+                });
+
+                selectedPdf = reviewedPdf;
+                selectedPdfArgs = review.args;
+                finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+                finalImageBindings = reviewedResolvedDocument.imageBindings;
+                visualReviewApplied = true;
+
+                console.log('[Generated PDF Visual Review] Final render:', {
+                  initialPageCount: initialPdf.totalPageCount,
+                  finalPageCount: reviewedPdf.totalPageCount,
+                  initialBytes: initialPdf.buffer.length,
+                  finalBytes: reviewedPdf.buffer.length,
+                });
+              } else if (review.applied && protectNarrowRevisionFromVisualMutation) {
+                console.log(
+                  '[Generated PDF Visual Review] Ignored layout mutation for protected narrow revision',
+                  {
+                    parentSnapshotId:
+                      revisionContext?.parentSnapshot?.id || null,
+                    filename: args.filename,
+                    rationale: review.rationale,
+                  }
+                );
+              }
+            } catch (reviewErr) {
+              console.warn(
+                '[Generated PDF Visual Review] Non-critical review failure; using first render:',
+                reviewErr
+              );
+            }
+          }
+
+          finalBuffer = selectedPdf.buffer;
+          finalFilename = selectedPdf.filename;
+          renderedFullText = selectedPdf.fullText;
+          generatedPdfPageCount = selectedPdf.totalPageCount;
+          finalPdfReviewPages = selectedPdf.reviewPages;
+          finalPageCount = generatedPdfPageCount;
+          finalSpecForState = sanitizeDocumentSpecForState({
+            ...selectedPdfArgs,
+            filename: finalFilename,
+          }) as GptCreateFileArgs;
+
+          console.log('[Generated PDF] Rendered rich PDF:', {
+            filename: finalFilename,
+            byteSize: finalBuffer.length,
+            pageCount: generatedPdfPageCount,
+            visualReviewApplied,
+            visualReviewCostUsd,
+            usedSnapshot: selectedPdf.usedSnapshot,
+            elapsedMs: selectedPdf.elapsedMs,
+          });
+        } finally {
+          await renderSession.close();
+        }
+      } catch (richPdfErr: any) {
+        if (durableSignal?.aborted) throw richPdfErr;
+        await renderPdfViaDocxFallback(
+          richPdfErr?.message || 'Rich PDF renderer failed.'
+        );
+      }
     }
   } else {
     const target = requestedPageCount(args, originalUserPrompt);
