@@ -469,7 +469,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 onClick={() => setIsUploadDrawerOpen((prev) => !prev)}
                 title={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
                 aria-label={isUploadDrawerOpen ? 'Close attachment menu' : 'Attach file'}
-                className={`w-11 h-11 rounded-[10px] transition-colors flex items-center justify-center cursor-pointer shrink-0 ${
+                className={`w-11 h-11 sm:w-10 sm:h-10 rounded-[10px] transition-colors flex items-center justify-center cursor-pointer shrink-0 ${
                   isUploadDrawerOpen
                     ? 'text-[#1C1B1A] bg-[#EFEDE9]'
                     : 'text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#F7F6F3] active:bg-[#EFEDE9]'
@@ -519,7 +519,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   setVoiceError(null);
                   setIsRecording(true);
                 }}
-                className="w-11 h-11 rounded-[10px] text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#F7F6F3] active:bg-[#EFEDE9] transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                className="w-11 h-11 sm:w-10 sm:h-10 rounded-[10px] text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#F7F6F3] active:bg-[#EFEDE9] transition-colors cursor-pointer shrink-0 flex items-center justify-center"
                 title="Voice dictation"
                 aria-label="Voice dictation"
               >
@@ -532,7 +532,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="button"
                 onClick={onStop}
-                className="w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0 cursor-pointer bg-[#1C1B1A] hover:bg-[#2A2927] active:scale-95 text-white"
+                className="w-11 h-11 sm:w-10 sm:h-10 rounded-[10px] flex items-center justify-center transition-all shrink-0 cursor-pointer bg-[#1C1B1A] hover:bg-[#2A2927] active:scale-95 text-white"
                 title="Stop generation"
               >
                 <Square className="w-3.5 h-3.5 fill-current" />
@@ -542,7 +542,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 type="button"
                 onClick={handleSend}
                 disabled={!inputVal.trim() && attachedFiles.length === 0}
-                className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0 active:scale-95 ${
+                className={`w-11 h-11 sm:w-10 sm:h-10 rounded-[10px] flex items-center justify-center transition-all shrink-0 active:scale-95 ${
                   inputVal.trim() || attachedFiles.length > 0
                     ? 'bg-[#1C1B1A] hover:bg-[#2A2927] text-white cursor-pointer'
                     : 'bg-[#EFEDE9] text-[#8A867D] cursor-not-allowed'
