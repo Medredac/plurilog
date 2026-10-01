@@ -21,6 +21,16 @@ export function normalizeReferrer(referrer: string, currentOrigin: string): stri
       return 'gemini';
     }
 
+    // facebook.com / m.facebook.com / l.facebook.com
+    if (host === 'facebook.com' || host.endsWith('.facebook.com')) {
+      return 'fb';
+    }
+
+    // instagram.com / l.instagram.com
+    if (host === 'instagram.com' || host.endsWith('.instagram.com')) {
+      return 'ig';
+    }
+
     // reddit.com / www.reddit.com
     if (host === 'reddit.com' || host.endsWith('.reddit.com')) {
       return 'reddit';
