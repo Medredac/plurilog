@@ -623,9 +623,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.04)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 mb-5">
-                Multi-model
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 pt-1">
+                  Multi-model
+                </p>
+                <img
+                  src="/plurilog-icon-multi-model.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 ChatGPT, Claude and Gemini in One Conversation
               </h3>
@@ -644,9 +654,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.08)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-[#FBFCFF] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] mb-5">
-                Documents
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] pt-1">
+                  Documents
+                </p>
+                <img
+                  src="/plurilog-icon-documents.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 Create Word Documents and PDFs
               </h3>
@@ -665,9 +685,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.12)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 mb-5">
-                Editing
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 pt-1">
+                  Editing
+                </p>
+                <img
+                  src="/plurilog-icon-editing.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 Edit Existing Documents
               </h3>
@@ -686,9 +716,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.16)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-[#FBFCFF] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] mb-5">
-                Images
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-[#4880E6] pt-1">
+                  Images
+                </p>
+                <img
+                  src="/plurilog-icon-images.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 Generate and Edit Images
               </h3>
@@ -707,9 +747,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.20)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-white p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 mb-5">
-                Analysis
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-zinc-500 pt-1">
+                  Analysis
+                </p>
+                <img
+                  src="/plurilog-icon-analysis.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 Analyse Files and Images Together
               </h3>
@@ -731,9 +781,19 @@ export default function LandingPage() {
               {...scrollRevealProps(0.24)}
               className="min-h-[220px] rounded-2xl border border-zinc-200/90 bg-[#FFFCF8] p-6 sm:p-7 shadow-2xs flex flex-col"
             >
-              <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 mb-5">
-                Research
-              </p>
+              <div className="flex items-start justify-between gap-3 mb-1 min-h-[72px]">
+                <p className="text-[11px] font-semibold tracking-wide uppercase text-amber-700 pt-1">
+                  Research
+                </p>
+                <img
+                  src="/plurilog-icon-research.svg"
+                  alt=""
+                  aria-hidden="true"
+                  loading="lazy"
+                  draggable={false}
+                  className="w-[76px] h-[76px] sm:w-[84px] sm:h-[84px] -mt-2 -mr-1 object-contain shrink-0 pointer-events-none select-none"
+                />
+              </div>
               <h3 className="text-lg font-semibold tracking-tight text-zinc-900">
                 Research and Build on Shared Context
               </h3>
