@@ -77,26 +77,22 @@ export default function BlogPage() {
                 href="/blog/chatgpt-gemini-image-generation-editing"
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
               >
-                <div className="relative aspect-[16/9] w-full overflow-hidden bg-gradient-to-br from-amber-50 via-white to-blue-50 border-b border-zinc-100">
-                  <div className="absolute inset-0 bg-tech-grid opacity-60" />
-                  <div className="relative h-full p-6 sm:p-8 flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex rounded-full border border-zinc-200/80 bg-white/90 px-3 py-1.5 text-[11px] font-medium text-zinc-600 shadow-2xs">
-                        Shared visual context
-                      </span>
-                      <PlurilogMark className="w-6 h-6 text-zinc-400" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 mb-3 text-[11px] font-medium">
-                        <span className="rounded-lg bg-zinc-900 text-white px-2.5 py-1.5">ChatGPT</span>
-                        <span className="text-zinc-300">+</span>
-                        <span className="rounded-lg border border-zinc-200 bg-white text-zinc-700 px-2.5 py-1.5">Gemini</span>
-                      </div>
-                      <p className="text-2xl sm:text-4xl font-bold tracking-tight text-zinc-900 leading-tight">
-                        Generate. Compare. Edit. Keep the context.
-                      </p>
-                    </div>
-                  </div>
+                <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
+                  <video
+                    src="/blog/image-generation-shared-conversation.mp4"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls={false}
+                    disablePictureInPicture
+                    disableRemotePlayback
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    className="w-full h-full object-cover pointer-events-none select-none group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                  />
                 </div>
                 <div className="p-6 sm:p-7">
                   <time className="text-xs font-medium text-zinc-400 block mb-2">
@@ -118,10 +114,21 @@ export default function BlogPage() {
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
               >
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
-                  <img
-                    src="/blog/why-we-built-plurilog-shared-ai-conversation.png"
-                    alt="Plurilog shared AI conversation with ChatGPT, Claude and Gemini"
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                  <video
+                    src="/blog/one-shared-ai-conversation.mp4"
+                    poster="/blog/why-we-built-plurilog-shared-ai-conversation.png"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls={false}
+                    disablePictureInPicture
+                    disableRemotePlayback
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    className="w-full h-full object-cover pointer-events-none select-none group-hover:scale-[1.02] transition-transform duration-300 ease-out"
                   />
                 </div>
                 <div className="p-6 sm:p-7">
@@ -144,10 +151,21 @@ export default function BlogPage() {
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
               >
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
-                  <img
-                    src="/blog/chatgpt-vs-claude-vs-gemini-thumbnail.png"
-                    alt="Comparison of ChatGPT, Claude and Gemini AI models"
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                  <video
+                    src="/blog/chatgpt-vs-claude-vs-gemini.mp4"
+                    poster="/blog/chatgpt-vs-claude-vs-gemini-thumbnail.png"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls={false}
+                    disablePictureInPicture
+                    disableRemotePlayback
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    className="w-full h-full object-cover pointer-events-none select-none group-hover:scale-[1.02] transition-transform duration-300 ease-out"
                   />
                 </div>
                 <div className="p-6 sm:p-7">
@@ -170,10 +188,21 @@ export default function BlogPage() {
                 className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer"
               >
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
-                  <img
-                    src="/blog/ai-hallucinations-thumbnail.png"
-                    alt="AI models cross-checking answers to identify an incorrect response"
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300 ease-out"
+                  <video
+                    src="/blog/ai-hallucinations.mp4"
+                    poster="/blog/ai-hallucinations-thumbnail.png"
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    preload="metadata"
+                    controls={false}
+                    disablePictureInPicture
+                    disableRemotePlayback
+                    controlsList="nodownload nofullscreen noremoteplayback"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    className="w-full h-full object-cover pointer-events-none select-none group-hover:scale-[1.02] transition-transform duration-300 ease-out"
                   />
                 </div>
                 <div className="p-6 sm:p-7">
