@@ -20,15 +20,17 @@ export function ProviderBadge({
   provider,
   size = 'sm',
   className = '',
+  showBorder = true,
 }: {
   provider: ModelId;
   size?: keyof typeof SIZE;
   className?: string;
+  showBorder?: boolean;
 }) {
   const s = SIZE[size];
   return (
     <span
-      className={`inline-flex ${s.wrap} shrink-0 items-center justify-center rounded-full border-[1.5px] border-white ${className}`}
+      className={`inline-flex ${s.wrap} shrink-0 items-center justify-center rounded-full ${showBorder ? 'border-[1.5px] border-white' : ''} ${className}`}
       style={{ backgroundColor: TINT[provider] }}
       aria-hidden="true"
     >
