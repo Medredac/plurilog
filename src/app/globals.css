@@ -324,6 +324,13 @@ body {
   animation: textShimmer 2s linear infinite;
 }
 
+.thinking-dot-shimmer {
+  background: linear-gradient(90deg, #a1a1aa 20%, #e4e4e7 50%, #a1a1aa 80%);
+  background-size: 200% auto;
+  box-shadow: 0 0 4px rgba(228, 228, 231, 0.8);
+  animation: textShimmer 2s linear infinite;
+}
+
 /* Responsive Interaction & Capability Utilities */
 @layer utilities {
   /* Primary Actions: Compact (36px) on precision mouse, generous (42px) on coarse touch */
