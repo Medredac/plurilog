@@ -2887,6 +2887,8 @@ export default function DashboardPage() {
                   seatStatuses={seatStatuses}
                   seatActivityLabels={seatActivityLabels}
                   seatSearchSources={seatSearchSources}
+                  seatOrder={seatOrder}
+                  activeModels={activeModels}
                   isDebating={isDebating}
                   errorMessage={errorMessage}
                   canContinue={canContinue}
