@@ -276,7 +276,6 @@ export default function DashboardPage() {
   const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | undefined>(undefined);
   const [userId, setUserId] = useState<string | undefined>(undefined);
-  const [viewMode, setViewMode] = useState<'discussion' | 'side-by-side'>('discussion');
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [canContinue, setCanContinue] = useState<boolean>(false);
@@ -2709,8 +2708,9 @@ export default function DashboardPage() {
   }
 
   const displayFirstName = userDisplayName?.trim().split(/\s+/)[0] || '';
-  const currentDebateTitle =
-    debates.find((debate) => debate.id === activeDebateId)?.title || 'Discussion';
+  const greetingWords = displayFirstName
+    ? ['Hello,', displayFirstName]
+    : ['Hello', 'there!'];
 
   const primeComposer = (text: string) => {
     setRestoreDraft({ text, trigger: Date.now() });
@@ -2752,54 +2752,18 @@ export default function DashboardPage() {
         {/* Main Chamber */}
         <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
           {messages.length > 0 && (
-            <header className="dashboard-topbar h-[60px] shrink-0 border-b px-4 sm:px-6 flex items-center justify-between gap-4 z-20">
-              <h1 className="min-w-0 truncate text-[15px] font-semibold text-[#1C1B1A]">
-                {currentDebateTitle}
-              </h1>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <div
-                  className="hidden sm:flex items-center rounded-xl bg-[#EFEDE9] p-[3px]"
-                  aria-label="Conversation layout"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('discussion')}
-                    className={`h-9 px-3 rounded-[9px] text-[13px] font-medium transition-all ${
-                      viewMode === 'discussion'
-                        ? 'bg-white text-[#1C1B1A] shadow-[0_1px_2px_rgba(28,27,26,0.10)]'
-                        : 'text-[#6A675F] hover:text-[#1C1B1A]'
-                    }`}
-                    aria-pressed={viewMode === 'discussion'}
-                  >
-                    Discussion
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('side-by-side')}
-                    className={`h-9 px-3 rounded-[9px] text-[13px] font-medium transition-all ${
-                      viewMode === 'side-by-side'
-                        ? 'bg-white text-[#1C1B1A] shadow-[0_1px_2px_rgba(28,27,26,0.10)]'
-                        : 'text-[#6A675F] hover:text-[#1C1B1A]'
-                    }`}
-                    aria-pressed={viewMode === 'side-by-side'}
-                  >
-                    Side by side
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleTriggerPrint('discussion', messages)}
-                  className="h-10 inline-flex items-center gap-2 rounded-xl border border-[#D9D6CF] bg-white px-3 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#F7F6F3] transition-colors cursor-pointer"
-                  title="Export discussion"
-                  aria-label="Export discussion"
-                >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">Export</span>
-                </button>
-              </div>
-            </header>
+            <div className="absolute top-4 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
+              <button
+                type="button"
+                onClick={() => handleTriggerPrint('discussion', messages)}
+                className="pointer-events-auto h-10 inline-flex items-center gap-2 rounded-xl border border-[#D9D6CF] bg-[#F7F6F3]/90 px-3 text-[13px] font-medium text-[#1C1B1A] hover:bg-[#EFEDE9] backdrop-blur-[2px] transition-colors cursor-pointer"
+                title="Export discussion"
+                aria-label="Export discussion"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Export</span>
+              </button>
+            </div>
           )}
 
           {/* Message Scroll Region Wrapper (Provides stable positioning context for scroll button above variable-height ChatInput) */}
@@ -2841,32 +2805,21 @@ export default function DashboardPage() {
                     />
                   </div>
 
-                  <h2 className="text-[38px] sm:text-[52px] font-medium leading-[1.05] text-[#1C1B1A] tracking-[-0.02em] mb-3 animate-drop-fade">
-                    <span>Hello, </span>
-                    <span className="relative inline-block">
-                      {displayFirstName || 'there'}
-                      {displayFirstName && (
-                        <svg
-                          className="absolute -bottom-1 left-0 w-full h-3 overflow-visible pointer-events-none"
-                          viewBox="0 0 120 12"
-                          preserveAspectRatio="none"
-                          aria-hidden="true"
-                        >
-                          <path
-                            d="M3 7C29 10 77 1 117 6"
-                            fill="none"
-                            stroke="#E0644B"
-                            strokeWidth="4.5"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      )}
-                    </span>
+                  <h2 className="text-[38px] sm:text-[52px] font-medium leading-[1.05] text-[#1C1B1A] tracking-[-0.02em] mb-3 flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                    {greetingWords.map((word, idx) => (
+                      <span
+                        key={idx}
+                        className="inline-block animate-drop-fade"
+                        style={{ animationDelay: `${50 + idx * 45}ms` }}
+                      >
+                        {word}
+                      </span>
+                    ))}
                   </h2>
 
                   <p
                     className="text-[14px] sm:text-[16px] leading-6 font-normal text-[#6A675F] mb-6 animate-simple-fade"
-                    style={{ animationDelay: '250ms' }}
+                    style={{ animationDelay: '350ms' }}
                   >
                     Your AI seats are in the box below. Swap or remove any of them.
                   </p>
@@ -2947,7 +2900,6 @@ export default function DashboardPage() {
                   newlySentUserMessageId={newlySentUserMessageId}
                   onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
                   onPreviewDocument={setPreviewDocument}
-                  viewMode={viewMode}
                 />
               )}
             </div>
