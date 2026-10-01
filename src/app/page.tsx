@@ -505,7 +505,11 @@ export default function LandingPage() {
               muted
               playsInline
               controls={false}
-              className="w-full rounded-2xl shadow-md"
+              disablePictureInPicture
+              disableRemotePlayback
+              controlsList="nodownload nofullscreen noremoteplayback"
+              tabIndex={-1}
+              className="w-full rounded-2xl shadow-md pointer-events-none select-none"
             />
           </motion.div>
         </section>
