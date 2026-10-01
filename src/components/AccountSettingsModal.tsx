@@ -177,7 +177,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[#8A867D] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] text-[#8A867D] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
             title="Close modal"
             aria-label="Close modal"
           >
@@ -212,7 +212,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   type="button"
                   onClick={handleSaveName}
                   disabled={isSavingName}
-                  className="h-9 rounded-[10px] px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F4F3F0] disabled:opacity-50"
+                  className="h-9 cursor-pointer rounded-[10px] px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F4F3F0] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isSavingName ? 'Saving…' : 'Save'}
                 </button>
@@ -220,7 +220,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsResetPasswordOpen(true)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[#E2E0DB] bg-white px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F7F6F3]"
+                className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[#E2E0DB] bg-white px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F7F6F3]"
               >
                 <KeyRound className="h-3 w-3" aria-hidden="true" />
                 <span className="hidden xs:inline">Reset password</span>
@@ -271,7 +271,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   type="button"
                   onClick={() => handleUpgrade(setIsRedirectingPromo)}
                   disabled={isRedirectingPromo}
-                  className="mt-5 flex h-11 w-full items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:opacity-60"
+                  className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isRedirectingPromo ? 'Redirecting…' : 'Get Plus'}
                 </button>
@@ -301,7 +301,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   type="button"
                   onClick={handleManagePortal}
                   disabled={isRedirectingCard}
-                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] border border-[#E2E0DB] bg-white px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F7F6F3] disabled:opacity-60"
+                  className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] border border-[#E2E0DB] bg-white px-3 text-[11px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F7F6F3] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span>{isRedirectingCard ? 'Redirecting…' : 'Manage'}</span>
                   {!isRedirectingCard && <ExternalLink className="h-3 w-3" aria-hidden="true" />}
