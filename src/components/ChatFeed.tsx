@@ -2507,18 +2507,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             }}
             className="col-span-full pt-6 pb-2 min-w-0"
           >
-            <div className="flex items-center gap-4">
-              <div className="h-px flex-1 bg-[#E7E5E0]" />
-              {answerLabel && (
-                <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
-                  {answerLabel}
-                </span>
-              )}
-              {latestTurnInterrupted && (
-                <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
-                  {answerLabel ? '· Response interrupted' : 'Response interrupted'}
-                </span>
-              )}
+            <div className="flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
+              <div className="hidden sm:block h-px flex-1 bg-[#E7E5E0]" />
+              <div className="flex items-center justify-center gap-4 min-w-0">
+                {answerLabel && (
+                  <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
+                    {answerLabel}
+                  </span>
+                )}
+                {latestTurnInterrupted && (
+                  <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+                    {answerLabel ? '· Response interrupted' : 'Response interrupted'}
+                  </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={onContinue}
@@ -2528,7 +2530,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 <span>Let them keep discussing</span>
               </button>
-              <div className="h-px flex-1 bg-[#E7E5E0]" />
+              <div className="hidden sm:block h-px flex-1 bg-[#E7E5E0]" />
             </div>
           </motion.div>
         );
