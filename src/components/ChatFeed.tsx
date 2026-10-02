@@ -1413,6 +1413,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     : null;
   const isContinueAnchor = anchoredUserMessage?.content === 'Continue';
 
+  const presentation = usePresentationSequence(messages, anchoredUserId);
+
   useTopTurnAnchor({
     viewportRef: scrollContainerRef,
     contentRef,
@@ -1424,8 +1426,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     tailTopOffsetMobile: 24,
     tailTopOffsetDesktop: 32,
   });
-
-  const presentation = usePresentationSequence(messages, anchoredUserId);
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
