@@ -1014,65 +1014,80 @@ interface SmoothRevealResult {
  */
 function useSmoothReveal(
   targetText: string,
-  isStreaming?: boolean,
-  reduceMotion?: boolean,
-  forceRevealOnMount?: boolean
+  isStreaming: boolean | undefined,
+  reduceMotion: boolean | undefined,
+  presentationPhase: PresentationPhase,
+  onPresentationComplete?: () => void
 ): SmoothRevealResult {
-  // Existing/history messages mount fully rendered. A brand-new model message
-  // may occasionally arrive already completed because React batches provider
-  // chunks + seat_done; forceRevealOnMount preserves the same visual stream.
-  const shouldAnimateInitially =
+  const isStatic =
+    presentationPhase === 'static' || presentationPhase === 'complete';
+  const shouldStartHidden =
     !reduceMotion &&
-    Boolean(isStreaming || forceRevealOnMount) &&
-    targetText.length > 0;
+    (presentationPhase === 'queued' || presentationPhase === 'active');
 
   const [displayedLength, setDisplayedLength] = useState(() =>
-    shouldAnimateInitially ? 0 : targetText.length
+    shouldStartHidden ? 0 : targetText.length
   );
-  const [isDraining, setIsDraining] = useState(() => shouldAnimateInitially);
+  const [isDraining, setIsDraining] = useState(false);
 
   const targetTextRef = useRef(targetText);
   targetTextRef.current = targetText;
 
+  const isStreamingRef = useRef(Boolean(isStreaming));
+  isStreamingRef.current = Boolean(isStreaming);
+
   const displayedLengthRef = useRef(displayedLength);
   displayedLengthRef.current = displayedLength;
 
-  const hasStreamedRef = useRef(Boolean(isStreaming || forceRevealOnMount));
-  if (isStreaming || forceRevealOnMount) hasStreamedRef.current = true;
+  const completionNotifiedRef = useRef(false);
+  const onPresentationCompleteRef = useRef(onPresentationComplete);
+  onPresentationCompleteRef.current = onPresentationComplete;
 
   useEffect(() => {
+    if (presentationPhase !== 'active') {
+      completionNotifiedRef.current = false;
+    }
+
+    if (presentationPhase === 'queued') {
+      displayedLengthRef.current = 0;
+      setDisplayedLength(0);
+      setIsDraining(false);
+      return;
+    }
+
+    if (isStatic) {
+      displayedLengthRef.current = targetText.length;
+      setDisplayedLength(targetText.length);
+      setIsDraining(false);
+      return;
+    }
+
+    const notifyComplete = () => {
+      if (completionNotifiedRef.current) return;
+      completionNotifiedRef.current = true;
+      onPresentationCompleteRef.current?.();
+    };
+
     if (reduceMotion) {
       displayedLengthRef.current = targetText.length;
       setDisplayedLength(targetText.length);
       setIsDraining(false);
+      if (!isStreamingRef.current) {
+        queueMicrotask(notifyComplete);
+      }
       return;
     }
 
-    // Reset/retry can replace the in-flight text with a shorter value.
     if (displayedLengthRef.current > targetText.length) {
       displayedLengthRef.current = targetText.length;
       setDisplayedLength(targetText.length);
-      setIsDraining(false);
-      return;
-    }
-
-    const shouldDrainCompletedStream =
-      !isStreaming &&
-      hasStreamedRef.current &&
-      displayedLengthRef.current < targetText.length;
-    const shouldAnimate = Boolean(isStreaming) || shouldDrainCompletedStream;
-
-    if (!shouldAnimate) {
-      if (displayedLengthRef.current !== targetText.length) {
-        displayedLengthRef.current = targetText.length;
-        setDisplayedLength(targetText.length);
-      }
-      setIsDraining(false);
-      return;
     }
 
     if (displayedLengthRef.current >= targetText.length) {
       setIsDraining(false);
+      if (!isStreamingRef.current) {
+        queueMicrotask(notifyComplete);
+      }
       return;
     }
 
@@ -1087,28 +1102,29 @@ function useSmoothReveal(
       if (current >= currentTarget) {
         setIsDraining(false);
         rafId = null;
+        if (!isStreamingRef.current) {
+          queueMicrotask(notifyComplete);
+        }
         return;
       }
 
       const lag = currentTarget - current;
 
-      // Keep the visual stream close to the real model. Small backlogs reveal
-      // in short phrase-like bursts; large provider dumps accelerate hard so
-      // presentation lag stays bounded and the next seat does not visually
-      // overtake the previous one.
+      // Presentation speed responds to backlog, not provider chunk size.
+      // Even a one-shot provider dump is metered through the same visual queue.
       const intervalMs =
-        lag > 1600 ? 20 :
-        lag > 900 ? 22 :
-        lag > 420 ? 24 :
-        lag > 180 ? 27 :
-        31;
+        lag > 1800 ? 18 :
+        lag > 1000 ? 20 :
+        lag > 500 ? 22 :
+        lag > 220 ? 25 :
+        29;
 
       const unitsPerTick =
-        lag > 1600 ? 10 :
-        lag > 900 ? 8 :
-        lag > 420 ? 5 :
-        lag > 180 ? 3 :
-        lag > 70 ? 2 :
+        lag > 1800 ? 9 :
+        lag > 1000 ? 7 :
+        lag > 500 ? 5 :
+        lag > 220 ? 3 :
+        lag > 80 ? 2 :
         1;
 
       if (now - lastTime >= intervalMs) {
@@ -1119,7 +1135,6 @@ function useSmoothReveal(
           unitsPerTick
         );
 
-        // Extremely long unbroken strings should still make progress.
         if (nextLength <= current) {
           nextLength = Math.min(currentTarget, current + 1);
         }
@@ -1136,14 +1151,24 @@ function useSmoothReveal(
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [targetText, isStreaming, reduceMotion]);
+  }, [
+    isStatic,
+    isStreaming,
+    presentationPhase,
+    reduceMotion,
+    targetText,
+  ]);
 
   const visibleLength = Math.min(displayedLength, targetText.length);
+
   return {
     text: targetText.slice(0, visibleLength),
     isRevealing:
+      presentationPhase === 'active' &&
       !reduceMotion &&
-      (Boolean(isStreaming) || isDraining || visibleLength < targetText.length),
+      (Boolean(isStreaming) ||
+        isDraining ||
+        visibleLength < targetText.length),
   };
 }
 
