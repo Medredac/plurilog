@@ -198,6 +198,8 @@ interface RehydratedDiscussionRun {
   discussionId: string;
   runId: string;
   runStartedAt: number;
+  currentSeatId: ModelId | null;
+  currentSeatObservedAt: string | null;
 }
 
 interface DurableRunStatusResponse {
@@ -689,10 +691,24 @@ export default function DashboardPage() {
         recoveredStatuses[nextSeat] = 'thinking';
       }
 
+      const previousRecovered = rehydratedRunRef.current;
+      const currentSeatObservedAt =
+        nextSeat &&
+        previousRecovered?.discussionId === discussionId &&
+        previousRecovered.runId === runStatus.runId &&
+        previousRecovered.currentSeatId === nextSeat &&
+        previousRecovered.currentSeatObservedAt
+          ? previousRecovered.currentSeatObservedAt
+          : nextSeat
+            ? new Date().toISOString()
+            : null;
+
       const recovered: RehydratedDiscussionRun = {
         discussionId,
         runId: runStatus.runId,
         runStartedAt: runStatus.runStartedAt,
+        currentSeatId: nextSeat,
+        currentSeatObservedAt,
       };
 
       const recoveredMessages =
@@ -706,11 +722,13 @@ export default function DashboardPage() {
                 modelId: nextSeat,
                 authorName: COUNCIL_MEMBERS[nextSeat]?.name || 'AI',
                 content: '',
-                timestamp: new Date().toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }),
-                createdAt: new Date().toISOString(),
+                timestamp: currentSeatObservedAt
+                  ? new Date(currentSeatObservedAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })
+                  : '',
+                createdAt: currentSeatObservedAt || undefined,
                 isStreaming: true,
               },
             ]
@@ -724,7 +742,17 @@ export default function DashboardPage() {
           ? previous
           : recovered
       );
-      setMessages(recoveredMessages);
+      setMessages((previous) => {
+        const unchanged =
+          previous.length === recoveredMessages.length &&
+          previous.every(
+            (message, index) =>
+              message.id === recoveredMessages[index]?.id &&
+              message.content === recoveredMessages[index]?.content &&
+              message.isStreaming === recoveredMessages[index]?.isStreaming
+          );
+        return unchanged ? previous : recoveredMessages;
+      });
       setSeatStatuses(recoveredStatuses);
       setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
       setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
