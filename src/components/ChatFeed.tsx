@@ -2217,54 +2217,76 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
-              {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
-              {!isThinking && !isVisuallyRevealing && (
-                <div className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <button
-                      onClick={() => handleCopy(message.id, message.content)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                      title={`Copy ${member.name}'s reply`}
-                aria-label={`Copy ${member.name}'s reply`}
-                    >
-                      {copiedId === message.id ? (
-                        <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
-                      ) : (
-                        <Copy className="w-4 h-4 shrink-0" />
-                      )}
-                    </button>
+              {/* Bottom actions enter only after this seat has visually settled. */}
+              <AnimatePresence initial={false}>
+                {!isThinking && hasSettledPresentation && (
+                  <motion.div
+                    key={`actions-${message.id}`}
+                    layout="position"
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                    transition={{
+                      layout: {
+                        type: 'spring',
+                        stiffness: 360,
+                        damping: 34,
+                        mass: 0.82,
+                      },
+                      opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+                      y: {
+                        duration: shouldReduceMotion ? 0 : 0.2,
+                        ease: [0.16, 1, 0.3, 1],
+                      },
+                    }}
+                    className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0"
+                  >
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <button
+                        onClick={() => handleCopy(message.id, message.content)}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                        title={`Copy ${member.name}'s reply`}
+                        aria-label={`Copy ${member.name}'s reply`}
+                      >
+                        {copiedId === message.id ? (
+                          <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
+                        ) : (
+                          <Copy className="w-4 h-4 shrink-0" />
+                        )}
+                      </button>
 
-                    {onExportMessage && (
+                      {onExportMessage && (
+                        <button
+                          type="button"
+                          onClick={() => onExportMessage(message)}
+                          className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                          title="Download response as PDF"
+                          aria-label="Download response as PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isAiCollapsible && (
                       <button
                         type="button"
-                        onClick={() => onExportMessage(message)}
+                        onClick={() => toggleAiCollapse(message.id)}
                         className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                        title="Download response as PDF"
-                        aria-label="Download response as PDF"
+                        title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                        aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                        aria-expanded={!isAiCollapsed}
                       >
-                        <Download className="w-3.5 h-3.5" />
+                        {isAiCollapsed ? (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     )}
-                  </div>
-
-                  {isAiCollapsible && (
-                    <button
-                      type="button"
-                      onClick={() => toggleAiCollapse(message.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                      title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
-                      aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
-                      aria-expanded={!isAiCollapsed}
-                    >
-                      {isAiCollapsed ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
               </div>
             </div>
           </React.Fragment>
@@ -2274,8 +2296,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       {/* Continue discussion appears only after the final visible answer has settled. */}
       {canContinue &&
         !isDebating &&
-        revealingMessageIds.size === 0 &&
-        freshModelMessageIds.size === 0 &&
+        presentation.isCurrentTurnSettled &&
         messages.length > 0 &&
         onContinue &&
         (() => {
@@ -2308,11 +2329,25 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         return (
           <motion.div
-            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
+            layout="position"
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.24,
-              ease: [0.16, 1, 0.3, 1],
+              layout: {
+                type: 'spring',
+                stiffness: 340,
+                damping: 34,
+                mass: 0.86,
+              },
+              opacity: { duration: shouldReduceMotion ? 0 : 0.2 },
+              y: {
+                duration: shouldReduceMotion ? 0 : 0.24,
+                ease: [0.16, 1, 0.3, 1],
+              },
+              scale: {
+                duration: shouldReduceMotion ? 0 : 0.22,
+                ease: [0.16, 1, 0.3, 1],
+              },
             }}
             className="col-span-full pt-6 pb-2 min-w-0"
           >
@@ -2336,8 +2371,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         );
       })()}
 
-      {/* Dynamic bottom spacer: untransitioned/instant height change so scrollHeight is immediately accurate during deliberation */}
-      <div className={`col-span-full w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
+      {/* Viewport-owned reserve: exactly enough space to keep the live user turn anchored. */}
+      <div
+        ref={reserveRef}
+        className="col-span-full w-full h-0 shrink-0 pointer-events-none"
+        aria-hidden="true"
+      />
 
       {/* Invisible anchor for auto-scroll on discussion load */}
       <div ref={bottomRef} className="col-span-full h-1 w-full" />
