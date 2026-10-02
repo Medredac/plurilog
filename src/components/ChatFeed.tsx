@@ -2302,7 +2302,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       })}
 
       {/* Continue discussion appears only after the final visible answer has settled. */}
-      {canContinue &&
+      <AnimatePresence initial={false} mode="popLayout">
+        {canContinue &&
         !isDebating &&
         presentation.isCurrentTurnSettled &&
         messages.length > 0 &&
@@ -2337,9 +2338,15 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         return (
           <motion.div
+            key="continue-controls"
             layout="position"
             initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={
+              shouldReduceMotion
+                ? undefined
+                : { opacity: 0, y: -6, scale: 0.985 }
+            }
             transition={{
               layout: {
                 type: 'spring',
@@ -2378,6 +2385,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           </motion.div>
         );
       })()}
+      </AnimatePresence>
 
       {/* Viewport-owned reserve: exactly enough space to keep the live user turn anchored. */}
       <div
