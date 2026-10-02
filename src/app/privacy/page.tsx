@@ -76,7 +76,7 @@ export default function PrivacyPage() {
               How Long We Keep Your Information
             </h2>
             <p>
-              We retain personal information only for as long as reasonably necessary to provide the service, meet our legal obligations and resolve disputes. If you&apos;d like your account and associated personal information deleted, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
+              We retain personal information only for as long as reasonably necessary to provide the service, meet our legal obligations and resolve disputes. You can permanently delete your account and associated personal information directly from your account settings. If you have an active Plus subscription, you&apos;ll need to cancel it first.
             </p>
           </MotionReveal>
 
