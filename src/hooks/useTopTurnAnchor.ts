@@ -12,6 +12,7 @@ interface UseTopTurnAnchorOptions {
   tailTopOffsetMobile?: number;
   tailTopOffsetDesktop?: number;
   topOffsetDesktop?: number;
+  autoScrollAnchor?: boolean;
   tallerThan?: number;
   visibleHeight?: number;
 }
