@@ -269,6 +269,9 @@ export default function DashboardPage() {
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [isStopRequested, setIsStopRequested] = useState<boolean>(false);
+  const [interruptedTurnUserIds, setInterruptedTurnUserIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [seatActivityLabels, setSeatActivityLabels] = useState<
@@ -1124,6 +1127,15 @@ export default function DashboardPage() {
     const latestUser = [...messages]
       .reverse()
       .find((message) => message.role === 'user');
+
+    if (latestUser?.id) {
+      setInterruptedTurnUserIds((previous) => {
+        if (previous.has(latestUser.id)) return previous;
+        const next = new Set(previous);
+        next.add(latestUser.id);
+        return next;
+      });
+    }
     if (
       latestUser?.content === 'Continue' &&
       scrollContainerRef.current
@@ -1359,6 +1371,69 @@ export default function DashboardPage() {
       return;
     }
 
+    // Title generation must survive a user Stop. If the first AI reply never
+    // reaches the normal title trigger, the user's prompt is still enough to
+    // replace the temporary "New discussion" label.
+    const triggerTitleGeneration = (aiSnippet: string) => {
+      if (
+        !discussionId ||
+        !pendingTitleDiscussionIdsRef.current.has(discussionId) ||
+        titleGenerationStartedIdsRef.current.has(discussionId)
+      ) {
+        return;
+      }
+
+      titleGenerationStartedIdsRef.current.add(discussionId);
+
+      const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
+      const titleAiResponse = (aiSnippet || '').trim().slice(0, 300);
+      const attachmentNames = (attachments || [])
+        .map((a) => a.filename)
+        .filter(Boolean)
+        .slice(0, 5);
+
+      void fetch('/api/generate-title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt: titleUserPrompt,
+          firstAiResponse: titleAiResponse,
+          attachmentNames,
+          discussionId,
+        }),
+      })
+        .then((res) => res.json())
+        .then(async (data) => {
+          const generatedTitle = data?.title?.trim();
+          if (
+            generatedTitle &&
+            generatedTitle.toLowerCase() !== 'new discussion' &&
+            generatedTitle.toLowerCase() !== 'untitled discussion'
+          ) {
+            const { error: titleUpdateError } = await supabase
+              .from('discussions')
+              .update({ title: generatedTitle })
+              .eq('id', discussionId);
+
+            if (titleUpdateError) {
+              throw titleUpdateError;
+            }
+
+            setDebates((prev) =>
+              prev.map((d) =>
+                d.id === discussionId ? { ...d, title: generatedTitle } : d
+              )
+            );
+          }
+        })
+        .catch((titleErr) => {
+          console.error('[AI Title Error]', titleErr);
+        })
+        .finally(() => {
+          clearTitlePending(discussionId);
+        });
+    };
+
     try {
       const response = await fetch('/api/debate', {
         method: 'POST',
@@ -1402,67 +1477,6 @@ export default function DashboardPage() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-
-      // Helper to launch Title V2 generation at most once per discussion
-      const triggerTitleGeneration = (aiSnippet: string) => {
-        if (
-          !discussionId ||
-          !pendingTitleDiscussionIdsRef.current.has(discussionId) ||
-          titleGenerationStartedIdsRef.current.has(discussionId)
-        ) {
-          return;
-        }
-
-        titleGenerationStartedIdsRef.current.add(discussionId);
-
-        const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
-        const titleAiResponse = (aiSnippet || '').trim().slice(0, 300);
-        const attachmentNames = (attachments || [])
-          .map((a) => a.filename)
-          .filter(Boolean)
-          .slice(0, 5);
-
-        fetch('/api/generate-title', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userPrompt: titleUserPrompt,
-            firstAiResponse: titleAiResponse,
-            attachmentNames,
-            discussionId,
-          }),
-        })
-          .then((res) => res.json())
-          .then(async (data) => {
-            const generatedTitle = data?.title?.trim();
-            if (
-              generatedTitle &&
-              generatedTitle.toLowerCase() !== 'new discussion' &&
-              generatedTitle.toLowerCase() !== 'untitled discussion'
-            ) {
-              const { error: titleUpdateError } = await supabase
-                .from('discussions')
-                .update({ title: generatedTitle })
-                .eq('id', discussionId);
-
-              if (titleUpdateError) {
-                throw titleUpdateError;
-              }
-
-              setDebates((prev) =>
-                prev.map((d) =>
-                  d.id === discussionId ? { ...d, title: generatedTitle } : d
-                )
-              );
-            }
-          })
-          .catch((titleErr) => {
-            console.error('[AI Title Error]', titleErr);
-          })
-          .finally(() => {
-            clearTitlePending(discussionId);
-          });
-      };
 
       const startDeferredPdfIndexing = () => {
         const pdfAttachmentsForIndexing = (attachments || []).filter((att) => {
@@ -2140,16 +2154,11 @@ export default function DashboardPage() {
     } catch (err: any) {
       if (discussionId) {
         activeGenerationsRef.current.delete(discussionId);
-        if (
-          completedSeatsCount === 0 &&
-          !titleGenerationStartedIdsRef.current.has(discussionId)
-        ) {
-          clearTitlePending(discussionId);
-        }
       }
       const isAborted = controller.signal.aborted || err?.name === 'AbortError';
 
       if (isAborted) {
+        triggerTitleGeneration(inProgressContent);
         console.log('[Relay Stopped] Discussion stream was stopped by user.');
 
         const hasStoppedOutput =
@@ -2201,6 +2210,13 @@ export default function DashboardPage() {
           touchDiscussion(discussionId);
         }
       } else {
+        if (
+          discussionId &&
+          completedSeatsCount === 0 &&
+          !titleGenerationStartedIdsRef.current.has(discussionId)
+        ) {
+          clearTitlePending(discussionId);
+        }
         console.error('Error in relay stream:', err);
         if (activeDebateIdRef.current === discussionId) {
           if (err?.code === 'INSUFFICIENT_CREDITS') {
@@ -3218,6 +3234,7 @@ export default function DashboardPage() {
                   onPreviewDocument={setPreviewDocument}
                   scrollContainerRef={scrollContainerRef}
                   preserveScrollTop={preservedStopScrollTop}
+                  interruptedTurnUserIds={interruptedTurnUserIds}
                 />
               )}
             </motion.div>

@@ -958,6 +958,7 @@ interface ChatFeedProps {
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   preserveScrollTop?: number | null;
+  interruptedTurnUserIds?: Set<string>;
   viewMode?: 'discussion' | 'side-by-side';
 }
 
@@ -1018,7 +1019,8 @@ function useSmoothReveal(
   isStreaming: boolean | undefined,
   reduceMotion: boolean | undefined,
   presentationPhase: PresentationPhase,
-  onPresentationComplete?: () => void
+  onPresentationComplete?: () => void,
+  freezeReveal = false
 ): SmoothRevealResult {
   const isStatic =
     presentationPhase === 'static' || presentationPhase === 'complete';
@@ -1041,10 +1043,21 @@ function useSmoothReveal(
   displayedLengthRef.current = displayedLength;
 
   const completionNotifiedRef = useRef(false);
+  const frozenLengthRef = useRef<number | null>(null);
   const onPresentationCompleteRef = useRef(onPresentationComplete);
   onPresentationCompleteRef.current = onPresentationComplete;
 
   useEffect(() => {
+    if (freezeReveal) {
+      if (frozenLengthRef.current === null) {
+        frozenLengthRef.current = displayedLengthRef.current;
+      }
+      setIsDraining(false);
+      return;
+    }
+
+    frozenLengthRef.current = null;
+
     if (presentationPhase !== 'active') {
       completionNotifiedRef.current = false;
     }
@@ -1153,6 +1166,7 @@ function useSmoothReveal(
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [
+    freezeReveal,
     isStatic,
     isStreaming,
     presentationPhase,
@@ -1160,11 +1174,17 @@ function useSmoothReveal(
     targetText,
   ]);
 
-  const visibleLength = Math.min(displayedLength, targetText.length);
+  const visibleLength = Math.min(
+    freezeReveal && frozenLengthRef.current !== null
+      ? frozenLengthRef.current
+      : displayedLength,
+    targetText.length
+  );
 
   return {
     text: targetText.slice(0, visibleLength),
     isRevealing:
+      !freezeReveal &&
       presentationPhase === 'active' &&
       !reduceMotion &&
       (Boolean(isStreaming) ||
@@ -1231,6 +1251,7 @@ interface StreamingMessageBodyProps {
   isStreaming?: boolean;
   reduceMotion?: boolean;
   presentationPhase: PresentationPhase;
+  freezeReveal?: boolean;
   onPresentationComplete?: () => void;
 }
 
@@ -1239,6 +1260,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   isStreaming,
   reduceMotion,
   presentationPhase,
+  freezeReveal = false,
   onPresentationComplete,
 }) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
@@ -1251,7 +1273,8 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
     isStreaming,
     reduceMotion,
     presentationPhase,
-    onPresentationComplete
+    onPresentationComplete,
+    freezeReveal
   );
 
   return (
@@ -1271,7 +1294,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
       </div>
 
       {/* Sources Area */}
-      {!isRevealing && sources && sources.length > 0 && (
+      {!freezeReveal && !isRevealing && sources && sources.length > 0 && (
         <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2 min-w-0 max-w-full">
           <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
             Sources
@@ -1353,6 +1376,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onPreviewDocument,
   scrollContainerRef,
   preserveScrollTop = null,
+  interruptedTurnUserIds = new Set<string>(),
   viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
@@ -1907,7 +1931,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 : 'mt-4 sm:mt-[18px]';
 
         const presentationPhase = presentation.phaseFor(message.id);
+        const owningUserMessage = [...messages.slice(0, idx)]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const isInterruptedTurn = Boolean(
+          owningUserMessage?.id &&
+          interruptedTurnUserIds.has(owningUserMessage.id)
+        );
         const isQueuedForPresentation = presentationPhase === 'queued';
+
+        // Once the user interrupts, do not start visually presenting a later
+        // seat that was only queued behind the response they stopped.
+        if (isInterruptedTurn && isQueuedForPresentation) {
+          return null;
+        }
         const hasSettledPresentation =
           presentationPhase === 'static' || presentationPhase === 'complete';
         const isThinking =
@@ -2072,6 +2109,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
                       presentationPhase={presentationPhase}
+                      freezeReveal={
+                        isInterruptedTurn &&
+                        presentationPhase === 'active'
+                      }
                       onPresentationComplete={() =>
                         presentation.markComplete(message.id)
                       }
@@ -2317,40 +2358,60 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         );
       })}
 
-      {/* Continue discussion appears only after the final visible answer has settled. */}
+      {/* Continue discussion appears after normal presentation settles, or
+          immediately after an interrupted turn using the visible state at Stop. */}
       <AnimatePresence initial={false} mode="popLayout">
         {canContinue &&
         !isDebating &&
-        presentation.isCurrentTurnSettled &&
         messages.length > 0 &&
         onContinue &&
         (() => {
+        const lastUserMessage = [...messages]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const latestTurnInterrupted = Boolean(
+          lastUserMessage?.id &&
+          interruptedTurnUserIds.has(lastUserMessage.id)
+        );
+
+        if (!presentation.isCurrentTurnSettled && !latestTurnInterrupted) {
+          return null;
+        }
         const lastUserIndex = [...messages]
           .map((item, index) => ({ item, index }))
           .reverse()
           .find(({ item }) => item.role === 'user')?.index ?? -1;
 
+        const latestModelMessages = messages
+          .slice(lastUserIndex + 1)
+          .filter((item) => item.role === 'model' && item.content.trim());
+
         const latestModels = Array.from(
           new Set(
-            messages
-              .slice(lastUserIndex + 1)
-              .filter((item) => item.role === 'model' && item.content.trim())
-              .map((item) => {
-                const raw = String(item.modelId || item.authorName || '').toLowerCase();
-                if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
-                if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
-                return 'gemini';
-              })
+            latestModelMessages.map((item) => {
+              const raw = String(item.modelId || item.authorName || '').toLowerCase();
+              if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+              if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+              return 'gemini';
+            })
           )
         ) as ModelId[];
 
-        if (latestModels.length === 0) return null;
-
         const expectedAnswers = Math.max(1, activeModels.length);
+        const visibleAnsweredCount = latestTurnInterrupted
+          ? latestModelMessages.filter(
+              (item) => presentation.phaseFor(item.id) === 'complete'
+            ).length
+          : latestModels.length;
+
+        if (latestModels.length === 0 && !latestTurnInterrupted) return null;
+
         const answerLabel =
-          latestModels.length >= expectedAnswers
-            ? `All ${latestModels.length} answered`
-            : `${latestModels.length} of ${expectedAnswers} answered`;
+          visibleAnsweredCount <= 0
+            ? null
+            : visibleAnsweredCount >= expectedAnswers
+              ? `All ${visibleAnsweredCount} answered`
+              : `${visibleAnsweredCount} of ${expectedAnswers} answered`;
 
         return (
           <motion.div
@@ -2384,9 +2445,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           >
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-[#E7E5E0]" />
-              <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
-                {answerLabel}
-              </span>
+              {answerLabel && (
+                <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
+                  {answerLabel}
+                </span>
+              )}
+              {latestTurnInterrupted && (
+                <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+                  {answerLabel ? '· Response interrupted' : 'Response interrupted'}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={onContinue}
@@ -2402,6 +2470,29 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         );
       })()}
       </AnimatePresence>
+
+      {(() => {
+        const latestUser = [...messages]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const latestInterrupted = Boolean(
+          latestUser?.id &&
+          interruptedTurnUserIds.has(latestUser.id)
+        );
+        if (!latestInterrupted || canContinue || isDebating) return null;
+
+        return (
+          <div className="col-span-full pt-6 pb-2 min-w-0">
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+              <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+                Response interrupted
+              </span>
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Natural end of real conversation UI, excluding temporary scroll reserve. */}
       <div
