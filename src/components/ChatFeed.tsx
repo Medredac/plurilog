@@ -41,6 +41,11 @@ import { ImageLightbox } from './ImageLightbox';
 import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
+import { useTopTurnAnchor } from '@/hooks/useTopTurnAnchor';
+import {
+  PresentationPhase,
+  usePresentationSequence,
+} from '@/hooks/usePresentationSequence';
 
 const conversationDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -951,6 +956,7 @@ interface ChatFeedProps {
   newlySentUserMessageId?: string | null;
   onNewlySentAnimationComplete?: () => void;
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   viewMode?: 'discussion' | 'side-by-side';
 }
 
@@ -1323,6 +1329,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   newlySentUserMessageId = null,
   onNewlySentAnimationComplete,
   onPreviewDocument,
+  scrollContainerRef,
   viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
