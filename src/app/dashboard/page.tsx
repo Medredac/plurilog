@@ -695,6 +695,27 @@ export default function DashboardPage() {
         runStartedAt: runStatus.runStartedAt,
       };
 
+      const recoveredMessages =
+        nextSeat
+          ? [
+              ...items,
+              {
+                id: `rehydrated-${runStatus.runId}-${nextSeat}`,
+                discussionId,
+                role: 'model' as const,
+                modelId: nextSeat,
+                authorName: COUNCIL_MEMBERS[nextSeat]?.name || 'AI',
+                content: '',
+                timestamp: new Date().toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                }),
+                createdAt: new Date().toISOString(),
+                isStreaming: true,
+              },
+            ]
+          : items;
+
       rehydratedRunRef.current = recovered;
       setRehydratedRun((previous) =>
         previous?.discussionId === recovered.discussionId &&
@@ -703,6 +724,7 @@ export default function DashboardPage() {
           ? previous
           : recovered
       );
+      setMessages(recoveredMessages);
       setSeatStatuses(recoveredStatuses);
       setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
       setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
@@ -847,22 +869,6 @@ export default function DashboardPage() {
         setIsDebating(true);
         setActiveSpeaker(activeGen.activeSpeaker);
       } else {
-        if (silent) {
-          setMessages((previous) => {
-            const unchanged =
-              previous.length === formatted.length &&
-              previous.every(
-                (message, index) =>
-                  message.id === formatted[index]?.id &&
-                  message.content === formatted[index]?.content &&
-                  message.isStreaming === false
-              );
-            return unchanged ? previous : formatted;
-          });
-        } else {
-          setMessages(formatted);
-        }
-
         const shouldPreserveRecoveredRun =
           durableRunStatus === null &&
           rehydratedRunRef.current?.discussionId === discussionId;
@@ -879,22 +885,42 @@ export default function DashboardPage() {
             )
           : false;
 
-        if (!recoveredActiveRun) {
-          if (rehydratedRunRef.current?.discussionId === discussionId) {
-            rehydratedRunRef.current = null;
-            setRehydratedRun(null);
-          }
-
-          setCanContinue(hasModelResponseAfterLatestUser(formatted));
-          setErrorMessage(null);
-          setFailedTurn(null);
-          setAbandonedFailedTurnIds([]);
-          setSeatStatuses(INITIAL_SEAT_STATUSES);
-          setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
-          setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
-          setIsDebating(false);
-          setActiveSpeaker(null);
+        if (recoveredActiveRun) {
+          return;
         }
+
+        if (silent) {
+          setMessages((previous) => {
+            const settledPrevious = previous.filter(
+              (message) => !message.isStreaming
+            );
+            const unchanged =
+              settledPrevious.length === formatted.length &&
+              settledPrevious.every(
+                (message, index) =>
+                  message.id === formatted[index]?.id &&
+                  message.content === formatted[index]?.content
+              );
+            return unchanged ? previous : formatted;
+          });
+        } else {
+          setMessages(formatted);
+        }
+
+        if (rehydratedRunRef.current?.discussionId === discussionId) {
+          rehydratedRunRef.current = null;
+          setRehydratedRun(null);
+        }
+
+        setCanContinue(hasModelResponseAfterLatestUser(formatted));
+        setErrorMessage(null);
+        setFailedTurn(null);
+        setAbandonedFailedTurnIds([]);
+        setSeatStatuses(INITIAL_SEAT_STATUSES);
+        setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
+        setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
+        setIsDebating(false);
+        setActiveSpeaker(null);
       }
     } catch (err) {
       if (currentFetchIdRef.current === discussionId) {
