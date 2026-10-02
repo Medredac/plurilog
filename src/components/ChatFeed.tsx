@@ -957,6 +957,7 @@ interface ChatFeedProps {
   onNewlySentAnimationComplete?: () => void;
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  preserveScrollTop?: number | null;
   viewMode?: 'discussion' | 'side-by-side';
 }
 
@@ -1351,6 +1352,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   onNewlySentAnimationComplete,
   onPreviewDocument,
   scrollContainerRef,
+  preserveScrollTop = null,
   viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
@@ -1433,6 +1435,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     topOffsetDesktop: 80,
     tailTopOffsetMobile: 64,
     tailTopOffsetDesktop: 80,
+    preserveScrollTop,
+    layoutVersion: messages.length,
   });
 
   const toggleExpand = (id: string) => {
