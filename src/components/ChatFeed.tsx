@@ -2403,6 +2403,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       })()}
       </AnimatePresence>
 
+      {/* Natural end of real conversation UI, excluding temporary scroll reserve. */}
+      <div
+        data-chat-natural-end="true"
+        className="col-span-full h-0 w-full shrink-0 pointer-events-none"
+        aria-hidden="true"
+      />
+
       {/* Viewport-owned reserve: exactly enough space to keep the live user turn anchored. */}
       <div
         ref={reserveRef}
