@@ -1020,7 +1020,7 @@ function useSmoothReveal(
   reduceMotion: boolean | undefined,
   presentationPhase: PresentationPhase,
   onPresentationComplete?: () => void,
-  freezeReveal = false
+  accelerateReveal = false
 ): SmoothRevealResult {
   const isStatic =
     presentationPhase === 'static' || presentationPhase === 'complete';
@@ -1043,21 +1043,10 @@ function useSmoothReveal(
   displayedLengthRef.current = displayedLength;
 
   const completionNotifiedRef = useRef(false);
-  const frozenLengthRef = useRef<number | null>(null);
   const onPresentationCompleteRef = useRef(onPresentationComplete);
   onPresentationCompleteRef.current = onPresentationComplete;
 
   useEffect(() => {
-    if (freezeReveal) {
-      if (frozenLengthRef.current === null) {
-        frozenLengthRef.current = displayedLengthRef.current;
-      }
-      setIsDraining(false);
-      return;
-    }
-
-    frozenLengthRef.current = null;
-
     if (presentationPhase !== 'active') {
       completionNotifiedRef.current = false;
     }
@@ -1126,20 +1115,22 @@ function useSmoothReveal(
 
       // Presentation speed responds to backlog, not provider chunk size.
       // Even a one-shot provider dump is metered through the same visual queue.
-      const intervalMs =
-        lag > 1800 ? 18 :
-        lag > 1000 ? 20 :
-        lag > 500 ? 22 :
-        lag > 220 ? 25 :
-        29;
+      const intervalMs = accelerateReveal
+        ? 8
+        : lag > 1800 ? 18 :
+          lag > 1000 ? 20 :
+          lag > 500 ? 22 :
+          lag > 220 ? 25 :
+          29;
 
-      const unitsPerTick =
-        lag > 1800 ? 9 :
-        lag > 1000 ? 7 :
-        lag > 500 ? 5 :
-        lag > 220 ? 3 :
-        lag > 80 ? 2 :
-        1;
+      const unitsPerTick = accelerateReveal
+        ? (lag > 1200 ? 24 : lag > 500 ? 16 : lag > 180 ? 10 : 6)
+        : lag > 1800 ? 9 :
+          lag > 1000 ? 7 :
+          lag > 500 ? 5 :
+          lag > 220 ? 3 :
+          lag > 80 ? 2 :
+          1;
 
       if (now - lastTime >= intervalMs) {
         lastTime = now;
@@ -1166,7 +1157,7 @@ function useSmoothReveal(
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [
-    freezeReveal,
+    accelerateReveal,
     isStatic,
     isStreaming,
     presentationPhase,
@@ -1174,17 +1165,11 @@ function useSmoothReveal(
     targetText,
   ]);
 
-  const visibleLength = Math.min(
-    freezeReveal && frozenLengthRef.current !== null
-      ? frozenLengthRef.current
-      : displayedLength,
-    targetText.length
-  );
+  const visibleLength = Math.min(displayedLength, targetText.length);
 
   return {
     text: targetText.slice(0, visibleLength),
     isRevealing:
-      !freezeReveal &&
       presentationPhase === 'active' &&
       !reduceMotion &&
       (Boolean(isStreaming) ||
@@ -1251,7 +1236,7 @@ interface StreamingMessageBodyProps {
   isStreaming?: boolean;
   reduceMotion?: boolean;
   presentationPhase: PresentationPhase;
-  freezeReveal?: boolean;
+  accelerateReveal?: boolean;
   onPresentationComplete?: () => void;
 }
 
@@ -1260,7 +1245,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   isStreaming,
   reduceMotion,
   presentationPhase,
-  freezeReveal = false,
+  accelerateReveal = false,
   onPresentationComplete,
 }) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
@@ -1274,7 +1259,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
     reduceMotion,
     presentationPhase,
     onPresentationComplete,
-    freezeReveal
+    accelerateReveal
   );
 
   return (
@@ -1294,7 +1279,7 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
       </div>
 
       {/* Sources Area */}
-      {!freezeReveal && !isRevealing && sources && sources.length > 0 && (
+      {!isRevealing && sources && sources.length > 0 && (
         <div className="pt-2.5 border-t border-zinc-100 flex flex-col gap-2 min-w-0 max-w-full">
           <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider select-none">
             Sources
@@ -2109,7 +2094,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
                       presentationPhase={presentationPhase}
-                      freezeReveal={
+                      accelerateReveal={
                         isInterruptedTurn &&
                         presentationPhase === 'active'
                       }
