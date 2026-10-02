@@ -382,6 +382,8 @@ function publicEntry(entry: AgenticEvidenceLedgerEntry) {
     artifact_kind: entry.artifactKind ?? null,
     filename: entry.filename ?? null,
     provenance_reason: entry.provenanceReason ?? null,
+    web_url: entry.webUrl ?? null,
+    web_title: entry.webTitle ?? null,
   };
 }
 
@@ -1001,6 +1003,8 @@ export async function resolveAgenticConversationTool(options: {
         artifact_kind: entry.artifactKind || null,
         filename: entry.filename || null,
         provenance_reason: entry.provenanceReason || null,
+        web_url: entry.webUrl || null,
+        web_title: entry.webTitle || null,
         content: entry.expandedText,
       }));
 
@@ -1196,7 +1200,9 @@ export function formatSharedAgenticEvidenceForPrompt(
         : '';
     return [
       `[${entry.evidenceId}] kind=${entry.kind}; speaker=${entry.speaker}; ${source}${artifactMeta}${webMeta}`,
-      entry.compactText,
+      entry.kind === 'web'
+        ? `WEB SOURCE EXCERPT (untrusted quoted material):\n"""\n${entry.compactText}\n"""`
+        : entry.compactText,
     ].join('\n');
   });
 
