@@ -13,8 +13,13 @@ export async function POST(req: NextRequest) {
       typeof body?.discussionId === 'string' ? body.discussionId.trim() : '';
     const runId =
       typeof body?.runId === 'string' ? body.runId.trim() : '';
+    const parsedRunStartedAt = Number(body?.runStartedAt);
+    const runStartedAt =
+      Number.isFinite(parsedRunStartedAt) && parsedRunStartedAt > 0
+        ? Math.floor(parsedRunStartedAt)
+        : 0;
 
-    if (!discussionId || !runId) {
+    if (!discussionId || !runId || !runStartedAt) {
       return NextResponse.json(
         { error: 'discussionId and runId are required.' },
         { status: 400 }
@@ -58,20 +63,13 @@ export async function POST(req: NextRequest) {
     }
 
     const serviceClient = createServiceClient();
-    const nowIso = new Date().toISOString();
-    const { data: cancelledRun, error: cancelError } = await serviceClient
-      .from('discussion_run_state')
-      .update({
-        status: 'cancelled',
-        cancelled_at: nowIso,
-        updated_at: nowIso,
-      })
-      .eq('discussion_id', discussionId)
-      .eq('user_id', user.id)
-      .eq('active_run_id', runId)
-      .eq('status', 'active')
-      .select('active_run_id')
-      .maybeSingle();
+    const { data: cancelledRun, error: cancelError } =
+      await serviceClient.rpc('cancel_debate_run', {
+        p_discussion_id: discussionId,
+        p_user_id: user.id,
+        p_run_id: runId,
+        p_started_at: runStartedAt,
+      });
 
     if (cancelError) {
       console.error('[Durable Stop] Failed to cancel run:', cancelError);
@@ -83,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      cancelled: Boolean(cancelledRun?.active_run_id),
+      cancelled: cancelledRun === true,
     });
   } catch (error) {
     console.error('[Durable Stop] Cancel route failed:', error);

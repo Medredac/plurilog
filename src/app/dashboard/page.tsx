@@ -186,6 +186,7 @@ const CONTINUE_INSTRUCTION =
 interface ActiveDiscussionState {
   controller: AbortController;
   runId: string;
+  runStartedAt: number;
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
   seatActivityLabels: Record<ModelId, string | null>;
@@ -1171,6 +1172,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           discussionId: currentId,
           runId: activeGen.runId,
+          runStartedAt: activeGen.runStartedAt,
         }),
         keepalive: true,
       }).catch((cancelErr) => {
@@ -1323,6 +1325,7 @@ export default function DashboardPage() {
       activeGenerationsRef.current.set(discussionId, {
         controller,
         runId,
+        runStartedAt,
         liveSeatMessage: initialLiveSeatMsg,
         seatStatuses: initialStatuses,
         seatActivityLabels: {
