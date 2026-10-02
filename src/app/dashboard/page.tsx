@@ -750,6 +750,15 @@ export default function DashboardPage() {
       }
     }
 
+    const activeGen = activeGenerationsRef.current.get(discussionId);
+    const durableRunStatus = activeGen
+      ? null
+      : await readDurableRunStatus(discussionId);
+
+    if (currentFetchIdRef.current !== discussionId) {
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('messages')
@@ -808,15 +817,6 @@ export default function DashboardPage() {
         };
       });
 
-      const activeGen = activeGenerationsRef.current.get(discussionId);
-      const durableRunStatus = activeGen
-        ? null
-        : await readDurableRunStatus(discussionId);
-
-      if (currentFetchIdRef.current !== discussionId) {
-        return;
-      }
-
       console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
 
       // Atomic swap: update discussion ID, messages, and state together once data arrives
@@ -861,6 +861,14 @@ export default function DashboardPage() {
           });
         } else {
           setMessages(formatted);
+        }
+
+        const shouldPreserveRecoveredRun =
+          durableRunStatus === null &&
+          rehydratedRunRef.current?.discussionId === discussionId;
+
+        if (shouldPreserveRecoveredRun) {
+          return;
         }
 
         const recoveredActiveRun = durableRunStatus
