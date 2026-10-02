@@ -296,6 +296,7 @@ export default function DashboardPage() {
   const [canContinue, setCanContinue] = useState<boolean>(false);
   const [newlySentUserMessageId, setNewlySentUserMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [preservedStopScrollTop, setPreservedStopScrollTop] = useState<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Hard exception for the first-ever turn: the welcome composer -> thread
   // transition must not trigger any bottom-restoration or viewport repositioning.
@@ -309,6 +310,10 @@ export default function DashboardPage() {
       setIsStopRequested(false);
     }
   }, [isDebating]);
+
+  useEffect(() => {
+    setPreservedStopScrollTop(null);
+  }, [activeDebateId]);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -1056,6 +1061,16 @@ export default function DashboardPage() {
   // Stop / Cancel currently in-progress debate relay
   const handleStop = () => {
     setIsStopRequested(true);
+
+    const latestUser = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+    if (
+      latestUser?.content === 'Continue' &&
+      scrollContainerRef.current
+    ) {
+      setPreservedStopScrollTop(scrollContainerRef.current.scrollTop);
+    }
 
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
@@ -2125,6 +2140,7 @@ export default function DashboardPage() {
 
   // Triggered when user submits a new prompt
   const handleSendMessage = async (content: string, imageFiles?: File[]) => {
+    setPreservedStopScrollTop(null);
     const isFirstConversationTurn = messages.length === 0;
     if (isFirstConversationTurn) {
       firstTurnNaturalLayoutRef.current = true;
@@ -2705,6 +2721,7 @@ export default function DashboardPage() {
 
   // Triggered when user clicks "Continue Discussion" button
   const handleContinue = async () => {
+    setPreservedStopScrollTop(null);
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || !activeDebateId || !userId || activeSeatOrder.length === 0) return;
 
@@ -3077,6 +3094,7 @@ export default function DashboardPage() {
                   }}
                   onPreviewDocument={setPreviewDocument}
                   scrollContainerRef={scrollContainerRef}
+                  preserveScrollTop={preservedStopScrollTop}
                 />
               )}
             </motion.div>
