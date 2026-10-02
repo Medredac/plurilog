@@ -1065,6 +1065,8 @@ export default function DashboardPage() {
     const latestUser = [...messages]
       .reverse()
       .find((message) => message.role === 'user');
+    // Continue cancellation is presentation cleanup: preserve the exact
+    // viewport rather than navigating back to the previous response.
     if (
       latestUser?.content === 'Continue' &&
       scrollContainerRef.current
