@@ -44,7 +44,7 @@ export default function PrivacyPage() {
             </h2>
             <ul className="list-disc pl-5 space-y-2">
               <li>
-                <strong className="font-medium text-zinc-800">Account information</strong>: your email address, a password (stored securely, never in plain text), and an optional display name. If you sign in with Google, we receive your name, email, and profile photo from Google. We may also record a general country of registration derived from request network information for aggregate analytics and understanding service usage; we do not store your precise geographic location or persist raw IP addresses in your user profile.
+                <strong className="font-medium text-zinc-800">Account information</strong>: your email address, a password (stored securely, never in plain text), and an optional display name. If you use a third-party sign-in option, we may receive basic account information such as your name, email address, and profile photo. We may also record a general country of registration for aggregate analytics and understanding service usage; we do not store your precise geographic location in your user profile.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Your content</strong>: the messages you send and the AI responses you receive, so you can revisit past discussions.
@@ -53,17 +53,17 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">Uploaded images and documents</strong>: files or photos you attach to a message.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Payment information</strong>: if you subscribe to Plurilog Plus, our payment processor (Stripe) handles your card details directly. We never see or store your full card number.
+                <strong className="font-medium text-zinc-800">Payment information</strong>: if you subscribe to Plurilog Plus, our payment processor handles your card details directly. We never see or store your full card number.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Public website analytics &amp; usage data</strong>: when you browse our public marketing pages and blog, we use PostHog to collect website analytics to help us understand site navigation and user experience. This configuration operates without cookies or persistent browser storage (using in-memory state only) and records pages visited, referrer or campaign parameters, general browser/device technical details, and a temporary pseudonymous identifier. On public pages, session replay may be used to observe how visitors navigate; form and input values are automatically masked. Authenticated app areas (such as your dashboard, discussions, and account settings) are excluded from session replay, and we do not intentionally send your prompts, AI responses, uploaded file contents, filenames, or email addresses to PostHog.
+                <strong className="font-medium text-zinc-800">Public website analytics &amp; usage data</strong>: when you browse our public website, we may collect limited information such as pages visited, referral or campaign information, and general browser or device details to understand how the site is used and improve the experience. Public-page session replay may also be used, with form and input values masked. Authenticated discussions and account areas are excluded from session replay, and we do not intentionally send your prompts, AI responses, uploaded file contents, filenames, or email addresses to analytics services.
               </li>
               <li>
                 <strong className="font-medium text-zinc-800">Basic technical data</strong>: standard server logs (like IP address and timestamps) generated automatically by our hosting provider for security and troubleshooting purposes.
               </li>
             </ul>
             <p>
-              On our public marketing pages, we may use advertising measurement tools, including the Meta Pixel and Meta&apos;s Conversions API, to measure visits and conversion events associated with our campaigns. In regions where we ask for cookie consent, these advertising technologies remain off unless you choose Accept. We do not use advertising trackers within your authenticated discussion dashboard.
+              On our public marketing pages, we may use advertising measurement technologies to measure visits and conversion events associated with our campaigns. In regions where we ask for cookie consent, these technologies remain off unless you choose Accept. We do not use advertising trackers within your authenticated discussion dashboard.
             </p>
           </MotionReveal>
 
@@ -81,34 +81,8 @@ export default function PrivacyPage() {
               Who We Share Information With
             </h2>
             <p>
-              To provide Plurilog, we work with a small number of service providers, who only receive what they need to do their job:
+              We use trusted service providers to operate Plurilog, including cloud hosting and database providers, AI model providers, payment processors, email providers, authentication providers, analytics services and advertising measurement services. These providers receive only the information needed to perform their services.
             </p>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <strong className="font-medium text-zinc-800">Supabase</strong> &mdash; our database and file storage provider.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Vercel</strong> &mdash; hosts and runs our application.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">OpenRouter</strong> &mdash; routes your messages to the underlying AI models (Google&apos;s Gemini, Anthropic&apos;s Claude, and OpenAI&apos;s ChatGPT) to generate responses. Your message content is sent to these AI providers for the purpose of generating a reply.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Stripe</strong> &mdash; processes payments for Plurilog Plus.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Resend</strong> &mdash; delivers transactional emails (like password resets).
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Google</strong> &mdash; if you choose to sign in with Google.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">PostHog</strong> &mdash; provides privacy-focused public website analytics and public-page session replay without cookies or persistent browser storage to help us understand how public pages are navigated.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution for our public marketing campaigns. Depending on your region and consent choice, this may include browser attribution identifiers and conversion events such as registration, engagement milestones, and purchases.
-              </li>
-            </ul>
             <p>
               We do not sell your personal information to anyone, ever.
             </p>
@@ -145,7 +119,7 @@ export default function PrivacyPage() {
               International Data Transfers
             </h2>
             <p>
-              Some of our service providers are based in the United States. This means your information may be processed in a country other than the one you live in, which may have different data protection laws.
+              Some of our service providers may process information in countries other than the one you live in, which may have different data protection laws.
             </p>
           </MotionReveal>
 
