@@ -7,7 +7,10 @@ interface UseTopTurnAnchorOptions {
   contentRef: RefObject<HTMLElement | null>;
   reserveRef: RefObject<HTMLDivElement | null>;
   anchorId: string | null;
+  tailAnchorId?: string | null;
   topOffsetMobile?: number;
+  tailTopOffsetMobile?: number;
+  tailTopOffsetDesktop?: number;
   topOffsetDesktop?: number;
   tallerThan?: number;
   visibleHeight?: number;
@@ -51,8 +54,11 @@ export function useTopTurnAnchor({
   contentRef,
   reserveRef,
   anchorId,
+  tailAnchorId = null,
   topOffsetMobile = 24,
   topOffsetDesktop = 32,
+  tailTopOffsetMobile = 24,
+  tailTopOffsetDesktop = 32,
   tallerThan = 176,
   visibleHeight = 104,
 }: UseTopTurnAnchorOptions) {
@@ -75,6 +81,11 @@ export function useTopTurnAnchor({
     const anchor = content.querySelector<HTMLElement>(
       `[data-turn-anchor-id="${CSS.escape(anchorId)}"]`
     );
+    const tailAnchor = tailAnchorId
+      ? content.querySelector<HTMLElement>(
+          `[data-seat-anchor-id="${CSS.escape(tailAnchorId)}"]`
+        )
+      : null;
 
     if (!anchor) {
       reserve.style.height = '0px';
@@ -97,6 +108,9 @@ export function useTopTurnAnchor({
 
       const isDesktop = window.matchMedia('(min-width: 640px)').matches;
       const topOffset = isDesktop ? topOffsetDesktop : topOffsetMobile;
+      const tailTopOffset = isDesktop
+        ? tailTopOffsetDesktop
+        : tailTopOffsetMobile;
       const anchorTop = getLayoutOffsetTop(anchor, viewport);
       const anchorHeight = anchor.offsetHeight;
       const visibleAnchorHeight =
@@ -115,11 +129,29 @@ export function useTopTurnAnchor({
         0,
         viewport.scrollHeight - reserve.offsetHeight
       );
-      const requiredReserve = Math.max(
+      const requiredAnchorReserve = Math.max(
         0,
         targetScrollTop + viewport.clientHeight - baseScrollHeight
       );
-      const nextReserve = Math.ceil(requiredReserve);
+
+      // Also guarantee enough scroll range for the currently presenting AI
+      // seat to be manually brought to the same comfortable reading position.
+      // This does not auto-follow the seat; it only makes that position
+      // physically reachable. As the response grows beneath it, the reserve
+      // naturally shrinks.
+      const requiredTailReserve = tailAnchor
+        ? Math.max(
+            0,
+            getLayoutOffsetTop(tailAnchor, viewport) -
+              tailTopOffset +
+              viewport.clientHeight -
+              baseScrollHeight
+          )
+        : 0;
+
+      const nextReserve = Math.ceil(
+        Math.max(requiredAnchorReserve, requiredTailReserve)
+      );
 
       if (Math.abs(reserve.offsetHeight - nextReserve) > 1) {
         reserve.style.height = `${nextReserve}px`;
@@ -166,6 +198,7 @@ export function useTopTurnAnchor({
     resizeObserver.observe(viewport);
     resizeObserver.observe(content);
     resizeObserver.observe(anchor);
+    if (tailAnchor) resizeObserver.observe(tailAnchor);
 
     const mutationObserver = new MutationObserver(schedule);
     mutationObserver.observe(content, {
@@ -186,11 +219,14 @@ export function useTopTurnAnchor({
     };
   }, [
     anchorId,
+    tailAnchorId,
     contentRef,
     reserveRef,
     tallerThan,
     topOffsetDesktop,
     topOffsetMobile,
+    tailTopOffsetDesktop,
+    tailTopOffsetMobile,
     viewportRef,
     visibleHeight,
   ]);
