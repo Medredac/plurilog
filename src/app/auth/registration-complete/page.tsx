@@ -9,11 +9,19 @@ export default function RegistrationCompletePage() {
     let isMounted = true;
     let hasRedirected = false;
 
+    const getSafeNext = () => {
+      if (typeof window === 'undefined') return '/dashboard';
+      const requestedNext = new URLSearchParams(window.location.search).get('next') || '/dashboard';
+      return requestedNext.startsWith('/') && !requestedNext.startsWith('//')
+        ? requestedNext
+        : '/dashboard';
+    };
+
     const performRedirect = () => {
       if (!isMounted || hasRedirected) return;
       hasRedirected = true;
       if (typeof window !== 'undefined') {
-        window.location.replace('/dashboard');
+        window.location.replace(getSafeNext());
       }
     };
 
