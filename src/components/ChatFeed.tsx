@@ -1465,19 +1465,19 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             return false;
           };
 
-          if (!hasAnswerBeforeNextUser(idx)) {
-            // Keep an invisible positioning target in the DOM immediately so a
-            // Continue click can scroll smoothly now, while preserving the
-            // intentional rule that the visible Round marker appears only after
-            // genuine AI output exists.
-            return (
-              <div
-                key={message.id}
-                id={message.id}
-                className="col-span-full h-0 w-full"
-                aria-hidden="true"
-              />
-            );
+          const hasRoundOutput = hasAnswerBeforeNextUser(idx);
+          const hasLaterUserTurn = messages
+            .slice(idx + 1)
+            .some((item) => item.role === 'user');
+          const isPendingCurrentRound =
+            isDebating && !hasRoundOutput && !hasLaterUserTurn;
+
+          // Show the current Round marker immediately while the round is
+          // running. If the user stops before any AI output, runRelay removes
+          // this Continue message entirely, so the empty Round disappears.
+          // Historical unanswered Continue markers remain hidden.
+          if (!hasRoundOutput && !isPendingCurrentRound) {
+            return null;
           }
 
           let roundNumber = 0;
@@ -1485,7 +1485,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             const item = messages[index];
             if (item.role !== 'user') continue;
             if (item.content !== 'Continue') break;
-            if (hasAnswerBeforeNextUser(index)) {
+
+            const isCurrentPendingMarker =
+              index === idx && isPendingCurrentRound;
+            if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
               roundNumber += 1;
             }
           }
