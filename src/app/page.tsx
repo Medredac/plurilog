@@ -236,6 +236,11 @@ export default function LandingPage() {
   }, []);
 
   const handleOpenAuth = (mode: 'signin' | 'signup') => {
+    try {
+      sessionStorage.removeItem('plurilog:post-auth-upgrade');
+    } catch {
+      // Ignore storage restrictions; the URL handoff remains authoritative.
+    }
     authRedirectTargetRef.current = '/dashboard';
     setAuthRedirectTarget('/dashboard');
     if (isAuthenticated) {
@@ -253,6 +258,11 @@ export default function LandingPage() {
     if (isAuthenticated) {
       router.push('/dashboard?upgrade=true');
     } else {
+      try {
+        sessionStorage.setItem('plurilog:post-auth-upgrade', 'true');
+      } catch {
+        // Ignore storage restrictions; redirectUrl still preserves the intent.
+      }
       authRedirectTargetRef.current = '/dashboard?upgrade=true';
       setAuthRedirectTarget('/dashboard?upgrade=true');
       setAuthMode('signup');
