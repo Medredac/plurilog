@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
@@ -1071,7 +1072,19 @@ export default function DashboardPage() {
       latestUser?.content === 'Continue' &&
       scrollContainerRef.current
     ) {
-      setPreservedStopScrollTop(scrollContainerRef.current.scrollTop);
+      const viewport = scrollContainerRef.current;
+      const stopScrollTop = viewport.scrollTop;
+
+      // Enter viewport-hold mode synchronously BEFORE aborting. Without this,
+      // the abort cleanup can remove Round/placeholder DOM in the same React
+      // batch and the browser clamps scrollTop upward before the reserve has a
+      // chance to compensate.
+      viewport.style.overflowAnchor = 'none';
+      isNearBottomRef.current = false;
+      flushSync(() => {
+        setPreservedStopScrollTop(stopScrollTop);
+      });
+      viewport.scrollTop = stopScrollTop;
     }
 
     const currentId = activeDebateIdRef.current;
