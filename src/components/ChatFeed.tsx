@@ -1893,7 +1893,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         const presentationPhase = presentation.phaseFor(message.id);
         const isQueuedForPresentation = presentationPhase === 'queued';
-        const isActivePresentation = presentationPhase === 'active';
         const hasSettledPresentation =
           presentationPhase === 'static' || presentationPhase === 'complete';
         const isThinking =
@@ -1941,8 +1940,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </span>
               </div>
             )}
-            <div
+            <motion.div
               id={message.id}
+              layout="position"
+              transition={{
+                layout: {
+                  type: 'spring',
+                  stiffness: 360,
+                  damping: 35,
+                  mass: 0.88,
+                },
+              }}
               className={`scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
                 viewMode === 'side-by-side'
                   ? 'rounded-2xl border border-[#E7E5E0] bg-white p-4'
@@ -2288,7 +2296,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 )}
               </AnimatePresence>
               </div>
-            </div>
+            </motion.div>
           </React.Fragment>
         );
       })}
