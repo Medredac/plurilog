@@ -1333,7 +1333,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     }
   }, [activeDebateId, isNewlyCreatedRef]);
 
-  // 2. On sending a new message or inserting Continue bubble: scroll smoothly so message sits near top of viewport, then hold still
+  // 2. On a new user turn (including Continue), glide that turn into a stable
+  //    reading position near the top of the chat viewport, then hold still while
+  //    the model responses grow underneath it.
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     const prevMsg = messages.length > 1 ? messages[messages.length - 2] : null;
@@ -1352,16 +1354,44 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       candidate = prevMsg;
     }
 
-    if (candidate && candidate.id !== lastUserMsgIdRef.current) {
-      lastUserMsgIdRef.current = candidate.id;
+    if (!candidate || candidate.id === lastUserMsgIdRef.current) return;
+
+    // Wait for React + layout (including the debating spacer) to settle before
+    // measuring. Two RAFs avoids the old race where scrolling sometimes fired
+    // against the previous layout.
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const el = document.getElementById(candidate.id);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!el) return;
+
+        const scroller = el.closest('.overflow-y-auto') as HTMLElement | null;
+        if (!scroller) {
+          el.scrollIntoView({
+            behavior: shouldReduceMotion ? 'auto' : 'smooth',
+            block: 'start',
+          });
+          lastUserMsgIdRef.current = candidate.id;
+          return;
         }
+
+        const scrollerRect = scroller.getBoundingClientRect();
+        const targetRect = el.getBoundingClientRect();
+        const topOffset = window.matchMedia('(min-width: 640px)').matches ? 32 : 24;
+        const targetTop =
+          scroller.scrollTop + (targetRect.top - scrollerRect.top) - topOffset;
+
+        scroller.scrollTo({
+          top: Math.max(0, targetTop),
+          behavior: shouldReduceMotion ? 'auto' : 'smooth',
+        });
+
+        // Mark handled only after a real DOM target exists. This is important
+        // for Continue, whose visible Round marker intentionally stays hidden
+        // until at least one AI has produced real output.
+        lastUserMsgIdRef.current = candidate.id;
       });
-    }
-  }, [messages]);
+    });
+  }, [messages, shouldReduceMotion]);
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
@@ -1429,7 +1459,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           };
 
           if (!hasAnswerBeforeNextUser(idx)) {
-            return null;
+            // Keep an invisible positioning target in the DOM immediately so a
+            // Continue click can scroll smoothly now, while preserving the
+            // intentional rule that the visible Round marker appears only after
+            // genuine AI output exists.
+            return (
+              <div
+                key={message.id}
+                id={message.id}
+                className="col-span-full h-0 w-full"
+                aria-hidden="true"
+              />
+            );
           }
 
           let roundNumber = 0;
@@ -1497,12 +1538,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 id={message.id}
                 initial={
                   message.id === newlySentUserMessageId
-                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 12 }
+                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 16 }
                     : false
                 }
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.16,
+                  duration: shouldReduceMotion ? 0 : 0.24,
                   ease: [0.16, 1, 0.3, 1],
                 }}
                 onAnimationComplete={() => {
