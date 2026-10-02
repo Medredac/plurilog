@@ -249,12 +249,29 @@ function UpgradeParamsHandler({
   const hasHandledUpgradeRef = useRef(false);
 
   useEffect(() => {
-    if (searchParams.get('upgrade') !== 'true') {
+    const hasQueryIntent = searchParams.get('upgrade') === 'true';
+    let hasStoredIntent = false;
+
+    try {
+      hasStoredIntent =
+        typeof window !== 'undefined' &&
+        sessionStorage.getItem('plurilog:post-auth-upgrade') === 'true';
+    } catch {
+      hasStoredIntent = false;
+    }
+
+    if (!hasQueryIntent && !hasStoredIntent) {
       hasHandledUpgradeRef.current = false;
       return;
     }
+
     if (!isLoadingAuth && !hasHandledUpgradeRef.current) {
       hasHandledUpgradeRef.current = true;
+      try {
+        sessionStorage.removeItem('plurilog:post-auth-upgrade');
+      } catch {
+        // Ignore storage restrictions after consuming the URL intent.
+      }
       onOpenUpgrade();
       router.replace(urlDiscussionId ? `/dashboard/${urlDiscussionId}` : '/dashboard', { scroll: false });
     }
