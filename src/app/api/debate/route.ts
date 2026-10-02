@@ -117,6 +117,7 @@ import {
   resolveAgenticConversationTool,
   formatSharedAgenticEvidenceForPrompt,
   registerAgenticArtifactEvidence,
+  registerAgenticWebEvidence,
   type AgenticEvidenceLedgerEntry,
 } from '@/utils/agenticConversationMemory';
 import {
@@ -302,7 +303,7 @@ function parseAgenticEvidenceHandoff(
 ): AgenticEvidenceLedgerEntry[] {
   if (!Array.isArray(raw)) return [];
 
-  const validKinds = new Set(['semantic', 'recent', 'chronology', 'artifact']);
+  const validKinds = new Set(['semantic', 'recent', 'chronology', 'artifact', 'web']);
   const validSpeakers = new Set([
     'any',
     'user',
@@ -362,6 +363,14 @@ function parseAgenticEvidenceHandoff(
         artifactIdentityKey:
           typeof value.artifactIdentityKey === 'string'
             ? value.artifactIdentityKey.slice(0, 2000)
+            : null,
+        webUrl:
+          typeof value.webUrl === 'string'
+            ? value.webUrl.slice(0, 4000)
+            : null,
+        webTitle:
+          typeof value.webTitle === 'string'
+            ? value.webTitle.slice(0, 500)
             : null,
       } as AgenticEvidenceLedgerEntry;
     })
@@ -6829,7 +6838,7 @@ export async function POST(req: NextRequest) {
               sharedAgenticEvidenceContext
             );
 
-            const seatWebCitations: { url: string; title: string }[] = [];
+            const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
             let webSearchActivityStarted = false;
 
@@ -6868,7 +6877,36 @@ export async function POST(req: NextRequest) {
                       .replace(/\[/g, '\\[')
                       .replace(/\]/g, '\\]');
 
-                    seatWebCitations.push({ url: safeUrl, title: safeTitle });
+                    const rawContent =
+                      typeof ann.url_citation.content === 'string'
+                        ? ann.url_citation.content.trim()
+                        : '';
+
+                    seatWebCitations.push({
+                      url: safeUrl,
+                      title: safeTitle,
+                      content: rawContent || undefined,
+                    });
+
+                    if (AGENTIC_MEMORY_EXPERIMENT) {
+                      const { entry, reused } = registerAgenticWebEvidence({
+                        ledger: sharedAgenticEvidenceLedger,
+                        createEvidenceId: createAgenticEvidenceId,
+                        requestedBySeatId: seat.seatId,
+                        url: safeUrl,
+                        title: rawTitle || safeTitle,
+                        content: rawContent,
+                        sourceUserMessageId: sourceUserMessageId || null,
+                      });
+
+                      console.log('[Shared Web Evidence]', {
+                        seatId: seat.seatId,
+                        evidenceId: entry.evidenceId,
+                        reused,
+                        url: safeUrl,
+                        hasExcerpt: Boolean(rawContent),
+                      });
+                    }
 
                     if (!webSearchActivityStarted) {
                       webSearchActivityStarted = true;
