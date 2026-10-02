@@ -1448,7 +1448,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const orderedActiveModels = seatOrder.filter((id) => activeModelSet.has(id));
 
   return (
-    <div className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
+    <div ref={contentRef} className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
       viewMode === 'side-by-side'
         ? 'max-w-[1040px] grid grid-cols-1 sm:grid-cols-3 gap-x-[14px] gap-y-4'
         : 'max-w-[760px] flex flex-col'
@@ -1530,8 +1530,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <div
+              <motion.div
                 id={message.id}
+                data-turn-anchor-id={message.id}
+                layout="position"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  layout: { type: 'spring', stiffness: 360, damping: 34, mass: 0.85 },
+                  opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+                  y: { duration: shouldReduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] },
+                }}
                 className="col-span-full flex items-center gap-3 py-5 scroll-mt-6 sm:scroll-mt-8"
               >
                 <div className="h-px flex-1 bg-[#E7E5E0]" />
@@ -1539,7 +1548,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   Round {roundNumber}
                 </span>
                 <div className="h-px flex-1 bg-[#E7E5E0]" />
-              </div>
+              </motion.div>
             </React.Fragment>
           );
         }
@@ -1568,17 +1577,53 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <motion.div 
+              <motion.div
                 id={message.id}
+                data-turn-anchor-id={message.id}
+                layout="position"
                 initial={
-                  message.id === newlySentUserMessageId
-                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 16 }
+                  message.id === newlySentUserMessageId && !shouldReduceMotion
+                    ? {
+                        opacity: 0,
+                        y: 26,
+                        scale: 0.94,
+                        filter: 'blur(2.4px)',
+                      }
                     : false
                 }
-                animate={{ opacity: 1, y: 0 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  scale: 1,
+                  filter: 'blur(0px)',
+                }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.24,
-                  ease: [0.16, 1, 0.3, 1],
+                  layout: {
+                    type: 'spring',
+                    stiffness: 380,
+                    damping: 34,
+                    mass: 0.82,
+                  },
+                  y: {
+                    type: 'spring',
+                    stiffness: 430,
+                    damping: 32,
+                    mass: 0.78,
+                  },
+                  scale: {
+                    type: 'spring',
+                    stiffness: 420,
+                    damping: 30,
+                    mass: 0.75,
+                  },
+                  opacity: {
+                    duration: shouldReduceMotion ? 0 : 0.2,
+                    ease: [0.16, 1, 0.3, 1],
+                  },
+                  filter: {
+                    duration: shouldReduceMotion ? 0 : 0.18,
+                    ease: 'easeOut',
+                  },
                 }}
                 onAnimationComplete={() => {
                   if (message.id === newlySentUserMessageId && onNewlySentAnimationComplete) {
