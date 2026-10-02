@@ -2047,14 +2047,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       content={message.content}
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
-                      forceRevealOnMount={forceRevealOnMount}
-                      onRevealStateChange={(isRevealing) =>
-                        handleRevealStateChange(message.id, isRevealing)
+                      presentationPhase={presentationPhase}
+                      onPresentationComplete={() =>
+                        presentation.markComplete(message.id)
                       }
                     />
 
                   {/* Attached Images (if present) */}
-                  {imageAttachments.length > 0 && (
+                  {hasSettledPresentation && imageAttachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
                       {imageAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
@@ -2085,7 +2085,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   )}
 
                   {/* Generated/downloadable documents (if present) */}
-                  {documentAttachments.length > 0 && (
+                  {hasSettledPresentation && documentAttachments.length > 0 && (
                     <div className="mt-3 flex w-full max-w-[330px] flex-col gap-2 min-w-0">
                       {documentAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
