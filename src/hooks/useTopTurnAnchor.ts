@@ -57,8 +57,9 @@ export function useTopTurnAnchor({
   tailAnchorId = null,
   topOffsetMobile = 24,
   topOffsetDesktop = 32,
-  tailTopOffsetMobile = 24,
-  tailTopOffsetDesktop = 32,
+  tailTopOffsetMobile = 64,
+  tailTopOffsetDesktop = 80,
+  autoScrollAnchor = true,
   tallerThan = 176,
   visibleHeight = 104,
 }: UseTopTurnAnchorOptions) {
@@ -163,7 +164,10 @@ export function useTopTurnAnchor({
       const isNewAnchor = lastScrolledAnchorIdRef.current !== anchorId;
 
       if (isNewAnchor) {
-        if (Math.abs(viewport.scrollTop - targetScrollTop) > 1) {
+        if (
+          autoScrollAnchor &&
+          Math.abs(viewport.scrollTop - targetScrollTop) > 1
+        ) {
           viewport.scrollTo({
             top: targetScrollTop,
             behavior: 'smooth',
@@ -171,6 +175,7 @@ export function useTopTurnAnchor({
         }
         lastScrolledAnchorIdRef.current = anchorId;
       } else if (
+        autoScrollAnchor &&
         previousTarget !== null &&
         Math.abs(lastObservedScrollTopRef.current - previousTarget) <= 2
       ) {
@@ -220,6 +225,7 @@ export function useTopTurnAnchor({
   }, [
     anchorId,
     tailAnchorId,
+    autoScrollAnchor,
     contentRef,
     reserveRef,
     tallerThan,
