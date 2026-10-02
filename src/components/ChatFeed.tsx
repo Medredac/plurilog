@@ -1411,7 +1411,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const anchoredUserMessage = anchoredUserId
     ? messages.find((message) => message.id === anchoredUserId)
     : null;
-  const isContinueAnchor = anchoredUserMessage?.content === 'Continue';
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  const isFirstUserTurn =
+    Boolean(anchoredUserMessage) &&
+    firstUserMessage?.id === anchoredUserMessage?.id;
 
   const presentation = usePresentationSequence(messages, anchoredUserId);
 
@@ -1421,10 +1424,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     reserveRef,
     anchorId: anchoredUserId,
     tailAnchorId: presentation.activePresentationId,
-    topOffsetMobile: isContinueAnchor ? 64 : 24,
-    topOffsetDesktop: isContinueAnchor ? 80 : 32,
-    tailTopOffsetMobile: 24,
-    tailTopOffsetDesktop: 32,
+    topOffsetMobile: 64,
+    topOffsetDesktop: 80,
+    tailTopOffsetMobile: 64,
+    tailTopOffsetDesktop: 80,
+    autoScrollAnchor: !isFirstUserTurn,
   });
 
   const toggleExpand = (id: string) => {
