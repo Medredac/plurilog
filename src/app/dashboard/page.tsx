@@ -339,11 +339,12 @@ export default function DashboardPage() {
 
         const viewportRect = viewport.getBoundingClientRect();
         const naturalEndRect = naturalEnd.getBoundingClientRect();
+        const naturalBottomInset = 24;
         const targetScrollTop = Math.max(
           0,
           viewport.scrollTop +
             (naturalEndRect.top - viewportRect.top) -
-            viewport.clientHeight
+            (viewport.clientHeight - naturalBottomInset)
         );
 
         viewport.style.overflowAnchor = 'none';
