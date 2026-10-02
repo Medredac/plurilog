@@ -1961,7 +1961,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     viewMode === 'side-by-side' ? 'h-8 w-8' : 'h-11 w-11'
                   }`}
                 >
-                  {message.isStreaming && (
+                  {isThinking && (
                     <span
                       className="plurilog-thinking-ring absolute -inset-[1.5px] rounded-full"
                       style={{
@@ -1993,10 +1993,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 <div className="flex min-w-0 flex-col items-start">
                   <SeatActivityIndicator
                     provider={modelKey}
-                    status={seatStatuses[modelKey] || 'thinking'}
+                    status={
+                      isQueuedForPresentation
+                        ? 'waiting'
+                        : seatStatuses[modelKey] || 'thinking'
+                    }
                     startedAt={message.createdAt}
                     searchSources={seatSearchSources[modelKey] || []}
-                    activityLabel={seatActivityLabels[modelKey] || null}
+                    activityLabel={
+                      isQueuedForPresentation
+                        ? 'Up next'
+                        : seatActivityLabels[modelKey] || null
+                    }
                     reduceMotion={Boolean(shouldReduceMotion)}
                   />
                   {upNextModels.length > 0 && (
