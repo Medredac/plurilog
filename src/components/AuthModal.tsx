@@ -138,10 +138,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           signupSource = 'direct';
         }
 
+        const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
+        if (redirectUrl && redirectUrl !== '/dashboard') {
+          callbackUrl.searchParams.set('next', redirectUrl);
+        }
+
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
           options: {
+            emailRedirectTo: callbackUrl.toString(),
             data: {
               display_name: displayName.trim(),
               signup_source: signupSource,
