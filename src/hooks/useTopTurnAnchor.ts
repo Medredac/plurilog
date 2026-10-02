@@ -13,6 +13,8 @@ interface UseTopTurnAnchorOptions {
   tailTopOffsetDesktop?: number;
   topOffsetDesktop?: number;
   autoScrollAnchor?: boolean;
+  preserveScrollTop?: number | null;
+  layoutVersion?: number;
   tallerThan?: number;
   visibleHeight?: number;
 }
@@ -61,6 +63,8 @@ export function useTopTurnAnchor({
   tailTopOffsetMobile = 64,
   tailTopOffsetDesktop = 80,
   autoScrollAnchor = true,
+  preserveScrollTop = null,
+  layoutVersion = 0,
   tallerThan = 176,
   visibleHeight = 104,
 }: UseTopTurnAnchorOptions) {
@@ -73,10 +77,40 @@ export function useTopTurnAnchor({
     const content = contentRef.current;
     const reserve = reserveRef.current;
 
-    if (!viewport || !content || !reserve || !anchorId) {
-      if (reserve) reserve.style.height = '0px';
+    if (!viewport || !content || !reserve) {
+      return;
+    }
+
+    // A cancelled Continue turn must not move the viewport just because the
+    // temporary round marker and its reserve disappear. Preserve enough tail
+    // space to keep the exact scrollTop that existed when Stop was pressed.
+    if (preserveScrollTop !== null) {
+      viewport.style.overflowAnchor = 'none';
+
+      const baseScrollHeight = Math.max(
+        0,
+        viewport.scrollHeight - reserve.offsetHeight
+      );
+      const requiredReserve = Math.max(
+        0,
+        preserveScrollTop + viewport.clientHeight - baseScrollHeight
+      );
+
+      reserve.style.height = `${Math.ceil(requiredReserve)}px`;
+      viewport.scrollTop = preserveScrollTop;
+
+      lastObservedScrollTopRef.current = preserveScrollTop;
       lastTargetScrollTopRef.current = null;
       if (!anchorId) lastScrolledAnchorIdRef.current = null;
+      return;
+    }
+
+    viewport.style.overflowAnchor = '';
+
+    if (!anchorId) {
+      reserve.style.height = '0px';
+      lastTargetScrollTopRef.current = null;
+      lastScrolledAnchorIdRef.current = null;
       return;
     }
 
@@ -227,6 +261,8 @@ export function useTopTurnAnchor({
     anchorId,
     tailAnchorId,
     autoScrollAnchor,
+    preserveScrollTop,
+    layoutVersion,
     contentRef,
     reserveRef,
     tallerThan,
