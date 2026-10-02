@@ -1471,6 +1471,83 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const activeModelSet = new Set(activeModels);
   const orderedActiveModels = seatOrder.filter((id) => activeModelSet.has(id));
 
+  const renderHistoricalInterruptedMarkerBefore = (currentIndex: number) => {
+    const currentMessage = messages[currentIndex];
+    if (!currentMessage || currentMessage.role !== 'user') return null;
+
+    let previousUserIndex = -1;
+    for (let index = currentIndex - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'user') {
+        previousUserIndex = index;
+        break;
+      }
+    }
+
+    if (previousUserIndex < 0) return null;
+
+    const previousUser = messages[previousUserIndex];
+    if (
+      !previousUser?.id ||
+      !interruptedTurnUserIds.has(previousUser.id)
+    ) {
+      return null;
+    }
+
+    const answeredModels = Array.from(
+      new Set(
+        messages
+          .slice(previousUserIndex + 1, currentIndex)
+          .filter((item) => item.role === 'model' && item.content.trim())
+          .map((item) => {
+            const raw = String(item.modelId || item.authorName || '').toLowerCase();
+            if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+            if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+            return 'gemini';
+          })
+      )
+    );
+
+    const expectedAnswers = Math.max(1, activeModels.length);
+    const answeredCount = answeredModels.length;
+    const interruptedLabel =
+      answeredCount <= 0
+        ? 'Response interrupted'
+        : answeredCount >= expectedAnswers
+          ? `All ${answeredCount} answered · Response interrupted`
+          : `${answeredCount} of ${expectedAnswers} answered · Response interrupted`;
+
+    return (
+      <motion.div
+        key={`historical-interrupted-${previousUser.id}`}
+        layout="position"
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{
+          layout: {
+            type: 'spring',
+            stiffness: 340,
+            damping: 34,
+            mass: 0.86,
+          },
+          opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+          y: {
+            duration: shouldReduceMotion ? 0 : 0.2,
+            ease: [0.16, 1, 0.3, 1],
+          },
+        }}
+        className="col-span-full pt-6 pb-2 min-w-0"
+      >
+        <div className="flex items-center gap-4">
+          <div className="h-px flex-1 bg-[#E7E5E0]" />
+          <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+            {interruptedLabel}
+          </span>
+          <div className="h-px flex-1 bg-[#E7E5E0]" />
+        </div>
+      </motion.div>
+    );
+  };
+
   return (
     <div ref={contentRef} className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
       viewMode === 'side-by-side'
@@ -1543,6 +1620,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
           return (
             <React.Fragment key={message.id}>
+              {renderHistoricalInterruptedMarkerBefore(idx)}
               {shouldShowDate && formattedDate && (
                 <div
                   className={`col-span-full flex justify-center select-none ${
@@ -1590,6 +1668,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
           return (
             <React.Fragment key={message.id}>
+              {renderHistoricalInterruptedMarkerBefore(idx)}
               {shouldShowDate && formattedDate && (
                 <div
                   className={`col-span-full flex justify-center select-none ${
