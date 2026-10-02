@@ -42,28 +42,11 @@ export default function PrivacyPage() {
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               Information We Collect
             </h2>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <strong className="font-medium text-zinc-800">Account information</strong>: your email address, a password (stored securely, never in plain text), and an optional display name. If you use a third-party sign-in option, we may receive basic account information such as your name, email address, and profile photo. We may also record a general country of registration for aggregate analytics and understanding service usage; we do not store your precise geographic location in your user profile.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Your content</strong>: the messages you send and the AI responses you receive, so you can revisit past discussions.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Uploaded images and documents</strong>: files or photos you attach to a message.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Payment information</strong>: if you subscribe to Plurilog Plus, our payment processor handles your card details directly. We never see or store your full card number.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Public website analytics &amp; usage data</strong>: when you browse our public website, we may collect limited information such as pages visited, referral or campaign information, and general browser or device details to understand how the site is used and improve the experience. Public-page session replay may also be used, with form and input values masked. Authenticated discussions and account areas are excluded from session replay, and we do not intentionally send your prompts, AI responses, uploaded file contents, filenames, or email addresses to analytics services.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Basic technical data</strong>: standard server logs (like IP address and timestamps) generated automatically by our hosting provider for security and troubleshooting purposes.
-              </li>
-            </ul>
             <p>
-              On our public marketing pages, we may use advertising measurement technologies to measure visits and conversion events associated with our campaigns. In regions where we ask for cookie consent, these technologies remain off unless you choose Accept. We do not use advertising trackers within your authenticated discussion dashboard.
+              We collect information you provide when creating an account or using Plurilog, along with limited subscription, usage and technical information needed to operate, secure and improve the service.
+            </p>
+            <p>
+              On our public website, we may also use analytics and advertising measurement technologies. Where consent is required, these technologies remain off unless you choose Accept.
             </p>
           </MotionReveal>
 
@@ -72,7 +55,7 @@ export default function PrivacyPage() {
               How We Use Your Information
             </h2>
             <p>
-              We use your information to: provide and operate the service, including sending your messages to AI providers to generate responses; save your discussion history so you can return to it; process payments and manage your subscription; send you account-related emails (like password resets); enforce usage limits; and respond if you contact us for support.
+              We use your information to provide and improve Plurilog, manage accounts and subscriptions, process payments, communicate with you, provide support, maintain security, enforce usage limits and measure the performance of our website and marketing.
             </p>
           </MotionReveal>
 
@@ -92,17 +75,9 @@ export default function PrivacyPage() {
             <h2 className="text-base sm:text-lg font-semibold text-zinc-900 tracking-tight">
               How Long We Keep Your Information
             </h2>
-            <ul className="list-disc pl-5 space-y-2">
-              <li>
-                <strong className="font-medium text-zinc-800">Discussion text</strong> is kept for as long as your account is active, so you can revisit past conversations. You can permanently delete any individual discussion at any time from within the app &mdash; this happens immediately.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Uploaded files and images</strong> are kept for as long as the associated discussion remains available so Plurilog can preserve document and image context across the conversation. When you delete the discussion, its associated uploaded files and images are removed from Plurilog&apos;s primary storage.
-              </li>
-              <li>
-                <strong className="font-medium text-zinc-800">Account deletion</strong>: if you&apos;d like your entire account and all associated data deleted, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a> and we&apos;ll process your request within 30 days.
-              </li>
-            </ul>
+            <p>
+              We retain personal information only for as long as reasonably necessary to provide the service, meet our legal obligations and resolve disputes. If you&apos;d like your account and associated personal information deleted, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
+            </p>
           </MotionReveal>
 
           <MotionReveal as="section" className="space-y-3">
