@@ -24,6 +24,22 @@ export async function POST(req: NextRequest) {
       .map((name: unknown) => String(name || '').trim().slice(0, 100))
       .filter(Boolean);
 
+    const fallbackTitle = (() => {
+      if (cleanUserPrompt) {
+        const compact = cleanUserPrompt.replace(/\s+/g, ' ').trim();
+        const firstWords = compact.split(' ').slice(0, 6).join(' ');
+        return (firstWords || compact).slice(0, 60).trim();
+      }
+      if (cleanAttachmentNames[0]) {
+        return cleanAttachmentNames[0]
+          .replace(/\.[^.]+$/, '')
+          .replace(/[_-]+/g, ' ')
+          .trim()
+          .slice(0, 60) || 'New discussion';
+      }
+      return 'New discussion';
+    })();
+
     // If ALL context is empty, return default title
     if (!cleanUserPrompt && !cleanAiResponse && cleanAttachmentNames.length === 0) {
       return NextResponse.json({ title: 'New discussion' });
@@ -31,11 +47,7 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      const fallback =
-        cleanUserPrompt.slice(0, 40).trim() ||
-        cleanAttachmentNames[0] ||
-        'New discussion';
-      return NextResponse.json({ title: fallback });
+      return NextResponse.json({ title: fallbackTitle });
     }
 
     const openai = new OpenAI({
@@ -91,13 +103,17 @@ export async function POST(req: NextRequest) {
       title.toLowerCase() === 'untitled discussion' ||
       title.toLowerCase() === 'new discussion'
     ) {
-      title = 'New discussion';
+      title = fallbackTitle;
     }
 
     return NextResponse.json({ title });
   } catch (err) {
     console.error('[Generate Title Error]', err);
-    return NextResponse.json({ title: 'New discussion' });
+
+    // The route's normal path already has a deterministic prompt fallback.
+    // This outer catch only covers malformed requests or unexpected setup
+    // failures before that fallback is available.
+    return NextResponse.json({ title: 'Discussion' });
   }
 }
 

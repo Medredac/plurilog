@@ -3,8 +3,10 @@ import { cookies } from 'next/headers';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import {
+  META_CONSENT_COOKIE,
   isMetaSignupSource,
   isMetaTrackingAllowedForRequest,
+  normalizeMetaConsentStatus,
   sendMetaConversionEvent,
 } from '@/lib/metaConversions';
 
@@ -13,9 +15,20 @@ const DEEP_ENGAGEMENT_THRESHOLD = 10;
 
 export async function POST(request: Request) {
   const countryCode = request.headers.get('x-vercel-ip-country');
+  const regionCode = request.headers.get('x-vercel-ip-country-region');
   const eventSourceUrl = `${new URL(request.url).origin}/dashboard`;
+  const cookieStore = await cookies();
+  const consentStatus = normalizeMetaConsentStatus(
+    cookieStore.get(META_CONSENT_COOKIE)?.value
+  );
 
-  if (!isMetaTrackingAllowedForRequest(countryCode)) {
+  if (
+    !isMetaTrackingAllowedForRequest(
+      countryCode,
+      regionCode,
+      consentStatus
+    )
+  ) {
     return NextResponse.json({
       eligible: false,
       completedLevel: 2,
@@ -95,7 +108,6 @@ export async function POST(request: Request) {
   }
 
   const userMessageCount = count || 0;
-  const cookieStore = await cookies();
   const fbp = cookieStore.get('_fbp')?.value || null;
   const fbc = cookieStore.get('_fbc')?.value || null;
   const email = profile?.email || user.email || null;
@@ -104,6 +116,8 @@ export async function POST(request: Request) {
     const result = await sendMetaConversionEvent({
       eventName: 'Activated',
       countryCode,
+      regionCode,
+      consentStatus,
       eventId: `plurilog:${user.id}:activated:v1`,
       email,
       externalId: user.id,
@@ -150,6 +164,8 @@ export async function POST(request: Request) {
     const result = await sendMetaConversionEvent({
       eventName: 'DeepEngagement',
       countryCode,
+      regionCode,
+      consentStatus,
       eventId: `plurilog:${user.id}:deep-engagement:v1`,
       email,
       externalId: user.id,

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
 import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
@@ -22,6 +23,7 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
+import { LayoutGroup, motion } from 'motion/react';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
@@ -183,6 +185,8 @@ const CONTINUE_INSTRUCTION =
 
 interface ActiveDiscussionState {
   controller: AbortController;
+  runId: string;
+  runStartedAt: number;
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
   seatActivityLabels: Record<ModelId, string | null>;
@@ -240,6 +244,7 @@ export default function DashboardPage() {
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
+  const continueInFlightRef = useRef(false);
 
   // Synchronize transient drawer state across breakpoint transitions: reset transient drawer when crossing into desktop (>= 1024px)
   useEffect(() => {
@@ -264,6 +269,9 @@ export default function DashboardPage() {
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [isStopRequested, setIsStopRequested] = useState<boolean>(false);
+  const [interruptedTurnUserIds, setInterruptedTurnUserIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [activeSpeaker, setActiveSpeaker] = useState<ModelId | null>(null);
   const [seatStatuses, setSeatStatuses] = useState<Record<ModelId, SeatStatus>>(INITIAL_SEAT_STATUSES);
   const [seatActivityLabels, setSeatActivityLabels] = useState<
@@ -295,7 +303,12 @@ export default function DashboardPage() {
   const [canContinue, setCanContinue] = useState<boolean>(false);
   const [newlySentUserMessageId, setNewlySentUserMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [preservedStopScrollTop, setPreservedStopScrollTop] = useState<number | null>(null);
+  const settleStoppedContinueToNaturalBottomRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Hard exception for the first-ever turn: the welcome composer -> thread
+  // transition must not trigger any bottom-restoration or viewport repositioning.
+  const firstTurnNaturalLayoutRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
@@ -305,6 +318,64 @@ export default function DashboardPage() {
       setIsStopRequested(false);
     }
   }, [isDebating]);
+
+  useEffect(() => {
+    setPreservedStopScrollTop(null);
+    settleStoppedContinueToNaturalBottomRef.current = false;
+  }, [activeDebateId]);
+
+  useEffect(() => {
+    if (isDebating || !settleStoppedContinueToNaturalBottomRef.current) {
+      return;
+    }
+
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const viewport = scrollContainerRef.current;
+        if (!viewport) return;
+
+        const naturalEnd = viewport.querySelector<HTMLElement>(
+          '[data-chat-natural-end="true"]'
+        );
+        if (!naturalEnd) {
+          settleStoppedContinueToNaturalBottomRef.current = false;
+          return;
+        }
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const naturalEndRect = naturalEnd.getBoundingClientRect();
+        const naturalBottomInset = 24;
+        const targetScrollTop = Math.max(
+          0,
+          viewport.scrollTop +
+            (naturalEndRect.top - viewportRect.top) -
+            (viewport.clientHeight - naturalBottomInset)
+        );
+
+        viewport.style.overflowAnchor = 'none';
+        viewport.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
+
+        lastBottomDistanceRef.current = 0;
+        isNearBottomRef.current = true;
+        settleStoppedContinueToNaturalBottomRef.current = false;
+
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.style.overflowAnchor = '';
+          }
+        });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [isDebating, messages]);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -323,6 +394,20 @@ export default function DashboardPage() {
         const currentHeight = entry.contentRect.height;
         const prevHeight = prevClientHeightRef.current;
         prevClientHeightRef.current = currentHeight;
+
+        // The first-ever send swaps the centred welcome composer for the
+        // sticky thread composer. That viewport resize must NOT invoke the
+        // normal bottom-anchor contract; keep the conversation at its natural
+        // start instead.
+        if (firstTurnNaturalLayoutRef.current) {
+          el.scrollTop = 0;
+          lastBottomDistanceRef.current = Math.max(
+            0,
+            el.scrollHeight - currentHeight
+          );
+          isNearBottomRef.current = true;
+          continue;
+        }
 
         // If height changed (e.g. keyboard opened/closed or composer resized) and user was near bottom, restore bottom distance
         if (prevHeight !== null && prevHeight !== currentHeight && isNearBottomRef.current) {
@@ -1039,9 +1124,73 @@ export default function DashboardPage() {
   const handleStop = () => {
     setIsStopRequested(true);
 
+    const latestUser = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+
+    if (latestUser?.id) {
+      setInterruptedTurnUserIds((previous) => {
+        if (previous.has(latestUser.id)) return previous;
+        const next = new Set(previous);
+        next.add(latestUser.id);
+        return next;
+      });
+    }
+    if (
+      latestUser?.content === 'Continue' &&
+      scrollContainerRef.current
+    ) {
+      const viewport = scrollContainerRef.current;
+      const stopScrollTop = viewport.scrollTop;
+      const naturalEnd = viewport.querySelector<HTMLElement>(
+        '[data-chat-natural-end="true"]'
+      );
+
+      // Freeze only when the user has manually moved UP relative to the newest
+      // real conversation UI. If the natural end is already visible or above
+      // the viewport (for example while sitting in temporary reserve space),
+      // Stop should collapse back to the natural conversation bottom instead.
+      const viewportRect = viewport.getBoundingClientRect();
+      const naturalEndRect = naturalEnd?.getBoundingClientRect();
+      const userIsReadingOlderContent = naturalEndRect
+        ? naturalEndRect.top > viewportRect.bottom - 24
+        : !isNearBottomRef.current;
+
+      if (userIsReadingOlderContent) {
+        settleStoppedContinueToNaturalBottomRef.current = false;
+        viewport.style.overflowAnchor = 'none';
+        isNearBottomRef.current = false;
+        flushSync(() => {
+          setPreservedStopScrollTop(stopScrollTop);
+        });
+        viewport.scrollTop = stopScrollTop;
+      } else {
+        settleStoppedContinueToNaturalBottomRef.current = true;
+        flushSync(() => {
+          setPreservedStopScrollTop(null);
+        });
+      }
+    }
+
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
     if (activeGen) {
+      // Preserve the current immediate UI stop behavior, but also tell the
+      // server authoritatively that this run is dead. keepalive lets the
+      // cancellation survive the browser stream being torn down.
+      void fetch('/api/debate/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discussionId: currentId,
+          runId: activeGen.runId,
+          runStartedAt: activeGen.runStartedAt,
+        }),
+        keepalive: true,
+      }).catch((cancelErr) => {
+        console.warn('[Durable Stop] Cancellation request failed:', cancelErr);
+      });
+
       activeGen.controller.abort();
       return;
     }
@@ -1082,6 +1231,8 @@ export default function DashboardPage() {
     continueMarker?: ContinueMarker | null
   ) => {
     const controller = existingController || new AbortController();
+    const runId = crypto.randomUUID();
+    const runStartedAt = Date.now();
     abortControllerRef.current = controller;
     let inProgressModelId: ModelId | null = null;
     let inProgressContent = '';
@@ -1185,6 +1336,8 @@ export default function DashboardPage() {
     if (discussionId) {
       activeGenerationsRef.current.set(discussionId, {
         controller,
+        runId,
+        runStartedAt,
         liveSeatMessage: initialLiveSeatMsg,
         seatStatuses: initialStatuses,
         seatActivityLabels: {
@@ -1218,6 +1371,69 @@ export default function DashboardPage() {
       return;
     }
 
+    // Title generation must survive a user Stop. If the first AI reply never
+    // reaches the normal title trigger, the user's prompt is still enough to
+    // replace the temporary "New discussion" label.
+    const triggerTitleGeneration = (aiSnippet: string) => {
+      if (
+        !discussionId ||
+        !pendingTitleDiscussionIdsRef.current.has(discussionId) ||
+        titleGenerationStartedIdsRef.current.has(discussionId)
+      ) {
+        return;
+      }
+
+      titleGenerationStartedIdsRef.current.add(discussionId);
+
+      const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
+      const titleAiResponse = (aiSnippet || '').trim().slice(0, 300);
+      const attachmentNames = (attachments || [])
+        .map((a) => a.filename)
+        .filter(Boolean)
+        .slice(0, 5);
+
+      void fetch('/api/generate-title', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt: titleUserPrompt,
+          firstAiResponse: titleAiResponse,
+          attachmentNames,
+          discussionId,
+        }),
+      })
+        .then((res) => res.json())
+        .then(async (data) => {
+          const generatedTitle = data?.title?.trim();
+          if (
+            generatedTitle &&
+            generatedTitle.toLowerCase() !== 'new discussion' &&
+            generatedTitle.toLowerCase() !== 'untitled discussion'
+          ) {
+            const { error: titleUpdateError } = await supabase
+              .from('discussions')
+              .update({ title: generatedTitle })
+              .eq('id', discussionId);
+
+            if (titleUpdateError) {
+              throw titleUpdateError;
+            }
+
+            setDebates((prev) =>
+              prev.map((d) =>
+                d.id === discussionId ? { ...d, title: generatedTitle } : d
+              )
+            );
+          }
+        })
+        .catch((titleErr) => {
+          console.error('[AI Title Error]', titleErr);
+        })
+        .finally(() => {
+          clearTitlePending(discussionId);
+        });
+    };
+
     try {
       const response = await fetch('/api/debate', {
         method: 'POST',
@@ -1230,6 +1446,8 @@ export default function DashboardPage() {
           isContinueRound: isContinueRound || false,
           attachments: attachments || null,
           sourceUserMessageId: sourceUserMessageId || null,
+          runId,
+          runStartedAt,
         }),
       });
 
@@ -1259,67 +1477,6 @@ export default function DashboardPage() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-
-      // Helper to launch Title V2 generation at most once per discussion
-      const triggerTitleGeneration = (aiSnippet: string) => {
-        if (
-          !discussionId ||
-          !pendingTitleDiscussionIdsRef.current.has(discussionId) ||
-          titleGenerationStartedIdsRef.current.has(discussionId)
-        ) {
-          return;
-        }
-
-        titleGenerationStartedIdsRef.current.add(discussionId);
-
-        const titleUserPrompt = (promptToSend || '').trim().slice(0, 300);
-        const titleAiResponse = (aiSnippet || '').trim().slice(0, 300);
-        const attachmentNames = (attachments || [])
-          .map((a) => a.filename)
-          .filter(Boolean)
-          .slice(0, 5);
-
-        fetch('/api/generate-title', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userPrompt: titleUserPrompt,
-            firstAiResponse: titleAiResponse,
-            attachmentNames,
-            discussionId,
-          }),
-        })
-          .then((res) => res.json())
-          .then(async (data) => {
-            const generatedTitle = data?.title?.trim();
-            if (
-              generatedTitle &&
-              generatedTitle.toLowerCase() !== 'new discussion' &&
-              generatedTitle.toLowerCase() !== 'untitled discussion'
-            ) {
-              const { error: titleUpdateError } = await supabase
-                .from('discussions')
-                .update({ title: generatedTitle })
-                .eq('id', discussionId);
-
-              if (titleUpdateError) {
-                throw titleUpdateError;
-              }
-
-              setDebates((prev) =>
-                prev.map((d) =>
-                  d.id === discussionId ? { ...d, title: generatedTitle } : d
-                )
-              );
-            }
-          })
-          .catch((titleErr) => {
-            console.error('[AI Title Error]', titleErr);
-          })
-          .finally(() => {
-            clearTitlePending(discussionId);
-          });
-      };
 
       const startDeferredPdfIndexing = () => {
         const pdfAttachmentsForIndexing = (attachments || []).filter((att) => {
@@ -1997,16 +2154,11 @@ export default function DashboardPage() {
     } catch (err: any) {
       if (discussionId) {
         activeGenerationsRef.current.delete(discussionId);
-        if (
-          completedSeatsCount === 0 &&
-          !titleGenerationStartedIdsRef.current.has(discussionId)
-        ) {
-          clearTitlePending(discussionId);
-        }
       }
       const isAborted = controller.signal.aborted || err?.name === 'AbortError';
 
       if (isAborted) {
+        triggerTitleGeneration(inProgressContent);
         console.log('[Relay Stopped] Discussion stream was stopped by user.');
 
         const hasStoppedOutput =
@@ -2058,6 +2210,13 @@ export default function DashboardPage() {
           touchDiscussion(discussionId);
         }
       } else {
+        if (
+          discussionId &&
+          completedSeatsCount === 0 &&
+          !titleGenerationStartedIdsRef.current.has(discussionId)
+        ) {
+          clearTitlePending(discussionId);
+        }
         console.error('Error in relay stream:', err);
         if (activeDebateIdRef.current === discussionId) {
           if (err?.code === 'INSUFFICIENT_CREDITS') {
@@ -2107,6 +2266,15 @@ export default function DashboardPage() {
 
   // Triggered when user submits a new prompt
   const handleSendMessage = async (content: string, imageFiles?: File[]) => {
+    setPreservedStopScrollTop(null);
+    const isFirstConversationTurn = messages.length === 0;
+    if (isFirstConversationTurn) {
+      firstTurnNaturalLayoutRef.current = true;
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
+    }
+
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
@@ -2253,6 +2421,9 @@ export default function DashboardPage() {
     );
 
     const rollbackOptimistic = () => {
+      if (isFirstConversationTurn) {
+        firstTurnNaturalLayoutRef.current = false;
+      }
       setNewlySentUserMessageId((curr) => (curr === tempUserMsgId ? null : curr));
       setMessages((prev) =>
         prev.filter((m) => m.id !== tempUserMsgId && m.id !== optimisticFirstModelMsgId)
@@ -2676,13 +2847,22 @@ export default function DashboardPage() {
 
   // Triggered when user clicks "Continue Discussion" button
   const handleContinue = async () => {
+    setPreservedStopScrollTop(null);
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
-    if (isDebating || !activeDebateId || !userId || activeSeatOrder.length === 0) return;
+    if (
+      continueInFlightRef.current ||
+      isDebating ||
+      !activeDebateId ||
+      !userId ||
+      activeSeatOrder.length === 0
+    ) return;
 
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
       return;
     }
+
+    continueInFlightRef.current = true;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -2796,6 +2976,7 @@ export default function DashboardPage() {
       // The user may stop before runRelay starts. The empty Continue marker
       // is removed, but the previous completed round remains continuable.
       setCanContinue(true);
+      continueInFlightRef.current = false;
       return;
     }
 
@@ -2805,18 +2986,22 @@ export default function DashboardPage() {
         : null;
 
     // 2. Trigger relay with empty string prompt, isContinueRound flag, and optimisticPlaceholder
-    await runRelay(
-      '',
-      activeDebateId,
-      activeSeatOrder,
-      true,
-      null,
-      null,
-      null,
-      optimisticPlaceholder,
-      controller,
-      continueMarker
-    );
+    try {
+      await runRelay(
+        '',
+        activeDebateId,
+        activeSeatOrder,
+        true,
+        null,
+        null,
+        null,
+        optimisticPlaceholder,
+        controller,
+        continueMarker
+      );
+    } finally {
+      continueInFlightRef.current = false;
+    }
   };
 
   if (isLoadingAuth) {
@@ -2905,10 +3090,12 @@ export default function DashboardPage() {
             </div>
           )}
 
+          <LayoutGroup id={`plurilog-thread-${activeDebateId || 'new'}`}>
           {/* Message Scroll Region Wrapper (Provides stable positioning context for scroll button above variable-height ChatInput) */}
           <div className="relative flex-1 min-h-0 min-w-0 w-full flex flex-col">
             {/* Full-width scrollable viewport / Centered Empty State */}
-            <div
+            <motion.div
+              layoutScroll
               ref={scrollContainerRef}
               onScroll={(e) => {
                 const el = e.currentTarget;
@@ -3040,11 +3227,17 @@ export default function DashboardPage() {
                   abandonedFailedTurnIds={abandonedFailedTurnIds}
                   onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
                   newlySentUserMessageId={newlySentUserMessageId}
-                  onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
+                  onNewlySentAnimationComplete={() => {
+                    setNewlySentUserMessageId(null);
+                    firstTurnNaturalLayoutRef.current = false;
+                  }}
                   onPreviewDocument={setPreviewDocument}
+                  scrollContainerRef={scrollContainerRef}
+                  preserveScrollTop={preservedStopScrollTop}
+                  interruptedTurnUserIds={interruptedTurnUserIds}
                 />
               )}
-            </div>
+            </motion.div>
 
             {/* Scroll to Bottom Overlay Button (Anchored directly above ChatInput footer) */}
             {messages.length > 0 && showScrollBottom && (
@@ -3082,6 +3275,7 @@ export default function DashboardPage() {
               onToggleModel={handleToggleModel}
             />
           )}
+          </LayoutGroup>
         </main>
 
         <DocumentPreviewDrawer

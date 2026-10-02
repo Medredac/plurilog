@@ -1,9 +1,17 @@
 'use client';
 
-import React, { useEffect, useRef, Suspense } from 'react';
+import React, { useEffect, useRef, useState, Suspense } from 'react';
 import { usePathname } from 'next/navigation';
 
 export const META_PIXEL_ID = '1395458409440724';
+const META_CONSENT_COOKIE = 'plurilog_meta_consent';
+
+type MetaEligibility = {
+  eligible: boolean;
+  consentRequired: boolean;
+  showConsent: boolean;
+  consentStatus: 'accepted' | 'rejected' | 'unknown';
+};
 
 declare global {
   interface Window {
@@ -105,7 +113,11 @@ function initMetaPixel(pixelId: string) {
   n('init', pixelId);
 }
 
-function waitForMetaPixelReady(onReady: () => void, onFailed: () => void, timeoutMs = 1500) {
+function waitForMetaPixelReady(
+  onReady: () => void,
+  onFailed: () => void,
+  timeoutMs = 1500
+) {
   if (typeof window === 'undefined') {
     onFailed();
     return;
@@ -146,7 +158,8 @@ function MetaPixelTracker() {
   const lastTrackedPathRef = useRef<string | null>(null);
   const isInitializedRef = useRef(false);
   const hasHandledRegisteredRef = useRef(false);
-  const geoEligibleRef = useRef<boolean | null>(null);
+  const [eligibility, setEligibility] = useState<MetaEligibility | null>(null);
+  const [consentRevision, setConsentRevision] = useState(0);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -154,8 +167,8 @@ function MetaPixelTracker() {
     const isPublic = isPublicMetaRoute(pathname);
 
     if (!isPublic) {
-      // Meta remains silent on authenticated/private application routes.
       lastTrackedPathRef.current = null;
+      setEligibility(null);
       return;
     }
 
@@ -194,30 +207,35 @@ function MetaPixelTracker() {
     };
 
     const run = async () => {
-      let eligible = geoEligibleRef.current;
+      let currentEligibility: MetaEligibility;
 
-      if (eligible === null) {
-        try {
-          const response = await fetch('/api/meta/eligibility', {
-            method: 'GET',
-            cache: 'no-store',
-            credentials: 'same-origin',
-          });
-          eligible = response.ok
-            ? Boolean((await response.json())?.eligible)
-            : false;
-        } catch {
-          eligible = false;
-        }
-
-        geoEligibleRef.current = eligible;
+      try {
+        const response = await fetch('/api/meta/eligibility', {
+          method: 'GET',
+          cache: 'no-store',
+          credentials: 'same-origin',
+        });
+        currentEligibility = response.ok
+          ? (await response.json())
+          : {
+              eligible: false,
+              consentRequired: false,
+              showConsent: false,
+              consentStatus: 'unknown',
+            };
+      } catch {
+        currentEligibility = {
+          eligible: false,
+          consentRequired: false,
+          showConsent: false,
+          consentStatus: 'unknown',
+        };
       }
 
       if (cancelled) return;
+      setEligibility(currentEligibility);
 
-      if (!eligible) {
-        // Fail closed for advertising tracking, but never strand the OAuth
-        // registration bridge if geolocation is unavailable or ineligible.
+      if (!currentEligibility.eligible) {
         releaseBridgeWithoutTracking();
         return;
       }
@@ -227,7 +245,11 @@ function MetaPixelTracker() {
         isInitializedRef.current = true;
       }
 
-      if (pathname && lastTrackedPathRef.current !== pathname && typeof window.fbq === 'function') {
+      if (
+        pathname &&
+        lastTrackedPathRef.current !== pathname &&
+        typeof window.fbq === 'function'
+      ) {
         lastTrackedPathRef.current = pathname;
         window.fbq('track', 'PageView');
       }
@@ -245,7 +267,6 @@ function MetaPixelTracker() {
             }, 250);
           },
           () => {
-            // Ad blockers or Meta failures must not interfere with registration.
             finishRegistrationBridge();
           },
           1500
@@ -261,9 +282,63 @@ function MetaPixelTracker() {
         clearTimeout(postFireTimer);
       }
     };
-  }, [pathname]);
+  }, [pathname, consentRevision]);
 
-  return null;
+  const chooseConsent = (choice: 'accepted' | 'rejected') => {
+    if (typeof document === 'undefined') return;
+
+    document.cookie =
+      `${META_CONSENT_COOKIE}=${choice}; Max-Age=31536000; Path=/; SameSite=Lax; Secure`;
+
+    setEligibility((current) =>
+      current
+        ? {
+            ...current,
+            eligible: choice === 'accepted',
+            showConsent: false,
+            consentStatus: choice,
+          }
+        : current
+    );
+    setConsentRevision((revision) => revision + 1);
+  };
+
+  const shouldShowBanner =
+    pathname === '/' &&
+    eligibility?.consentRequired === true &&
+    eligibility.showConsent === true;
+
+  return shouldShowBanner ? (
+    <div className="fixed inset-x-0 bottom-0 z-[100] px-3 pb-3 sm:px-5 sm:pb-5 pointer-events-none">
+      <div className="pointer-events-auto mx-auto max-w-4xl rounded-2xl border border-zinc-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur sm:flex sm:items-center sm:gap-4 sm:px-5">
+        <p className="flex-1 text-xs leading-relaxed text-zinc-600 sm:text-sm">
+          We use cookies to enhance your experience, analyze site usage, and measure performance.
+        </p>
+        <div className="mt-3 flex shrink-0 items-center gap-2 sm:mt-0">
+          <button
+            type="button"
+            onClick={() => chooseConsent('accepted')}
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-zinc-800 cursor-pointer"
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            onClick={() => chooseConsent('rejected')}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 cursor-pointer"
+          >
+            Reject
+          </button>
+          <a
+            href="/privacy"
+            className="px-1 text-xs font-medium text-zinc-500 underline underline-offset-2 hover:text-zinc-800"
+          >
+            Privacy Policy
+          </a>
+        </div>
+      </div>
+    </div>
+  ) : null;
 }
 
 export function MetaPixelProvider({ children }: { children?: React.ReactNode }) {

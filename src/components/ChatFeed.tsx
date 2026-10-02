@@ -41,6 +41,11 @@ import { ImageLightbox } from './ImageLightbox';
 import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
+import { useTopTurnAnchor } from '@/hooks/useTopTurnAnchor';
+import {
+  PresentationPhase,
+  usePresentationSequence,
+} from '@/hooks/usePresentationSequence';
 
 const conversationDateFormatter = new Intl.DateTimeFormat(undefined, {
   month: 'short',
@@ -951,6 +956,9 @@ interface ChatFeedProps {
   newlySentUserMessageId?: string | null;
   onNewlySentAnimationComplete?: () => void;
   onPreviewDocument?: (document: { url: string; filename: string }) => void;
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  preserveScrollTop?: number | null;
+  interruptedTurnUserIds?: Set<string>;
   viewMode?: 'discussion' | 'side-by-side';
 }
 
@@ -1008,65 +1016,81 @@ interface SmoothRevealResult {
  */
 function useSmoothReveal(
   targetText: string,
-  isStreaming?: boolean,
-  reduceMotion?: boolean,
-  forceRevealOnMount?: boolean
+  isStreaming: boolean | undefined,
+  reduceMotion: boolean | undefined,
+  presentationPhase: PresentationPhase,
+  onPresentationComplete?: () => void,
+  accelerateReveal = false
 ): SmoothRevealResult {
-  // Existing/history messages mount fully rendered. A brand-new model message
-  // may occasionally arrive already completed because React batches provider
-  // chunks + seat_done; forceRevealOnMount preserves the same visual stream.
-  const shouldAnimateInitially =
+  const isStatic =
+    presentationPhase === 'static' || presentationPhase === 'complete';
+  const shouldStartHidden =
     !reduceMotion &&
-    Boolean(isStreaming || forceRevealOnMount) &&
-    targetText.length > 0;
+    (presentationPhase === 'queued' || presentationPhase === 'active');
 
   const [displayedLength, setDisplayedLength] = useState(() =>
-    shouldAnimateInitially ? 0 : targetText.length
+    shouldStartHidden ? 0 : targetText.length
   );
-  const [isDraining, setIsDraining] = useState(() => shouldAnimateInitially);
+  const [isDraining, setIsDraining] = useState(false);
 
   const targetTextRef = useRef(targetText);
   targetTextRef.current = targetText;
 
+  const isStreamingRef = useRef(Boolean(isStreaming));
+  isStreamingRef.current = Boolean(isStreaming);
+
   const displayedLengthRef = useRef(displayedLength);
   displayedLengthRef.current = displayedLength;
 
-  const hasStreamedRef = useRef(Boolean(isStreaming || forceRevealOnMount));
-  if (isStreaming || forceRevealOnMount) hasStreamedRef.current = true;
+  const completionNotifiedRef = useRef(false);
+  const onPresentationCompleteRef = useRef(onPresentationComplete);
+  onPresentationCompleteRef.current = onPresentationComplete;
 
   useEffect(() => {
+    if (presentationPhase !== 'active') {
+      completionNotifiedRef.current = false;
+    }
+
+    if (presentationPhase === 'queued') {
+      displayedLengthRef.current = 0;
+      setDisplayedLength(0);
+      setIsDraining(false);
+      return;
+    }
+
+    if (isStatic) {
+      displayedLengthRef.current = targetText.length;
+      setDisplayedLength(targetText.length);
+      setIsDraining(false);
+      return;
+    }
+
+    const notifyComplete = () => {
+      if (completionNotifiedRef.current) return;
+      completionNotifiedRef.current = true;
+      onPresentationCompleteRef.current?.();
+    };
+
     if (reduceMotion) {
       displayedLengthRef.current = targetText.length;
       setDisplayedLength(targetText.length);
       setIsDraining(false);
+      if (!isStreamingRef.current) {
+        queueMicrotask(notifyComplete);
+      }
       return;
     }
 
-    // Reset/retry can replace the in-flight text with a shorter value.
     if (displayedLengthRef.current > targetText.length) {
       displayedLengthRef.current = targetText.length;
       setDisplayedLength(targetText.length);
-      setIsDraining(false);
-      return;
-    }
-
-    const shouldDrainCompletedStream =
-      !isStreaming &&
-      hasStreamedRef.current &&
-      displayedLengthRef.current < targetText.length;
-    const shouldAnimate = Boolean(isStreaming) || shouldDrainCompletedStream;
-
-    if (!shouldAnimate) {
-      if (displayedLengthRef.current !== targetText.length) {
-        displayedLengthRef.current = targetText.length;
-        setDisplayedLength(targetText.length);
-      }
-      setIsDraining(false);
-      return;
     }
 
     if (displayedLengthRef.current >= targetText.length) {
       setIsDraining(false);
+      if (!isStreamingRef.current) {
+        queueMicrotask(notifyComplete);
+      }
       return;
     }
 
@@ -1081,29 +1105,32 @@ function useSmoothReveal(
       if (current >= currentTarget) {
         setIsDraining(false);
         rafId = null;
+        if (!isStreamingRef.current) {
+          queueMicrotask(notifyComplete);
+        }
         return;
       }
 
       const lag = currentTarget - current;
 
-      // Keep the visual stream close to the real model. Small backlogs reveal
-      // in short phrase-like bursts; large provider dumps accelerate hard so
-      // presentation lag stays bounded and the next seat does not visually
-      // overtake the previous one.
-      const intervalMs =
-        lag > 1600 ? 20 :
-        lag > 900 ? 22 :
-        lag > 420 ? 24 :
-        lag > 180 ? 27 :
-        31;
+      // Presentation speed responds to backlog, not provider chunk size.
+      // Even a one-shot provider dump is metered through the same visual queue.
+      const intervalMs = accelerateReveal
+        ? 8
+        : lag > 1800 ? 18 :
+          lag > 1000 ? 20 :
+          lag > 500 ? 22 :
+          lag > 220 ? 25 :
+          29;
 
-      const unitsPerTick =
-        lag > 1600 ? 10 :
-        lag > 900 ? 8 :
-        lag > 420 ? 5 :
-        lag > 180 ? 3 :
-        lag > 70 ? 2 :
-        1;
+      const unitsPerTick = accelerateReveal
+        ? (lag > 1200 ? 24 : lag > 500 ? 16 : lag > 180 ? 10 : 6)
+        : lag > 1800 ? 9 :
+          lag > 1000 ? 7 :
+          lag > 500 ? 5 :
+          lag > 220 ? 3 :
+          lag > 80 ? 2 :
+          1;
 
       if (now - lastTime >= intervalMs) {
         lastTime = now;
@@ -1113,7 +1140,6 @@ function useSmoothReveal(
           unitsPerTick
         );
 
-        // Extremely long unbroken strings should still make progress.
         if (nextLength <= current) {
           nextLength = Math.min(currentTarget, current + 1);
         }
@@ -1130,14 +1156,25 @@ function useSmoothReveal(
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [targetText, isStreaming, reduceMotion]);
+  }, [
+    accelerateReveal,
+    isStatic,
+    isStreaming,
+    presentationPhase,
+    reduceMotion,
+    targetText,
+  ]);
 
   const visibleLength = Math.min(displayedLength, targetText.length);
+
   return {
     text: targetText.slice(0, visibleLength),
     isRevealing:
+      presentationPhase === 'active' &&
       !reduceMotion &&
-      (Boolean(isStreaming) || isDraining || visibleLength < targetText.length),
+      (Boolean(isStreaming) ||
+        isDraining ||
+        visibleLength < targetText.length),
   };
 }
 
@@ -1198,16 +1235,18 @@ interface StreamingMessageBodyProps {
   content: string;
   isStreaming?: boolean;
   reduceMotion?: boolean;
-  forceRevealOnMount?: boolean;
-  onRevealStateChange?: (isRevealing: boolean) => void;
+  presentationPhase: PresentationPhase;
+  accelerateReveal?: boolean;
+  onPresentationComplete?: () => void;
 }
 
 const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   content,
   isStreaming,
   reduceMotion,
-  forceRevealOnMount,
-  onRevealStateChange,
+  presentationPhase,
+  accelerateReveal = false,
+  onPresentationComplete,
 }) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
   const { mainContent, sources } = parseTrailingSources(content);
@@ -1218,13 +1257,10 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
     mainContent,
     isStreaming,
     reduceMotion,
-    forceRevealOnMount
+    presentationPhase,
+    onPresentationComplete,
+    accelerateReveal
   );
-
-  useEffect(() => {
-    onRevealStateChange?.(isRevealing);
-    return () => onRevealStateChange?.(false);
-  }, [isRevealing, onRevealStateChange]);
 
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
@@ -1323,149 +1359,94 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   newlySentUserMessageId = null,
   onNewlySentAnimationComplete,
   onPreviewDocument,
+  scrollContainerRef,
+  preserveScrollTop = null,
+  interruptedTurnUserIds = new Set<string>(),
   viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const reserveRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
-  const lastUserMsgIdRef = useRef<string | null>(null);
-  const knownModelMessageIdsRef = useRef<Set<string> | null>(null);
-
-  if (knownModelMessageIdsRef.current === null) {
-    knownModelMessageIdsRef.current = new Set(
-      messages.filter((message) => message.role === 'model').map((message) => message.id)
-    );
-  }
-
-  const freshModelMessageIds = new Set(
-    messages
-      .filter(
-        (message) =>
-          message.role === 'model' &&
-          !knownModelMessageIdsRef.current!.has(message.id)
-      )
-      .map((message) => message.id)
-  );
-
-  useEffect(() => {
-    for (const message of messages) {
-      if (message.role === 'model') {
-        knownModelMessageIdsRef.current?.add(message.id);
-      }
-    }
-  }, [messages]);
-
-  const [revealingMessageIds, setRevealingMessageIds] = useState<Set<string>>(
-    () => new Set()
-  );
-
-  const handleRevealStateChange = React.useCallback(
-    (messageId: string, isRevealing: boolean) => {
-      setRevealingMessageIds((previous) => {
-        const next = new Set(previous);
-        if (isRevealing) next.add(messageId);
-        else next.delete(messageId);
-
-        if (
-          next.size === previous.size &&
-          [...next].every((id) => previous.has(id))
-        ) {
-          return previous;
-        }
-        return next;
-      });
-    },
-    []
-  );
+  const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
-  // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
+  // Completed history opens at the bottom. A newly-created live discussion is
+  // already owned by the top-turn anchor and must never race with this jump.
   useEffect(() => {
     if (activeDebateId && activeDebateId !== lastActiveDebateIdRef.current) {
       lastActiveDebateIdRef.current = activeDebateId;
 
-      // If discussion was just auto-created by sending a prompt, skip jump-to-bottom
       if (isNewlyCreatedRef?.current) {
         isNewlyCreatedRef.current = false;
         return;
       }
 
+      setAnchoredUserId(null);
       setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
       }, 50);
     }
   }, [activeDebateId, isNewlyCreatedRef]);
 
-  // 2. On a new user turn (including Continue), glide that turn into a stable
-  //    reading position near the top of the chat viewport, then hold still while
-  //    the model responses grow underneath it.
+  // A live run owns a top anchor. We keep that anchor after generation
+  // finishes so the reading position remains stable until the next user turn.
   useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    const prevMsg = messages.length > 1 ? messages[messages.length - 2] : null;
+    if (!isDebating) return;
 
-    let candidate: ChatMessage | null = null;
-    if (lastMsg && lastMsg.role === 'user') {
-      candidate = lastMsg;
-    } else if (
-      lastMsg &&
-      lastMsg.role === 'model' &&
-      lastMsg.isStreaming &&
-      !lastMsg.content &&
-      prevMsg &&
-      prevMsg.role === 'user'
-    ) {
-      candidate = prevMsg;
+    const latestUser = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+
+    if (latestUser && latestUser.id !== anchoredUserId) {
+      setAnchoredUserId(latestUser.id);
     }
+  }, [anchoredUserId, isDebating, messages]);
 
-    if (!candidate || candidate.id === lastUserMsgIdRef.current) return;
+  // Zero-output stopped Continue rounds are removed from the message list.
+  // Release their anchor immediately instead of preserving dead geometry.
+  useEffect(() => {
+    if (
+      anchoredUserId &&
+      !messages.some((message) => message.id === anchoredUserId)
+    ) {
+      setAnchoredUserId(null);
+    }
+  }, [anchoredUserId, messages]);
 
-    // Wait for React + layout (including the debating spacer) to settle before
-    // measuring. Two RAFs avoids the old race where scrolling sometimes fired
-    // against the previous layout.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = document.getElementById(candidate.id);
-        if (!el) return;
+  const anchoredUserMessage = anchoredUserId
+    ? messages.find((message) => message.id === anchoredUserId)
+    : null;
+  const firstUserMessage = messages.find((message) => message.role === 'user');
+  const isFirstUserTurn =
+    Boolean(anchoredUserMessage) &&
+    firstUserMessage?.id === anchoredUserMessage?.id;
 
-        const scroller = el.closest('.overflow-y-auto') as HTMLElement | null;
-        if (!scroller) {
-          el.scrollIntoView({
-            behavior: shouldReduceMotion ? 'auto' : 'smooth',
-            block: 'start',
-          });
-          lastUserMsgIdRef.current = candidate.id;
-          return;
-        }
+  const presentation = usePresentationSequence(messages, anchoredUserId);
 
-        const scrollerRect = scroller.getBoundingClientRect();
-        const targetRect = el.getBoundingClientRect();
-        const isContinueTurn = candidate.content === 'Continue';
-        const isDesktop = window.matchMedia('(min-width: 640px)').matches;
-        // The old Continue turn had an extra mt-10 / sm:mt-12 before its
-        // scroll target. Preserve that visual breathing room even though the
-        // redesigned Round marker remains intentionally hidden until output.
-        const topOffset = isContinueTurn
-          ? (isDesktop ? 80 : 64)
-          : (isDesktop ? 32 : 24);
-        const targetTop =
-          scroller.scrollTop + (targetRect.top - scrollerRect.top) - topOffset;
-
-        scroller.scrollTo({
-          top: Math.max(0, targetTop),
-          behavior: shouldReduceMotion ? 'auto' : 'smooth',
-        });
-
-        // Mark handled only after a real DOM target exists. This is important
-        // for Continue, whose visible Round marker intentionally stays hidden
-        // until at least one AI has produced real output.
-        lastUserMsgIdRef.current = candidate.id;
-      });
-    });
-  }, [messages, shouldReduceMotion]);
+  useTopTurnAnchor({
+    viewportRef: scrollContainerRef,
+    contentRef,
+    reserveRef,
+    // The very first turn is deliberately outside the anchoring system.
+    // No reserve, no scroll compensation, no auto-positioning: it simply
+    // renders at the natural start of the conversation.
+    anchorId: isFirstUserTurn ? null : anchoredUserId,
+    tailAnchorId: isFirstUserTurn
+      ? null
+      : presentation.activePresentationId,
+    topOffsetMobile: 64,
+    topOffsetDesktop: 80,
+    tailTopOffsetMobile: 64,
+    tailTopOffsetDesktop: 80,
+    preserveScrollTop,
+    layoutVersion: messages.length,
+  });
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
@@ -1490,8 +1471,85 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const activeModelSet = new Set(activeModels);
   const orderedActiveModels = seatOrder.filter((id) => activeModelSet.has(id));
 
+  const renderHistoricalInterruptedMarkerBefore = (currentIndex: number) => {
+    const currentMessage = messages[currentIndex];
+    if (!currentMessage || currentMessage.role !== 'user') return null;
+
+    let previousUserIndex = -1;
+    for (let index = currentIndex - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'user') {
+        previousUserIndex = index;
+        break;
+      }
+    }
+
+    if (previousUserIndex < 0) return null;
+
+    const previousUser = messages[previousUserIndex];
+    if (
+      !previousUser?.id ||
+      !interruptedTurnUserIds.has(previousUser.id)
+    ) {
+      return null;
+    }
+
+    const answeredModels = Array.from(
+      new Set(
+        messages
+          .slice(previousUserIndex + 1, currentIndex)
+          .filter((item) => item.role === 'model' && item.content.trim())
+          .map((item) => {
+            const raw = String(item.modelId || item.authorName || '').toLowerCase();
+            if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+            if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+            return 'gemini';
+          })
+      )
+    );
+
+    const expectedAnswers = Math.max(1, activeModels.length);
+    const answeredCount = answeredModels.length;
+    const interruptedLabel =
+      answeredCount <= 0
+        ? 'Response interrupted'
+        : answeredCount >= expectedAnswers
+          ? `All ${answeredCount} answered · Response interrupted`
+          : `${answeredCount} of ${expectedAnswers} answered · Response interrupted`;
+
+    return (
+      <motion.div
+        key={`historical-interrupted-${previousUser.id}`}
+        layout="position"
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{
+          layout: {
+            type: 'spring',
+            stiffness: 340,
+            damping: 34,
+            mass: 0.86,
+          },
+          opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+          y: {
+            duration: shouldReduceMotion ? 0 : 0.2,
+            ease: [0.16, 1, 0.3, 1],
+          },
+        }}
+        className="col-span-full pt-6 pb-2 min-w-0"
+      >
+        <div className="flex items-center gap-4">
+          <div className="h-px flex-1 bg-[#E7E5E0]" />
+          <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+            {interruptedLabel}
+          </span>
+          <div className="h-px flex-1 bg-[#E7E5E0]" />
+        </div>
+      </motion.div>
+    );
+  };
+
   return (
-    <div className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
+    <div ref={contentRef} className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
       viewMode === 'side-by-side'
         ? 'max-w-[1040px] grid grid-cols-1 sm:grid-cols-3 gap-x-[14px] gap-y-4'
         : 'max-w-[760px] flex flex-col'
@@ -1562,6 +1620,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
           return (
             <React.Fragment key={message.id}>
+              {renderHistoricalInterruptedMarkerBefore(idx)}
               {shouldShowDate && formattedDate && (
                 <div
                   className={`col-span-full flex justify-center select-none ${
@@ -1573,8 +1632,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <div
+              <motion.div
                 id={message.id}
+                data-turn-anchor-id={message.id}
+                layout="position"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  layout: { type: 'spring', stiffness: 360, damping: 34, mass: 0.85 },
+                  opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+                  y: { duration: shouldReduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] },
+                }}
                 className="col-span-full flex items-center gap-3 py-5 scroll-mt-6 sm:scroll-mt-8"
               >
                 <div className="h-px flex-1 bg-[#E7E5E0]" />
@@ -1582,7 +1650,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   Round {roundNumber}
                 </span>
                 <div className="h-px flex-1 bg-[#E7E5E0]" />
-              </div>
+              </motion.div>
             </React.Fragment>
           );
         }
@@ -1600,6 +1668,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
           return (
             <React.Fragment key={message.id}>
+              {renderHistoricalInterruptedMarkerBefore(idx)}
               {shouldShowDate && formattedDate && (
                 <div
                   className={`col-span-full flex justify-center select-none ${
@@ -1611,17 +1680,53 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <motion.div 
+              <motion.div
                 id={message.id}
+                data-turn-anchor-id={message.id}
+                layout="position"
                 initial={
-                  message.id === newlySentUserMessageId
-                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 16 }
+                  message.id === newlySentUserMessageId && !shouldReduceMotion
+                    ? {
+                        opacity: 0,
+                        y: 26,
+                        scale: 0.94,
+                        filter: 'blur(2.4px)',
+                      }
                     : false
                 }
-                animate={{ opacity: 1, y: 0 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  scale: 1,
+                  filter: 'blur(0px)',
+                }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.24,
-                  ease: [0.16, 1, 0.3, 1],
+                  layout: {
+                    type: 'spring',
+                    stiffness: 380,
+                    damping: 34,
+                    mass: 0.82,
+                  },
+                  y: {
+                    type: 'spring',
+                    stiffness: 430,
+                    damping: 32,
+                    mass: 0.78,
+                  },
+                  scale: {
+                    type: 'spring',
+                    stiffness: 420,
+                    damping: 30,
+                    mass: 0.75,
+                  },
+                  opacity: {
+                    duration: shouldReduceMotion ? 0 : 0.2,
+                    ease: [0.16, 1, 0.3, 1],
+                  },
+                  filter: {
+                    duration: shouldReduceMotion ? 0 : 0.18,
+                    ease: 'easeOut',
+                  },
                 }}
                 onAnimationComplete={() => {
                   if (message.id === newlySentUserMessageId && onNewlySentAnimationComplete) {
@@ -1889,13 +1994,31 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 ? 'mt-7 sm:mt-8'
                 : 'mt-4 sm:mt-[18px]';
 
-        const isThinking = message.isStreaming && !message.content.trim();
-        const forceRevealOnMount = freshModelMessageIds.has(message.id);
-        const isVisuallyRevealing =
-          revealingMessageIds.has(message.id) || forceRevealOnMount;
+        const presentationPhase = presentation.phaseFor(message.id);
+        const owningUserMessage = [...messages.slice(0, idx)]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const isInterruptedTurn = Boolean(
+          owningUserMessage?.id &&
+          interruptedTurnUserIds.has(owningUserMessage.id)
+        );
+        const isQueuedForPresentation = presentationPhase === 'queued';
+
+        // Once the user interrupts, do not start visually presenting a later
+        // seat that was only queued behind the response they stopped.
+        if (isInterruptedTurn && isQueuedForPresentation) {
+          return null;
+        }
+        const hasSettledPresentation =
+          presentationPhase === 'static' || presentationPhase === 'complete';
+        const isThinking =
+          isQueuedForPresentation ||
+          (message.isStreaming && !message.content.trim());
         const activeSeatIndex = orderedActiveModels.indexOf(modelKey);
         const upNextModels =
-          isThinking && activeSeatIndex >= 0
+          isThinking &&
+          !isQueuedForPresentation &&
+          activeSeatIndex >= 0
             ? orderedActiveModels.slice(activeSeatIndex + 1)
             : [];
         const attachments: string[] =
@@ -1933,8 +2056,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </span>
               </div>
             )}
-            <div
+            <motion.div
               id={message.id}
+              data-seat-anchor-id={message.id}
+              layout="position"
+              transition={{
+                layout: {
+                  type: 'spring',
+                  stiffness: 360,
+                  damping: 35,
+                  mass: 0.88,
+                },
+              }}
               className={`scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
                 viewMode === 'side-by-side'
                   ? 'rounded-2xl border border-[#E7E5E0] bg-white p-4'
@@ -1953,7 +2086,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     viewMode === 'side-by-side' ? 'h-8 w-8' : 'h-11 w-11'
                   }`}
                 >
-                  {message.isStreaming && (
+                  {isThinking && (
                     <span
                       className="plurilog-thinking-ring absolute -inset-[1.5px] rounded-full"
                       style={{
@@ -1985,10 +2118,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 <div className="flex min-w-0 flex-col items-start">
                   <SeatActivityIndicator
                     provider={modelKey}
-                    status={seatStatuses[modelKey] || 'thinking'}
+                    status={
+                      isQueuedForPresentation
+                        ? 'waiting'
+                        : seatStatuses[modelKey] || 'thinking'
+                    }
                     startedAt={message.createdAt}
                     searchSources={seatSearchSources[modelKey] || []}
-                    activityLabel={seatActivityLabels[modelKey] || null}
+                    activityLabel={
+                      isQueuedForPresentation
+                        ? 'Up next'
+                        : seatActivityLabels[modelKey] || null
+                    }
                     reduceMotion={Boolean(shouldReduceMotion)}
                   />
                   {upNextModels.length > 0 && (
@@ -2031,14 +2172,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       content={message.content}
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
-                      forceRevealOnMount={forceRevealOnMount}
-                      onRevealStateChange={(isRevealing) =>
-                        handleRevealStateChange(message.id, isRevealing)
+                      presentationPhase={presentationPhase}
+                      accelerateReveal={
+                        isInterruptedTurn &&
+                        presentationPhase === 'active'
+                      }
+                      onPresentationComplete={() =>
+                        presentation.markComplete(message.id)
                       }
                     />
 
                   {/* Attached Images (if present) */}
-                  {imageAttachments.length > 0 && (
+                  {hasSettledPresentation && imageAttachments.length > 0 && (
                     <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
                       {imageAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
@@ -2069,7 +2214,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   )}
 
                   {/* Generated/downloadable documents (if present) */}
-                  {documentAttachments.length > 0 && (
+                  {hasSettledPresentation && documentAttachments.length > 0 && (
                     <div className="mt-3 flex w-full max-w-[330px] flex-col gap-2 min-w-0">
                       {documentAttachments.map((url, i) => {
                         const filename = getAttachmentDisplayFilename(url);
@@ -2201,110 +2346,179 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
-              {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
-              {!isThinking && !isVisuallyRevealing && (
-                <div className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
-                    <button
-                      onClick={() => handleCopy(message.id, message.content)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                      title={`Copy ${member.name}'s reply`}
-                aria-label={`Copy ${member.name}'s reply`}
-                    >
-                      {copiedId === message.id ? (
-                        <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
-                      ) : (
-                        <Copy className="w-4 h-4 shrink-0" />
-                      )}
-                    </button>
+              {/* Bottom actions enter only after this seat has visually settled. */}
+              <AnimatePresence initial={false}>
+                {!isThinking && hasSettledPresentation && (
+                  <motion.div
+                    key={`actions-${message.id}`}
+                    layout="position"
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: -3 }}
+                    transition={{
+                      layout: {
+                        type: 'spring',
+                        stiffness: 360,
+                        damping: 34,
+                        mass: 0.82,
+                      },
+                      opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+                      y: {
+                        duration: shouldReduceMotion ? 0 : 0.2,
+                        ease: [0.16, 1, 0.3, 1],
+                      },
+                    }}
+                    className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0"
+                  >
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <button
+                        onClick={() => handleCopy(message.id, message.content)}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                        title={`Copy ${member.name}'s reply`}
+                        aria-label={`Copy ${member.name}'s reply`}
+                      >
+                        {copiedId === message.id ? (
+                          <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
+                        ) : (
+                          <Copy className="w-4 h-4 shrink-0" />
+                        )}
+                      </button>
 
-                    {onExportMessage && (
+                      {onExportMessage && (
+                        <button
+                          type="button"
+                          onClick={() => onExportMessage(message)}
+                          className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                          title="Download response as PDF"
+                          aria-label="Download response as PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {isAiCollapsible && (
                       <button
                         type="button"
-                        onClick={() => onExportMessage(message)}
+                        onClick={() => toggleAiCollapse(message.id)}
                         className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                        title="Download response as PDF"
-                        aria-label="Download response as PDF"
+                        title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                        aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                        aria-expanded={!isAiCollapsed}
                       >
-                        <Download className="w-3.5 h-3.5" />
+                        {isAiCollapsed ? (
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        ) : (
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        )}
                       </button>
                     )}
-                  </div>
-
-                  {isAiCollapsible && (
-                    <button
-                      type="button"
-                      onClick={() => toggleAiCollapse(message.id)}
-                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                      title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
-                      aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
-                      aria-expanded={!isAiCollapsed}
-                    >
-                      {isAiCollapsed ? (
-                        <ChevronDown className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronUp className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
               </div>
-            </div>
+            </motion.div>
           </React.Fragment>
         );
       })}
 
-      {/* Continue discussion appears only after the final visible answer has settled. */}
-      {canContinue &&
+      {/* Continue discussion appears after normal presentation settles, or
+          immediately after an interrupted turn using the visible state at Stop. */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {canContinue &&
         !isDebating &&
-        revealingMessageIds.size === 0 &&
-        freshModelMessageIds.size === 0 &&
         messages.length > 0 &&
         onContinue &&
         (() => {
+        const lastUserMessage = [...messages]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const latestTurnInterrupted = Boolean(
+          lastUserMessage?.id &&
+          interruptedTurnUserIds.has(lastUserMessage.id)
+        );
+
+        if (!presentation.isCurrentTurnSettled && !latestTurnInterrupted) {
+          return null;
+        }
         const lastUserIndex = [...messages]
           .map((item, index) => ({ item, index }))
           .reverse()
           .find(({ item }) => item.role === 'user')?.index ?? -1;
 
+        const latestModelMessages = messages
+          .slice(lastUserIndex + 1)
+          .filter((item) => item.role === 'model' && item.content.trim());
+
         const latestModels = Array.from(
           new Set(
-            messages
-              .slice(lastUserIndex + 1)
-              .filter((item) => item.role === 'model' && item.content.trim())
-              .map((item) => {
-                const raw = String(item.modelId || item.authorName || '').toLowerCase();
-                if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
-                if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
-                return 'gemini';
-              })
+            latestModelMessages.map((item) => {
+              const raw = String(item.modelId || item.authorName || '').toLowerCase();
+              if (raw.includes('claude') || raw.includes('anthropic')) return 'claude';
+              if (raw.includes('chatgpt') || raw.includes('gpt') || raw.includes('openai')) return 'chatgpt';
+              return 'gemini';
+            })
           )
         ) as ModelId[];
 
-        if (latestModels.length === 0) return null;
-
         const expectedAnswers = Math.max(1, activeModels.length);
+        const visibleAnsweredCount = latestTurnInterrupted
+          ? latestModelMessages.filter(
+              (item) => presentation.phaseFor(item.id) === 'complete'
+            ).length
+          : latestModels.length;
+
+        if (latestModels.length === 0 && !latestTurnInterrupted) return null;
+
         const answerLabel =
-          latestModels.length >= expectedAnswers
-            ? `All ${latestModels.length} answered`
-            : `${latestModels.length} of ${expectedAnswers} answered`;
+          visibleAnsweredCount <= 0
+            ? null
+            : visibleAnsweredCount >= expectedAnswers
+              ? `All ${visibleAnsweredCount} answered`
+              : `${visibleAnsweredCount} of ${expectedAnswers} answered`;
 
         return (
           <motion.div
-            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
+            key="continue-controls"
+            layout="position"
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 10, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={
+              shouldReduceMotion
+                ? undefined
+                : { opacity: 0, y: -6, scale: 0.985 }
+            }
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.24,
-              ease: [0.16, 1, 0.3, 1],
+              layout: {
+                type: 'spring',
+                stiffness: 340,
+                damping: 34,
+                mass: 0.86,
+              },
+              opacity: { duration: shouldReduceMotion ? 0 : 0.2 },
+              y: {
+                duration: shouldReduceMotion ? 0 : 0.24,
+                ease: [0.16, 1, 0.3, 1],
+              },
+              scale: {
+                duration: shouldReduceMotion ? 0 : 0.22,
+                ease: [0.16, 1, 0.3, 1],
+              },
             }}
             className="col-span-full pt-6 pb-2 min-w-0"
           >
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-[#E7E5E0]" />
-              <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
-                {answerLabel}
-              </span>
+              {answerLabel && (
+                <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
+                  {answerLabel}
+                </span>
+              )}
+              {latestTurnInterrupted && (
+                <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+                  {answerLabel ? '· Response interrupted' : 'Response interrupted'}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={onContinue}
@@ -2319,9 +2533,44 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           </motion.div>
         );
       })()}
+      </AnimatePresence>
 
-      {/* Dynamic bottom spacer: untransitioned/instant height change so scrollHeight is immediately accurate during deliberation */}
-      <div className={`col-span-full w-full shrink-0 ${isDebating ? 'h-[50vh]' : 'h-0'}`} />
+      {(() => {
+        const latestUser = [...messages]
+          .reverse()
+          .find((item) => item.role === 'user');
+        const latestInterrupted = Boolean(
+          latestUser?.id &&
+          interruptedTurnUserIds.has(latestUser.id)
+        );
+        if (!latestInterrupted || canContinue || isDebating) return null;
+
+        return (
+          <div className="col-span-full pt-6 pb-2 min-w-0">
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+              <span className="text-[13px] text-[#8A867D] whitespace-nowrap">
+                Response interrupted
+              </span>
+              <div className="h-px flex-1 bg-[#E7E5E0]" />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Natural end of real conversation UI, excluding temporary scroll reserve. */}
+      <div
+        data-chat-natural-end="true"
+        className="col-span-full h-0 w-full shrink-0 pointer-events-none"
+        aria-hidden="true"
+      />
+
+      {/* Viewport-owned reserve: exactly enough space to keep the live user turn anchored. */}
+      <div
+        ref={reserveRef}
+        className="col-span-full w-full h-0 shrink-0 pointer-events-none"
+        aria-hidden="true"
+      />
 
       {/* Invisible anchor for auto-scroll on discussion load */}
       <div ref={bottomRef} className="col-span-full h-1 w-full" />
