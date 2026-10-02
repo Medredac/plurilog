@@ -2757,8 +2757,6 @@ export default function DashboardPage() {
       return;
     }
 
-    continueInFlightRef.current = true;
-
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -2844,6 +2842,8 @@ export default function DashboardPage() {
       setShowUpgradeModal(true);
       return;
     }
+
+    continueInFlightRef.current = true;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
