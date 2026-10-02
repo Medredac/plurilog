@@ -194,6 +194,43 @@ interface ActiveDiscussionState {
   activeSpeaker: ModelId | null;
 }
 
+interface RehydratedDiscussionRun {
+  discussionId: string;
+  runId: string;
+  runStartedAt: number;
+}
+
+interface DurableRunStatusResponse {
+  active: boolean;
+  status: 'active' | 'cancelled' | 'completed' | null;
+  runId: string | null;
+  runStartedAt: number | null;
+}
+
+async function readDurableRunStatus(
+  discussionId: string
+): Promise<DurableRunStatusResponse | null> {
+  try {
+    const response = await fetch(
+      `/api/debate/status?discussionId=${encodeURIComponent(discussionId)}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+      }
+    );
+
+    if (!response.ok) {
+      console.warn('[Durable Run] Status request failed:', response.status);
+      return null;
+    }
+
+    return (await response.json()) as DurableRunStatusResponse;
+  } catch (error) {
+    console.warn('[Durable Run] Status request error:', error);
+    return null;
+  }
+}
+
 interface UpgradeParamsHandlerProps {
   isLoadingAuth: boolean;
   onOpenUpgrade: () => void;
@@ -241,6 +278,7 @@ export default function DashboardPage() {
   const activeDebateIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeGenerationsRef = useRef<Map<string, ActiveDiscussionState>>(new Map());
+  const rehydratedRunRef = useRef<RehydratedDiscussionRun | null>(null);
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
@@ -267,6 +305,10 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
+  const seatOrderRef = useRef<ModelId[]>([...DEFAULT_SEAT_ORDER]);
+  const activeModelsRef = useRef<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
+  const [rehydratedRun, setRehydratedRun] =
+    useState<RehydratedDiscussionRun | null>(null);
   const [isDebating, setIsDebating] = useState<boolean>(false);
   const [isStopRequested, setIsStopRequested] = useState<boolean>(false);
   const [interruptedTurnUserIds, setInterruptedTurnUserIds] = useState<Set<string>>(
@@ -593,8 +635,95 @@ export default function DashboardPage() {
       );
   };
 
+  const applyRehydratedRunState = useCallback(
+    (
+      discussionId: string,
+      items: ChatMessage[],
+      runStatus: DurableRunStatusResponse
+    ): boolean => {
+      if (
+        !runStatus.active ||
+        !runStatus.runId ||
+        !runStatus.runStartedAt
+      ) {
+        return false;
+      }
+
+      const configuredSeatOrder = seatOrderRef.current.filter((id) =>
+        activeModelsRef.current.includes(id)
+      );
+      const recoverySeatOrder =
+        configuredSeatOrder.length > 0
+          ? configuredSeatOrder
+          : [...DEFAULT_SEAT_ORDER];
+
+      const completedSeats = new Set<ModelId>();
+      for (const item of items) {
+        if (
+          item.role !== 'model' ||
+          !item.modelId ||
+          !item.createdAt
+        ) {
+          continue;
+        }
+
+        const createdAtMs = new Date(item.createdAt).getTime();
+        if (
+          Number.isFinite(createdAtMs) &&
+          createdAtMs >= runStatus.runStartedAt - 1000
+        ) {
+          completedSeats.add(item.modelId);
+        }
+      }
+
+      const recoveredStatuses: Record<ModelId, SeatStatus> = {
+        ...INITIAL_SEAT_STATUSES,
+      };
+      for (const id of recoverySeatOrder) {
+        recoveredStatuses[id] = completedSeats.has(id) ? 'done' : 'waiting';
+      }
+
+      const nextSeat =
+        recoverySeatOrder.find((id) => !completedSeats.has(id)) || null;
+      if (nextSeat) {
+        recoveredStatuses[nextSeat] = 'thinking';
+      }
+
+      const recovered: RehydratedDiscussionRun = {
+        discussionId,
+        runId: runStatus.runId,
+        runStartedAt: runStatus.runStartedAt,
+      };
+
+      rehydratedRunRef.current = recovered;
+      setRehydratedRun((previous) =>
+        previous?.discussionId === recovered.discussionId &&
+        previous.runId === recovered.runId &&
+        previous.runStartedAt === recovered.runStartedAt
+          ? previous
+          : recovered
+      );
+      setSeatStatuses(recoveredStatuses);
+      setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
+      setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
+      setActiveSpeaker(nextSeat);
+      setIsDebating(true);
+      setCanContinue(false);
+      setErrorMessage(null);
+      setFailedTurn(null);
+      setAbandonedFailedTurnIds([]);
+
+      return true;
+    },
+    []
+  );
+
   // Fetch messages for a specific discussion and populate canvas atomically
-  const fetchDiscussionMessages = useCallback(async (discussionId: string, isInitialMount: boolean = false) => {
+  const fetchDiscussionMessages = useCallback(async (
+    discussionId: string,
+    isInitialMount: boolean = false,
+    silent: boolean = false
+  ) => {
     if (!discussionId) {
       setMessages([]);
       setCanContinue(false);
@@ -608,13 +737,17 @@ export default function DashboardPage() {
 
     currentFetchIdRef.current = discussionId;
 
-    // For initial mount without existing content, or slow fetch (>400ms), show spinner
-    if (isInitialMount) {
-      setIsLoadingMessages(true);
-    } else {
-      fetchTimeoutRef.current = setTimeout(() => {
+    // For initial mount without existing content, or slow fetch (>400ms), show spinner.
+    // Silent refreshes are used only to reconcile a recovered in-flight run and
+    // must not flash the whole conversation back to a loading state.
+    if (!silent) {
+      if (isInitialMount) {
         setIsLoadingMessages(true);
-      }, 400);
+      } else {
+        fetchTimeoutRef.current = setTimeout(() => {
+          setIsLoadingMessages(true);
+        }, 400);
+      }
     }
 
     try {
@@ -675,14 +808,27 @@ export default function DashboardPage() {
         };
       });
 
+      const activeGen = activeGenerationsRef.current.get(discussionId);
+      const durableRunStatus = activeGen
+        ? null
+        : await readDurableRunStatus(discussionId);
+
+      if (currentFetchIdRef.current !== discussionId) {
+        return;
+      }
+
       console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
 
       // Atomic swap: update discussion ID, messages, and state together once data arrives
       activeDebateIdRef.current = discussionId;
       setActiveDebateId(discussionId);
 
-      const activeGen = activeGenerationsRef.current.get(discussionId);
       if (activeGen) {
+        if (rehydratedRunRef.current?.discussionId === discussionId) {
+          rehydratedRunRef.current = null;
+          setRehydratedRun(null);
+        }
+
         const combinedMessages = activeGen.liveSeatMessage
           ? [...formatted, { ...activeGen.liveSeatMessage }]
           : formatted;
@@ -701,16 +847,46 @@ export default function DashboardPage() {
         setIsDebating(true);
         setActiveSpeaker(activeGen.activeSpeaker);
       } else {
-        setMessages(formatted);
-        setCanContinue(hasModelResponseAfterLatestUser(formatted));
-        setErrorMessage(null);
-        setFailedTurn(null);
-        setAbandonedFailedTurnIds([]);
-        setSeatStatuses(INITIAL_SEAT_STATUSES);
-        setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
-        setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
-        setIsDebating(false);
-        setActiveSpeaker(null);
+        if (silent) {
+          setMessages((previous) => {
+            const unchanged =
+              previous.length === formatted.length &&
+              previous.every(
+                (message, index) =>
+                  message.id === formatted[index]?.id &&
+                  message.content === formatted[index]?.content &&
+                  message.isStreaming === false
+              );
+            return unchanged ? previous : formatted;
+          });
+        } else {
+          setMessages(formatted);
+        }
+
+        const recoveredActiveRun = durableRunStatus
+          ? applyRehydratedRunState(
+              discussionId,
+              formatted,
+              durableRunStatus
+            )
+          : false;
+
+        if (!recoveredActiveRun) {
+          if (rehydratedRunRef.current?.discussionId === discussionId) {
+            rehydratedRunRef.current = null;
+            setRehydratedRun(null);
+          }
+
+          setCanContinue(hasModelResponseAfterLatestUser(formatted));
+          setErrorMessage(null);
+          setFailedTurn(null);
+          setAbandonedFailedTurnIds([]);
+          setSeatStatuses(INITIAL_SEAT_STATUSES);
+          setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
+          setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
+          setIsDebating(false);
+          setActiveSpeaker(null);
+        }
       }
     } catch (err) {
       if (currentFetchIdRef.current === discussionId) {
@@ -723,11 +899,53 @@ export default function DashboardPage() {
         clearTimeout(fetchTimeoutRef.current);
         fetchTimeoutRef.current = null;
       }
-      if (currentFetchIdRef.current === discussionId) {
+      if (!silent && currentFetchIdRef.current === discussionId) {
         setIsLoadingMessages(false);
       }
     }
-  }, [supabase]);
+  }, [supabase, applyRehydratedRunState]);
+
+  // A hard refresh destroys the original browser SSE connection, but the
+  // server-side run remains authoritative. While viewing a recovered active
+  // run, quietly reconcile persisted seat completions until the durable run
+  // finishes or is cancelled. This also makes discussion re-entry consistent
+  // after a refresh without spawning a second generation.
+  useEffect(() => {
+    if (
+      !rehydratedRun ||
+      activeDebateId !== rehydratedRun.discussionId
+    ) {
+      return;
+    }
+
+    let disposed = false;
+    let inFlight = false;
+
+    const reconcile = async () => {
+      if (disposed || inFlight) return;
+      inFlight = true;
+      try {
+        await fetchDiscussionMessages(
+          rehydratedRun.discussionId,
+          false,
+          true
+        );
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const intervalId = window.setInterval(reconcile, 1200);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    rehydratedRun,
+    activeDebateId,
+    fetchDiscussionMessages,
+  ]);
 
   // Check user's current credit balance from database and update isOutOfCredits state
   const refreshCreditStatus = useCallback(async () => {
@@ -852,6 +1070,8 @@ export default function DashboardPage() {
 
         if (session.user?.id) {
           const savedLayout = readPanelLayoutPreference(session.user.id);
+          seatOrderRef.current = savedLayout.seatOrder;
+          activeModelsRef.current = savedLayout.activeModels;
           setSeatOrder(savedLayout.seatOrder);
           setActiveModels(savedLayout.activeModels);
         }
@@ -888,6 +1108,8 @@ export default function DashboardPage() {
 
         if (session.user?.id) {
           const savedLayout = readPanelLayoutPreference(session.user.id);
+          seatOrderRef.current = savedLayout.seatOrder;
+          activeModelsRef.current = savedLayout.activeModels;
           setSeatOrder(savedLayout.seatOrder);
           setActiveModels(savedLayout.activeModels);
         }
@@ -914,6 +1136,8 @@ export default function DashboardPage() {
         }
         currentFetchIdRef.current = null;
         activeDebateIdRef.current = null;
+        rehydratedRunRef.current = null;
+        setRehydratedRun(null);
         setActiveDebateId(null);
         setMessages([]);
         setCanContinue(false);
@@ -969,6 +1193,8 @@ export default function DashboardPage() {
           : prev.filter((m) => m !== id)
         : [...prev, id];
 
+      activeModelsRef.current = nextActiveModels;
+
       if (userId && nextActiveModels !== prev) {
         savePanelLayoutPreference(userId, seatOrder, nextActiveModels);
       }
@@ -979,6 +1205,7 @@ export default function DashboardPage() {
 
   const handleReorderSeats = (newOrder: ModelId[]) => {
     const validatedOrder = validateSeatOrder(newOrder);
+    seatOrderRef.current = validatedOrder;
     setSeatOrder(validatedOrder);
 
     if (userId) {
@@ -994,6 +1221,8 @@ export default function DashboardPage() {
     }
     currentFetchIdRef.current = null;
     activeDebateIdRef.current = null;
+    rehydratedRunRef.current = null;
+    setRehydratedRun(null);
     setActiveDebateId(null);
     setMessages([]);
     setErrorMessage(null);
@@ -1174,24 +1403,44 @@ export default function DashboardPage() {
 
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
-    if (activeGen) {
+    const recoveredRun =
+      currentId &&
+      rehydratedRunRef.current?.discussionId === currentId
+        ? rehydratedRunRef.current
+        : null;
+    const durableRun = activeGen || recoveredRun;
+
+    if (currentId && durableRun) {
       // Preserve the current immediate UI stop behavior, but also tell the
       // server authoritatively that this run is dead. keepalive lets the
-      // cancellation survive the browser stream being torn down.
+      // cancellation survive either the live SSE stream or a recovered
+      // post-refresh view.
       void fetch('/api/debate/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           discussionId: currentId,
-          runId: activeGen.runId,
-          runStartedAt: activeGen.runStartedAt,
+          runId: durableRun.runId,
+          runStartedAt: durableRun.runStartedAt,
         }),
         keepalive: true,
       }).catch((cancelErr) => {
         console.warn('[Durable Stop] Cancellation request failed:', cancelErr);
       });
 
-      activeGen.controller.abort();
+      if (activeGen) {
+        activeGen.controller.abort();
+        return;
+      }
+
+      rehydratedRunRef.current = null;
+      setRehydratedRun(null);
+      setSeatStatuses(INITIAL_SEAT_STATUSES);
+      setSeatActivityLabels(EMPTY_SEAT_ACTIVITY_LABELS);
+      setSeatSearchSources(EMPTY_SEAT_SEARCH_SOURCES);
+      setActiveSpeaker(null);
+      setIsDebating(false);
+      setCanContinue(hasModelResponseAfterLatestUser(messages));
       return;
     }
     if (abortControllerRef.current) {
