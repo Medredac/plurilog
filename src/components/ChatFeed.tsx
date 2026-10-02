@@ -1891,13 +1891,19 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 ? 'mt-7 sm:mt-8'
                 : 'mt-4 sm:mt-[18px]';
 
-        const isThinking = message.isStreaming && !message.content.trim();
-        const forceRevealOnMount = freshModelMessageIds.has(message.id);
-        const isVisuallyRevealing =
-          revealingMessageIds.has(message.id) || forceRevealOnMount;
+        const presentationPhase = presentation.phaseFor(message.id);
+        const isQueuedForPresentation = presentationPhase === 'queued';
+        const isActivePresentation = presentationPhase === 'active';
+        const hasSettledPresentation =
+          presentationPhase === 'static' || presentationPhase === 'complete';
+        const isThinking =
+          isQueuedForPresentation ||
+          (message.isStreaming && !message.content.trim());
         const activeSeatIndex = orderedActiveModels.indexOf(modelKey);
         const upNextModels =
-          isThinking && activeSeatIndex >= 0
+          isThinking &&
+          !isQueuedForPresentation &&
+          activeSeatIndex >= 0
             ? orderedActiveModels.slice(activeSeatIndex + 1)
             : [];
         const attachments: string[] =
