@@ -1229,16 +1229,16 @@ interface StreamingMessageBodyProps {
   content: string;
   isStreaming?: boolean;
   reduceMotion?: boolean;
-  forceRevealOnMount?: boolean;
-  onRevealStateChange?: (isRevealing: boolean) => void;
+  presentationPhase: PresentationPhase;
+  onPresentationComplete?: () => void;
 }
 
 const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   content,
   isStreaming,
   reduceMotion,
-  forceRevealOnMount,
-  onRevealStateChange,
+  presentationPhase,
+  onPresentationComplete,
 }) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
   const { mainContent, sources } = parseTrailingSources(content);
@@ -1249,13 +1249,9 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
     mainContent,
     isStreaming,
     reduceMotion,
-    forceRevealOnMount
+    presentationPhase,
+    onPresentationComplete
   );
-
-  useEffect(() => {
-    onRevealStateChange?.(isRevealing);
-    return () => onRevealStateChange?.(false);
-  }, [isRevealing, onRevealStateChange]);
 
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
