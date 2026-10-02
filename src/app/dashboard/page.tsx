@@ -2906,6 +2906,7 @@ export default function DashboardPage() {
             </div>
           )}
 
+          <LayoutGroup id={`plurilog-thread-${activeDebateId || 'new'}`}>
           {/* Message Scroll Region Wrapper (Provides stable positioning context for scroll button above variable-height ChatInput) */}
           <div className="relative flex-1 min-h-0 min-w-0 w-full flex flex-col">
             {/* Full-width scrollable viewport / Centered Empty State */}
@@ -3085,6 +3086,7 @@ export default function DashboardPage() {
               onToggleModel={handleToggleModel}
             />
           )}
+          </LayoutGroup>
         </main>
 
         <DocumentPreviewDrawer
