@@ -1376,7 +1376,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
         const scrollerRect = scroller.getBoundingClientRect();
         const targetRect = el.getBoundingClientRect();
-        const topOffset = window.matchMedia('(min-width: 640px)').matches ? 32 : 24;
+        const isContinueTurn = candidate.content === 'Continue';
+        const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+        // The old Continue turn had an extra mt-10 / sm:mt-12 before its
+        // scroll target. Preserve that visual breathing room even though the
+        // redesigned Round marker remains intentionally hidden until output.
+        const topOffset = isContinueTurn
+          ? (isDesktop ? 80 : 64)
+          : (isDesktop ? 32 : 24);
         const targetTop =
           scroller.scrollTop + (targetRect.top - scrollerRect.top) - topOffset;
 
