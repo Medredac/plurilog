@@ -3,11 +3,16 @@ import { createHash } from 'crypto';
 const DEFAULT_META_DATASET_ID = '1395458409440724';
 const DEFAULT_GRAPH_API_VERSION = 'v24.0';
 
+export const META_CONSENT_COOKIE = 'plurilog_meta_consent';
+export type MetaConsentStatus = 'accepted' | 'rejected' | 'unknown';
+
 export type MetaEventName = 'Activated' | 'DeepEngagement' | 'Purchase';
 
 export interface MetaConversionInput {
   eventName: MetaEventName;
   countryCode?: string | null;
+  regionCode?: string | null;
+  consentStatus?: MetaConsentStatus;
   eventId: string;
   email?: string | null;
   externalId: string;
@@ -33,6 +38,11 @@ function normalizedHash(value?: string | null): string | null {
   return normalized ? sha256(normalized) : null;
 }
 
+export function normalizeMetaConsentStatus(value?: string | null): MetaConsentStatus {
+  if (value === 'accepted' || value === 'rejected') return value;
+  return 'unknown';
+}
+
 export function isMetaSignupSource(source?: string | null): boolean {
   if (!source) return false;
   const normalized = source.trim().toLowerCase();
@@ -45,19 +55,37 @@ export function isMetaSignupSource(source?: string | null): boolean {
   );
 }
 
-const META_TRACKING_COUNTRIES = new Set(['US', 'AU', 'NZ']);
+const META_TRACKING_COUNTRIES = new Set(['US', 'AU', 'NZ', 'CA', 'GB']);
 
 export function isMetaTrackingCountry(countryCode?: string | null): boolean {
   const normalized = countryCode?.trim().toUpperCase();
   return normalized ? META_TRACKING_COUNTRIES.has(normalized) : false;
 }
 
-export function isMetaTrackingAllowedForRequest(countryCode?: string | null): boolean {
-  if (isMetaTrackingCountry(countryCode)) return true;
+export function requiresMetaConsent(
+  countryCode?: string | null,
+  regionCode?: string | null
+): boolean {
+  const country = countryCode?.trim().toUpperCase();
+  const region = regionCode?.trim().toUpperCase();
 
-  // Preview is a controlled test environment. Allow the existing Meta Test Events
-  // setup to exercise the funnel from any developer location without weakening the
-  // production geo gate.
+  return country === 'GB' || (country === 'CA' && region === 'QC');
+}
+
+export function isMetaTrackingAllowedForRequest(
+  countryCode?: string | null,
+  regionCode?: string | null,
+  consentStatus: MetaConsentStatus = 'unknown'
+): boolean {
+  if (isMetaTrackingCountry(countryCode)) {
+    if (requiresMetaConsent(countryCode, regionCode)) {
+      return consentStatus === 'accepted';
+    }
+    return true;
+  }
+
+  // Preview is a controlled test environment. Keep Meta Test Events usable from
+  // non-target developer locations without weakening production targeting.
   return (
     process.env.VERCEL_ENV === 'preview' &&
     Boolean(process.env.META_TEST_EVENT_CODE?.trim())
@@ -67,8 +95,21 @@ export function isMetaTrackingAllowedForRequest(countryCode?: string | null): bo
 export async function sendMetaConversionEvent(
   input: MetaConversionInput
 ): Promise<MetaConversionResult> {
-  if (!isMetaTrackingAllowedForRequest(input.countryCode)) {
-    return { sent: false, reason: 'geo_not_eligible' };
+  const consentStatus = input.consentStatus ?? 'unknown';
+
+  if (
+    !isMetaTrackingAllowedForRequest(
+      input.countryCode,
+      input.regionCode,
+      consentStatus
+    )
+  ) {
+    return {
+      sent: false,
+      reason: requiresMetaConsent(input.countryCode, input.regionCode)
+        ? 'consent_not_granted'
+        : 'geo_not_eligible',
+    };
   }
 
   const token = process.env.META_CONVERSIONS_API_TOKEN?.trim();

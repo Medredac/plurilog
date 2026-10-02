@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
 import { cookies } from 'next/headers';
-import { isMetaSignupSource, isMetaTrackingAllowedForRequest } from '@/lib/metaConversions';
+import {
+  META_CONSENT_COOKIE,
+  isMetaSignupSource,
+  isMetaTrackingAllowedForRequest,
+  normalizeMetaConsentStatus,
+} from '@/lib/metaConversions';
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -48,16 +53,27 @@ export async function POST(request: Request) {
   // Preserve Meta attribution through Stripe so the verified purchase webhook
   // can report a paid conversion without relying on a browser success page.
   const metaCountryCode = request.headers.get('x-vercel-ip-country');
+  const metaRegionCode = request.headers.get('x-vercel-ip-country-region');
+  const cookieStore = await cookies();
+  const metaConsentStatus = normalizeMetaConsentStatus(
+    cookieStore.get(META_CONSENT_COOKIE)?.value
+  );
+
   if (
     isMetaSignupSource(profile.signup_source) &&
-    isMetaTrackingAllowedForRequest(metaCountryCode)
+    isMetaTrackingAllowedForRequest(
+      metaCountryCode,
+      metaRegionCode,
+      metaConsentStatus
+    )
   ) {
-    const cookieStore = await cookies();
     const fbp = cookieStore.get('_fbp')?.value;
     const fbc = cookieStore.get('_fbc')?.value;
     const attributionMetadata: Record<string, string> = {
       plurilog_signup_source: profile.signup_source,
+      plurilog_meta_consent: metaConsentStatus,
       ...(metaCountryCode ? { plurilog_meta_country: metaCountryCode.trim().toUpperCase() } : {}),
+      ...(metaRegionCode ? { plurilog_meta_region: metaRegionCode.trim().toUpperCase() } : {}),
       ...(fbp ? { plurilog_fbp: fbp } : {}),
       ...(fbc ? { plurilog_fbc: fbc } : {}),
     };

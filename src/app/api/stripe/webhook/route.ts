@@ -2,7 +2,12 @@ import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { createServiceClient } from '@/utils/supabase/service';
 import Stripe from 'stripe';
-import { isMetaSignupSource, sendMetaConversionEvent } from '@/lib/metaConversions';
+import {
+  isMetaSignupSource,
+  normalizeMetaConsentStatus,
+  sendMetaConversionEvent,
+  type MetaConsentStatus,
+} from '@/lib/metaConversions';
 
 const PLUS_MONTHLY_ALLOWANCE_CENTS = 900;
 
@@ -17,6 +22,8 @@ async function reportInitialMetaPurchase({
   currency,
   eventTime,
   countryCode,
+  regionCode,
+  consentStatus,
 }: {
   userId: string;
   email?: string | null;
@@ -28,6 +35,8 @@ async function reportInitialMetaPurchase({
   currency?: string | null;
   eventTime: number;
   countryCode?: string | null;
+  regionCode?: string | null;
+  consentStatus?: MetaConsentStatus;
 }) {
   if (!isMetaSignupSource(signupSource)) return;
   if (typeof amountCents !== 'number' || amountCents <= 0 || !currency) return;
@@ -35,6 +44,8 @@ async function reportInitialMetaPurchase({
   const result = await sendMetaConversionEvent({
     eventName: 'Purchase',
     countryCode,
+    regionCode,
+    consentStatus,
     eventId: `plurilog:${userId}:purchase:${subscriptionId}`,
     email,
     externalId: userId,
@@ -109,6 +120,10 @@ export async function POST(request: Request) {
                 currency: session.currency,
                 eventTime: event.created,
                 countryCode: session.metadata?.plurilog_meta_country || null,
+                regionCode: session.metadata?.plurilog_meta_region || null,
+                consentStatus: normalizeMetaConsentStatus(
+                  session.metadata?.plurilog_meta_consent
+                ),
               });
             } catch (metaPurchaseErr) {
               console.warn('[Meta CAPI] Checkout purchase reporting failed:', metaPurchaseErr);
@@ -216,6 +231,10 @@ export async function POST(request: Request) {
                 currency: invoice.currency,
                 eventTime: event.created,
                 countryCode: initialSubscription.metadata?.plurilog_meta_country || null,
+                regionCode: initialSubscription.metadata?.plurilog_meta_region || null,
+                consentStatus: normalizeMetaConsentStatus(
+                  initialSubscription.metadata?.plurilog_meta_consent
+                ),
               });
             } catch (metaPurchaseErr) {
               console.warn('[Meta CAPI] Initial invoice purchase reporting failed:', metaPurchaseErr);

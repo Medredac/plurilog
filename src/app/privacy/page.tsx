@@ -27,7 +27,7 @@ export default function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="text-xs sm:text-sm text-zinc-400">
-            Last updated: September 14, 2026
+            Last updated: October 2, 2026
           </p>
         </MotionReveal>
 
@@ -63,7 +63,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p>
-              On our public marketing pages, we may use advertising measurement tools, such as the Meta Pixel, and related attribution technologies to understand the effectiveness of our advertising campaigns. We do not use advertising trackers within your authenticated discussion dashboard.
+              On our public marketing pages, we may use advertising measurement tools, including the Meta Pixel and Meta&apos;s Conversions API, to measure visits and conversion events associated with our campaigns. In regions where we ask for cookie consent, these advertising technologies remain off unless you choose Accept. We do not use advertising trackers within your authenticated discussion dashboard.
             </p>
           </MotionReveal>
 
@@ -106,7 +106,7 @@ export default function PrivacyPage() {
                 <strong className="font-medium text-zinc-800">PostHog</strong> &mdash; provides privacy-focused public website analytics and public-page session replay without cookies or persistent browser storage to help us understand how public pages are navigated.
               </li>
               <li>
-                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution for our public marketing campaigns.
+                <strong className="font-medium text-zinc-800">Meta</strong> &mdash; provides advertising measurement and conversion attribution for our public marketing campaigns. Depending on your region and consent choice, this may include browser attribution identifiers and conversion events such as registration, engagement milestones, and purchases.
               </li>
             </ul>
             <p>
