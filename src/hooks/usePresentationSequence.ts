@@ -68,7 +68,13 @@ export function usePresentationSequence(
 
   const activePresentationId = useMemo(() => {
     for (const message of turnData.modelMessages) {
-      if (!completedIds.has(message.id)) {
+      const hasPayload =
+        Boolean(message.isStreaming) ||
+        Boolean(message.content.trim()) ||
+        Boolean(message.attachment_urls?.length) ||
+        Boolean(message.image_url);
+
+      if (!completedIds.has(message.id) && hasPayload) {
         return message.id;
       }
     }
@@ -123,7 +129,12 @@ export function usePresentationSequence(
       // Empty, non-streaming placeholders are not presentable content. They
       // should never block final controls if a provider/tool path removed its
       // visible answer.
-      return !message.isStreaming && !message.content.trim();
+      return (
+        !message.isStreaming &&
+        !message.content.trim() &&
+        !message.attachment_urls?.length &&
+        !message.image_url
+      );
     });
 
   return {
