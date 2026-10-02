@@ -1355,145 +1355,74 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 }) => {
   const shouldReduceMotion = useReducedMotion();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const reserveRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
-  const lastUserMsgIdRef = useRef<string | null>(null);
-  const knownModelMessageIdsRef = useRef<Set<string> | null>(null);
-
-  if (knownModelMessageIdsRef.current === null) {
-    knownModelMessageIdsRef.current = new Set(
-      messages.filter((message) => message.role === 'model').map((message) => message.id)
-    );
-  }
-
-  const freshModelMessageIds = new Set(
-    messages
-      .filter(
-        (message) =>
-          message.role === 'model' &&
-          !knownModelMessageIdsRef.current!.has(message.id)
-      )
-      .map((message) => message.id)
-  );
-
-  useEffect(() => {
-    for (const message of messages) {
-      if (message.role === 'model') {
-        knownModelMessageIdsRef.current?.add(message.id);
-      }
-    }
-  }, [messages]);
-
-  const [revealingMessageIds, setRevealingMessageIds] = useState<Set<string>>(
-    () => new Set()
-  );
-
-  const handleRevealStateChange = React.useCallback(
-    (messageId: string, isRevealing: boolean) => {
-      setRevealingMessageIds((previous) => {
-        const next = new Set(previous);
-        if (isRevealing) next.add(messageId);
-        else next.delete(messageId);
-
-        if (
-          next.size === previous.size &&
-          [...next].every((id) => previous.has(id))
-        ) {
-          return previous;
-        }
-        return next;
-      });
-    },
-    []
-  );
+  const [anchoredUserId, setAnchoredUserId] = useState<string | null>(null);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
-  // 1. When switching or loading a discussion from sidebar: scroll directly to the bottom (completed history)
+  // Completed history opens at the bottom. A newly-created live discussion is
+  // already owned by the top-turn anchor and must never race with this jump.
   useEffect(() => {
     if (activeDebateId && activeDebateId !== lastActiveDebateIdRef.current) {
       lastActiveDebateIdRef.current = activeDebateId;
 
-      // If discussion was just auto-created by sending a prompt, skip jump-to-bottom
       if (isNewlyCreatedRef?.current) {
         isNewlyCreatedRef.current = false;
         return;
       }
 
+      setAnchoredUserId(null);
       setTimeout(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
       }, 50);
     }
   }, [activeDebateId, isNewlyCreatedRef]);
 
-  // 2. On a new user turn (including Continue), glide that turn into a stable
-  //    reading position near the top of the chat viewport, then hold still while
-  //    the model responses grow underneath it.
+  // A live run owns a top anchor. We keep that anchor after generation
+  // finishes so the reading position remains stable until the next user turn.
   useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    const prevMsg = messages.length > 1 ? messages[messages.length - 2] : null;
+    if (!isDebating) return;
 
-    let candidate: ChatMessage | null = null;
-    if (lastMsg && lastMsg.role === 'user') {
-      candidate = lastMsg;
-    } else if (
-      lastMsg &&
-      lastMsg.role === 'model' &&
-      lastMsg.isStreaming &&
-      !lastMsg.content &&
-      prevMsg &&
-      prevMsg.role === 'user'
-    ) {
-      candidate = prevMsg;
+    const latestUser = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user');
+
+    if (latestUser && latestUser.id !== anchoredUserId) {
+      setAnchoredUserId(latestUser.id);
     }
+  }, [anchoredUserId, isDebating, messages]);
 
-    if (!candidate || candidate.id === lastUserMsgIdRef.current) return;
+  // Zero-output stopped Continue rounds are removed from the message list.
+  // Release their anchor immediately instead of preserving dead geometry.
+  useEffect(() => {
+    if (
+      anchoredUserId &&
+      !messages.some((message) => message.id === anchoredUserId)
+    ) {
+      setAnchoredUserId(null);
+    }
+  }, [anchoredUserId, messages]);
 
-    // Wait for React + layout (including the debating spacer) to settle before
-    // measuring. Two RAFs avoids the old race where scrolling sometimes fired
-    // against the previous layout.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = document.getElementById(candidate.id);
-        if (!el) return;
+  const anchoredUserMessage = anchoredUserId
+    ? messages.find((message) => message.id === anchoredUserId)
+    : null;
+  const isContinueAnchor = anchoredUserMessage?.content === 'Continue';
 
-        const scroller = el.closest('.overflow-y-auto') as HTMLElement | null;
-        if (!scroller) {
-          el.scrollIntoView({
-            behavior: shouldReduceMotion ? 'auto' : 'smooth',
-            block: 'start',
-          });
-          lastUserMsgIdRef.current = candidate.id;
-          return;
-        }
+  useTopTurnAnchor({
+    viewportRef: scrollContainerRef,
+    contentRef,
+    reserveRef,
+    anchorId: anchoredUserId,
+    topOffsetMobile: isContinueAnchor ? 64 : 24,
+    topOffsetDesktop: isContinueAnchor ? 80 : 32,
+  });
 
-        const scrollerRect = scroller.getBoundingClientRect();
-        const targetRect = el.getBoundingClientRect();
-        const isContinueTurn = candidate.content === 'Continue';
-        const isDesktop = window.matchMedia('(min-width: 640px)').matches;
-        // The old Continue turn had an extra mt-10 / sm:mt-12 before its
-        // scroll target. Preserve that visual breathing room even though the
-        // redesigned Round marker remains intentionally hidden until output.
-        const topOffset = isContinueTurn
-          ? (isDesktop ? 80 : 64)
-          : (isDesktop ? 32 : 24);
-        const targetTop =
-          scroller.scrollTop + (targetRect.top - scrollerRect.top) - topOffset;
-
-        scroller.scrollTo({
-          top: Math.max(0, targetTop),
-          behavior: shouldReduceMotion ? 'auto' : 'smooth',
-        });
-
-        // Mark handled only after a real DOM target exists. This is important
-        // for Continue, whose visible Round marker intentionally stays hidden
-        // until at least one AI has produced real output.
-        lastUserMsgIdRef.current = candidate.id;
-      });
-    });
-  }, [messages, shouldReduceMotion]);
+  const presentation = usePresentationSequence(messages, anchoredUserId);
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
