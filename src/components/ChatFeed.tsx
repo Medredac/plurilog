@@ -1418,8 +1418,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     contentRef,
     reserveRef,
     anchorId: anchoredUserId,
+    tailAnchorId: presentation.activePresentationId,
     topOffsetMobile: isContinueAnchor ? 64 : 24,
     topOffsetDesktop: isContinueAnchor ? 80 : 32,
+    tailTopOffsetMobile: 24,
+    tailTopOffsetDesktop: 32,
   });
 
   const presentation = usePresentationSequence(messages, anchoredUserId);
@@ -1942,6 +1945,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             )}
             <motion.div
               id={message.id}
+              data-seat-anchor-id={message.id}
               layout="position"
               transition={{
                 layout: {
