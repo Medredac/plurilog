@@ -1209,7 +1209,7 @@ export default function DashboardPage() {
         setSeatStatuses(INITIAL_SEAT_STATUSES);
         setActiveSpeaker(null);
         setIsDebating(false);
-        setCanContinue(false);
+        setCanContinue(Boolean(isContinueRound));
         if (optimisticPlaceholder?.msgId) {
           setMessages((prev) => prev.filter((m) => m.id !== optimisticPlaceholder.msgId));
         }
@@ -2043,7 +2043,10 @@ export default function DashboardPage() {
           setSeatStatuses(INITIAL_SEAT_STATUSES);
           setActiveSpeaker(null);
           setIsDebating(false);
-          setCanContinue(hasStoppedOutput);
+          // A stopped Continue round with zero new output should not disable
+          // continuing altogether: the previously completed round is still
+          // valid context and was continuable immediately before this attempt.
+          setCanContinue(Boolean(isContinueRound) || hasStoppedOutput);
           setMessages((prev) =>
             prev
               .filter((m) => !currentAttemptModelMsgIds.has(m.id) || m.content.trim().length > 0)
@@ -2790,7 +2793,9 @@ export default function DashboardPage() {
       setSeatStatuses(INITIAL_SEAT_STATUSES);
       setActiveSpeaker(null);
       setIsDebating(false);
-      setCanContinue(false);
+      // The user may stop before runRelay starts. The empty Continue marker
+      // is removed, but the previous completed round remains continuable.
+      setCanContinue(true);
       return;
     }
 

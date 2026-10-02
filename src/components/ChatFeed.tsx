@@ -1009,16 +1009,21 @@ interface SmoothRevealResult {
 function useSmoothReveal(
   targetText: string,
   isStreaming?: boolean,
-  reduceMotion?: boolean
+  reduceMotion?: boolean,
+  forceRevealOnMount?: boolean
 ): SmoothRevealResult {
-  // Existing/history messages mount at their current length so opening a
-  // discussion never replays old text from the beginning.
+  // Existing/history messages mount fully rendered. A brand-new model message
+  // may occasionally arrive already completed because React batches provider
+  // chunks + seat_done; forceRevealOnMount preserves the same visual stream.
+  const shouldAnimateInitially =
+    !reduceMotion &&
+    Boolean(isStreaming || forceRevealOnMount) &&
+    targetText.length > 0;
+
   const [displayedLength, setDisplayedLength] = useState(() =>
-    isStreaming && !reduceMotion ? 0 : targetText.length
+    shouldAnimateInitially ? 0 : targetText.length
   );
-  const [isDraining, setIsDraining] = useState(
-    () => Boolean(isStreaming && !reduceMotion && targetText.length > 0)
-  );
+  const [isDraining, setIsDraining] = useState(() => shouldAnimateInitially);
 
   const targetTextRef = useRef(targetText);
   targetTextRef.current = targetText;
@@ -1026,8 +1031,8 @@ function useSmoothReveal(
   const displayedLengthRef = useRef(displayedLength);
   displayedLengthRef.current = displayedLength;
 
-  const hasStreamedRef = useRef(Boolean(isStreaming));
-  if (isStreaming) hasStreamedRef.current = true;
+  const hasStreamedRef = useRef(Boolean(isStreaming || forceRevealOnMount));
+  if (isStreaming || forceRevealOnMount) hasStreamedRef.current = true;
 
   useEffect(() => {
     if (reduceMotion) {
@@ -1086,19 +1091,19 @@ function useSmoothReveal(
       // presentation lag stays bounded and the next seat does not visually
       // overtake the previous one.
       const intervalMs =
-        lag > 1600 ? 16 :
-        lag > 900 ? 18 :
-        lag > 420 ? 20 :
-        lag > 180 ? 24 :
-        30;
+        lag > 1600 ? 20 :
+        lag > 900 ? 22 :
+        lag > 420 ? 24 :
+        lag > 180 ? 27 :
+        31;
 
       const unitsPerTick =
-        lag > 1600 ? 18 :
-        lag > 900 ? 12 :
-        lag > 420 ? 8 :
-        lag > 180 ? 5 :
-        lag > 70 ? 3 :
-        2;
+        lag > 1600 ? 10 :
+        lag > 900 ? 8 :
+        lag > 420 ? 5 :
+        lag > 180 ? 3 :
+        lag > 70 ? 2 :
+        1;
 
       if (now - lastTime >= intervalMs) {
         lastTime = now;
@@ -1193,19 +1198,33 @@ interface StreamingMessageBodyProps {
   content: string;
   isStreaming?: boolean;
   reduceMotion?: boolean;
+  forceRevealOnMount?: boolean;
+  onRevealStateChange?: (isRevealing: boolean) => void;
 }
 
 const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
   content,
   isStreaming,
   reduceMotion,
+  forceRevealOnMount,
+  onRevealStateChange,
 }) => {
   // Separate trailing Sources footer before visual smoothing so raw Sources markdown is never shown in prose
   const { mainContent, sources } = parseTrailingSources(content);
   const {
     text: displayedMainContent,
     isRevealing,
-  } = useSmoothReveal(mainContent, isStreaming, reduceMotion);
+  } = useSmoothReveal(
+    mainContent,
+    isStreaming,
+    reduceMotion,
+    forceRevealOnMount
+  );
+
+  useEffect(() => {
+    onRevealStateChange?.(isRevealing);
+    return () => onRevealStateChange?.(false);
+  }, [isRevealing, onRevealStateChange]);
 
   return (
     <div className="space-y-3.5 min-w-0 max-w-full">
@@ -1310,6 +1329,54 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastActiveDebateIdRef = useRef<string | null>(null);
   const lastUserMsgIdRef = useRef<string | null>(null);
+  const knownModelMessageIdsRef = useRef<Set<string> | null>(null);
+
+  if (knownModelMessageIdsRef.current === null) {
+    knownModelMessageIdsRef.current = new Set(
+      messages.filter((message) => message.role === 'model').map((message) => message.id)
+    );
+  }
+
+  const freshModelMessageIds = new Set(
+    messages
+      .filter(
+        (message) =>
+          message.role === 'model' &&
+          !knownModelMessageIdsRef.current!.has(message.id)
+      )
+      .map((message) => message.id)
+  );
+
+  useEffect(() => {
+    for (const message of messages) {
+      if (message.role === 'model') {
+        knownModelMessageIdsRef.current?.add(message.id);
+      }
+    }
+  }, [messages]);
+
+  const [revealingMessageIds, setRevealingMessageIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const handleRevealStateChange = React.useCallback(
+    (messageId: string, isRevealing: boolean) => {
+      setRevealingMessageIds((previous) => {
+        const next = new Set(previous);
+        if (isRevealing) next.add(messageId);
+        else next.delete(messageId);
+
+        if (
+          next.size === previous.size &&
+          [...next].every((id) => previous.has(id))
+        ) {
+          return previous;
+        }
+        return next;
+      });
+    },
+    []
+  );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
@@ -1333,7 +1400,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     }
   }, [activeDebateId, isNewlyCreatedRef]);
 
-  // 2. On sending a new message or inserting Continue bubble: scroll smoothly so message sits near top of viewport, then hold still
+  // 2. On a new user turn (including Continue), glide that turn into a stable
+  //    reading position near the top of the chat viewport, then hold still while
+  //    the model responses grow underneath it.
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
     const prevMsg = messages.length > 1 ? messages[messages.length - 2] : null;
@@ -1352,16 +1421,51 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       candidate = prevMsg;
     }
 
-    if (candidate && candidate.id !== lastUserMsgIdRef.current) {
-      lastUserMsgIdRef.current = candidate.id;
+    if (!candidate || candidate.id === lastUserMsgIdRef.current) return;
+
+    // Wait for React + layout (including the debating spacer) to settle before
+    // measuring. Two RAFs avoids the old race where scrolling sometimes fired
+    // against the previous layout.
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const el = document.getElementById(candidate.id);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!el) return;
+
+        const scroller = el.closest('.overflow-y-auto') as HTMLElement | null;
+        if (!scroller) {
+          el.scrollIntoView({
+            behavior: shouldReduceMotion ? 'auto' : 'smooth',
+            block: 'start',
+          });
+          lastUserMsgIdRef.current = candidate.id;
+          return;
         }
+
+        const scrollerRect = scroller.getBoundingClientRect();
+        const targetRect = el.getBoundingClientRect();
+        const isContinueTurn = candidate.content === 'Continue';
+        const isDesktop = window.matchMedia('(min-width: 640px)').matches;
+        // The old Continue turn had an extra mt-10 / sm:mt-12 before its
+        // scroll target. Preserve that visual breathing room even though the
+        // redesigned Round marker remains intentionally hidden until output.
+        const topOffset = isContinueTurn
+          ? (isDesktop ? 80 : 64)
+          : (isDesktop ? 32 : 24);
+        const targetTop =
+          scroller.scrollTop + (targetRect.top - scrollerRect.top) - topOffset;
+
+        scroller.scrollTo({
+          top: Math.max(0, targetTop),
+          behavior: shouldReduceMotion ? 'auto' : 'smooth',
+        });
+
+        // Mark handled only after a real DOM target exists. This is important
+        // for Continue, whose visible Round marker intentionally stays hidden
+        // until at least one AI has produced real output.
+        lastUserMsgIdRef.current = candidate.id;
       });
-    }
-  }, [messages]);
+    });
+  }, [messages, shouldReduceMotion]);
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
@@ -1428,7 +1532,18 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             return false;
           };
 
-          if (!hasAnswerBeforeNextUser(idx)) {
+          const hasRoundOutput = hasAnswerBeforeNextUser(idx);
+          const hasLaterUserTurn = messages
+            .slice(idx + 1)
+            .some((item) => item.role === 'user');
+          const isPendingCurrentRound =
+            isDebating && !hasRoundOutput && !hasLaterUserTurn;
+
+          // Show the current Round marker immediately while the round is
+          // running. If the user stops before any AI output, runRelay removes
+          // this Continue message entirely, so the empty Round disappears.
+          // Historical unanswered Continue markers remain hidden.
+          if (!hasRoundOutput && !isPendingCurrentRound) {
             return null;
           }
 
@@ -1437,7 +1552,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             const item = messages[index];
             if (item.role !== 'user') continue;
             if (item.content !== 'Continue') break;
-            if (hasAnswerBeforeNextUser(index)) {
+
+            const isCurrentPendingMarker =
+              index === idx && isPendingCurrentRound;
+            if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
               roundNumber += 1;
             }
           }
@@ -1497,12 +1615,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 id={message.id}
                 initial={
                   message.id === newlySentUserMessageId
-                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 12 }
+                    ? { opacity: 0, y: shouldReduceMotion ? 0 : 16 }
                     : false
                 }
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.16,
+                  duration: shouldReduceMotion ? 0 : 0.24,
                   ease: [0.16, 1, 0.3, 1],
                 }}
                 onAnimationComplete={() => {
@@ -1772,6 +1890,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 : 'mt-4 sm:mt-[18px]';
 
         const isThinking = message.isStreaming && !message.content.trim();
+        const forceRevealOnMount = freshModelMessageIds.has(message.id);
+        const isVisuallyRevealing =
+          revealingMessageIds.has(message.id) || forceRevealOnMount;
         const activeSeatIndex = orderedActiveModels.indexOf(modelKey);
         const upNextModels =
           isThinking && activeSeatIndex >= 0
@@ -1910,6 +2031,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       content={message.content}
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
+                      forceRevealOnMount={forceRevealOnMount}
+                      onRevealStateChange={(isRevealing) =>
+                        handleRevealStateChange(message.id, isRevealing)
+                      }
                     />
 
                   {/* Attached Images (if present) */}
@@ -2077,7 +2202,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </div>
 
               {/* Bottom Actions Bar: Copy, Export & Collapse (Rendered once content exists) */}
-              {!isThinking && (
+              {!isThinking && !isVisuallyRevealing && (
                 <div className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
@@ -2130,8 +2255,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         );
       })}
 
-      {/* Continue discussion: only when the latest user turn has real AI output */}
-      {canContinue && !isDebating && messages.length > 0 && onContinue && (() => {
+      {/* Continue discussion appears only after the final visible answer has settled. */}
+      {canContinue &&
+        !isDebating &&
+        revealingMessageIds.size === 0 &&
+        freshModelMessageIds.size === 0 &&
+        messages.length > 0 &&
+        onContinue &&
+        (() => {
         const lastUserIndex = [...messages]
           .map((item, index) => ({ item, index }))
           .reverse()
@@ -2160,7 +2291,15 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             : `${latestModels.length} of ${expectedAnswers} answered`;
 
         return (
-          <div className="col-span-full pt-6 pb-2 animate-in fade-in duration-200 min-w-0">
+          <motion.div
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              duration: shouldReduceMotion ? 0 : 0.24,
+              ease: [0.16, 1, 0.3, 1],
+            }}
+            className="col-span-full pt-6 pb-2 min-w-0"
+          >
             <div className="flex items-center gap-4">
               <div className="h-px flex-1 bg-[#E7E5E0]" />
               <span className="text-[14px] text-[#6A675F] whitespace-nowrap">
@@ -2177,7 +2316,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </button>
               <div className="h-px flex-1 bg-[#E7E5E0]" />
             </div>
-          </div>
+          </motion.div>
         );
       })()}
 
