@@ -14,7 +14,10 @@ export async function GET(request: Request) {
       try {
         const { data: wasClaimed, error: claimError } = await supabase.rpc('claim_new_registration');
         if (!claimError && wasClaimed === true) {
-          return NextResponse.redirect(`${origin}/auth/registration-complete?registered=true`);
+          const registrationCompleteUrl = new URL('/auth/registration-complete', origin);
+          registrationCompleteUrl.searchParams.set('registered', 'true');
+          registrationCompleteUrl.searchParams.set('next', safeNext);
+          return NextResponse.redirect(registrationCompleteUrl);
         }
       } catch (claimErr) {
         console.error('[Auth Callback] Error claiming registration:', claimErr);
