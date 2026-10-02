@@ -81,8 +81,8 @@ export function useTopTurnAnchor({
       return;
     }
 
-    // A cancelled Continue turn must not move the viewport just because the
-    // temporary round marker and its reserve disappear. Preserve enough tail
+    // A cancelled Continue turn must freeze the viewport: removing the
+    // temporary round marker must never navigate back to prior content. Preserve enough tail
     // space to keep the exact scrollTop that existed when Stop was pressed.
     if (preserveScrollTop !== null) {
       viewport.style.overflowAnchor = 'none';
