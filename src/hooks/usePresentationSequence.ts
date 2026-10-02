@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ChatMessage } from '@/types/chat';
 
 export type PresentationPhase = 'static' | 'queued' | 'active' | 'complete';
@@ -20,6 +20,10 @@ interface PresentationSequence {
  * The backend may already have completed later seats, but only one response is
  * allowed to present at a time. This makes visual order deterministic:
  * seat 1 -> seat 2 -> seat 3 -> turn controls.
+ *
+ * Completed message IDs are intentionally monotonic for the mounted thread.
+ * Changing/cancelling a turn must never make an older response eligible to
+ * animate again.
  */
 export function usePresentationSequence(
   messages: ChatMessage[],
@@ -28,10 +32,6 @@ export function usePresentationSequence(
   const [completedIds, setCompletedIds] = useState<Set<string>>(
     () => new Set()
   );
-
-  useEffect(() => {
-    setCompletedIds(new Set());
-  }, [turnUserId]);
 
   const turnData = useMemo(() => {
     if (!turnUserId) {
