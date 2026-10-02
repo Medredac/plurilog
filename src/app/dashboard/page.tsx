@@ -297,6 +297,9 @@ export default function DashboardPage() {
   const [newlySentUserMessageId, setNewlySentUserMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Hard exception for the first-ever turn: the welcome composer -> thread
+  // transition must not trigger any bottom-restoration or viewport repositioning.
+  const firstTurnNaturalLayoutRef = useRef(false);
   const isNearBottomRef = useRef(true);
   const lastBottomDistanceRef = useRef(0);
   const prevClientHeightRef = useRef<number | null>(null);
@@ -324,6 +327,20 @@ export default function DashboardPage() {
         const currentHeight = entry.contentRect.height;
         const prevHeight = prevClientHeightRef.current;
         prevClientHeightRef.current = currentHeight;
+
+        // The first-ever send swaps the centred welcome composer for the
+        // sticky thread composer. That viewport resize must NOT invoke the
+        // normal bottom-anchor contract; keep the conversation at its natural
+        // start instead.
+        if (firstTurnNaturalLayoutRef.current) {
+          el.scrollTop = 0;
+          lastBottomDistanceRef.current = Math.max(
+            0,
+            el.scrollHeight - currentHeight
+          );
+          isNearBottomRef.current = true;
+          continue;
+        }
 
         // If height changed (e.g. keyboard opened/closed or composer resized) and user was near bottom, restore bottom distance
         if (prevHeight !== null && prevHeight !== currentHeight && isNearBottomRef.current) {
@@ -2108,6 +2125,14 @@ export default function DashboardPage() {
 
   // Triggered when user submits a new prompt
   const handleSendMessage = async (content: string, imageFiles?: File[]) => {
+    const isFirstConversationTurn = messages.length === 0;
+    if (isFirstConversationTurn) {
+      firstTurnNaturalLayoutRef.current = true;
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
+    }
+
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
@@ -2254,6 +2279,9 @@ export default function DashboardPage() {
     );
 
     const rollbackOptimistic = () => {
+      if (isFirstConversationTurn) {
+        firstTurnNaturalLayoutRef.current = false;
+      }
       setNewlySentUserMessageId((curr) => (curr === tempUserMsgId ? null : curr));
       setMessages((prev) =>
         prev.filter((m) => m.id !== tempUserMsgId && m.id !== optimisticFirstModelMsgId)
@@ -3043,7 +3071,10 @@ export default function DashboardPage() {
                   abandonedFailedTurnIds={abandonedFailedTurnIds}
                   onExportMessage={(msg) => handleTriggerPrint('message', [msg])}
                   newlySentUserMessageId={newlySentUserMessageId}
-                  onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
+                  onNewlySentAnimationComplete={() => {
+                    setNewlySentUserMessageId(null);
+                    firstTurnNaturalLayoutRef.current = false;
+                  }}
                   onPreviewDocument={setPreviewDocument}
                   scrollContainerRef={scrollContainerRef}
                 />
