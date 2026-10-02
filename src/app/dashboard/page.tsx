@@ -298,6 +298,7 @@ export default function DashboardPage() {
   const [newlySentUserMessageId, setNewlySentUserMessageId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [preservedStopScrollTop, setPreservedStopScrollTop] = useState<number | null>(null);
+  const settleStoppedContinueToNaturalBottomRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Hard exception for the first-ever turn: the welcome composer -> thread
   // transition must not trigger any bottom-restoration or viewport repositioning.
@@ -314,7 +315,60 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setPreservedStopScrollTop(null);
+    settleStoppedContinueToNaturalBottomRef.current = false;
   }, [activeDebateId]);
+
+  useEffect(() => {
+    if (isDebating || !settleStoppedContinueToNaturalBottomRef.current) {
+      return;
+    }
+
+    let secondFrame: number | null = null;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const viewport = scrollContainerRef.current;
+        if (!viewport) return;
+
+        const naturalEnd = viewport.querySelector<HTMLElement>(
+          '[data-chat-natural-end="true"]'
+        );
+        if (!naturalEnd) {
+          settleStoppedContinueToNaturalBottomRef.current = false;
+          return;
+        }
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const naturalEndRect = naturalEnd.getBoundingClientRect();
+        const targetScrollTop = Math.max(
+          0,
+          viewport.scrollTop +
+            (naturalEndRect.top - viewportRect.top) -
+            viewport.clientHeight
+        );
+
+        viewport.style.overflowAnchor = 'none';
+        viewport.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
+
+        lastBottomDistanceRef.current = 0;
+        isNearBottomRef.current = true;
+        settleStoppedContinueToNaturalBottomRef.current = false;
+
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.style.overflowAnchor = '';
+          }
+        });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [isDebating, messages]);
 
   // Observe scrollContainerRef size transitions (keyboard open/close, composer multiline growth, orientation changes)
   // to maintain the Bottom-Anchor Contract when user is at the bottom of the conversation.
@@ -1066,25 +1120,40 @@ export default function DashboardPage() {
     const latestUser = [...messages]
       .reverse()
       .find((message) => message.role === 'user');
-    // Continue cancellation is presentation cleanup: preserve the exact
-    // viewport rather than navigating back to the previous response.
     if (
       latestUser?.content === 'Continue' &&
       scrollContainerRef.current
     ) {
       const viewport = scrollContainerRef.current;
       const stopScrollTop = viewport.scrollTop;
+      const naturalEnd = viewport.querySelector<HTMLElement>(
+        '[data-chat-natural-end="true"]'
+      );
 
-      // Enter viewport-hold mode synchronously BEFORE aborting. Without this,
-      // the abort cleanup can remove Round/placeholder DOM in the same React
-      // batch and the browser clamps scrollTop upward before the reserve has a
-      // chance to compensate.
-      viewport.style.overflowAnchor = 'none';
-      isNearBottomRef.current = false;
-      flushSync(() => {
-        setPreservedStopScrollTop(stopScrollTop);
-      });
-      viewport.scrollTop = stopScrollTop;
+      // Freeze only when the user has manually moved UP relative to the newest
+      // real conversation UI. If the natural end is already visible or above
+      // the viewport (for example while sitting in temporary reserve space),
+      // Stop should collapse back to the natural conversation bottom instead.
+      const viewportRect = viewport.getBoundingClientRect();
+      const naturalEndRect = naturalEnd?.getBoundingClientRect();
+      const userIsReadingOlderContent = naturalEndRect
+        ? naturalEndRect.top > viewportRect.bottom - 24
+        : !isNearBottomRef.current;
+
+      if (userIsReadingOlderContent) {
+        settleStoppedContinueToNaturalBottomRef.current = false;
+        viewport.style.overflowAnchor = 'none';
+        isNearBottomRef.current = false;
+        flushSync(() => {
+          setPreservedStopScrollTop(stopScrollTop);
+        });
+        viewport.scrollTop = stopScrollTop;
+      } else {
+        settleStoppedContinueToNaturalBottomRef.current = true;
+        flushSync(() => {
+          setPreservedStopScrollTop(null);
+        });
+      }
     }
 
     const currentId = activeDebateIdRef.current;
