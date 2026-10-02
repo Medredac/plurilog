@@ -22,6 +22,7 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
+import { LayoutGroup, motion } from 'motion/react';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
@@ -2908,7 +2909,8 @@ export default function DashboardPage() {
           {/* Message Scroll Region Wrapper (Provides stable positioning context for scroll button above variable-height ChatInput) */}
           <div className="relative flex-1 min-h-0 min-w-0 w-full flex flex-col">
             {/* Full-width scrollable viewport / Centered Empty State */}
-            <div
+            <motion.div
+              layoutScroll
               ref={scrollContainerRef}
               onScroll={(e) => {
                 const el = e.currentTarget;
@@ -3042,9 +3044,10 @@ export default function DashboardPage() {
                   newlySentUserMessageId={newlySentUserMessageId}
                   onNewlySentAnimationComplete={() => setNewlySentUserMessageId(null)}
                   onPreviewDocument={setPreviewDocument}
+                  scrollContainerRef={scrollContainerRef}
                 />
               )}
-            </div>
+            </motion.div>
 
             {/* Scroll to Bottom Overlay Button (Anchored directly above ChatInput footer) */}
             {messages.length > 0 && showScrollBottom && (
