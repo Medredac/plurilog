@@ -1733,6 +1733,18 @@ function sanitizePeerResponseForWebCitations(
 }
 
 /**
+ * Internal evidence handles are orchestration-only. The model is instructed not
+ * to expose them; this is a final output backstop in case a provider emits one
+ * anyway.
+ */
+function sanitizeInternalEvidenceHandles(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/\s*\[mem_\d+\]/gi, '')
+    .replace(/\bmem_\d+\b/gi, 'the shared source');
+}
+
+/**
  * Sanitizes an image filename for model-facing textual context:
  * - Extracts basename only
  * - Removes CR/LF, null bytes, and non-printing control characters
@@ -2682,11 +2694,9 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
 
   const systemContent = [
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
-    currentModelName === 'Claude'
-      ? `CLAUDE USER-FACING PRESENTATION:
-Internal evidence handles and orchestration labels are for tool use only. Never expose identifiers such as mem_1, mem_7, evidence IDs, ledger labels, retrieval-round counts, retrieval-budget status, tool names, or other internal routing/orchestration mechanics in your user-facing answer. Translate the underlying evidence into natural language instead.
-When referring to the person currently chatting with the panel, address them directly as "you" / "your". Do not call them "the user" in ordinary user-facing prose. This does not prevent quoting source text verbatim when the source itself uses that wording.`
-      : '',
+    `USER-FACING PRESENTATION:
+Internal evidence handles and orchestration labels are for tool use only. Never expose identifiers such as mem_1, mem_7, evidence IDs, ledger labels, retrieval-round counts, retrieval-budget status, tool names, or other internal routing/orchestration mechanics in your user-facing answer. Never use an internal evidence handle as a citation. Translate the underlying evidence into natural language and, when useful, refer to the actual public source by its normal name.
+When referring to the person currently chatting with the panel, address them directly as "you" / "your". Do not call them "the user" in ordinary user-facing prose. This does not prevent quoting source text verbatim when the source itself uses that wording.`,
     AGENTIC_MEMORY_EXPERIMENT
       ? `AGENTIC CONVERSATION MEMORY:
 You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
@@ -3047,8 +3057,28 @@ async function resolveHistoricalImageReferentWithSystem2(options: {
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, discussionId, seatOrder, isContinueRound, attachments, sourceUserMessageId } = await req.json();
-    const turnId = crypto.randomUUID();
+    const {
+      prompt,
+      discussionId,
+      seatOrder,
+      isContinueRound,
+      attachments,
+      sourceUserMessageId,
+      runId: requestedRunId,
+      runStartedAt: requestedRunStartedAt,
+    } = await req.json();
+    const normalizedRequestedRunId =
+      typeof requestedRunId === 'string' ? requestedRunId.trim() : '';
+    const turnId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      normalizedRequestedRunId
+    )
+      ? normalizedRequestedRunId
+      : crypto.randomUUID();
+    const parsedRunStartedAt = Number(requestedRunStartedAt);
+    const clientRunStartedAt =
+      Number.isFinite(parsedRunStartedAt) && parsedRunStartedAt > 0
+        ? Math.floor(parsedRunStartedAt)
+        : Date.now();
     const turnStartedAt = Date.now();
 
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -3118,6 +3148,57 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const {
+      data: { user: authenticatedUser },
+      error: authenticatedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authenticatedUserError || !authenticatedUser) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized.' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    let runStateServiceClient: ReturnType<typeof createServiceClient> | null = null;
+
+    if (discussionId) {
+      const isOwner = await verifyDiscussionOwnership(supabase, discussionId);
+      if (!isOwner) {
+        return new Response(
+          JSON.stringify({ error: 'Discussion not found.' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      runStateServiceClient = createServiceClient();
+      const { data: claimedRun, error: claimRunError } =
+        await runStateServiceClient.rpc('claim_debate_run', {
+          p_discussion_id: discussionId,
+          p_user_id: authenticatedUser.id,
+          p_run_id: turnId,
+          p_started_at: clientRunStartedAt,
+        });
+
+      if (claimRunError) {
+        console.error('[Durable Run] Failed to claim run:', claimRunError);
+        return new Response(
+          JSON.stringify({ error: 'Could not start this panel run.' }),
+          { status: 500, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      if (claimedRun !== true) {
+        return new Response(
+          JSON.stringify({
+            error: 'A newer panel run has already started.',
+            code: 'RUN_SUPERSEDED',
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Get hardcoded fallback arrays for each seat.
     // Claude routing repeats on a $1.00 usage cycle:
     // first $0.25 premium-first (Sonnet), then $0.75 economy-first (Haiku).
@@ -3173,6 +3254,53 @@ export async function POST(req: NextRequest) {
         'X-Title': 'Plurilog',
       },
     });
+
+    const isDurableRunActive = async (): Promise<boolean> => {
+      if (!discussionId || !runStateServiceClient) {
+        return !req.signal.aborted;
+      }
+
+      const { data: runState, error: runStateError } =
+        await runStateServiceClient
+          .from('discussion_run_state')
+          .select('active_run_id, status')
+          .eq('discussion_id', discussionId)
+          .eq('user_id', authenticatedUser.id)
+          .maybeSingle();
+
+      if (runStateError) {
+        // Do not kill a healthy user request solely because the cancellation
+        // state lookup had a transient failure. Browser abort still applies.
+        console.warn('[Durable Run] State check failed:', runStateError);
+        return !req.signal.aborted;
+      }
+
+      return Boolean(
+        runState &&
+        runState.active_run_id === turnId &&
+        runState.status === 'active'
+      );
+    };
+
+    const markDurableRunCompleted = async () => {
+      if (!discussionId || !runStateServiceClient) return;
+
+      const { error: completeRunError } = await runStateServiceClient
+        .from('discussion_run_state')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('discussion_id', discussionId)
+        .eq('user_id', authenticatedUser.id)
+        .eq('active_run_id', turnId)
+        .eq('status', 'active');
+
+      if (completeRunError) {
+        console.warn('[Durable Run] Completion mark failed:', completeRunError);
+      }
+    };
 
     // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
     let discussionMemory: DiscussionMemoryResult | undefined;
@@ -6458,7 +6586,12 @@ export async function POST(req: NextRequest) {
           ) {
             const seat = configuredSeats[seatIndex];
 
-            if (req.signal.aborted) {
+            if (req.signal.aborted || !(await isDurableRunActive())) {
+              console.log('[Durable Stop] Run inactive before seat start.', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+              });
               safeClose();
               return;
             }
@@ -6512,6 +6645,35 @@ export async function POST(req: NextRequest) {
                 );
               }
             }, seatTimeoutMs);
+
+            let durableRunCancelled = false;
+            let durableCheckInFlight = false;
+            const durableCancellationPoll = setInterval(() => {
+              if (
+                durableCheckInFlight ||
+                durableRunCancelled ||
+                seatAbortController.signal.aborted
+              ) {
+                return;
+              }
+
+              durableCheckInFlight = true;
+              void isDurableRunActive()
+                .then((active) => {
+                  if (!active && !seatAbortController.signal.aborted) {
+                    durableRunCancelled = true;
+                    seatAbortController.abort(
+                      new Error('PLURILOG_DURABLE_RUN_CANCELLED')
+                    );
+                  }
+                })
+                .catch((pollErr) => {
+                  console.warn('[Durable Run] Cancellation poll failed:', pollErr);
+                })
+                .finally(() => {
+                  durableCheckInFlight = false;
+                });
+            }, 750);
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
@@ -13109,13 +13271,18 @@ export async function POST(req: NextRequest) {
                 bufferedSeatChunks.length > 0
               ) {
                 // No custom tool call: release the buffered first-pass response unchanged.
-                for (const chunkText of bufferedSeatChunks) {
+                const safeBufferedResponse = sanitizeInternalEvidenceHandles(
+                  bufferedSeatChunks.join('')
+                );
+                if (safeBufferedResponse) {
                   sendEvent('seat_chunk', {
                     seatId: seat.seatId,
-                    text: chunkText,
+                    text: safeBufferedResponse,
                   });
                 }
               }
+
+              seatResponse = sanitizeInternalEvidenceHandles(seatResponse);
 
               // Capture conversational peer response text sanitized against web-search citation URLs
               const peerResponseText = sanitizePeerResponseForWebCitations(
@@ -13154,6 +13321,20 @@ export async function POST(req: NextRequest) {
                   nextSeatName: nextSeat.name,
                   placeholderId: `handoff-${turnId}-${seatIndex + 1}-${nextSeat.seatId}`,
                 });
+              }
+
+              if (
+                durableRunCancelled ||
+                !(await isDurableRunActive())
+              ) {
+                durableRunCancelled = true;
+                console.log('[Durable Stop] Cancelled before response persistence.', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                });
+                safeClose();
+                return;
               }
 
               // Server-authoritative completed-message persistence
@@ -13250,7 +13431,7 @@ export async function POST(req: NextRequest) {
                     p_cents: costCents,
                     p_model: respondingModel,
                     p_discussion_id: discussionId || null,
-                    p_meta: { seatId: seat.seatId },
+                    p_meta: { seatId: seat.seatId, runId: turnId },
                   });
                   if (spendError) {
                     console.error(
@@ -13298,6 +13479,16 @@ export async function POST(req: NextRequest) {
                 response: peerResponseText,
               });
             } catch (err: any) {
+              if (durableRunCancelled) {
+                console.log('[Durable Stop] Provider work cancelled.', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                });
+                safeClose();
+                return;
+              }
+
               if (req.signal.aborted) {
                 safeClose();
                 return;
@@ -13628,9 +13819,19 @@ export async function POST(req: NextRequest) {
               });
               continue;
             } finally {
+              clearInterval(durableCancellationPoll);
               clearTimeout(seatTimeoutHandle);
               req.signal.removeEventListener('abort', abortSeatFromRequest);
             }
+          }
+
+          if (!(await isDurableRunActive())) {
+            console.log('[Durable Stop] Run inactive after seat loop.', {
+              turnId,
+              discussionId: discussionId || null,
+            });
+            safeClose();
+            return;
           }
 
           if (
@@ -14070,6 +14271,8 @@ export async function POST(req: NextRequest) {
           // Everything the user needs for the completed turn is now durable.
           // Release the UI before non-critical semantic memory indexing so the
           // composer does not appear frozen after the final seat finishes.
+          await markDurableRunCompleted();
+
           console.log('[Turn Ready]', {
             turnId,
             discussionId: discussionId || null,

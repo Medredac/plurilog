@@ -185,6 +185,7 @@ const CONTINUE_INSTRUCTION =
 
 interface ActiveDiscussionState {
   controller: AbortController;
+  runId: string;
   liveSeatMessage: ChatMessage | null;
   seatStatuses: Record<ModelId, SeatStatus>;
   seatActivityLabels: Record<ModelId, string | null>;
@@ -242,6 +243,7 @@ export default function DashboardPage() {
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const currentFetchIdRef = useRef<string | null>(null);
   const retryInFlightRef = useRef(false);
+  const continueInFlightRef = useRef(false);
 
   // Synchronize transient drawer state across breakpoint transitions: reset transient drawer when crossing into desktop (>= 1024px)
   useEffect(() => {
@@ -1160,6 +1162,21 @@ export default function DashboardPage() {
     const currentId = activeDebateIdRef.current;
     const activeGen = currentId ? activeGenerationsRef.current.get(currentId) : undefined;
     if (activeGen) {
+      // Preserve the current immediate UI stop behavior, but also tell the
+      // server authoritatively that this run is dead. keepalive lets the
+      // cancellation survive the browser stream being torn down.
+      void fetch('/api/debate/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discussionId: currentId,
+          runId: activeGen.runId,
+        }),
+        keepalive: true,
+      }).catch((cancelErr) => {
+        console.warn('[Durable Stop] Cancellation request failed:', cancelErr);
+      });
+
       activeGen.controller.abort();
       return;
     }
@@ -1200,6 +1217,8 @@ export default function DashboardPage() {
     continueMarker?: ContinueMarker | null
   ) => {
     const controller = existingController || new AbortController();
+    const runId = crypto.randomUUID();
+    const runStartedAt = Date.now();
     abortControllerRef.current = controller;
     let inProgressModelId: ModelId | null = null;
     let inProgressContent = '';
@@ -1303,6 +1322,7 @@ export default function DashboardPage() {
     if (discussionId) {
       activeGenerationsRef.current.set(discussionId, {
         controller,
+        runId,
         liveSeatMessage: initialLiveSeatMsg,
         seatStatuses: initialStatuses,
         seatActivityLabels: {
@@ -1348,6 +1368,8 @@ export default function DashboardPage() {
           isContinueRound: isContinueRound || false,
           attachments: attachments || null,
           sourceUserMessageId: sourceUserMessageId || null,
+          runId,
+          runStartedAt,
         }),
       });
 
@@ -2735,6 +2757,8 @@ export default function DashboardPage() {
       return;
     }
 
+    continueInFlightRef.current = true;
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -2808,7 +2832,13 @@ export default function DashboardPage() {
   const handleContinue = async () => {
     setPreservedStopScrollTop(null);
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
-    if (isDebating || !activeDebateId || !userId || activeSeatOrder.length === 0) return;
+    if (
+      continueInFlightRef.current ||
+      isDebating ||
+      !activeDebateId ||
+      !userId ||
+      activeSeatOrder.length === 0
+    ) return;
 
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
@@ -2927,6 +2957,7 @@ export default function DashboardPage() {
       // The user may stop before runRelay starts. The empty Continue marker
       // is removed, but the previous completed round remains continuable.
       setCanContinue(true);
+      continueInFlightRef.current = false;
       return;
     }
 
@@ -2936,18 +2967,22 @@ export default function DashboardPage() {
         : null;
 
     // 2. Trigger relay with empty string prompt, isContinueRound flag, and optimisticPlaceholder
-    await runRelay(
-      '',
-      activeDebateId,
-      activeSeatOrder,
-      true,
-      null,
-      null,
-      null,
-      optimisticPlaceholder,
-      controller,
-      continueMarker
-    );
+    try {
+      await runRelay(
+        '',
+        activeDebateId,
+        activeSeatOrder,
+        true,
+        null,
+        null,
+        null,
+        optimisticPlaceholder,
+        controller,
+        continueMarker
+      );
+    } finally {
+      continueInFlightRef.current = false;
+    }
   };
 
   if (isLoadingAuth) {
