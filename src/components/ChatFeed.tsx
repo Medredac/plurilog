@@ -1422,13 +1422,17 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     viewportRef: scrollContainerRef,
     contentRef,
     reserveRef,
-    anchorId: anchoredUserId,
-    tailAnchorId: presentation.activePresentationId,
+    // The very first turn is deliberately outside the anchoring system.
+    // No reserve, no scroll compensation, no auto-positioning: it simply
+    // renders at the natural start of the conversation.
+    anchorId: isFirstUserTurn ? null : anchoredUserId,
+    tailAnchorId: isFirstUserTurn
+      ? null
+      : presentation.activePresentationId,
     topOffsetMobile: 64,
     topOffsetDesktop: 80,
     tailTopOffsetMobile: 64,
     tailTopOffsetDesktop: 80,
-    autoScrollAnchor: !isFirstUserTurn,
   });
 
   const toggleExpand = (id: string) => {
