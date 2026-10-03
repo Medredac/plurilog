@@ -23,9 +23,9 @@ export type ResolvedFeedbackRequest = {
 };
 
 export function feedbackFirstName(displayName: unknown): string {
-  if (typeof displayName !== 'string') return 'there';
+  if (typeof displayName !== 'string') return '';
   const first = displayName.trim().split(/\s+/)[0];
-  return first || 'there';
+  return first || '';
 }
 
 export function isValidFeedbackToken(token: string): boolean {
