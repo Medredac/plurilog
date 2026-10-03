@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -91,7 +92,11 @@ export async function POST(request: Request) {
     sessionParams.customer_email = user.email;
   }
 
-  const idempotencyKey = `checkout:${user.id}:${profile?.stripe_subscription_id ?? 'none'}`;
+  const sessionFingerprint = createHash('sha256')
+    .update(JSON.stringify(sessionParams))
+    .digest('hex')
+    .slice(0, 24);
+  const idempotencyKey = `checkout:${user.id}:${sessionFingerprint}`;
 
   const session = await stripe.checkout.sessions.create(sessionParams, {
     idempotencyKey,
