@@ -8,12 +8,10 @@ import {
   AlertCircle, 
   X, 
   Check, 
-  ChevronDown,
-  Play 
+  ChevronDown
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'motion/react';
 import { AuthModal } from '../components/AuthModal';
-import { DemoVideoModal } from '../components/DemoVideoModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
 import { RoleMarquee } from '@/components/RoleMarquee';
@@ -171,7 +169,6 @@ export default function LandingPage() {
   const router = useRouter();
   const shouldReduceMotion = useReducedMotion();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isDemoModalOpen, setIsDemoModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [authErrorBanner, setAuthErrorBanner] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -450,11 +447,10 @@ export default function LandingPage() {
 
               <button
                 type="button"
-                onClick={() => setIsDemoModalOpen(true)}
+                onClick={() => handleOpenAuth('signin')}
                 className="flex items-center gap-2 px-5 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200/80 text-zinc-700 font-medium text-sm shadow-2xs transition-colors cursor-pointer"
               >
-                <Play className="w-3.5 h-3.5 fill-zinc-700 text-zinc-700" />
-                <span>Watch demo</span>
+                <span>Sign in</span>
               </button>
             </motion.div>
           </div>
@@ -1034,12 +1030,6 @@ export default function LandingPage() {
         redirectUrl={authRedirectTarget}
         onClose={() => setIsAuthModalOpen(false)}
         onSuccess={handleAuthSuccess}
-      />
-
-      {/* Demo Walkthrough Video Modal */}
-      <DemoVideoModal
-        isOpen={isDemoModalOpen}
-        onClose={() => setIsDemoModalOpen(false)}
       />
     </div>
   );
