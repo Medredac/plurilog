@@ -80,7 +80,7 @@ function Brand() {
 
 function normalizeFirstName(value?: string): string {
   const first = String(value || '').trim().split(/\s+/)[0];
-  return first || 'there';
+  return first || '';
 }
 
 export function FeedbackPreviewCard({
@@ -241,7 +241,9 @@ export function FeedbackPreviewCard({
             </p>
 
             <h1 className="max-w-[390px] text-[28px] font-semibold leading-[1.08] tracking-[-0.045em] text-[#1C1B1A] sm:text-[30px]">
-              We’d love to hear your feedback, {firstName}.
+              {firstName
+                ? `We’d love to hear your feedback, ${firstName}.`
+                : 'We’d love to hear your feedback.'}
             </h1>
 
             <p className="mt-3 max-w-[390px] text-[13px] leading-[1.55] text-[#6A675F] sm:text-[14px]">
