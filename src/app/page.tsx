@@ -507,7 +507,7 @@ export default function LandingPage() {
               Plurilog puts Gemini, Claude and ChatGPT in the same discussion.
             </p>
           </motion.div>
-          <motion.div {...scrollRevealProps(0.38)} className="rounded-3xl border border-zinc-900/80 p-1.5 mt-8">
+          <motion.div {...scrollRevealProps(0.38)} className="rounded-2xl border border-zinc-900/80 overflow-hidden mt-8 shadow-md">
             <video
               src="/finalvideodemohero.mp4"
               autoPlay
@@ -522,7 +522,7 @@ export default function LandingPage() {
               tabIndex={-1}
               aria-hidden="true"
               draggable={false}
-              className="w-full rounded-2xl shadow-md pointer-events-none select-none"
+              className="block w-full pointer-events-none select-none"
             />
           </motion.div>
         </section>
