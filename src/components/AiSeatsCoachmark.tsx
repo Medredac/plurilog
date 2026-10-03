@@ -34,6 +34,9 @@ export function AiSeatsCoachmark({
               at any time to add or remove AIs from the discussion, or change
               the order they respond in.
             </p>
+            <p className="mt-2 text-[14px] font-medium leading-[1.55] text-white">
+              AIs sitting out can pick up the conversation when you bring them back.
+            </p>
 
             <div className="mt-4 flex justify-end">
               <button
