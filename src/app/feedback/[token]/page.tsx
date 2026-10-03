@@ -5,7 +5,7 @@ import { resolveFeedbackRequest } from '@/lib/feedback';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Feedback | Plurilog',
+  title: 'Feedback',
   robots: {
     index: false,
     follow: false,
