@@ -54,7 +54,7 @@ function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
         <img
           src="/note-were-all-ears-with-arrow.svg"
           alt="we’re all ears!"
-          className="absolute left-[calc(50%+76px)] top-[-1px] block h-auto w-[118px] object-contain sm:left-[calc(50%+108px)] sm:top-[-7px] sm:w-[150px]"
+          className="absolute left-[calc(50%+86px)] top-[-1px] block h-auto w-[118px] object-contain sm:left-[calc(50%+108px)] sm:top-[-7px] sm:w-[150px]"
         />
       )}
     </div>
