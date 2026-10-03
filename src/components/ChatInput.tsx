@@ -6,6 +6,7 @@ import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
 import { AiSeatsControl } from './AiSeatsControl';
+import { AiSeatsCoachmark } from './AiSeatsCoachmark';
 import { ModelId } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
@@ -23,6 +24,9 @@ interface ChatInputProps {
   activeModels: ModelId[];
   onReorderSeats: (newOrder: ModelId[]) => void;
   onToggleModel: (id: ModelId) => void;
+  showAiSeatsHint?: boolean;
+  onDismissAiSeatsHint?: () => void;
+  onRestoreDraftConsumed?: () => void;
 }
 
 interface AttachedFileItem {
@@ -44,6 +48,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   activeModels,
   onReorderSeats,
   onToggleModel,
+  showAiSeatsHint = false,
+  onDismissAiSeatsHint,
+  onRestoreDraftConsumed,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFileItem[]>([]);
@@ -88,8 +95,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
       }
+
+      // A restore/preset is a one-shot instruction. Once this input has
+      // consumed it, clear the parent value so a later remount cannot
+      // re-insert stale text or attachments.
+      onRestoreDraftConsumed?.();
     }
-  }, [restoreDraft?.trigger]);
+  }, [restoreDraft?.trigger, onRestoreDraftConsumed]);
 
   const getCameraFilename = (file: File): string => {
     const now = new Date();
@@ -368,13 +380,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         {/* Sleek, Wide Pill-Shaped Input Card */}
         <div className="relative rounded-[20px] bg-white border border-[#E2E0DB] pt-2.5 pr-2.5 pb-2 pl-3 transition-colors focus-within:border-[#D9D6CF] flex flex-col gap-2 min-w-0 max-w-full dashboard-input-shadow">
         {/* AI Seats: primary participant control, shared across desktop and mobile */}
-        <AiSeatsControl
-          seatOrder={seatOrder}
-          activeModels={activeModels}
-          onReorderSeats={onReorderSeats}
-          onToggleModel={onToggleModel}
-          disabled={isLoading}
-        />
+        <AiSeatsCoachmark
+          visible={showAiSeatsHint}
+          onDismiss={() => onDismissAiSeatsHint?.()}
+        >
+          <AiSeatsControl
+            seatOrder={seatOrder}
+            activeModels={activeModels}
+            onReorderSeats={onReorderSeats}
+            onToggleModel={onToggleModel}
+            disabled={isLoading}
+          />
+        </AiSeatsCoachmark>
 
         {/* Attached Files Preview Row */}
         {attachedFiles.length > 0 && (

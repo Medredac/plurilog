@@ -354,6 +354,8 @@ export default function DashboardPage() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [isDeleteProfileModalOpen, setIsDeleteProfileModalOpen] = useState(false);
+  const [showAiSeatsHint, setShowAiSeatsHint] = useState(false);
+  const aiSeatsHintDismissedRef = useRef(false);
   const [restoreDraft, setRestoreDraft] = useState<{ text: string; files?: File[]; trigger: number } | null>(null);
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
   const [userDisplayName, setUserDisplayName] = useState<string | undefined>(undefined);
@@ -1199,6 +1201,99 @@ export default function DashboardPage() {
       authListener.subscription.unsubscribe();
     };
   }, [router, supabase, fetchDiscussions, fetchDiscussionMessages, urlDiscussionId, refreshCreditStatus]);
+
+  useEffect(() => {
+    if (!userId) {
+      setShowAiSeatsHint(false);
+      return;
+    }
+
+    aiSeatsHintDismissedRef.current = false;
+    let disposed = false;
+    const storageKey = `plurilog-ai-seats-hint-seen:${userId}`;
+
+    let locallySeen = false;
+    try {
+      locallySeen = localStorage.getItem(storageKey) === '1';
+    } catch {
+      // Local storage is only a fast fallback. Supabase remains the source of truth.
+    }
+
+    if (locallySeen) {
+      setShowAiSeatsHint(false);
+      fetch('/api/user/ai-seats-hint', { method: 'POST' }).catch((error) => {
+        console.warn('[AI Seats Hint] Non-critical sync error:', error);
+      });
+      return () => {
+        disposed = true;
+      };
+    }
+
+    const loadHintState = async () => {
+      try {
+        const response = await fetch('/api/user/ai-seats-hint', {
+          method: 'GET',
+          cache: 'no-store',
+        });
+
+        if (!response.ok) {
+          throw new Error(`Hint state request failed with ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (disposed) return;
+
+        if (data?.seen) {
+          try {
+            localStorage.setItem(storageKey, '1');
+          } catch {
+            // Safe fallback for restricted storage environments.
+          }
+          setShowAiSeatsHint(false);
+          return;
+        }
+
+        if (!aiSeatsHintDismissedRef.current) {
+          setShowAiSeatsHint(true);
+        }
+      } catch (error) {
+        console.warn('[AI Seats Hint] Non-critical state lookup error:', error);
+        if (!disposed && !aiSeatsHintDismissedRef.current) {
+          setShowAiSeatsHint(true);
+        }
+      }
+    };
+
+    void loadHintState();
+
+    return () => {
+      disposed = true;
+    };
+  }, [userId]);
+
+  const handleDismissAiSeatsHint = useCallback(() => {
+    aiSeatsHintDismissedRef.current = true;
+    setShowAiSeatsHint(false);
+
+    if (!userId) return;
+
+    try {
+      localStorage.setItem(`plurilog-ai-seats-hint-seen:${userId}`, '1');
+    } catch {
+      // Supabase persistence below remains authoritative across devices.
+    }
+
+    fetch('/api/user/ai-seats-hint', { method: 'POST' }).then((response) => {
+      if (!response.ok) {
+        console.warn(
+          '[AI Seats Hint] Failed to persist dismissal:',
+          response.status
+        );
+      }
+    }).catch((error) => {
+      console.warn('[AI Seats Hint] Non-critical dismissal error:', error);
+    });
+  }, [userId]);
 
   // Handle browser back/forward buttons with pushState routing
   useEffect(() => {
@@ -3504,6 +3599,9 @@ export default function DashboardPage() {
                       activeModels={activeModels}
                       onReorderSeats={handleReorderSeats}
                       onToggleModel={handleToggleModel}
+                      showAiSeatsHint={showAiSeatsHint}
+                      onDismissAiSeatsHint={handleDismissAiSeatsHint}
+                      onRestoreDraftConsumed={() => setRestoreDraft(null)}
                     />
 
                     <div className="mt-3 hidden flex-wrap items-center justify-center gap-2 sm:flex">
@@ -3601,6 +3699,9 @@ export default function DashboardPage() {
               activeModels={activeModels}
               onReorderSeats={handleReorderSeats}
               onToggleModel={handleToggleModel}
+              showAiSeatsHint={showAiSeatsHint}
+              onDismissAiSeatsHint={handleDismissAiSeatsHint}
+              onRestoreDraftConsumed={() => setRestoreDraft(null)}
             />
           )}
           </LayoutGroup>
