@@ -59,7 +59,10 @@ import {
   type ConversationMemoryGraphResult,
 } from '@/utils/jevMemoryGraphExecutorV2';
 import { parseDocx } from '@/utils/docxParser';
-import { persistDocxEmbeddedImages } from '@/utils/docxVisualAssets';
+import {
+  persistDocxEmbeddedImages,
+  selectDocxEmbeddedImagesForPersistence,
+} from '@/utils/docxVisualAssets';
 import { renderDocxPages } from '@/utils/docxPageRenderer';
 import { persistDocxRenderedPages } from '@/utils/docxRenderedPages';
 import {
@@ -3302,6 +3305,30 @@ export async function POST(req: NextRequest) {
       }
     };
 
+    const markDurableRunTerminalAfterFailure = async () => {
+      if (!discussionId || !runStateServiceClient) return;
+
+      const terminalAt = new Date().toISOString();
+      const { error: terminalRunError } = await runStateServiceClient
+        .from('discussion_run_state')
+        .update({
+          status: 'cancelled',
+          cancelled_at: terminalAt,
+          updated_at: terminalAt,
+        })
+        .eq('discussion_id', discussionId)
+        .eq('user_id', authenticatedUser.id)
+        .eq('active_run_id', turnId)
+        .eq('status', 'active');
+
+      if (terminalRunError) {
+        console.warn(
+          '[Durable Run] Failure terminal mark failed:',
+          terminalRunError
+        );
+      }
+    };
+
     // Strict discussion isolation: Memory is strictly scoped to this discussion_id and must never leak across discussions.
     let discussionMemory: DiscussionMemoryResult | undefined;
     if (discussionId) {
@@ -5314,12 +5341,20 @@ export async function POST(req: NextRequest) {
 
                         if (parsed?.embeddedImages?.length) {
                           try {
-                            const persistedEmbeddedImages = await persistDocxEmbeddedImages({
-                              supabase,
-                              parentFilename: docFilename,
-                              parentFileBytes: fileBuffer,
-                              images: parsed.embeddedImages,
-                            });
+                            const imageSelection =
+                              selectDocxEmbeddedImagesForPersistence(
+                                parsed.embeddedImages
+                              );
+
+                            const persistedEmbeddedImages =
+                              imageSelection.selectedCount > 0
+                                ? await persistDocxEmbeddedImages({
+                                    supabase,
+                                    parentFilename: docFilename,
+                                    parentFileBytes: fileBuffer,
+                                    images: imageSelection.images,
+                                  })
+                                : [];
 
                             const embeddedAttachments: RouteAttachment[] =
                               persistedEmbeddedImages.map((embedded) => ({
@@ -5332,8 +5367,11 @@ export async function POST(req: NextRequest) {
 
                             console.log('[DOCX Visual] Materialized embedded images for current turn:', {
                               filename: docFilename,
-                              extractedCount: parsed.embeddedImages.length,
+                              extractedCount: imageSelection.originalCount,
+                              eligibleCount: imageSelection.eligibleCount,
+                              selectedCount: imageSelection.selectedCount,
                               materializedCount: persistedEmbeddedImages.length,
+                              selectionMode: imageSelection.mode,
                             });
                           } catch (embeddedErr) {
                             console.warn(
@@ -14358,6 +14396,7 @@ export async function POST(req: NextRequest) {
           });
         } catch (globalErr: any) {
           console.error('Fatal API stream error:', globalErr);
+          await markDurableRunTerminalAfterFailure();
           sendEvent('error', {
             message: globalErr?.message || 'An unexpected error occurred.',
           });
