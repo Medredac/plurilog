@@ -3,12 +3,93 @@
 import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Check } from 'lucide-react';
-import { PlurilogMark } from '@/components/PlurilogMark';
 import { createClient } from '@/utils/supabase/client';
 
 type FeedbackPreviewCardProps = {
   initialMode?: 'form' | 'thanks';
 };
+
+function FeedbackBackdrop({ children }: { children: React.ReactNode }) {
+  return (
+    <main
+      className="min-h-screen overflow-x-hidden px-4 py-8 text-[#1C1B1A] sm:px-6 sm:py-10"
+      style={{
+        fontFamily: 'var(--font-poppins), Poppins, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        backgroundColor: '#F7F6F3',
+        backgroundImage:
+          'linear-gradient(to right, rgba(28,27,26,0.055) 1px, transparent 1px), linear-gradient(to bottom, rgba(28,27,26,0.055) 1px, transparent 1px)',
+        backgroundSize: '32px 32px',
+      }}
+    >
+      {children}
+    </main>
+  );
+}
+
+function RobotsHeader() {
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-0 z-10 h-[126px] w-[330px] -translate-x-1/2 sm:h-[138px] sm:w-[360px]">
+      <div className="absolute bottom-[1px] left-[74px] flex items-end gap-[2px] sm:left-[82px]">
+        <img
+          src="/robot-head-chatgpt.svg"
+          alt=""
+          aria-hidden="true"
+          className="h-[76px] w-[72px] rotate-[-4deg] sm:h-[82px] sm:w-[78px]"
+        />
+        <img
+          src="/robot-head-claude.svg"
+          alt=""
+          aria-hidden="true"
+          className="relative z-[2] h-[84px] w-[80px] sm:h-[90px] sm:w-[86px]"
+        />
+        <img
+          src="/robot-head-gemini.svg"
+          alt=""
+          aria-hidden="true"
+          className="h-[78px] w-[74px] rotate-[3deg] sm:h-[84px] sm:w-[80px]"
+        />
+      </div>
+
+      <div className="absolute right-[-4px] top-[6px] sm:right-[-10px]">
+        <div
+          className="rotate-[-4deg] text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A] sm:text-[15px]"
+          style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
+        >
+          we’re all ears!
+        </div>
+        <svg viewBox="0 0 112 42" className="ml-[-4px] mt-[-2px] h-[38px] w-[112px]" fill="none" aria-hidden="true">
+          <path
+            d="M102 5C84 22 61 27 31 25"
+            stroke="#1C1B1A"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+          />
+          <path
+            d="M39 17L30 25L40 32"
+            stroke="#1C1B1A"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function Brand() {
+  return (
+    <div className="mb-7 flex items-center gap-2">
+      <img
+        src="/logopngpluri.png"
+        alt=""
+        aria-hidden="true"
+        className="h-[22px] w-[22px] object-contain"
+      />
+      <span className="text-[13px] font-semibold tracking-[-0.025em] text-[#1C1B1A]">Plurilog</span>
+    </div>
+  );
+}
 
 export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCardProps) {
   const supabase = useMemo(() => createClient(), []);
@@ -45,153 +126,114 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSubmit) return;
-
-    // Preview-only interaction for now. The production feedback endpoint can
-    // replace this local transition without changing the visual treatment.
     setMode('thanks');
   };
 
   if (mode === 'thanks') {
     return (
-      <main className="plurilog-dashboard bg-tech-grid min-h-screen px-4 py-8 sm:px-6">
-        <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[520px] items-center justify-center">
-          <section className="relative w-full max-w-[390px] rounded-[18px] border border-[#DEDCD6] bg-white px-7 pb-10 pt-8 shadow-[0_18px_54px_rgba(28,27,26,0.10)] sm:px-10">
-            <div className="mb-7 flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center">
-                <PlurilogMark className="h-5 w-5 text-[#1C1B1A]" />
-              </div>
-              <span className="text-[12px] font-semibold tracking-[-0.02em] text-[#1C1B1A]">Plurilog</span>
-            </div>
+      <FeedbackBackdrop>
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
+          <div className="relative w-full max-w-[486px] pt-[116px] sm:pt-[126px]">
+            <RobotsHeader />
 
-            <div className="flex flex-col items-center text-center">
-              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-[#DDF5E6] text-[#27A85A]">
-                <Check className="h-5 w-5 stroke-[2.4]" />
-              </div>
-              <h1 className="text-[24px] font-semibold tracking-[-0.04em] text-[#1C1B1A]">
-                Thank you!
-              </h1>
-              <p className="mt-2 max-w-[290px] text-[13px] leading-[1.55] text-[#6A675F]">
-                We read every piece of feedback, and yours genuinely helps us make Plurilog better.
-              </p>
+            <section className="relative z-20 min-h-[430px] rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-10 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:min-h-[455px] sm:px-9 sm:pb-11 sm:pt-8">
+              <Brand />
 
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                <Link
-                  href="/dashboard"
-                  className="inline-flex h-10 items-center justify-center rounded-[9px] bg-[#1C1B1A] px-4 text-[12px] font-semibold text-white transition hover:bg-[#353330]"
-                >
-                  Back to Plurilog
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFeedback('');
-                    setMode('form');
-                  }}
-                  className="inline-flex h-10 items-center justify-center rounded-[9px] border border-[#D9D6CF] bg-white px-4 text-[12px] font-semibold text-[#1C1B1A] transition hover:bg-[#F7F6F3]"
-                >
-                  Send more feedback
-                </button>
+              <div className="flex flex-col items-center px-1 pt-3 text-center sm:pt-5">
+                <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-[#DDF5E6] text-[#27A85A]">
+                  <Check className="h-5 w-5 stroke-[2.5]" />
+                </div>
+
+                <h1 className="text-[25px] font-semibold leading-[1.1] tracking-[-0.045em] text-[#1C1B1A] sm:text-[27px]">
+                  Thank you!
+                </h1>
+
+                <p className="mt-3 max-w-[330px] text-[13px] leading-[1.6] text-[#6A675F] sm:text-[14px]">
+                  We read every piece of feedback. Yours genuinely helps us understand what to improve and make Plurilog better.
+                </p>
+
+                <div className="mt-7 flex w-full flex-col items-stretch justify-center gap-2.5 sm:w-auto sm:flex-row sm:items-center">
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex h-10 items-center justify-center rounded-[9px] bg-[#1C1B1A] px-5 text-[12px] font-semibold text-white transition hover:bg-[#353330]"
+                  >
+                    Back to Plurilog
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFeedback('');
+                      setMode('form');
+                    }}
+                    className="inline-flex h-10 items-center justify-center rounded-[9px] border border-[#D9D6CF] bg-white px-5 text-[12px] font-semibold text-[#1C1B1A] transition hover:bg-[#F7F6F3]"
+                  >
+                    Send more feedback
+                  </button>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
-      </main>
+      </FeedbackBackdrop>
     );
   }
 
   return (
-    <main className="plurilog-dashboard bg-tech-grid min-h-screen px-4 py-8 sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[620px] items-center justify-center">
-        <div className="relative w-full max-w-[390px] pt-[94px]">
-          <div className="pointer-events-none absolute left-1/2 top-0 z-0 h-[118px] w-[250px] -translate-x-1/2 overflow-hidden">
-            <img
-              src="/plurilog-robots-sketch.svg"
-              alt=""
-              aria-hidden="true"
-              className="absolute bottom-[-78px] left-1/2 w-[330px] max-w-none -translate-x-1/2"
-            />
-          </div>
+    <FeedbackBackdrop>
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
+        <div className="relative w-full max-w-[486px] pt-[116px] sm:pt-[126px]">
+          <RobotsHeader />
 
-          <div className="pointer-events-none absolute right-[-14px] top-[12px] z-10 w-[132px] rotate-[-4deg] sm:right-[-28px]">
-            <div
-              className="text-center text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A]"
-              style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
-            >
-              we’re all ears!
-            </div>
-            <svg
-              viewBox="0 0 100 36"
-              className="mt-[-1px] h-[34px] w-[100px]"
-              fill="none"
-              aria-hidden="true"
-            >
-              <path
-                d="M86 4C70 19 49 24 23 22"
-                stroke="#1C1B1A"
-                strokeWidth="2.1"
-                strokeLinecap="round"
-              />
-              <path
-                d="M31 15L22 22L32 29"
-                stroke="#1C1B1A"
-                strokeWidth="2.1"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
+          <section className="relative z-20 rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-8 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:px-9 sm:pb-10">
+            <Brand />
 
-          <section className="relative z-20 rounded-[18px] border border-[#DEDCD6] bg-white px-7 pb-8 pt-7 shadow-[0_18px_54px_rgba(28,27,26,0.10)] sm:px-8">
-            <div className="mb-7 flex items-center gap-2">
-              <div className="flex h-6 w-6 items-center justify-center">
-                <PlurilogMark className="h-5 w-5 text-[#1C1B1A]" />
-              </div>
-              <span className="text-[12px] font-semibold tracking-[-0.02em] text-[#1C1B1A]">Plurilog</span>
-            </div>
-
-            <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#8A867D]">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.19em] text-[#7D7970]">
               Feedback
             </p>
-            <h1 className="text-[25px] font-semibold leading-[1.08] tracking-[-0.045em] text-[#1C1B1A]">
+
+            <h1 className="max-w-[390px] text-[28px] font-semibold leading-[1.08] tracking-[-0.045em] text-[#1C1B1A] sm:text-[30px]">
               We’d love to hear your feedback, {firstName}.
             </h1>
-            <p className="mt-2.5 text-[12px] leading-[1.55] text-[#6A675F]">
+
+            <p className="mt-3 max-w-[390px] text-[13px] leading-[1.55] text-[#6A675F] sm:text-[14px]">
               Tell us what worked, what didn’t, or anything you think we could improve.
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-6">
-              <label htmlFor="feedback" className="mb-2 block text-[11px] font-semibold text-[#1C1B1A]">
+            <form onSubmit={handleSubmit} className="mt-7">
+              <label htmlFor="feedback" className="mb-2.5 block text-[11px] font-semibold text-[#1C1B1A] sm:text-[12px]">
                 Your feedback
               </label>
+
               <textarea
                 id="feedback"
                 name="feedback"
-                rows={6}
+                rows={7}
                 value={feedback}
                 onChange={(event) => setFeedback(event.target.value)}
                 placeholder="Write as much or as little as you like..."
                 className={[
-                  'min-h-[138px] w-full resize-y rounded-[13px] bg-[#FBFAF8] px-4 py-3.5',
-                  'text-[12px] leading-5 text-[#1C1B1A] outline-none transition-all placeholder:text-[#9A968D]',
+                  'min-h-[146px] w-full resize-y rounded-[13px] bg-[#FBFAF8] px-4 py-3.5',
+                  'text-[12px] leading-5 text-[#1C1B1A] outline-none transition-all placeholder:text-[#8F8B82] sm:min-h-[154px] sm:text-[13px]',
                   feedback.trim()
-                    ? 'border border-[#3A3936] shadow-[0_0_0_3px_rgba(28,27,26,0.06)]'
-                    : 'border border-[#E3E0DA]',
-                  'focus:border-[#3A3936] focus:shadow-[0_0_0_3px_rgba(28,27,26,0.06)]',
+                    ? 'border border-[#2C2B29] shadow-[0_0_0_3px_rgba(28,27,26,0.06)]'
+                    : 'border border-[#E0DDD6]',
+                  'focus:border-[#2C2B29] focus:shadow-[0_0_0_3px_rgba(28,27,26,0.06)]',
                 ].join(' ')}
               />
 
-              <div className="mt-3.5 flex items-center justify-between gap-3">
-                <p className="max-w-[205px] text-[9px] leading-[1.45] text-[#8A867D]">
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[9.5px] leading-[1.5] text-[#7D7970] sm:max-w-[235px] sm:text-[10px]">
                   No survey. No rating scale. Just tell us what you think.
                 </p>
+
                 <button
                   type="submit"
                   disabled={!canSubmit}
                   className={[
-                    'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[9px] px-4 text-[10px] font-semibold transition',
+                    'inline-flex h-10 items-center justify-center gap-2 self-stretch rounded-[9px] px-5 text-[11px] font-semibold transition sm:self-auto',
                     canSubmit
                       ? 'bg-[#1C1B1A] text-white hover:bg-[#353330]'
-                      : 'cursor-not-allowed bg-[#C9C7C2] text-white',
+                      : 'cursor-not-allowed bg-[#BDBBB7] text-white',
                   ].join(' ')}
                 >
                   Send feedback
@@ -202,6 +244,6 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
           </section>
         </div>
       </div>
-    </main>
+    </FeedbackBackdrop>
   );
 }
