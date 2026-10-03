@@ -56,6 +56,71 @@ function safeImageLabel(value?: string): string {
     .slice(0, 90);
 }
 
+const DOCX_EMBEDDED_IMAGE_LIMIT = 32;
+const DOCX_FRAGMENTED_IMAGE_THRESHOLD = 80;
+const DOCX_FRAGMENTED_IMAGE_LIMIT = 24;
+
+export interface DocxEmbeddedImageSelection {
+  images: EmbeddedDocxImage[];
+  originalCount: number;
+  eligibleCount: number;
+  selectedCount: number;
+  mode: 'all' | 'bounded' | 'fragmented';
+}
+
+/**
+ * Keeps DOCX visual processing bounded before the first model seat starts.
+ *
+ * Normal documents with a modest number of embedded raster images keep the
+ * existing behavior. Large image-heavy DOCX files (often scan/conversion
+ * bundles containing hundreds of tiny fragments) retain only the largest
+ * candidates so text extraction can proceed immediately without spending the
+ * entire request lifetime uploading and registering derived artifacts.
+ */
+export function selectDocxEmbeddedImagesForPersistence(
+  images: EmbeddedDocxImage[]
+): DocxEmbeddedImageSelection {
+  const originalCount = Array.isArray(images) ? images.length : 0;
+  const eligible = (Array.isArray(images) ? images : []).filter(
+    (image) =>
+      image &&
+      Buffer.isBuffer(image.data) &&
+      image.data.length > 0 &&
+      SUPPORTED_IMAGE_TYPES.has((image.contentType || '').toLowerCase())
+  );
+
+  if (eligible.length <= DOCX_EMBEDDED_IMAGE_LIMIT) {
+    return {
+      images: eligible,
+      originalCount,
+      eligibleCount: eligible.length,
+      selectedCount: eligible.length,
+      mode: 'all',
+    };
+  }
+
+  const fragmented = eligible.length > DOCX_FRAGMENTED_IMAGE_THRESHOLD;
+  const limit = fragmented
+    ? DOCX_FRAGMENTED_IMAGE_LIMIT
+    : DOCX_EMBEDDED_IMAGE_LIMIT;
+
+  const selected = [...eligible]
+    .sort((a, b) => {
+      const sizeDiff = b.data.length - a.data.length;
+      return sizeDiff !== 0 ? sizeDiff : a.index - b.index;
+    })
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index);
+
+  return {
+    images: selected,
+    originalCount,
+    eligibleCount: eligible.length,
+    selectedCount: selected.length,
+    mode: fragmented ? 'fragmented' : 'bounded',
+  };
+}
+
 export async function persistDocxEmbeddedImages(
   options: PersistDocxEmbeddedImagesOptions
 ): Promise<PersistedDocxEmbeddedImage[]> {
