@@ -13864,6 +13864,23 @@ export async function POST(req: NextRequest) {
             return;
           }
 
+          // Every completed seat response and its spend row is already durable
+          // at this point. Release the composer immediately after the final seat
+          // instead of making the user wait for non-critical evidence/document/
+          // visual indexing below.
+          await markDurableRunCompleted();
+
+          console.log('[Turn Ready]', {
+            turnId,
+            discussionId: discussionId || null,
+            configuredSeats: configuredSeats.map((seat) => seat.seatId),
+            completedSeatCount: priorResponses.length,
+            elapsedTurnMs: Date.now() - turnStartedAt,
+          });
+          sendEvent('turn_ready', {
+            status: 'ready',
+          });
+
           if (
             AGENTIC_MEMORY_EXPERIMENT &&
             discussionId &&
@@ -14298,21 +14315,8 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Everything the user needs for the completed turn is now durable.
-          // Release the UI before non-critical semantic memory indexing so the
-          // composer does not appear frozen after the final seat finishes.
-          await markDurableRunCompleted();
-
-          console.log('[Turn Ready]', {
-            turnId,
-            discussionId: discussionId || null,
-            configuredSeats: configuredSeats.map((seat) => seat.seatId),
-            completedSeatCount: priorResponses.length,
-            elapsedTurnMs: Date.now() - turnStartedAt,
-          });
-          sendEvent('turn_ready', {
-            status: 'ready',
-          });
+          // Post-turn indexing below is deliberately non-blocking from the UI's
+          // perspective: turn_ready was already emitted after the final seat.
 
           // Index completed text discussion round in discussion_memory_chunks (non-critical)
           if (
