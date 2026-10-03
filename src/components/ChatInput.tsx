@@ -26,6 +26,7 @@ interface ChatInputProps {
   onToggleModel: (id: ModelId) => void;
   showAiSeatsHint?: boolean;
   onDismissAiSeatsHint?: () => void;
+  onRestoreDraftConsumed?: () => void;
 }
 
 interface AttachedFileItem {
@@ -49,6 +50,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onToggleModel,
   showAiSeatsHint = false,
   onDismissAiSeatsHint,
+  onRestoreDraftConsumed,
 }) => {
   const [inputVal, setInputVal] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<AttachedFileItem[]>([]);
@@ -93,8 +95,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         textareaRef.current.style.height = 'auto';
         textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
       }
+
+      // A restore/preset is a one-shot instruction. Once this input has
+      // consumed it, clear the parent value so a later remount cannot
+      // re-insert stale text or attachments.
+      onRestoreDraftConsumed?.();
     }
-  }, [restoreDraft?.trigger]);
+  }, [restoreDraft?.trigger, onRestoreDraftConsumed]);
 
   const getCameraFilename = (file: File): string => {
     const now = new Date();
