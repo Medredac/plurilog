@@ -28,25 +28,25 @@ function FeedbackBackdrop({ children }: { children: React.ReactNode }) {
 
 function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[120px] sm:h-[130px]">
-      <div className="absolute bottom-[-1px] left-1/2 flex -translate-x-1/2 items-end justify-center">
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[112px] sm:h-[120px]">
+      <div className="absolute bottom-[-5px] left-1/2 flex -translate-x-1/2 items-end justify-center">
         <img
           src="/robot-head-chatgpt@3x.png"
           alt=""
           aria-hidden="true"
-          className="block h-auto w-[78px] shrink-0 object-contain sm:w-[86px]"
+          className="relative z-[1] block h-auto w-[76px] shrink-0 origin-bottom-right -rotate-[7deg] translate-y-[7px] object-contain sm:w-[84px] sm:translate-y-[8px]"
         />
         <img
           src="/robot-head-claude@3x.png"
           alt=""
           aria-hidden="true"
-          className="-ml-[2px] block h-auto w-[82px] shrink-0 object-contain sm:w-[90px]"
+          className="relative z-[3] -ml-[7px] block h-auto w-[84px] shrink-0 object-contain sm:w-[92px]"
         />
         <img
           src="/robot-head-gemini@3x.png"
           alt=""
           aria-hidden="true"
-          className="-ml-[2px] block h-auto w-[78px] shrink-0 object-contain sm:w-[86px]"
+          className="relative z-[2] -ml-[7px] block h-auto w-[76px] shrink-0 origin-bottom-left rotate-[7deg] translate-y-[7px] object-contain sm:w-[84px] sm:translate-y-[8px]"
         />
       </div>
 
@@ -54,7 +54,7 @@ function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
         <img
           src="/note-were-all-ears@3x.png"
           alt="we’re all ears!"
-          className="absolute left-[calc(50%+112px)] top-[25px] block h-auto w-[124px] object-contain sm:left-[calc(50%+126px)] sm:top-[28px] sm:w-[142px]"
+          className="absolute left-[calc(50%+104px)] top-[-2px] block h-auto w-[136px] object-contain sm:left-[calc(50%+118px)] sm:top-[-4px] sm:w-[150px]"
         />
       )}
     </div>
@@ -117,7 +117,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
     return (
       <FeedbackBackdrop>
         <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
-          <div className="relative w-full max-w-[486px] pt-[120px] sm:pt-[130px]">
+          <div className="relative w-full max-w-[486px] pt-[88px] sm:pt-[96px]">
             <RobotsHeader showNote={false} />
 
             <section className="relative z-20 min-h-[430px] rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-10 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:min-h-[455px] sm:px-9 sm:pb-11 sm:pt-8">
@@ -165,7 +165,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
   return (
     <FeedbackBackdrop>
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
-        <div className="relative w-full max-w-[486px] pt-[120px] sm:pt-[130px]">
+        <div className="relative w-full max-w-[486px] pt-[88px] sm:pt-[96px]">
           <RobotsHeader />
 
           <section className="relative z-20 rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-8 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:px-9 sm:pb-10">
