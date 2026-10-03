@@ -138,9 +138,13 @@ import {
   isSourcePreservingDocumentState,
   type SourceDocumentEditArgs,
 } from '@/utils/sourceDocumentEditor';
+import {
+  DEBATE_ROUTE_MAX_DURATION_SECONDS,
+  calculateDebateSeatTimeoutMs,
+} from '@/utils/debateRuntimeBudget';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = DEBATE_ROUTE_MAX_DURATION_SECONDS;
 
 // Experimental preview-only runtime switch. Jev/System 2 remain intact in the
 // codebase, but they are not executed or consulted for conversation-memory
@@ -6637,33 +6641,22 @@ export async function POST(req: NextRequest) {
             const messageId = crypto.randomUUID();
             const seatStartedAt = Date.now();
 
-            // Reserve time for later seats and post-relay persistence rather than
-            // allowing one provider request to consume the full Vercel invocation.
+            // Allocate each seat from the shared Pro wall-clock budget while
+            // preserving a finalization reserve. These are safety ceilings only;
+            // fast provider responses still complete immediately.
             const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
-            const softTurnBudgetRemainingMs = Math.max(
-              30_000,
-              285_000 - elapsedBeforeSeatMs
-            );
             const seatsRemaining = configuredSeats.length - seatIndex;
-            const fairShareMs =
-              Math.floor(softTurnBudgetRemainingMs / seatsRemaining) - 5_000;
-            const postDocumentReviewerShareMs =
-              documentCreatedThisTurn && seatsRemaining > 1
-                ? softTurnBudgetRemainingMs - 60_000 * (seatsRemaining - 1) - 5_000
-                : fairShareMs;
-            const seatTimeoutCapMs =
-              configuredSeats.length === 1
-                ? 240_000
-                : configuredSeats.length === 2
-                  ? 120_000
-                  : 100_000;
-            const seatTimeoutMs = Math.max(
-              30_000,
-              Math.min(
-                seatTimeoutCapMs,
-                Math.max(fairShareMs, postDocumentReviewerShareMs)
-              )
-            );
+            const seatTimeoutMs = calculateDebateSeatTimeoutMs({
+              elapsedTurnMs: elapsedBeforeSeatMs,
+              seatsRemaining,
+              configuredSeatCount: configuredSeats.length,
+            });
+
+            if (seatTimeoutMs <= 0) {
+              throw new Error(
+                `Panel runtime budget exhausted before ${seat.name} could start.`
+              );
+            }
 
             const seatAbortController = new AbortController();
             const abortSeatFromRequest = () => {
