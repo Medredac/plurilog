@@ -3,11 +3,10 @@ import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { verifyDiscussionOwnership } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
+import { DEBATE_STALE_ACTIVE_RUN_AFTER_MS } from '@/utils/debateRuntimeBudget';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const STALE_ACTIVE_RUN_AFTER_MS = 6 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
   try {
@@ -97,7 +96,7 @@ export async function GET(req: NextRequest) {
       runState.status === 'active' &&
       Number.isFinite(runStartedAt) &&
       runStartedAt > 0 &&
-      Date.now() - runStartedAt > STALE_ACTIVE_RUN_AFTER_MS
+      Date.now() - runStartedAt > DEBATE_STALE_ACTIVE_RUN_AFTER_MS
     ) {
       const staleAt = new Date().toISOString();
       const { error: staleCleanupError } = await serviceClient
