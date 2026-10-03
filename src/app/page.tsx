@@ -882,9 +882,9 @@ export default function LandingPage() {
                 className="relative rounded-[16px] border border-[#8A867D] bg-white p-6 sm:p-8 flex flex-col justify-between shadow-2xs"
               >
                 <div className="pointer-events-none absolute -top-[23px] right-5 flex items-end -space-x-2.5" aria-hidden="true">
-                  <img src="/robot-head-claude.svg" alt="" className="h-[35px] w-[33px] object-contain" />
-                  <img src="/robot-head-chatgpt.svg" alt="" className="h-[35px] w-[33px] object-contain" />
-                  <img src="/robot-head-gemini.svg" alt="" className="h-[35px] w-[33px] object-contain" />
+                  <img src="/robot-head-claude@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
+                  <img src="/robot-head-chatgpt@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
+                  <img src="/robot-head-gemini@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
                 </div>
 
                 <div>
