@@ -6,6 +6,7 @@ import { Check, X } from 'lucide-react';
 interface OutOfCreditsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  variant?: 'out' | 'low';
 }
 
 const PLAN_FEATURES = [
@@ -30,6 +31,7 @@ const RobotHeads = () => (
 export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
   isOpen,
   onClose,
+  variant = 'out',
 }) => {
   const [isRedirecting, setIsRedirecting] = useState(false);
 
@@ -79,7 +81,9 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             <div className="mb-2 flex items-center gap-2">
               <img src="/logo.svg" alt="" className="h-[22px] w-[22px] shrink-0 object-contain" />
               <span className="text-[11px] font-medium text-[#6A675F]">
-                You’ve used all your free credit
+                {variant === 'low'
+                  ? 'You’ve used almost all your free credit'
+                  : 'You’ve used all your free credit'}
               </span>
             </div>
             <h3 className="text-[22px] font-semibold tracking-[-0.02em] text-[#1C1B1A]">
