@@ -7,6 +7,8 @@ import { createServiceClient } from '@/utils/supabase/service';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const STALE_ACTIVE_RUN_AFTER_MS = 6 * 60 * 1000;
+
 export async function GET(req: NextRequest) {
   try {
     const discussionId =
@@ -90,6 +92,42 @@ export async function GET(req: NextRequest) {
     }
 
     const runStartedAt = Number(runState.active_started_at);
+
+    if (
+      runState.status === 'active' &&
+      Number.isFinite(runStartedAt) &&
+      runStartedAt > 0 &&
+      Date.now() - runStartedAt > STALE_ACTIVE_RUN_AFTER_MS
+    ) {
+      const staleAt = new Date().toISOString();
+      const { error: staleCleanupError } = await serviceClient
+        .from('discussion_run_state')
+        .update({
+          status: 'cancelled',
+          cancelled_at: staleAt,
+          updated_at: staleAt,
+        })
+        .eq('discussion_id', discussionId)
+        .eq('user_id', user.id)
+        .eq('active_run_id', runState.active_run_id)
+        .eq('status', 'active');
+
+      if (staleCleanupError) {
+        console.warn(
+          '[Durable Run] Stale active-run cleanup failed:',
+          staleCleanupError
+        );
+      } else {
+        runState.status = 'cancelled';
+        runState.cancelled_at = staleAt;
+        runState.updated_at = staleAt;
+        console.warn('[Durable Run] Cleared stale active run:', {
+          discussionId,
+          runId: runState.active_run_id,
+          runStartedAt,
+        });
+      }
+    }
 
     return NextResponse.json(
       {
