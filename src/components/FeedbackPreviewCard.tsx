@@ -65,10 +65,10 @@ function Brand() {
   return (
     <div className="mb-7 flex items-center gap-2">
       <img
-        src="/logopngpluri.png"
+        src="/logo.svg"
         alt=""
         aria-hidden="true"
-        className="h-[22px] w-[22px] object-contain"
+        className="h-[20px] w-[20px] object-contain sm:h-[21px] sm:w-[21px]"
       />
       <span className="text-[13px] font-semibold tracking-[-0.025em] text-[#1C1B1A]">Plurilog</span>
     </div>
