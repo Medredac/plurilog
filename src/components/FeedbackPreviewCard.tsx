@@ -1,12 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
 import { ArrowRight, Check } from 'lucide-react';
-import { createClient } from '@/utils/supabase/client';
 
 type FeedbackPreviewCardProps = {
   initialMode?: 'form' | 'thanks';
+  initialFirstName?: string;
+  token?: string;
+  invalid?: boolean;
+  loadError?: boolean;
 };
 
 function FeedbackBackdrop({ children }: { children: React.ReactNode }) {
@@ -75,43 +78,104 @@ function Brand() {
   );
 }
 
-export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCardProps) {
-  const supabase = useMemo(() => createClient(), []);
+function normalizeFirstName(value?: string): string {
+  const first = String(value || '').trim().split(/\s+/)[0];
+  return first || 'there';
+}
+
+export function FeedbackPreviewCard({
+  initialMode = 'form',
+  initialFirstName,
+  token,
+  invalid = false,
+  loadError = false,
+}: FeedbackPreviewCardProps) {
   const [mode, setMode] = useState<'form' | 'thanks'>(initialMode);
   const [feedback, setFeedback] = useState('');
-  const [firstName, setFirstName] = useState('there');
+  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'error'>('idle');
+  const [linkUnavailable, setLinkUnavailable] = useState(invalid);
 
-  useEffect(() => {
-    let active = true;
+  const firstName = useMemo(
+    () => normalizeFirstName(initialFirstName),
+    [initialFirstName]
+  );
 
-    const loadName = async () => {
-      const queryName = new URLSearchParams(window.location.search).get('name')?.trim();
-      if (queryName) {
-        if (active) setFirstName(queryName.split(/\s+/)[0]);
+  const canSubmit =
+    feedback.trim().length > 0 &&
+    feedback.trim().length <= 10_000 &&
+    submitState !== 'submitting';
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+
+    if (!token) {
+      setMode('thanks');
+      return;
+    }
+
+    setSubmitState('submitting');
+
+    try {
+      const response = await fetch(`/api/feedback/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ body: feedback.trim() }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 410) {
+          setLinkUnavailable(true);
+          setSubmitState('idle');
+          return;
+        }
+
+        setSubmitState('error');
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const metadata = session?.user?.user_metadata;
-      const displayName = metadata?.display_name || metadata?.full_name || '';
-      const resolved = String(displayName).trim().split(/\s+/)[0];
-
-      if (active && resolved) setFirstName(resolved);
-    };
-
-    loadName().catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [supabase]);
-
-  const canSubmit = feedback.trim().length > 0;
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canSubmit) return;
-    setMode('thanks');
+      setSubmitState('idle');
+      setMode('thanks');
+    } catch {
+      setSubmitState('error');
+    }
   };
+
+  if (linkUnavailable || loadError) {
+    return (
+      <FeedbackBackdrop>
+        <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
+          <div className="relative w-full max-w-[486px] pt-[88px] sm:pt-[96px]">
+            <RobotsHeader showNote={false} />
+
+            <section className="relative z-20 min-h-[390px] rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-10 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:px-9 sm:pb-11">
+              <Brand />
+
+              <div className="flex flex-col items-center px-1 pt-7 text-center">
+                <h1 className="text-[24px] font-semibold leading-[1.15] tracking-[-0.04em] text-[#1C1B1A] sm:text-[26px]">
+                  {loadError ? 'Something went wrong.' : 'This feedback link is no longer available.'}
+                </h1>
+                <p className="mt-3 max-w-[330px] text-[13px] leading-[1.6] text-[#6A675F] sm:text-[14px]">
+                  {loadError
+                    ? 'Please try again in a moment.'
+                    : 'The link may have expired or been closed.'}
+                </p>
+
+                <Link
+                  href="/dashboard"
+                  className="mt-7 inline-flex h-10 items-center justify-center rounded-[9px] bg-[#1C1B1A] px-5 text-[12px] font-semibold text-white transition hover:bg-[#353330]"
+                >
+                  Back to Plurilog
+                </Link>
+              </div>
+            </section>
+          </div>
+        </div>
+      </FeedbackBackdrop>
+    );
+  }
 
   if (mode === 'thanks') {
     return (
@@ -147,6 +211,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
                     type="button"
                     onClick={() => {
                       setFeedback('');
+                      setSubmitState('idle');
                       setMode('form');
                     }}
                     className="inline-flex h-10 items-center justify-center rounded-[9px] border border-[#D9D6CF] bg-white px-5 text-[12px] font-semibold text-[#1C1B1A] transition hover:bg-[#F7F6F3]"
@@ -192,8 +257,12 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
                 id="feedback"
                 name="feedback"
                 rows={7}
+                maxLength={10_000}
                 value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
+                onChange={(event) => {
+                  setFeedback(event.target.value);
+                  if (submitState === 'error') setSubmitState('idle');
+                }}
                 placeholder="Write as much or as little as you like..."
                 className={[
                   'min-h-[146px] w-full resize-y rounded-[13px] bg-[#FBFAF8] px-4 py-3.5',
@@ -204,6 +273,12 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
                   'focus:border-[#2C2B29] focus:shadow-[0_0_0_3px_rgba(28,27,26,0.06)]',
                 ].join(' ')}
               />
+
+              {submitState === 'error' && (
+                <p role="alert" className="mt-2 text-[10px] leading-[1.5] text-[#B5473A] sm:text-[11px]">
+                  We couldn’t save your feedback. Please try again.
+                </p>
+              )}
 
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-[9.5px] leading-[1.5] text-[#7D7970] sm:max-w-[235px] sm:text-[10px]">
@@ -220,8 +295,8 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
                       : 'cursor-not-allowed bg-[#BDBBB7] text-white',
                   ].join(' ')}
                 >
-                  Send feedback
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  {submitState === 'submitting' ? 'Sending…' : 'Send feedback'}
+                  {submitState !== 'submitting' && <ArrowRight className="h-3.5 w-3.5" />}
                 </button>
               </div>
             </form>
