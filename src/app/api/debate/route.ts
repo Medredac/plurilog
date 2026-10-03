@@ -138,13 +138,12 @@ import {
   isSourcePreservingDocumentState,
   type SourceDocumentEditArgs,
 } from '@/utils/sourceDocumentEditor';
-import {
-  DEBATE_ROUTE_MAX_DURATION_SECONDS,
-  calculateDebateSeatTimeoutMs,
-} from '@/utils/debateRuntimeBudget';
+import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 
 export const runtime = 'nodejs';
-export const maxDuration = DEBATE_ROUTE_MAX_DURATION_SECONDS;
+// Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
+// can statically read the route-segment duration configuration.
+export const maxDuration = 1740;
 
 // Experimental preview-only runtime switch. Jev/System 2 remain intact in the
 // codebase, but they are not executed or consulted for conversation-memory
