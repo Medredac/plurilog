@@ -170,24 +170,10 @@ export function useTopTurnAnchor({
         targetScrollTop + viewport.clientHeight - baseScrollHeight
       );
 
-      // Also guarantee enough scroll range for the currently presenting AI
-      // seat to be manually brought to the same comfortable reading position.
-      // This does not auto-follow the seat; it only makes that position
-      // physically reachable. As the response grows beneath it, the reserve
-      // naturally shrinks.
-      const requiredTailReserve = tailAnchor
-        ? Math.max(
-            0,
-            getLayoutOffsetTop(tailAnchor, viewport) -
-              tailTopOffset +
-              viewport.clientHeight -
-              baseScrollHeight
-          )
-        : 0;
-
-      const nextReserve = Math.ceil(
-        Math.max(requiredAnchorReserve, requiredTailReserve)
-      );
+      // Reserve only what is required to hold the user turn at its intended
+      // reading position. Do not add extra tail space for the active AI seat;
+      // that created scrollable empty space below the natural conversation end.
+      const nextReserve = Math.ceil(requiredAnchorReserve);
 
       if (Math.abs(reserve.offsetHeight - nextReserve) > 1) {
         reserve.style.height = `${nextReserve}px`;
