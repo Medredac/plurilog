@@ -34,7 +34,7 @@ function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
           src="/robot-head-chatgpt@3x.png"
           alt=""
           aria-hidden="true"
-          className="relative z-[1] block h-auto w-[76px] shrink-0 origin-bottom-right -rotate-[7deg] translate-y-[7px] object-contain sm:w-[84px] sm:translate-y-[8px]"
+          className="relative z-[1] block h-auto w-[76px] shrink-0 origin-bottom-right -rotate-[7deg] translate-y-[3px] object-contain sm:w-[84px] sm:translate-y-[4px]"
         />
         <img
           src="/robot-head-claude@3x.png"
@@ -46,7 +46,7 @@ function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
           src="/robot-head-gemini@3x.png"
           alt=""
           aria-hidden="true"
-          className="relative z-[2] -ml-[7px] block h-auto w-[76px] shrink-0 origin-bottom-left rotate-[7deg] translate-y-[7px] object-contain sm:w-[84px] sm:translate-y-[8px]"
+          className="relative z-[2] -ml-[7px] block h-auto w-[76px] shrink-0 origin-bottom-left rotate-[7deg] translate-y-[3px] object-contain sm:w-[84px] sm:translate-y-[4px]"
         />
       </div>
 
