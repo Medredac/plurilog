@@ -28,52 +28,63 @@ function FeedbackBackdrop({ children }: { children: React.ReactNode }) {
 
 function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
   return (
-    <div className="pointer-events-none absolute left-1/2 top-0 z-10 h-[126px] w-[330px] -translate-x-1/2 sm:h-[138px] sm:w-[360px]">
-      <div className="absolute bottom-[1px] left-[74px] flex items-end gap-[2px] sm:left-[82px]">
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-[126px] sm:h-[132px]">
+      <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 items-end">
         <img
           src="/robot-head-chatgpt.svg"
           alt=""
           aria-hidden="true"
-          className="h-[76px] w-[72px] rotate-[-4deg] sm:h-[82px] sm:w-[78px]"
+          width={80}
+          height={84}
+          className="block h-[80px] w-[76px] shrink-0 sm:h-[84px] sm:w-[80px]"
         />
         <img
           src="/robot-head-claude.svg"
           alt=""
           aria-hidden="true"
-          className="relative z-[2] h-[84px] w-[80px] sm:h-[90px] sm:w-[86px]"
+          width={80}
+          height={84}
+          className="-ml-[5px] block h-[86px] w-[82px] shrink-0 sm:h-[90px] sm:w-[86px]"
         />
         <img
           src="/robot-head-gemini.svg"
           alt=""
           aria-hidden="true"
-          className="h-[78px] w-[74px] rotate-[3deg] sm:h-[84px] sm:w-[80px]"
+          width={80}
+          height={84}
+          className="-ml-[5px] block h-[80px] w-[76px] shrink-0 sm:h-[84px] sm:w-[80px]"
         />
       </div>
 
       {showNote && (
-      <div className="absolute right-[-38px] top-[6px] sm:right-[-58px]">
-        <div
-          className="rotate-[-4deg] text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A] sm:text-[15px]"
-          style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
-        >
-          we’re all ears!
+        <div className="absolute left-[calc(50%+126px)] top-[32px] sm:left-[calc(50%+136px)] sm:top-[34px]">
+          <div
+            className="whitespace-nowrap rotate-[-3deg] text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A] sm:text-[15px]"
+            style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
+          >
+            we’re all ears!
+          </div>
+          <svg
+            viewBox="0 0 116 44"
+            className="ml-[-14px] mt-[-2px] h-[38px] w-[112px]"
+            fill="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M108 5C91 24 66 31 31 29"
+              stroke="#1C1B1A"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <path
+              d="M40 21L30 29L40 36"
+              stroke="#1C1B1A"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
-        <svg viewBox="0 0 112 42" className="ml-[-4px] mt-[-2px] h-[38px] w-[112px]" fill="none" aria-hidden="true">
-          <path
-            d="M102 5C84 22 61 27 31 25"
-            stroke="#1C1B1A"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-          />
-          <path
-            d="M39 17L30 25L40 32"
-            stroke="#1C1B1A"
-            strokeWidth="2.2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
       )}
     </div>
   );
@@ -135,7 +146,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
     return (
       <FeedbackBackdrop>
         <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
-          <div className="relative w-full max-w-[486px] pt-[116px] sm:pt-[126px]">
+          <div className="relative w-full max-w-[486px] pt-[126px] sm:pt-[132px]">
             <RobotsHeader showNote={false} />
 
             <section className="relative z-20 min-h-[430px] rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-10 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:min-h-[455px] sm:px-9 sm:pb-11 sm:pt-8">
@@ -183,7 +194,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
   return (
     <FeedbackBackdrop>
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
-        <div className="relative w-full max-w-[486px] pt-[116px] sm:pt-[126px]">
+        <div className="relative w-full max-w-[486px] pt-[126px] sm:pt-[132px]">
           <RobotsHeader />
 
           <section className="relative z-20 rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-8 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:px-9 sm:pb-10">
