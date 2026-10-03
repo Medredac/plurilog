@@ -58,7 +58,7 @@ function safeImageLabel(value?: string): string {
 
 const DOCX_EMBEDDED_IMAGE_LIMIT = 32;
 const DOCX_FRAGMENTED_IMAGE_THRESHOLD = 80;
-const DOCX_FRAGMENTED_IMAGE_LIMIT = 24;
+const DOCX_FRAGMENTED_IMAGE_LIMIT = 8;
 
 export interface DocxEmbeddedImageSelection {
   images: EmbeddedDocxImage[];
