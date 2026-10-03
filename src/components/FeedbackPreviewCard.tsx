@@ -52,9 +52,9 @@ function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
 
       {showNote && (
         <img
-          src="/note-were-all-ears@3x.png"
+          src="/note-were-all-ears-with-arrow.svg"
           alt="we’re all ears!"
-          className="absolute left-[calc(50%+104px)] top-[-2px] block h-auto w-[136px] object-contain sm:left-[calc(50%+118px)] sm:top-[-4px] sm:w-[150px]"
+          className="absolute left-[calc(50%+76px)] top-[-1px] block h-auto w-[118px] object-contain sm:left-[calc(50%+108px)] sm:top-[-7px] sm:w-[150px]"
         />
       )}
     </div>
