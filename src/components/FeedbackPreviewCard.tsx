@@ -112,11 +112,34 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
             />
           </div>
 
-          <img
-            src="/feedback-all-ears-note.svg"
-            alt="We’re all ears!"
-            className="pointer-events-none absolute right-[-16px] top-[10px] z-10 w-[132px] rotate-[-1deg] sm:right-[-28px]"
-          />
+          <div className="pointer-events-none absolute right-[-14px] top-[12px] z-10 w-[132px] rotate-[-4deg] sm:right-[-28px]">
+            <div
+              className="text-center text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A]"
+              style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
+            >
+              we’re all ears!
+            </div>
+            <svg
+              viewBox="0 0 100 36"
+              className="mt-[-1px] h-[34px] w-[100px]"
+              fill="none"
+              aria-hidden="true"
+            >
+              <path
+                d="M86 4C70 19 49 24 23 22"
+                stroke="#1C1B1A"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+              />
+              <path
+                d="M31 15L22 22L32 29"
+                stroke="#1C1B1A"
+                strokeWidth="2.1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
 
           <section className="relative z-20 rounded-[18px] border border-[#DEDCD6] bg-white px-7 pb-8 pt-7 shadow-[0_18px_54px_rgba(28,27,26,0.10)] sm:px-8">
             <div className="mb-7 flex items-center gap-2">
