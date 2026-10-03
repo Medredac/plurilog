@@ -509,16 +509,19 @@ export default function LandingPage() {
           </motion.div>
           <motion.div {...scrollRevealProps(0.38)} className="bg-amber-50 rounded-3xl p-3 mt-8">
             <video
-              src="/pluriherovid.mp4"
+              src="/finalvideodemohero.mp4"
               autoPlay
               loop
               muted
               playsInline
+              preload="metadata"
               controls={false}
               disablePictureInPicture
               disableRemotePlayback
               controlsList="nodownload nofullscreen noremoteplayback"
               tabIndex={-1}
+              aria-hidden="true"
+              draggable={false}
               className="w-full rounded-2xl shadow-md pointer-events-none select-none"
             />
           </motion.div>
