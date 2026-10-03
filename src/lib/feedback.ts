@@ -14,6 +14,8 @@ type FeedbackRequestRow = {
   status: 'open' | 'closed' | 'revoked';
   expires_at: string;
   first_opened_at: string | null;
+  display_name: string | null;
+  email: string | null;
 };
 
 export type ResolvedFeedbackRequest = {
@@ -46,7 +48,7 @@ async function findOpenFeedbackRequest(
 
   const { data, error } = await serviceClient
     .from('feedback_requests')
-    .select('id, user_id, feedback_type, status, expires_at, first_opened_at')
+    .select('id, user_id, feedback_type, status, expires_at, first_opened_at, display_name, email')
     .eq('token_hash', tokenHash)
     .maybeSingle();
 
@@ -82,36 +84,22 @@ export async function resolveFeedbackRequest(
   const serviceClient = createServiceClient();
   const nowIso = new Date().toISOString();
 
-  const [{ data: profile, error: profileError }] = await Promise.all([
-    serviceClient
-      .from('profiles')
-      .select('display_name')
-      .eq('id', request.user_id)
-      .maybeSingle(),
-    options.markOpened === false
-      ? Promise.resolve({ data: null, error: null })
-      : serviceClient
-          .from('feedback_requests')
-          .update({
-            first_opened_at: request.first_opened_at || nowIso,
-            last_opened_at: nowIso,
-            updated_at: nowIso,
-          })
-          .eq('id', request.id)
-          .eq('status', 'open'),
-  ]);
-
-  if (profileError) {
-    console.warn('[Feedback] Could not load display name:', {
-      code: profileError.code || null,
-      message: profileError.message || null,
-    });
+  if (options.markOpened !== false) {
+    await serviceClient
+      .from('feedback_requests')
+      .update({
+        first_opened_at: request.first_opened_at || nowIso,
+        last_opened_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', request.id)
+      .eq('status', 'open');
   }
 
   return {
     requestId: request.id,
     feedbackType: request.feedback_type,
-    firstName: feedbackFirstName(profile?.display_name),
+    firstName: feedbackFirstName(request.display_name),
   };
 }
 
@@ -142,6 +130,8 @@ export async function submitFeedbackEntry(
     .insert({
       request_id: request.id,
       body,
+      display_name: request.display_name,
+      email: request.email,
     })
     .select('id')
     .single();
@@ -174,10 +164,28 @@ export async function createFeedbackRequest({
     new Date(Date.now() + DEFAULT_FEEDBACK_TTL_DAYS * 24 * 60 * 60 * 1000);
 
   const serviceClient = createServiceClient();
+  const { data: profile, error: profileError } = await serviceClient
+    .from('profiles')
+    .select('display_name, email')
+    .eq('id', userId)
+    .single();
+
+  if (profileError) {
+    console.error('[Feedback] Failed to load profile snapshot:', {
+      code: profileError.code || null,
+      message: profileError.message || null,
+      userId,
+      feedbackType,
+    });
+    throw profileError;
+  }
+
   const { data, error } = await serviceClient
     .from('feedback_requests')
     .insert({
       user_id: userId,
+      display_name: profile?.display_name || null,
+      email: profile?.email || null,
       feedback_type: feedbackType,
       token_hash: tokenHash,
       status: 'open',
