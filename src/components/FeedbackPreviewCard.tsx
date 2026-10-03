@@ -268,7 +268,7 @@ export function FeedbackPreviewCard({
                 placeholder="Write as much or as little as you like..."
                 className={[
                   'min-h-[146px] w-full resize-y rounded-[13px] bg-[#FBFAF8] px-4 py-3.5',
-                  'text-[12px] leading-5 text-[#1C1B1A] outline-none transition-all placeholder:text-[#8F8B82] sm:min-h-[154px] sm:text-[13px]',
+                  'text-[16px] leading-5 text-[#1C1B1A] outline-none transition-all placeholder:text-[#8F8B82] sm:min-h-[154px] sm:text-[13px]',
                   feedback.trim()
                     ? 'border border-[#2C2B29] shadow-[0_0_0_3px_rgba(28,27,26,0.06)]'
                     : 'border border-[#E0DDD6]',
