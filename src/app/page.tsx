@@ -507,7 +507,7 @@ export default function LandingPage() {
               Plurilog puts Gemini, Claude and ChatGPT in the same discussion.
             </p>
           </motion.div>
-          <motion.div {...scrollRevealProps(0.38)} className="bg-amber-50 rounded-3xl p-3 mt-8">
+          <motion.div {...scrollRevealProps(0.38)} className="rounded-3xl border border-zinc-900/80 p-1.5 mt-8">
             <video
               src="/finalvideodemohero.mp4"
               autoPlay
