@@ -26,7 +26,7 @@ function FeedbackBackdrop({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RobotsHeader() {
+function RobotsHeader({ showNote = true }: { showNote?: boolean }) {
   return (
     <div className="pointer-events-none absolute left-1/2 top-0 z-10 h-[126px] w-[330px] -translate-x-1/2 sm:h-[138px] sm:w-[360px]">
       <div className="absolute bottom-[1px] left-[74px] flex items-end gap-[2px] sm:left-[82px]">
@@ -50,7 +50,8 @@ function RobotsHeader() {
         />
       </div>
 
-      <div className="absolute right-[-4px] top-[6px] sm:right-[-10px]">
+      {showNote && (
+      <div className="absolute right-[-38px] top-[6px] sm:right-[-58px]">
         <div
           className="rotate-[-4deg] text-[14px] font-semibold tracking-[-0.04em] text-[#1C1B1A] sm:text-[15px]"
           style={{ fontFamily: '"Comic Sans MS", "Bradley Hand", cursive' }}
@@ -73,6 +74,7 @@ function RobotsHeader() {
           />
         </svg>
       </div>
+      )}
     </div>
   );
 }
@@ -134,7 +136,7 @@ export function FeedbackPreviewCard({ initialMode = 'form' }: FeedbackPreviewCar
       <FeedbackBackdrop>
         <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[720px] items-center justify-center">
           <div className="relative w-full max-w-[486px] pt-[116px] sm:pt-[126px]">
-            <RobotsHeader />
+            <RobotsHeader showNote={false} />
 
             <section className="relative z-20 min-h-[430px] rounded-[19px] border border-[#DCD9D2] bg-white px-7 pb-10 pt-8 shadow-[0_22px_70px_rgba(28,27,26,0.10)] sm:min-h-[455px] sm:px-9 sm:pb-11 sm:pt-8">
               <Brand />
