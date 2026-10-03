@@ -9,6 +9,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function FeedbackPreviewPage() {
-  return <FeedbackPreviewCard initialMode="form" />;
+export default async function FeedbackPreviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ name?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const rawName = Array.isArray(params.name) ? params.name[0] : params.name;
+  const firstName = String(rawName || '').trim().split(/\s+/)[0] || 'there';
+
+  return (
+    <FeedbackPreviewCard
+      initialMode="form"
+      initialFirstName={firstName}
+    />
+  );
 }
