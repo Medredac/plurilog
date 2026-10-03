@@ -3601,6 +3601,7 @@ export default function DashboardPage() {
                       onToggleModel={handleToggleModel}
                       showAiSeatsHint={showAiSeatsHint}
                       onDismissAiSeatsHint={handleDismissAiSeatsHint}
+                      onRestoreDraftConsumed={() => setRestoreDraft(null)}
                     />
 
                     <div className="mt-3 hidden flex-wrap items-center justify-center gap-2 sm:flex">
@@ -3700,6 +3701,7 @@ export default function DashboardPage() {
               onToggleModel={handleToggleModel}
               showAiSeatsHint={showAiSeatsHint}
               onDismissAiSeatsHint={handleDismissAiSeatsHint}
+              onRestoreDraftConsumed={() => setRestoreDraft(null)}
             />
           )}
           </LayoutGroup>
