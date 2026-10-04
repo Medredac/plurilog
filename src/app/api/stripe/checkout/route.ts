@@ -9,6 +9,10 @@ import {
   isMetaTrackingAllowedForRequest,
   normalizeMetaConsentStatus,
 } from '@/lib/metaConversions';
+import {
+  GOOGLE_ADS_COOKIE_NAMES,
+  isGoogleAdsTrackingAllowedForRequest,
+} from '@/lib/googleAds';
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -47,7 +51,7 @@ export async function POST(request: Request) {
     mode: 'subscription',
     client_reference_id: user.id,
     line_items: [{ price: process.env.STRIPE_PRICE_ID_PLUS!, quantity: 1 }],
-    success_url: `${origin}/dashboard?upgraded=true`,
+    success_url: `${origin}/dashboard?upgraded=true&checkout_session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/dashboard`,
   };
 
@@ -83,6 +87,74 @@ export async function POST(request: Request) {
     sessionParams.subscription_data = {
       metadata: attributionMetadata,
     };
+  }
+
+  // Preserve Google Ads click and UTM attribution through Stripe as well.
+  // The browser Google tag handles the live conversion today; keeping these
+  // values on the Checkout Session makes the verified purchase auditable and
+  // leaves a clean path to server-side/offline conversion uploads later.
+  if (
+    isGoogleAdsTrackingAllowedForRequest(
+      metaCountryCode,
+      metaRegionCode,
+      metaConsentStatus
+    )
+  ) {
+    const readGoogleCookie = (name: string): string | undefined => {
+      const rawValue = cookieStore.get(name)?.value;
+      if (!rawValue) return undefined;
+      try {
+        return decodeURIComponent(rawValue);
+      } catch {
+        return rawValue;
+      }
+    };
+
+    const gclid = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.gclid);
+    const gbraid = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.gbraid);
+    const wbraid = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.wbraid);
+    const utmSource = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.utmSource);
+    const utmCampaign = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.utmCampaign);
+    const utmTerm = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.utmTerm);
+    const utmContent = readGoogleCookie(GOOGLE_ADS_COOKIE_NAMES.utmContent);
+
+    if (
+      gclid ||
+      gbraid ||
+      wbraid ||
+      utmSource?.toLowerCase() === 'google_ads'
+    ) {
+      const googleMetadata: Record<string, string> = {
+        ...(profile.signup_source
+          ? { plurilog_google_signup_source: profile.signup_source }
+          : {}),
+        plurilog_google_consent: metaConsentStatus,
+        ...(metaCountryCode
+          ? { plurilog_google_country: metaCountryCode.trim().toUpperCase() }
+          : {}),
+        ...(metaRegionCode
+          ? { plurilog_google_region: metaRegionCode.trim().toUpperCase() }
+          : {}),
+        ...(gclid ? { plurilog_gclid: gclid } : {}),
+        ...(gbraid ? { plurilog_gbraid: gbraid } : {}),
+        ...(wbraid ? { plurilog_wbraid: wbraid } : {}),
+        ...(utmSource ? { plurilog_google_utm_source: utmSource } : {}),
+        ...(utmCampaign ? { plurilog_google_utm_campaign: utmCampaign } : {}),
+        ...(utmTerm ? { plurilog_google_utm_term: utmTerm } : {}),
+        ...(utmContent ? { plurilog_google_utm_content: utmContent } : {}),
+      };
+
+      const mergedMetadata = {
+        ...(sessionParams.metadata || {}),
+        ...googleMetadata,
+      };
+
+      sessionParams.metadata = mergedMetadata;
+      sessionParams.subscription_data = {
+        ...(sessionParams.subscription_data || {}),
+        metadata: mergedMetadata,
+      };
+    }
   }
 
   // Reuse existing Stripe Customer if present; otherwise pass customer_email
