@@ -4,11 +4,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     {
       url: 'https://plurilogai.com/',
-      lastModified: new Date('2026-09-30T00:00:00.000Z'),
+      lastModified: new Date('2026-10-04T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/chatgpt-claude-gemini',
-      lastModified: new Date('2026-09-25T00:00:00.000Z'),
+      lastModified: new Date('2026-10-04T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/compare-ai-models',
+      lastModified: new Date('2026-10-04T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/ai-debate',
+      lastModified: new Date('2026-10-04T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/ai-pdf-editor',

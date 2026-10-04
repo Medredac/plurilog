@@ -90,7 +90,7 @@ const faqItems = [
   {
     question: "Is Plurilog just an AI comparison tool?",
     answer: [
-      "No. Comparing AI answers is useful, but Plurilog is designed around something broader: an ongoing AI panel.",
+      "No. Comparing AI models is useful, but Plurilog is designed around something broader: a multi-AI conversation where your AI panel shares one ongoing discussion.",
       "The goal is not simply to place three answers side by side. The AIs participate in the same evolving conversation, share relevant context, and can respond to ideas introduced earlier in the discussion.",
       "You stay in one conversation while controlling which models participate and when they respond."
     ]
@@ -385,7 +385,7 @@ export default function LandingPage() {
               }}
               className="text-3xl sm:text-5xl font-semibold tracking-tight text-zinc-900 leading-tight sm:leading-tight mb-3"
             >
-              Your AI Panel: ChatGPT, Claude and Gemini in One Conversation
+              ChatGPT, Claude and Gemini in One AI Group Chat
             </motion.h1>
 
             {/* Subheadline */}
@@ -411,7 +411,7 @@ export default function LandingPage() {
               }}
               className="text-sm sm:text-base text-zinc-500 font-normal max-w-2xl leading-relaxed mb-8"
             >
-              Ask once. Get three perspectives in one shared discussion.
+              Ask once. The AIs read each other's responses, challenge ideas and build on the same discussion.
             </motion.p>
 
             {/* Primary Action Button */}
@@ -500,8 +500,16 @@ export default function LandingPage() {
               Or cross-check it with another AI to be sure?
             </h2>
             <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
-              Plurilog puts Gemini, Claude and ChatGPT in the same discussion.
+              Compare AI models without copying prompts between tabs. Plurilog puts Gemini, Claude and ChatGPT in the same discussion, where they can respond to each other.
             </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs sm:text-sm font-medium">
+              <Link href="/compare-ai-models" className="text-zinc-500 hover:text-zinc-900 transition-colors">
+                Compare AI models →
+              </Link>
+              <Link href="/ai-debate" className="text-zinc-500 hover:text-zinc-900 transition-colors">
+                Explore AI debate →
+              </Link>
+            </div>
           </motion.div>
           <motion.div {...scrollRevealProps(0.38)} className="rounded-2xl border border-zinc-900/80 overflow-hidden mt-8 shadow-md">
             <video
@@ -646,7 +654,7 @@ export default function LandingPage() {
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
-                ChatGPT, Claude and Gemini in One Conversation
+                Multiple AI Models in One Conversation
               </h3>
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Ask once and let multiple leading AI models respond to you and to each other. They share the discussion context, so one model can challenge, refine or build on what another has already said.
@@ -655,7 +663,7 @@ export default function LandingPage() {
                 href="/chatgpt-claude-gemini"
                 className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
               >
-                See how the shared AI conversation works →
+                See how the AI panel works →
               </Link>
             </motion.div>
 
