@@ -554,14 +554,20 @@ export default function LandingPage() {
 
             <motion.div {...scrollRevealProps(0.07)} className="w-full">
               <video
-                src="/showAIs.mp4"
+                src="/robot-seats-animation.mp4"
                 autoPlay
                 loop
                 muted
                 playsInline
                 preload="metadata"
                 controls={false}
-                className="mt-6 w-full max-w-[408px] h-auto rounded-lg border border-zinc-200 shadow-sm"
+                disablePictureInPicture
+                disableRemotePlayback
+                controlsList="nodownload nofullscreen noremoteplayback"
+                tabIndex={-1}
+                aria-hidden="true"
+                draggable={false}
+                className="mt-6 block w-full max-w-[408px] h-auto rounded-2xl border border-zinc-200/90 shadow-sm pointer-events-none select-none"
               />
             </motion.div>
 
@@ -602,17 +608,23 @@ export default function LandingPage() {
           <div className="w-full lg:w-[55%] flex justify-center">
             <motion.div
               {...scrollRevealProps(0.06)}
-              className="w-fit bg-blue-50/70 border border-blue-100/80 rounded-[34px] p-2.5 sm:p-3 flex items-center justify-center shadow-2xs"
+              className="w-fit rounded-[30px] border border-zinc-900/80 overflow-hidden shadow-md"
             >
               <video
-                src="/phonetestvideo.mp4"
+                src="/newmobiledemo.mp4"
                 autoPlay
                 loop
                 muted
                 playsInline
                 preload="metadata"
                 controls={false}
-                className="w-full max-w-[340px] sm:max-w-[380px] lg:max-w-[400px] h-auto rounded-[28px] shadow-md object-contain"
+                disablePictureInPicture
+                disableRemotePlayback
+                controlsList="nodownload nofullscreen noremoteplayback"
+                tabIndex={-1}
+                aria-hidden="true"
+                draggable={false}
+                className="block w-full max-w-[340px] sm:max-w-[380px] lg:max-w-[400px] h-auto object-contain pointer-events-none select-none"
               />
             </motion.div>
           </div>
