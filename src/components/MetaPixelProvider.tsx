@@ -44,6 +44,7 @@ export function isPublicMetaRoute(pathname: string | null): boolean {
 }
 
 export const REGISTRATION_BRIDGE_EVENT = 'plurilog:registration_bridge_complete';
+export const MARKETING_CONSENT_CHANGED_EVENT = 'plurilog:marketing-consent-changed';
 
 let isScriptReady = false;
 const readyCallbacks: Array<() => void> = [];
@@ -301,6 +302,9 @@ function MetaPixelTracker() {
         : current
     );
     setConsentRevision((revision) => revision + 1);
+    window.dispatchEvent(
+      new CustomEvent(MARKETING_CONSENT_CHANGED_EVENT, { detail: { choice } })
+    );
   };
 
   const shouldShowBanner =
