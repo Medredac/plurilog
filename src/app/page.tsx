@@ -617,7 +617,7 @@ export default function LandingPage() {
         >
           <motion.div {...scrollRevealProps(0)} className="text-center max-w-3xl mx-auto">
             <p className="text-xs sm:text-sm font-medium text-[#4880E6] mb-3">
-              More than a multi-AI chat
+              More than an AI group chat
             </p>
             <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 leading-tight">
               What Can You Do With Plurilog?
@@ -646,7 +646,7 @@ export default function LandingPage() {
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
-                ChatGPT, Claude and Gemini in One Conversation
+                AI Group Chat with ChatGPT, Claude and Gemini
               </h3>
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Ask once and let multiple leading AI models respond to you and to each other. They share the discussion context, so one model can challenge, refine or build on what another has already said.
@@ -655,7 +655,7 @@ export default function LandingPage() {
                 href="/chatgpt-claude-gemini"
                 className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
               >
-                See how the shared AI conversation works →
+                See how the AI group chat works →
               </Link>
             </motion.div>
 
