@@ -90,7 +90,7 @@ const faqItems = [
   {
     question: "Is Plurilog just an AI comparison tool?",
     answer: [
-      "No. Comparing AI models is useful, but Plurilog is designed around something broader: an AI group chat where the models share one ongoing discussion.",
+      "No. Comparing AI models is useful, but Plurilog is designed around something broader: a multi-AI conversation where your AI panel shares one ongoing discussion.",
       "The goal is not simply to place three answers side by side. The AIs participate in the same evolving conversation, share relevant context, and can respond to ideas introduced earlier in the discussion.",
       "You stay in one conversation while controlling which models participate and when they respond."
     ]
@@ -502,6 +502,14 @@ export default function LandingPage() {
             <p className="text-sm sm:text-base text-zinc-500 font-normal leading-relaxed max-w-3xl mx-auto">
               Compare AI models without copying prompts between tabs. Plurilog puts Gemini, Claude and ChatGPT in the same discussion, where they can respond to each other.
             </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs sm:text-sm font-medium">
+              <Link href="/compare-ai-models" className="text-zinc-500 hover:text-zinc-900 transition-colors">
+                Compare AI models →
+              </Link>
+              <Link href="/ai-debate" className="text-zinc-500 hover:text-zinc-900 transition-colors">
+                Explore AI debate →
+              </Link>
+            </div>
           </motion.div>
           <motion.div {...scrollRevealProps(0.38)} className="rounded-2xl border border-zinc-900/80 overflow-hidden mt-8 shadow-md">
             <video
@@ -617,7 +625,7 @@ export default function LandingPage() {
         >
           <motion.div {...scrollRevealProps(0)} className="text-center max-w-3xl mx-auto">
             <p className="text-xs sm:text-sm font-medium text-[#4880E6] mb-3">
-              More than an AI group chat
+              More than a multi-AI chat
             </p>
             <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 leading-tight">
               What Can You Do With Plurilog?
@@ -646,7 +654,7 @@ export default function LandingPage() {
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
-                AI Group Chat with ChatGPT, Claude and Gemini
+                Multiple AI Models in One Conversation
               </h3>
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
                 Ask once and let multiple leading AI models respond to you and to each other. They share the discussion context, so one model can challenge, refine or build on what another has already said.
@@ -655,7 +663,7 @@ export default function LandingPage() {
                 href="/chatgpt-claude-gemini"
                 className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
               >
-                See how the AI group chat works →
+                See how the AI panel works →
               </Link>
             </motion.div>
 
