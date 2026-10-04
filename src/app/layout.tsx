@@ -23,18 +23,18 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL("https://plurilogai.com"),
   title: {
-    default: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
+    default: "AI Group Chat: ChatGPT, Claude & Gemini | Plurilog",
     template: "%s | Plurilog",
   },
   description:
-    "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
+    "Put ChatGPT, Claude and Gemini in one AI group chat. Compare AI models as they read, respond to and challenge each other in one shared discussion.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
+    title: "AI Group Chat: ChatGPT, Claude & Gemini | Plurilog",
     description:
-      "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
+      "Put ChatGPT, Claude and Gemini in one AI group chat. Compare AI models as they read, respond to and challenge each other in one shared discussion.",
     url: "https://plurilogai.com/",
     siteName: "Plurilog",
     locale: "en_US",
@@ -44,15 +44,15 @@ export const metadata: Metadata = {
         url: "https://plurilogai.com/opengraph-image.png",
         width: 1200,
         height: 630,
-        alt: "Plurilog — ChatGPT, Claude and Gemini in one conversation",
+        alt: "Plurilog — AI group chat with ChatGPT, Claude and Gemini",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ChatGPT, Claude & Gemini in One Conversation | Plurilog",
+    title: "AI Group Chat: ChatGPT, Claude & Gemini | Plurilog",
     description:
-      "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
+      "Put ChatGPT, Claude and Gemini in one AI group chat. Compare AI models as they read, respond to and challenge each other in one shared discussion.",
     images: ["https://plurilogai.com/twitter-image.png"],
   },
 };
@@ -67,7 +67,7 @@ const jsonLd = {
       alternateName: "Plurilog AI",
       url: "https://plurilogai.com/",
       description:
-        "Use ChatGPT, Claude and Gemini in one shared conversation. Compare answers, analyse files, create and edit Word and PDF documents, generate images and search the web.",
+        "Put ChatGPT, Claude and Gemini in one AI group chat. Compare AI models as they read, respond to and challenge each other in one shared discussion.",
       publisher: {
         "@id": "https://plurilogai.com/#organization",
       },
@@ -96,14 +96,14 @@ const jsonLd = {
       operatingSystem: "Web",
       browserRequirements: "Requires JavaScript and a modern web browser.",
       description:
-        "A multi-AI workspace that brings ChatGPT, Claude and Gemini into one shared conversation with persistent context, file and image analysis, Word and PDF creation and editing, image generation and editing, SVG output, web search and voice dictation.",
+        "An AI group chat and multi-model workspace that brings ChatGPT, Claude and Gemini into one shared discussion where models can read and respond to earlier answers, with persistent context, file and image analysis, document creation and editing, image generation, web search and voice dictation.",
       image: "https://plurilogai.com/opengraph-image.png",
       publisher: {
         "@id": "https://plurilogai.com/#organization",
       },
       featureList: [
-        "ChatGPT, Claude and Gemini in one shared conversation",
-        "Cross-model comparison and discussion",
+        "AI group chat with ChatGPT, Claude and Gemini",
+        "Compare AI models through one shared discussion",
         "Persistent shared conversation context",
         "PDF, DOCX, image and text-file analysis",
         "Creation of downloadable Word documents and PDFs",
