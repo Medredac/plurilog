@@ -4,6 +4,7 @@ import "./globals.css";
 import { SignupSourceTracker } from "@/components/SignupSourceTracker";
 import { PostHogProvider } from "@/components/PostHogProvider";
 import { MetaPixelProvider } from "@/components/MetaPixelProvider";
+import { GoogleAdsProvider } from "@/components/GoogleAdsProvider";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -126,6 +127,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-sans bg-[#FBF9F5] text-zinc-900">
         <PostHogProvider />
         <MetaPixelProvider />
+        <GoogleAdsProvider />
         <SignupSourceTracker />
         <script
           type="application/ld+json"
