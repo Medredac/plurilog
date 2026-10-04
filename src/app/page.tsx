@@ -511,7 +511,7 @@ export default function LandingPage() {
               </Link>
             </div>
           </motion.div>
-          <motion.div {...scrollRevealProps(0.38)} className="rounded-2xl border border-zinc-900/80 overflow-hidden mt-8 shadow-md">
+          <motion.div {...scrollRevealProps(0.38)} className="rounded-2xl border border-zinc-900/80 overflow-hidden mt-8">
             <video
               src="/finalvideodemohero.mp4"
               autoPlay
@@ -567,7 +567,7 @@ export default function LandingPage() {
                 tabIndex={-1}
                 aria-hidden="true"
                 draggable={false}
-                className="mt-6 block w-full max-w-[408px] h-auto rounded-2xl border border-zinc-200/90 shadow-sm pointer-events-none select-none"
+                className="mt-6 block w-full max-w-[408px] h-auto rounded-2xl border border-zinc-900/80 pointer-events-none select-none"
               />
             </motion.div>
 
@@ -596,9 +596,9 @@ export default function LandingPage() {
 
               <button
                 onClick={() => handleOpenAuth('signup')}
-                className="mt-6 flex items-center gap-2 px-6 py-3 rounded-xl bg-[#D94726] hover:bg-[#C13D21] text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
+                className="mt-6 flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
               >
-                <span>Open Plurilog</span>
+                <span>Open your panel</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </motion.div>
