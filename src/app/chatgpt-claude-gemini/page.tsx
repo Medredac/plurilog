@@ -82,9 +82,9 @@ export default function ChatGPTClaudeGeminiPage() {
         },
       ]}
       related={[
-        { href: '/ai-pdf-editor', title: 'AI PDF editor', description: 'Analyse and revise supported PDF documents.' },
-        { href: '/ai-word-document-generator', title: 'Word document generator', description: 'Create downloadable DOCX documents from a discussion.' },
-        { href: '/ai-document-editor', title: 'AI document editor', description: 'Revise Word documents and PDFs with natural-language instructions.' },
+        { href: '/compare-ai-models', title: 'Compare AI models', description: 'Compare ChatGPT, Claude and Gemini inside one shared discussion.' },
+        { href: '/ai-debate', title: 'AI debate', description: 'Let multiple AI models challenge and respond to each other.' },
+        { href: '/ai-pdf-editor', title: 'AI PDF editor', description: 'Analyse supported PDFs with multiple AI perspectives.' },
       ]}
     />
   );
