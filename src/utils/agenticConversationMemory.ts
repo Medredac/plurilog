@@ -8,7 +8,7 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
     function: {
       name: 'search_conversation_memory',
       description:
-        'Search older conversation history only when answering the current request requires a fact, name, decision, wording, event, or continuity detail that is not reliably present in your current context. Returns compact grounded evidence candidates with evidence IDs. Do not search merely because history exists. Prefer a focused semantic query containing the uncertain entities or fact you need to verify. This is NOT the right tool when the answer depends on which relevant occurrence came first or last in conversation history; use find_conversation_event for that.',
+        'Search older conversation history only when answering the current request requires a fact, name, decision, wording, event, or continuity detail that is not reliably present in your current context. Returns compact grounded evidence candidates with evidence IDs. Do not search merely because history exists. Prefer a focused semantic query containing the uncertain entities or fact you need to verify. This is NOT the right tool when the answer depends on which relevant occurrence came first or last in conversation history, or when the user is trying to establish the origin/earliest prior appearance of a recurring detail; use find_conversation_event for that.',
       parameters: {
         type: 'object',
         properties: {
@@ -40,7 +40,7 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
     function: {
       name: 'find_conversation_event',
       description:
-        'Find the first or last RELEVANT historical conversation occurrence. Use this whenever the answer depends on historical ordering, including where or when a name, fact, idea, event, or topic first/last appeared or was encountered. Do not substitute ordinary semantic search when ordering is part of the question. Use mode="topic" for a subject/event and pass a focused topic/entity query without temporal wording; candidates are relevance-qualified before chronological selection. Use mode="speaker_boundary" only for the absolute first or last contribution by one speaker regardless of topic.',
+        'Find the first or last RELEVANT historical conversation occurrence. Use this whenever the answer depends on historical ordering, including where or when a name, fact, idea, event, or topic first/last appeared or was encountered. Also use it to establish the origin/earliest prior appearance of a recurring detail when that is the substance of the user’s question even if they do not literally say "first". Do not substitute ordinary semantic search when ordering is part of the question. Use mode="topic" for a subject/event and pass a focused topic/entity query without temporal wording; candidates are relevance-qualified before chronological selection. Use mode="speaker_boundary" only for the absolute first or last contribution by one speaker regardless of topic.',
       parameters: {
         type: 'object',
         properties: {
