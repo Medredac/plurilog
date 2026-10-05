@@ -2716,11 +2716,11 @@ When referring to the person currently chatting with the panel, address them dir
       ? `AGENTIC CONVERSATION MEMORY:
 You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
 
-A statement that something "did not appear earlier" is a historical claim. If the supplied baseline does not establish that claim, retrieve conversation history before answering. More generally, when the user asks where, when, or how a prior name, fact, idea, event, wording, decision, or continuity detail appeared in the conversation, do not infer absence from the recent-context window.
+A statement that something "did not appear earlier" is a historical claim. If the supplied baseline does not establish that claim, retrieve conversation history before answering. More generally, when the user asks where, when, or how a prior name, fact, idea, event, wording, decision, or continuity detail appeared in the conversation, do not infer absence from the recent-context window. If they are trying to establish where a recurring detail originally came from or where it was encountered earlier, establish its earliest relevant occurrence before answering even when they do not literally say "first".
 
 Choose the retrieval operation by the information need, not by surface wording:
 - If the user needs relevant older material without an ordering requirement, use search_conversation_memory.
-- If the answer depends on which RELEVANT occurrence came first or last, use find_conversation_event. Do not substitute ordinary semantic search and then infer chronology yourself.
+- If the answer depends on which RELEVANT occurrence came first or last, or on the origin/earliest prior appearance of a recurring detail, use find_conversation_event. Do not substitute ordinary semantic search and then infer chronology yourself.
 - If the user asks what happened immediately before or after an already grounded event, use navigate_conversation_evidence.
 These rules concern conversation history only; do not reinterpret temporal language about documents, files, edits, real-world events, or the current prompt as conversation chronology.
 
