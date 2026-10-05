@@ -39,13 +39,13 @@ function normalizeSummary(raw: string): string {
     .map((line) => line.replace(/^[-*•]\s*/u, '').trim())
     .filter(Boolean)
     .slice(0, 3)
-    .map((line) => \`• \${line}\`);
+    .map((line) => `• ${line}`);
 
   if (bulletLines.length > 0) {
-    return bulletLines.join('\\n').slice(0, 900);
+    return bulletLines.join('\n').slice(0, 900);
   }
 
-  return \`• \${cleaned.replace(/\s+/g, ' ')}\`.slice(0, 900);
+  return `• ${cleaned.replace(/\s+/g, ' ')}`.slice(0, 900);
 }
 
 export async function POST(req: NextRequest) {
