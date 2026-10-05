@@ -3,12 +3,21 @@
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
+  GOOGLE_ADS_ACTIVATED_SEND_TO,
   GOOGLE_ADS_COOKIE_NAMES,
+  GOOGLE_ADS_DEEP_ENGAGEMENT_SEND_TO,
   GOOGLE_ADS_PURCHASE_SEND_TO,
+  GOOGLE_ADS_REGISTRATION_SEND_TO,
   GOOGLE_ADS_TAG_ID,
+  type GoogleEngagementMilestone,
 } from '@/lib/googleAds';
+import { createClient } from '@/utils/supabase/client';
 
 const CONSENT_CHANGED_EVENT = 'plurilog:marketing-consent-changed';
+
+export const GOOGLE_ENGAGEMENT_EVENT = 'plurilog:google-engagement-milestone';
+export const GOOGLE_REGISTRATION_BRIDGE_EVENT =
+  'plurilog:google-registration-bridge-complete';
 const CLICK_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
 
 type GoogleEligibility = {
@@ -23,6 +32,12 @@ type PurchaseStatus = {
   currency?: string;
   transactionId?: string;
   email?: string | null;
+};
+
+type GoogleEngagementEventDetail = {
+  userId: string;
+  email?: string | null;
+  milestones: GoogleEngagementMilestone[];
 };
 
 declare global {
@@ -119,6 +134,7 @@ function GoogleAdsTracker() {
   const [tagReady, setTagReady] = useState(false);
   const [consentRevision, setConsentRevision] = useState(0);
   const handledSessionRef = useRef<string | null>(null);
+  const handledRegistrationRef = useRef(false);
 
   useEffect(() => {
     const handleConsentChanged = () => {
@@ -182,6 +198,145 @@ function GoogleAdsTracker() {
       cancelled = true;
     };
   }, [pathname, consentRevision]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleEngagementMilestone = (event: Event) => {
+      if (
+        !eligibility?.eligible ||
+        !tagReady ||
+        typeof window.gtag !== 'function'
+      ) {
+        return;
+      }
+
+      const detail = (event as CustomEvent<GoogleEngagementEventDetail>).detail;
+      if (!detail?.userId || !Array.isArray(detail.milestones)) return;
+
+      if (detail.email) {
+        window.gtag('set', 'user_data', {
+          email: detail.email.trim().toLowerCase(),
+        });
+      }
+
+      for (const milestone of detail.milestones) {
+        const sendTo =
+          milestone === 'Activated'
+            ? GOOGLE_ADS_ACTIVATED_SEND_TO
+            : milestone === 'DeepEngagement'
+              ? GOOGLE_ADS_DEEP_ENGAGEMENT_SEND_TO
+              : '';
+
+        if (!sendTo) continue;
+
+        const dedupeKey =
+          milestone === 'Activated'
+            ? `plurilog:google-activated:${detail.userId}`
+            : `plurilog:google-deep-engagement:${detail.userId}`;
+
+        try {
+          if (localStorage.getItem(dedupeKey) === 'sent') continue;
+        } catch {
+          // Continue without local dedupe when storage is unavailable.
+        }
+
+        window.gtag('event', 'conversion', { send_to: sendTo });
+
+        try {
+          localStorage.setItem(dedupeKey, 'sent');
+        } catch {
+          // Non-critical: Google also attributes conversions against its click identifiers.
+        }
+      }
+    };
+
+    window.addEventListener(GOOGLE_ENGAGEMENT_EVENT, handleEngagementMilestone);
+    return () => {
+      window.removeEventListener(GOOGLE_ENGAGEMENT_EVENT, handleEngagementMilestone);
+    };
+  }, [eligibility, tagReady]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (pathname !== '/auth/registration-complete') return;
+    if (searchParams.get('registered') !== 'true') return;
+    if (handledRegistrationRef.current) return;
+
+    const finishRegistrationBridge = () => {
+      window.dispatchEvent(new CustomEvent(GOOGLE_REGISTRATION_BRIDGE_EVENT));
+    };
+
+    if (!eligibility?.eligible) {
+      if (eligibility !== null) {
+        handledRegistrationRef.current = true;
+        finishRegistrationBridge();
+      }
+      return;
+    }
+
+    if (!tagReady || typeof window.gtag !== 'function') return;
+
+    handledRegistrationRef.current = true;
+    let cancelled = false;
+
+    const reportRegistration = async () => {
+      try {
+        if (!GOOGLE_ADS_REGISTRATION_SEND_TO) {
+          finishRegistrationBridge();
+          return;
+        }
+
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (cancelled) return;
+        if (!user) {
+          finishRegistrationBridge();
+          return;
+        }
+
+        const dedupeKey = `plurilog:google-registration:${user.id}`;
+        try {
+          if (localStorage.getItem(dedupeKey) === 'sent') {
+            finishRegistrationBridge();
+            return;
+          }
+        } catch {
+          // Continue without local dedupe when storage is unavailable.
+        }
+
+        if (user.email) {
+          window.gtag?.('set', 'user_data', {
+            email: user.email.trim().toLowerCase(),
+          });
+        }
+
+        window.gtag?.('event', 'conversion', {
+          send_to: GOOGLE_ADS_REGISTRATION_SEND_TO,
+        });
+
+        try {
+          localStorage.setItem(dedupeKey, 'sent');
+        } catch {
+          // Non-critical: conversion was still queued to the Google tag.
+        }
+
+        finishRegistrationBridge();
+      } catch (error) {
+        console.warn('[Google Ads] Registration reporting failed:', error);
+        finishRegistrationBridge();
+      }
+    };
+
+    void reportRegistration();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [eligibility, pathname, searchParams, tagReady]);
 
   useEffect(() => {
     if (

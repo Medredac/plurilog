@@ -24,6 +24,7 @@ import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as Image
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
 import { LayoutGroup, motion } from 'motion/react';
+import { GOOGLE_ENGAGEMENT_EVENT } from '../../components/GoogleAdsProvider';
 
 const INITIAL_SEAT_STATUSES: Record<ModelId, SeatStatus> = {
   'gemini': 'idle',
@@ -68,6 +69,42 @@ async function trackMetaEngagementMilestone(userId: string) {
     });
   } catch (error) {
     console.warn('[Meta Engagement] Non-critical milestone tracking error:', error);
+  }
+}
+
+async function trackGoogleEngagementMilestone(
+  userId: string,
+  email?: string
+) {
+  if (typeof window === 'undefined' || !userId) return;
+
+  try {
+    const response = await fetch('/api/google/engagement', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) return;
+
+    const result = (await response.json()) as {
+      eligible?: boolean;
+      milestones?: Array<'Activated' | 'DeepEngagement'>;
+    };
+
+    if (!result.eligible || !Array.isArray(result.milestones)) return;
+    if (result.milestones.length === 0) return;
+
+    window.dispatchEvent(
+      new CustomEvent(GOOGLE_ENGAGEMENT_EVENT, {
+        detail: {
+          userId,
+          email: email || null,
+          milestones: result.milestones,
+        },
+      })
+    );
+  } catch (error) {
+    console.warn('[Google Engagement] Non-critical milestone tracking error:', error);
   }
 }
 
@@ -3115,10 +3152,11 @@ export default function DashboardPage() {
           console.log('[Supabase Success] Inserted user message ID:', insertedUserMsg?.[0]?.id);
           insertedUserMessageId = insertedUserMsg?.[0]?.id || null;
 
-          // Non-blocking advertising milestone telemetry. The server counts
-          // persisted user messages and only reports events for Meta-attributed users.
+          // Non-blocking advertising milestone telemetry. Each provider only
+          // reports milestones for traffic eligible for its own attribution path.
           if (insertedUserMessageId && userId) {
             void trackMetaEngagementMilestone(userId);
+            void trackGoogleEngagementMilestone(userId, userEmail);
           }
         }
       } catch (insertUserErr) {

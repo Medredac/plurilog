@@ -3,11 +3,14 @@
 import React, { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { REGISTRATION_BRIDGE_EVENT } from '@/components/MetaPixelProvider';
+import { GOOGLE_REGISTRATION_BRIDGE_EVENT } from '@/components/GoogleAdsProvider';
 
 export default function RegistrationCompletePage() {
   useEffect(() => {
     let isMounted = true;
     let hasRedirected = false;
+    let metaComplete = false;
+    let googleComplete = false;
 
     const getSafeNext = () => {
       if (typeof window === 'undefined') return '/dashboard';
@@ -25,19 +28,44 @@ export default function RegistrationCompletePage() {
       }
     };
 
+    const maybeRedirect = () => {
+      if (metaComplete && googleComplete) {
+        performRedirect();
+      }
+    };
+
+    const handleMetaComplete = () => {
+      metaComplete = true;
+      maybeRedirect();
+    };
+
+    const handleGoogleComplete = () => {
+      googleComplete = true;
+      maybeRedirect();
+    };
+
     if (typeof window !== 'undefined') {
-      window.addEventListener(REGISTRATION_BRIDGE_EVENT, performRedirect, { once: true });
+      window.addEventListener(REGISTRATION_BRIDGE_EVENT, handleMetaComplete, { once: true });
+      window.addEventListener(
+        GOOGLE_REGISTRATION_BRIDGE_EVENT,
+        handleGoogleComplete,
+        { once: true }
+      );
     }
 
-    // Safety fallback timeout in case Meta is blocked or event is missed
+    // Safety fallback keeps registration from hanging if either ad script is blocked.
     const safetyTimer = setTimeout(() => {
       performRedirect();
-    }, 2200);
+    }, 2600);
 
     return () => {
       isMounted = false;
       if (typeof window !== 'undefined') {
-        window.removeEventListener(REGISTRATION_BRIDGE_EVENT, performRedirect);
+        window.removeEventListener(REGISTRATION_BRIDGE_EVENT, handleMetaComplete);
+        window.removeEventListener(
+          GOOGLE_REGISTRATION_BRIDGE_EVENT,
+          handleGoogleComplete
+        );
       }
       clearTimeout(safetyTimer);
     };

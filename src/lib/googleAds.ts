@@ -2,6 +2,13 @@ export const GOOGLE_ADS_TAG_ID = 'AW-18492863415';
 export const GOOGLE_ADS_PURCHASE_SEND_TO =
   'AW-18492863415/O2weCMDi_I8dELfnivJE';
 
+export const GOOGLE_ADS_REGISTRATION_SEND_TO =
+  process.env.NEXT_PUBLIC_GOOGLE_ADS_REGISTRATION_SEND_TO?.trim() || '';
+export const GOOGLE_ADS_ACTIVATED_SEND_TO =
+  process.env.NEXT_PUBLIC_GOOGLE_ADS_ACTIVATED_SEND_TO?.trim() || '';
+export const GOOGLE_ADS_DEEP_ENGAGEMENT_SEND_TO =
+  process.env.NEXT_PUBLIC_GOOGLE_ADS_DEEP_ENGAGEMENT_SEND_TO?.trim() || '';
+
 export const MARKETING_CONSENT_COOKIE = 'plurilog_meta_consent';
 
 export const GOOGLE_ADS_COOKIE_NAMES = {
@@ -15,6 +22,19 @@ export const GOOGLE_ADS_COOKIE_NAMES = {
 } as const;
 
 export type MarketingConsentStatus = 'accepted' | 'rejected' | 'unknown';
+
+export type GoogleEngagementMilestone = 'Activated' | 'DeepEngagement';
+
+export function isGoogleSignupSource(source?: string | null): boolean {
+  if (!source) return false;
+  const normalized = source.trim().toLowerCase();
+  return (
+    normalized === 'google' ||
+    normalized === 'google_ads' ||
+    normalized === 'googleads' ||
+    normalized === 'adwords'
+  );
+}
 
 const GOOGLE_ADS_TRACKING_COUNTRIES = new Set(['US', 'CA', 'GB', 'AU']);
 
