@@ -22,30 +22,30 @@ const MAX_TOTAL_CHARS = 18000;
 function normalizeSummary(raw: string): string {
   const cleaned = (raw || '')
     .trim()
-    .replace(/^\`\`\`(?:markdown|md|text)?\\s*/i, '')
-    .replace(/\\s*\`\`\`$/i, '')
+    .replace(/^\x60{3}(?:markdown|md|text)?\s*/i, '')
+    .replace(/\s*\x60{3}$/i, '')
     .trim();
 
   if (!cleaned) return '';
 
   const lines = cleaned
-    .split(/\\r?\\n/)
+    .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .filter((line) => !/^#{1,6}\\s+/u.test(line))
-    .filter((line) => !/^round\\s+(?:\\d+\\s+)?summary:?$/iu.test(line));
+    .filter((line) => !/^#{1,6}\s+/u.test(line))
+    .filter((line) => !/^round\s+(?:\d+\s+)?summary:?$/iu.test(line));
 
   const bulletLines = lines
-    .map((line) => line.replace(/^[-*•]\\s*/u, '').trim())
+    .map((line) => line.replace(/^[-*•]\s*/u, '').trim())
     .filter(Boolean)
     .slice(0, 3)
-    .map((line) => `• ${line}`);
+    .map((line) => \`• \${line}\`);
 
   if (bulletLines.length > 0) {
-    return bulletLines.join('\n').slice(0, 900);
+    return bulletLines.join('\\n').slice(0, 900);
   }
 
-  return `• ${cleaned.replace(/\\s+/g, ' ')}`.slice(0, 900);
+  return \`• \${cleaned.replace(/\s+/g, ' ')}\`.slice(0, 900);
 }
 
 export async function POST(req: NextRequest) {
