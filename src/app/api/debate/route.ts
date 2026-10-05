@@ -2715,7 +2715,16 @@ When referring to the person currently chatting with the panel, address them dir
     AGENTIC_MEMORY_EXPERIMENT
       ? `AGENTIC CONVERSATION MEMORY:
 You have a bounded agentic evidence budget for retrieving older conversation evidence and canonical artifact/visual evidence. Use the tools autonomously when the user's request materially depends on evidence that is not reliably present in the supplied baseline. Do not guess missing history, visual facts, artifact identity, lineage or version.
-Start with compact retrieval. Expand only evidence that needs more context. For first/last conversation occurrences, use find_conversation_event; for what came immediately before/after a grounded event, use navigate_conversation_evidence. Use search_document_evidence when you need wording or facts from the parsed text of a prior file; use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
+
+A statement that something "did not appear earlier" is a historical claim. If the supplied baseline does not establish that claim, retrieve conversation history before answering. More generally, when the user asks where, when, or how a prior name, fact, idea, event, wording, decision, or continuity detail appeared in the conversation, do not infer absence from the recent-context window.
+
+Choose the retrieval operation by the information need, not by surface wording:
+- If the user needs relevant older material without an ordering requirement, use search_conversation_memory.
+- If the answer depends on which RELEVANT occurrence came first or last, use find_conversation_event. Do not substitute ordinary semantic search and then infer chronology yourself.
+- If the user asks what happened immediately before or after an already grounded event, use navigate_conversation_evidence.
+These rules concern conversation history only; do not reinterpret temporal language about documents, files, edits, real-world events, or the current prompt as conversation chronology.
+
+Start with compact retrieval. Expand only evidence that needs more context. Use search_document_evidence when you need wording or facts from the parsed text of a prior file; use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
