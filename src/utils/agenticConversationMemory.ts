@@ -587,18 +587,20 @@ async function qualifyTopicChronologyCandidates(options: {
     const raw = response.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed?.relevant_ids)) {
-      const ids = Array.from(
-        new Set(
-          parsed.relevant_ids
-            .map((value: unknown) => Number(value))
-            .filter(
-              (value: number) =>
-                Number.isInteger(value) &&
-                value >= 0 &&
-                value < classifierCandidates.length
-            )
+      const semanticIds = parsed.relevant_ids
+        .map((value: unknown) => Number(value))
+        .filter(
+          (value: number) =>
+            Number.isInteger(value) &&
+            value >= 0 &&
+            value < classifierCandidates.length
+        );
+      const keywordIds = candidates
+        .map((candidate, index) =>
+          typeof candidate.row?.keyword_rank === 'number' ? index : -1
         )
-      ) as number[];
+        .filter((index) => index >= 0);
+      const ids = Array.from(new Set([...semanticIds, ...keywordIds]));
 
       return {
         candidates: ids.map((id) => candidates[id]),
