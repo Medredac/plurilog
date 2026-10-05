@@ -39,6 +39,7 @@ import {
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { ImageLightbox } from './ImageLightbox';
 import { ProviderBadge } from './ProviderBadge';
+import { RoundSummaryControl } from './RoundSummaryControl';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
 import { useTopTurnAnchor } from '@/hooks/useTopTurnAnchor';
@@ -2043,6 +2044,64 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const isAiCollapsed =
           isAiCollapsible && Boolean(collapsedAiMsgIds[message.id]);
 
+        const isRoundSummaryAnchor =
+          viewMode === 'discussion' &&
+          isPrevUser &&
+          prevMessage?.role === 'user';
+
+        let roundEndIndex = messages.length;
+        if (isRoundSummaryAnchor) {
+          for (let nextIndex = idx + 1; nextIndex < messages.length; nextIndex += 1) {
+            if (messages[nextIndex]?.role === 'user') {
+              roundEndIndex = nextIndex;
+              break;
+            }
+          }
+        }
+
+        const roundModelMessages = isRoundSummaryAnchor
+          ? messages
+              .slice(idx, roundEndIndex)
+              .filter(
+                (item) => item.role === 'model' && item.content.trim()
+              )
+          : [];
+
+        const visibleRoundModelMessages = roundModelMessages.filter((item) => {
+          const phase = presentation.phaseFor(item.id);
+          return phase === 'static' || phase === 'complete';
+        });
+
+        const hasLaterUserTurn = roundEndIndex < messages.length;
+        const allRoundResponsesSettled =
+          roundModelMessages.length > 0 &&
+          roundModelMessages.every((item) => {
+            const phase = presentation.phaseFor(item.id);
+            return phase === 'static' || phase === 'complete';
+          });
+
+        const roundSummaryReady =
+          isRoundSummaryAnchor &&
+          visibleRoundModelMessages.length > 0 &&
+          (
+            hasLaterUserTurn ||
+            (
+              !isDebating &&
+              (isInterruptedTurn || allRoundResponsesSettled)
+            )
+          );
+
+        const roundContextPrompt = isRoundSummaryAnchor
+          ? [...messages.slice(0, idx)]
+              .reverse()
+              .find(
+                (item) =>
+                  item.role === 'user' &&
+                  item.content.trim() &&
+                  item.content !== 'Continue'
+              )?.content || ''
+          : '';
+
         return (
           <React.Fragment key={message.id}>
             {shouldShowDate && formattedDate && (
@@ -2068,12 +2127,26 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   mass: 0.88,
                 },
               }}
-              className={`scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
+              className={`relative scroll-mt-6 sm:scroll-mt-8 w-full max-w-full min-w-0 ${spacingClass} ${
                 viewMode === 'side-by-side'
                   ? 'rounded-2xl border border-[#E7E5E0] bg-white p-4'
                   : 'bg-transparent'
               }`}
             >
+              {roundSummaryReady && prevMessage && (
+                <RoundSummaryControl
+                  discussionId={activeDebateId}
+                  roundId={prevMessage.id}
+                  contextPrompt={roundContextPrompt}
+                  messages={visibleRoundModelMessages.map((item) => ({
+                    id: item.id,
+                    modelId: item.modelId,
+                    authorName: item.authorName,
+                    content: item.content,
+                  }))}
+                />
+              )}
+
               <div
                 className={`grid gap-x-3 min-w-0 ${
                   viewMode === 'side-by-side'
