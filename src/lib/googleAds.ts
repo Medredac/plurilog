@@ -2,6 +2,8 @@ export const GOOGLE_ADS_TAG_ID = 'AW-18492863415';
 export const GOOGLE_ADS_PURCHASE_SEND_TO =
   'AW-18492863415/O2weCMDi_I8dELfnivJE';
 
+// Funnel conversion labels are injected per environment so Google Ads
+// measurement can be updated without changing conversion logic.
 export const GOOGLE_ADS_REGISTRATION_SEND_TO =
   process.env.NEXT_PUBLIC_GOOGLE_ADS_REGISTRATION_SEND_TO?.trim() || '';
 export const GOOGLE_ADS_ACTIVATED_SEND_TO =
