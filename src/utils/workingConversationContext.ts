@@ -581,6 +581,7 @@ export async function getOrRefreshConversationWorkingContext(options: {
     outputTokens: null as number | null,
     costUsd: null as number | null,
   };
+  let didRefresh = false;
 
   if (refreshReason !== 'none') {
     const generated = await generateWorkingContext({
@@ -606,6 +607,7 @@ export async function getOrRefreshConversationWorkingContext(options: {
 
     if (generated.context) {
       context = generated.context;
+      didRefresh = true;
       const envelope: ConversationWorkingContextEnvelope = {
         _memory_type: WORKING_CONTEXT_MEMORY_TYPE,
         working_context: generated.context,
@@ -632,7 +634,7 @@ export async function getOrRefreshConversationWorkingContext(options: {
   console.log('[Working Context]', {
     discussionId,
     refreshReason,
-    refreshed: refreshReason !== 'none',
+    refreshed: didRefresh,
     processedRounds: context?._meta.processed_rounds_count || 0,
     formattedTokens: formatted ? estimateTokens(formatted) : 0,
     inputTokens: metrics.inputTokens,
@@ -643,7 +645,7 @@ export async function getOrRefreshConversationWorkingContext(options: {
   return {
     context,
     formatted,
-    refreshed: refreshReason !== 'none',
+    refreshed: didRefresh,
     refreshReason,
     ...metrics,
   };
