@@ -6,16 +6,21 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v7';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v8';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
 
 type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
+export interface RetrievalCue {
+  trigger: string;
+  evidence_needed: string;
+}
+
 export interface ConversationWorkingContext {
   _meta: {
-    version: 7;
+    version: 8;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -25,7 +30,7 @@ export interface ConversationWorkingContext {
   durable_decisions: string[];
   active_threads: string[];
   open_questions: string[];
-  retrieval_cues: string[];
+  retrieval_cues: RetrievalCue[];
 }
 
 interface ConversationWorkingContextEnvelope {
@@ -74,13 +79,12 @@ const WORKING_CONTEXT_LIMITS = {
   retrieval_cues: 3,
 } as const;
 
-const WORKING_CONTEXT_KEYS = [
+const WORKING_CONTEXT_STRING_KEYS = [
   'ongoing_task',
   'standing_instructions',
   'durable_decisions',
   'active_threads',
   'open_questions',
-  'retrieval_cues',
 ] as const;
 
 function clipText(value: string, maxChars: number): string {
@@ -101,31 +105,61 @@ function cleanWorkingContextItem(value: unknown): string | null {
   return clipText(clean, 190);
 }
 
+function cleanRetrievalCue(value: unknown): RetrievalCue | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const trigger = cleanWorkingContextItem((value as any).trigger);
+  const evidenceNeeded = cleanWorkingContextItem(
+    (value as any).evidence_needed
+  );
+
+  if (!trigger || !evidenceNeeded) return null;
+
+  return {
+    trigger,
+    evidence_needed: evidenceNeeded,
+  };
+}
+
 function validateWorkingContextBody(
   raw: any
 ): Omit<ConversationWorkingContext, '_meta'> | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
-  const out: Record<string, string[]> = {};
-  for (const key of WORKING_CONTEXT_KEYS) {
+  const stringFields: Record<string, string[]> = {};
+  for (const key of WORKING_CONTEXT_STRING_KEYS) {
     if (!Array.isArray(raw[key])) return null;
-    const limit = WORKING_CONTEXT_LIMITS[key];
-    let cleaned = raw[key]
+    const cleaned = raw[key]
       .map(cleanWorkingContextItem)
       .filter((item: string | null): item is string => Boolean(item));
-
-    if (key === 'retrieval_cues') {
-      cleaned = cleaned.filter(
-        (item) =>
-          /^(?:when|whenever|if|before|after|on)\b/i.test(item) &&
-          /\bretriev(?:e|es|ed|ing|al)\b/i.test(item)
-      );
-    }
-
-    out[key] = Array.from(new Set(cleaned)).slice(0, limit);
+    stringFields[key] = Array.from(new Set(cleaned)).slice(
+      0,
+      WORKING_CONTEXT_LIMITS[key]
+    );
   }
 
-  return out as Omit<ConversationWorkingContext, '_meta'>;
+  if (!Array.isArray(raw.retrieval_cues)) return null;
+
+  const retrievalCues: RetrievalCue[] = [];
+  const seenCues = new Set<string>();
+  for (const value of raw.retrieval_cues) {
+    const cue = cleanRetrievalCue(value);
+    if (!cue) continue;
+    const key = JSON.stringify(cue);
+    if (seenCues.has(key)) continue;
+    seenCues.add(key);
+    retrievalCues.push(cue);
+    if (retrievalCues.length >= WORKING_CONTEXT_LIMITS.retrieval_cues) break;
+  }
+
+  return {
+    ongoing_task: stringFields.ongoing_task || [],
+    standing_instructions: stringFields.standing_instructions || [],
+    durable_decisions: stringFields.durable_decisions || [],
+    active_threads: stringFields.active_threads || [],
+    open_questions: stringFields.open_questions || [],
+    retrieval_cues: retrievalCues,
+  };
 }
 
 export function parseConversationWorkingContextEnvelope(
@@ -184,7 +218,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 7,
+        version: 8,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -378,14 +412,19 @@ async function generateWorkingContext(options: {
 
 This is NOT a historical summary and NOT source evidence. It is a navigation map used to preserve task state and decide when older conversation evidence may matter.
 
-Return JSON only with exactly these six arrays:
+Return JSON only with exactly these six fields:
 {
   "ongoing_task": [],
   "standing_instructions": [],
   "durable_decisions": [],
   "active_threads": [],
   "open_questions": [],
-  "retrieval_cues": []
+  "retrieval_cues": [
+    {
+      "trigger": "",
+      "evidence_needed": ""
+    }
+  ]
 }
 
 Rules:
@@ -396,13 +435,16 @@ Rules:
 5. durable_decisions: ONLY operational/project/task choices explicitly adopted by the user in USER-ONLY EVIDENCE. A model recommendation, interpretation, conclusion, or statement about what the user "should" control is not a decision unless the user clearly accepts/adopts it.
 6. active_threads: a small set of neutral labels for genuinely ongoing work. Prefer threads supported by RECENT USER-ONLY EVIDENCE. Prune topics absent from the recent user turns unless a genuine user-authored durable instruction/decision still depends on them.
 7. open_questions: ONLY issues the user explicitly marks unresolved, deferred, undecided, or for later follow-up in USER-ONLY EVIDENCE. Never manufacture an open question from a model suggestion, product idea, or unanswered design possibility.
-8. retrieval_cues: ONLY conditional history-sensitive retrieval rules the user explicitly requests or that are logically required by a genuine user-authored standing instruction/decision. Every retrieval cue MUST be written as a condition beginning with "When", "Whenever", "If", "Before", "After", or "On", and MUST explicitly say what earlier evidence to retrieve. Do not store facts, principles, corrections, preferences, product capabilities, or conclusions in retrieval_cues. Never create a retrieval cue from a model's workflow suggestion or a one-off conversational correction.
+8. retrieval_cues: ONLY durable history-sensitive retrieval rules explicitly requested by the user or logically required by a genuine user-authored standing instruction/decision. Each cue is a structured object:
+   - trigger: the semantic condition under which older history would materially matter.
+   - evidence_needed: the specific kind of earlier conversation evidence needed under that condition.
+   Do not encode facts, principles, corrections, preferences, product capabilities, or conclusions as retrieval cues. Do not create a cue merely because an earlier retrieval happened to be useful once. Never create a retrieval cue from a model suggestion or a one-off conversational correction.
 9. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
 10. Default to EMPTY arrays for standing_instructions, durable_decisions, open_questions, and retrieval_cues. Omission is better than inferred persistence.
 11. When the user explicitly supersedes earlier user-authored state, keep the newer state.
 12. For fiction, roleplay, examples, or hypothetical material, keep labels neutral and inside the task context. Never turn fictional details into real-world user facts.
 13. Maximum items: ongoing_task 2; standing_instructions 4; durable_decisions 5; active_threads 5; open_questions 3; retrieval_cues 3.
-14. Each item should usually be under 24 words.
+14. String items should usually be under 24 words. Retrieval-cue fields should each be short, concrete, and semantic rather than tied to exact wording.
 15. Do not include metadata; the application adds it.`;
 
   const existingBlock = existingContext
@@ -469,7 +511,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 7,
+        version: 8,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
@@ -507,11 +549,16 @@ export function formatConversationWorkingContext(
 ): string {
   if (!context) return '';
 
+  const retrievalCueLines = context.retrieval_cues.map(
+    (cue) =>
+      `Trigger: ${cue.trigger}\n  Evidence needed: ${cue.evidence_needed}`
+  );
+
   const sections: Array<[string, string[]]> = [
     ['ONGOING TASK', context.ongoing_task],
     ['STANDING INSTRUCTIONS', context.standing_instructions],
     ['DURABLE DECISIONS', context.durable_decisions],
-    ['RETRIEVAL CUES', context.retrieval_cues],
+    ['RETRIEVAL CUES', retrievalCueLines],
     ['ACTIVE THREADS / ANCHORS', context.active_threads],
     ['OPEN QUESTIONS', context.open_questions],
   ];
