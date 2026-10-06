@@ -6,7 +6,7 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v6';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v7';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
@@ -15,7 +15,7 @@ type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
 export interface ConversationWorkingContext {
   _meta: {
-    version: 6;
+    version: 7;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -110,11 +110,19 @@ function validateWorkingContextBody(
   for (const key of WORKING_CONTEXT_KEYS) {
     if (!Array.isArray(raw[key])) return null;
     const limit = WORKING_CONTEXT_LIMITS[key];
-    const cleaned = raw[key]
+    let cleaned = raw[key]
       .map(cleanWorkingContextItem)
-      .filter((item: string | null): item is string => Boolean(item))
-      .slice(0, limit);
-    out[key] = Array.from(new Set(cleaned));
+      .filter((item: string | null): item is string => Boolean(item));
+
+    if (key === 'retrieval_cues') {
+      cleaned = cleaned.filter(
+        (item) =>
+          /^(?:when|whenever|if|before|after|on)\b/i.test(item) &&
+          /\bretriev(?:e|es|ed|ing|al)\b/i.test(item)
+      );
+    }
+
+    out[key] = Array.from(new Set(cleaned)).slice(0, limit);
   }
 
   return out as Omit<ConversationWorkingContext, '_meta'>;
@@ -176,7 +184,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 6,
+        version: 7,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -388,7 +396,7 @@ Rules:
 5. durable_decisions: ONLY operational/project/task choices explicitly adopted by the user in USER-ONLY EVIDENCE. A model recommendation, interpretation, conclusion, or statement about what the user "should" control is not a decision unless the user clearly accepts/adopts it.
 6. active_threads: a small set of neutral labels for genuinely ongoing work. Prefer threads supported by RECENT USER-ONLY EVIDENCE. Prune topics absent from the recent user turns unless a genuine user-authored durable instruction/decision still depends on them.
 7. open_questions: ONLY issues the user explicitly marks unresolved, deferred, undecided, or for later follow-up in USER-ONLY EVIDENCE. Never manufacture an open question from a model suggestion, product idea, or unanswered design possibility.
-8. retrieval_cues: ONLY history-sensitive rules the user explicitly requests or that are logically required by a genuine user-authored standing instruction/decision. Never create a retrieval cue from a model's workflow suggestion or a one-off conversational correction.
+8. retrieval_cues: ONLY conditional history-sensitive retrieval rules the user explicitly requests or that are logically required by a genuine user-authored standing instruction/decision. Every retrieval cue MUST be written as a condition beginning with "When", "Whenever", "If", "Before", "After", or "On", and MUST explicitly say what earlier evidence to retrieve. Do not store facts, principles, corrections, preferences, product capabilities, or conclusions in retrieval_cues. Never create a retrieval cue from a model's workflow suggestion or a one-off conversational correction.
 9. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
 10. Default to EMPTY arrays for standing_instructions, durable_decisions, open_questions, and retrieval_cues. Omission is better than inferred persistence.
 11. When the user explicitly supersedes earlier user-authored state, keep the newer state.
@@ -461,7 +469,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 6,
+        version: 7,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
