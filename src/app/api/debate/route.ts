@@ -6770,6 +6770,9 @@ export async function POST(req: NextRequest) {
                       ledger: sharedAgenticEvidenceLedger,
                       requestedBySeatId: 'shared_memory_planner',
                       createEvidenceId: createAgenticEvidenceId,
+                      excludedSourceUserMessageIds: recentExactRounds
+                        .map((round) => round.userMessageId)
+                        .filter((id): id is string => Boolean(id)),
                       signal: req.signal,
                     });
 
