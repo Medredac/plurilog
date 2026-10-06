@@ -1619,6 +1619,52 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             }
           }
 
+          let roundEndIndex = messages.length;
+          for (let nextIndex = idx + 1; nextIndex < messages.length; nextIndex += 1) {
+            if (messages[nextIndex]?.role === 'user') {
+              roundEndIndex = nextIndex;
+              break;
+            }
+          }
+
+          const roundModelMessages = messages
+            .slice(idx + 1, roundEndIndex)
+            .filter(
+              (item) => item.role === 'model' && item.content.trim()
+            );
+
+          const visibleRoundModelMessages = roundModelMessages.filter((item) => {
+            const phase = presentation.phaseFor(item.id);
+            return phase === 'static' || phase === 'complete';
+          });
+
+          const allRoundResponsesSettled =
+            roundModelMessages.length > 0 &&
+            roundModelMessages.every((item) => {
+              const phase = presentation.phaseFor(item.id);
+              return phase === 'static' || phase === 'complete';
+            });
+
+          const isInterruptedRound = interruptedTurnUserIds.has(message.id);
+          const roundSummaryReady =
+            visibleRoundModelMessages.length > 0 &&
+            (
+              hasLaterUserTurn ||
+              (
+                !isDebating &&
+                (isInterruptedRound || allRoundResponsesSettled)
+              )
+            );
+
+          const roundContextPrompt = [...messages.slice(0, idx)]
+            .reverse()
+            .find(
+              (item) =>
+                item.role === 'user' &&
+                item.content.trim() &&
+                item.content !== 'Continue'
+            )?.content || '';
+
           return (
             <React.Fragment key={message.id}>
               {renderHistoricalInterruptedMarkerBefore(idx)}
@@ -1633,25 +1679,35 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </span>
                 </div>
               )}
-              <motion.div
+              <div
                 id={message.id}
                 data-turn-anchor-id={message.id}
-                layout="position"
-                initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  layout: { type: 'spring', stiffness: 360, damping: 34, mass: 0.85 },
-                  opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
-                  y: { duration: shouldReduceMotion ? 0 : 0.2, ease: [0.16, 1, 0.3, 1] },
-                }}
-                className="col-span-full flex items-center gap-3 py-5 scroll-mt-6 sm:scroll-mt-8"
+                className="sticky top-0 z-40 col-span-full scroll-mt-0 bg-[#F7F6F3]/95 backdrop-blur-md"
               >
-                <div className="h-px flex-1 bg-[#E7E5E0]" />
-                <span className="text-xs font-medium text-[#6A675F]">
-                  Round {roundNumber}
-                </span>
-                <div className="h-px flex-1 bg-[#E7E5E0]" />
-              </motion.div>
+                <div className="relative flex min-h-10 items-center gap-3 py-2.5">
+                  <div className="h-px flex-1 bg-[#DEDBD4]" />
+                  <span className="shrink-0 select-none text-[11px] font-medium tracking-[0.01em] text-[#6A675F]">
+                    Round {roundNumber}
+                  </span>
+                  <div className="h-px flex-1 bg-[#DEDBD4]" />
+
+                  {roundSummaryReady && (
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-[#F7F6F3]/95 pl-2">
+                      <RoundSummaryControl
+                        discussionId={activeDebateId}
+                        roundId={message.id}
+                        contextPrompt={roundContextPrompt}
+                        messages={visibleRoundModelMessages.map((item) => ({
+                          id: item.id,
+                          modelId: item.modelId,
+                          authorName: item.authorName,
+                          content: item.content,
+                        }))}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             </React.Fragment>
           );
         }
@@ -2044,64 +2100,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const isAiCollapsed =
           isAiCollapsible && Boolean(collapsedAiMsgIds[message.id]);
 
-        const isRoundSummaryAnchor =
-          viewMode === 'discussion' &&
-          isPrevUser &&
-          prevMessage?.role === 'user';
-
-        let roundEndIndex = messages.length;
-        if (isRoundSummaryAnchor) {
-          for (let nextIndex = idx + 1; nextIndex < messages.length; nextIndex += 1) {
-            if (messages[nextIndex]?.role === 'user') {
-              roundEndIndex = nextIndex;
-              break;
-            }
-          }
-        }
-
-        const roundModelMessages = isRoundSummaryAnchor
-          ? messages
-              .slice(idx, roundEndIndex)
-              .filter(
-                (item) => item.role === 'model' && item.content.trim()
-              )
-          : [];
-
-        const visibleRoundModelMessages = roundModelMessages.filter((item) => {
-          const phase = presentation.phaseFor(item.id);
-          return phase === 'static' || phase === 'complete';
-        });
-
-        const hasLaterUserTurn = roundEndIndex < messages.length;
-        const allRoundResponsesSettled =
-          roundModelMessages.length > 0 &&
-          roundModelMessages.every((item) => {
-            const phase = presentation.phaseFor(item.id);
-            return phase === 'static' || phase === 'complete';
-          });
-
-        const roundSummaryReady =
-          isRoundSummaryAnchor &&
-          visibleRoundModelMessages.length > 0 &&
-          (
-            hasLaterUserTurn ||
-            (
-              !isDebating &&
-              (isInterruptedTurn || allRoundResponsesSettled)
-            )
-          );
-
-        const roundContextPrompt = isRoundSummaryAnchor
-          ? [...messages.slice(0, idx)]
-              .reverse()
-              .find(
-                (item) =>
-                  item.role === 'user' &&
-                  item.content.trim() &&
-                  item.content !== 'Continue'
-              )?.content || ''
-          : '';
-
         return (
           <React.Fragment key={message.id}>
             {shouldShowDate && formattedDate && (
@@ -2133,20 +2131,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   : 'bg-transparent'
               }`}
             >
-              {roundSummaryReady && prevMessage && (
-                <RoundSummaryControl
-                  discussionId={activeDebateId}
-                  roundId={prevMessage.id}
-                  contextPrompt={roundContextPrompt}
-                  messages={visibleRoundModelMessages.map((item) => ({
-                    id: item.id,
-                    modelId: item.modelId,
-                    authorName: item.authorName,
-                    content: item.content,
-                  }))}
-                />
-              )}
-
               <div
                 className={`grid gap-x-3 min-w-0 ${
                   viewMode === 'side-by-side'
