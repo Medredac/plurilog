@@ -1454,13 +1454,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
   const getRoundDescriptor = (roundIndex: number) => {
     const roundMessage = messages[roundIndex];
-    if (
-      !roundMessage ||
-      roundMessage.role !== 'user' ||
-      roundMessage.content !== 'Continue'
-    ) {
+    if (!roundMessage || roundMessage.role !== 'user') {
       return null;
     }
+
+    const isContinueRound = roundMessage.content === 'Continue';
 
     const hasAnswerBeforeNextUser = (continueIndex: number) => {
       for (let index = continueIndex + 1; index < messages.length; index += 1) {
@@ -1483,17 +1481,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     }
 
     let roundNumber = 0;
-    for (let index = roundIndex; index >= 0; index -= 1) {
-      const item = messages[index];
-      if (item.role !== 'user') continue;
-      if (item.content !== 'Continue') break;
+    if (isContinueRound) {
+      for (let index = roundIndex; index >= 0; index -= 1) {
+        const item = messages[index];
+        if (item.role !== 'user') continue;
+        if (item.content !== 'Continue') break;
 
-      const isCurrentPendingMarker =
-        index === roundIndex && isPendingCurrentRound;
-      if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
-        roundNumber += 1;
+        const isCurrentPendingMarker =
+          index === roundIndex && isPendingCurrentRound;
+        if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
+          roundNumber += 1;
+        }
       }
     }
+
+    const roundLabel = isContinueRound
+      ? `Round ${roundNumber}`
+      : 'Panel response';
 
     let roundEndIndex = messages.length;
     for (
@@ -1534,18 +1538,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         )
       );
 
-    const roundContextPrompt = [...messages.slice(0, roundIndex)]
-      .reverse()
-      .find(
-        (item) =>
-          item.role === 'user' &&
-          item.content.trim() &&
-          item.content !== 'Continue'
-      )?.content || '';
+    const roundContextPrompt = isContinueRound
+      ? [...messages.slice(0, roundIndex)]
+          .reverse()
+          .find(
+            (item) =>
+              item.role === 'user' &&
+              item.content.trim() &&
+              item.content !== 'Continue'
+          )?.content || ''
+      : roundMessage.content;
 
     return {
       id: roundMessage.id,
       roundNumber,
+      roundLabel,
+      isContinueRound,
       roundSummaryReady,
       roundContextPrompt,
       visibleRoundModelMessages,
@@ -1744,12 +1752,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         <div
           ref={stickyRoundOverlayRef}
           className="absolute inset-x-0 top-0 z-50 px-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pointer-events-none will-change-transform"
-          aria-label={`Current round: Round ${activeStickyRound.roundNumber}`}
+          aria-label={`Current panel section: ${activeStickyRound.roundLabel}`}
         >
           <div className="relative flex min-h-10 items-center gap-3 bg-[#F7F6F3]/95 py-2.5 backdrop-blur-md pointer-events-auto">
             <div className="h-px flex-1 bg-[#DEDBD4]" />
             <span className="shrink-0 select-none text-[11px] font-medium tracking-[0.01em] text-[#6A675F]">
-              Round {activeStickyRound.roundNumber}
+              {activeStickyRound.roundLabel}
             </span>
             <div className="h-px flex-1 bg-[#DEDBD4]" />
 
@@ -1825,7 +1833,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 <div className="relative flex min-h-10 items-center gap-3 py-2.5">
                   <div className="h-px flex-1 bg-[#DEDBD4]" />
                   <span className="shrink-0 select-none text-[11px] font-medium tracking-[0.01em] text-[#6A675F]">
-                    Round {round.roundNumber}
+                    {round.roundLabel}
                   </span>
                   <div className="h-px flex-1 bg-[#DEDBD4]" />
 
@@ -2207,6 +2215,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         }
         const hasSettledPresentation =
           presentationPhase === 'static' || presentationPhase === 'complete';
+        const responseRound =
+          isPrevUser && prevMessage?.role === 'user'
+            ? getRoundDescriptor(idx - 1)
+            : null;
         const isThinking =
           isQueuedForPresentation ||
           (message.isStreaming && !message.content.trim());
@@ -2253,7 +2265,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </div>
             )}
             <motion.div
-              id={message.id}
+              data-round-sticky-marker={
+                responseRound ? responseRound.id : undefined
+              }
+                            id={message.id}
               data-seat-anchor-id={message.id}
               layout="position"
               transition={{
@@ -2270,6 +2285,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   : 'bg-transparent'
               }`}
             >
+              {responseRound &&
+                !responseRound.isContinueRound &&
+                responseRound.roundSummaryReady && (
+                  <RoundSummaryControl
+                    discussionId={activeDebateId}
+                    roundId={responseRound.id}
+                    contextPrompt={responseRound.roundContextPrompt}
+                    messages={responseRound.visibleRoundModelMessages.map((item) => ({
+                      id: item.id,
+                      modelId: item.modelId,
+                      authorName: item.authorName,
+                      content: item.content,
+                    }))}
+                  />
+                )}
+
               <div
                 className={`grid gap-x-3 min-w-0 ${
                   viewMode === 'side-by-side'
