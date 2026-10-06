@@ -6,7 +6,7 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v5';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v6';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
@@ -15,7 +15,7 @@ type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
 export interface ConversationWorkingContext {
   _meta: {
-    version: 5;
+    version: 6;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -69,9 +69,9 @@ const WORKING_CONTEXT_LIMITS = {
   ongoing_task: 2,
   standing_instructions: 4,
   durable_decisions: 5,
-  active_threads: 6,
-  open_questions: 4,
-  retrieval_cues: 4,
+  active_threads: 5,
+  open_questions: 3,
+  retrieval_cues: 3,
 } as const;
 
 const WORKING_CONTEXT_KEYS = [
@@ -176,7 +176,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 5,
+        version: 6,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -285,6 +285,37 @@ function compactRoundsForWorkingContext(
   return chosen;
 }
 
+function userOnlyRoundsForWorkingContext(
+  rounds: Round[],
+  tokenBudget: number = 12000
+): string {
+  if (!Array.isArray(rounds) || rounds.length === 0) return '';
+
+  const blocks = rounds
+    .map((round, index) => {
+      const userText = clipText(round.userPrompt || '', 1200);
+      return userText ? `[User round ${index + 1}]\n${userText}` : '';
+    })
+    .filter(Boolean);
+
+  let selected = blocks;
+  let joined = selected.join('\n\n---\n\n');
+
+  while (estimateTokens(joined) > tokenBudget && selected.length > 12) {
+    selected = selected.slice(-Math.ceil(selected.length * 0.75));
+    joined = selected.join('\n\n---\n\n');
+  }
+
+  return joined;
+}
+
+function recentUserOnlyRoundsForWorkingContext(
+  rounds: Round[],
+  recentCount: number = 8
+): string {
+  return userOnlyRoundsForWorkingContext(rounds.slice(-recentCount), 5000);
+}
+
 function contextWithoutMeta(
   context: ConversationWorkingContext
 ): Omit<ConversationWorkingContext, '_meta'> {
@@ -326,6 +357,14 @@ async function generateWorkingContext(options: {
     sourceRounds,
     mode === 'incremental' ? 10000 : 30000
   );
+  const userOnlyEvidence = userOnlyRoundsForWorkingContext(
+    sourceRounds,
+    mode === 'incremental' ? 6000 : 14000
+  );
+  const recentUserOnlyEvidence = recentUserOnlyRoundsForWorkingContext(
+    allRounds,
+    8
+  );
 
   const systemPrompt = `You maintain a compact WORKING CONTEXT for an ongoing multi-model conversation.
 
@@ -343,18 +382,18 @@ Return JSON only with exactly these six arrays:
 
 Rules:
 1. Keep the result extremely compact. Prefer fewer, stronger entries.
-2. ongoing_task: what the user and panel are actually doing across turns right now. Do not promote a hypothetical example, possible future test, illustrative scenario, or merely proposed next step into the ongoing task unless the user actually begins that task.
-3. standing_instructions: ONLY explicit persistent instructions or constraints the user actually stated for the ongoing task. Never infer a standing instruction from tone, repeated behavior, jokes, wording style, or what the assistants happened to do.
-4. durable_decisions: ONLY operational/project/task choices explicitly settled or adopted for future work. Ordinary factual conclusions, explanations, opinions, analogies, and answers about an external topic are NOT durable decisions.
-5. active_threads: a small set of neutral labels for genuinely ongoing concepts, entities, requirements, artifacts, hypotheses, or workstreams likely to matter across future turns. Prune threads that the conversation has clearly moved away from unless a durable decision/instruction still depends on them. Do not preserve every topic mentioned in casual conversation. Do not add chronology claims such as "X first appeared in Y".
-6. open_questions: ONLY questions or issues the user explicitly leaves unresolved, deferred, undecided, or marked for later follow-up. Planned examples, demos, possible future tests, rhetorical questions, and questions already answered by the panel are NOT open questions. Never infer an open question merely because a future scenario could be tested.
-7. retrieval_cues: ONLY durable, history-sensitive task conditions where older exact conversation evidence may later matter. Ordinary topical discussion, factual Q&A, opinions, or a recurring subject do NOT justify a retrieval cue. Example shape: "When a new change touches a previously settled architecture decision, retrieve the earlier decision before evaluating it." Do not hard-code a single missed phrase or isolated incident unless the user explicitly made it a standing requirement.
-8. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
-9. Default to EMPTY arrays for standing_instructions, durable_decisions, and open_questions unless the conversation clearly satisfies their strict definitions. It is better to omit state than to invent persistence.
-10. Panel responses may help you understand the task, but do not preserve panel disagreements, speculation, factual answers, or unsupported interpretations as durable state.
-11. When the user explicitly corrects the panel, the corrected constraint/state should supersede the stale one.
+2. The USER-ONLY EVIDENCE block is authoritative for user-authored state. Panel text can help identify the current topic, but it can NEVER establish a standing instruction, durable decision, open question, or retrieval cue.
+3. ongoing_task: what the user is actually doing across turns right now. A model suggestion does not create a task. Do not promote a hypothetical example, possible future test, illustrative scenario, or merely proposed next step unless the user actually begins or explicitly adopts it.
+4. standing_instructions: ONLY explicit persistent instructions or constraints stated by the user in USER-ONLY EVIDENCE. A correction of one isolated incident is NOT a standing rule unless the user generalizes it for future behavior with language such as "always", "from now on", "whenever", or an equivalent durable instruction.
+5. durable_decisions: ONLY operational/project/task choices explicitly adopted by the user in USER-ONLY EVIDENCE. A model recommendation, interpretation, conclusion, or statement about what the user "should" control is not a decision unless the user clearly accepts/adopts it.
+6. active_threads: a small set of neutral labels for genuinely ongoing work. Prefer threads supported by RECENT USER-ONLY EVIDENCE. Prune topics absent from the recent user turns unless a genuine user-authored durable instruction/decision still depends on them.
+7. open_questions: ONLY issues the user explicitly marks unresolved, deferred, undecided, or for later follow-up in USER-ONLY EVIDENCE. Never manufacture an open question from a model suggestion, product idea, or unanswered design possibility.
+8. retrieval_cues: ONLY history-sensitive rules the user explicitly requests or that are logically required by a genuine user-authored standing instruction/decision. Never create a retrieval cue from a model's workflow suggestion or a one-off conversational correction.
+9. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
+10. Default to EMPTY arrays for standing_instructions, durable_decisions, open_questions, and retrieval_cues. Omission is better than inferred persistence.
+11. When the user explicitly supersedes earlier user-authored state, keep the newer state.
 12. For fiction, roleplay, examples, or hypothetical material, keep labels neutral and inside the task context. Never turn fictional details into real-world user facts.
-13. Maximum items: ongoing_task 2; standing_instructions 4; durable_decisions 5; active_threads 6; open_questions 4; retrieval_cues 4.
+13. Maximum items: ongoing_task 2; standing_instructions 4; durable_decisions 5; active_threads 5; open_questions 3; retrieval_cues 3.
 14. Each item should usually be under 24 words.
 15. Do not include metadata; the application adds it.`;
 
@@ -366,10 +405,12 @@ Rules:
       )}\n\n`
     : '';
 
+  const evidenceBlocks = `USER-ONLY EVIDENCE:\n"""\n${userOnlyEvidence}\n"""\n\nRECENT USER-ONLY EVIDENCE (strongest signal for current task/threads):\n"""\n${recentUserOnlyEvidence}\n"""`;
+
   const taskPrompt =
     mode === 'incremental'
-      ? `Update the existing working context using ONLY the new completed rounds below. Carry forward still-valid state, supersede stale state when the new user messages require it, and avoid expanding into a historical summary.\n\n${existingBlock}NEW COMPLETED ROUNDS:\n"""\n${formattedRounds}\n"""`
-      : `Build the working context for this ongoing conversation from the completed rounds below. Focus on task state, standing instructions, active work, unresolved issues, and generic retrieval cues rather than retelling history.\n\nCOMPLETED ROUNDS:\n"""\n${formattedRounds}\n"""`;
+      ? `Update the existing working context using the new completed rounds below. Carry forward state ONLY if it remains supported under the strict user-grounding rules. Delete stale or model-invented persistent state.\n\n${existingBlock}${evidenceBlocks}\n\nNEW COMPLETED ROUNDS:\n"""\n${formattedRounds}\n"""`
+      : `Build the working context for this ongoing conversation. Persistent state must be grounded in USER-ONLY EVIDENCE; panel text may only help identify topic flow.\n\n${evidenceBlocks}\n\nCOMPLETED ROUNDS:\n"""\n${formattedRounds}\n"""`;
 
   try {
     const response = await openai.chat.completions.create(
@@ -420,7 +461,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 5,
+        version: 6,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
