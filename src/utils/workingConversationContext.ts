@@ -847,7 +847,8 @@ Retrieve only when older exact conversation evidence is genuinely needed for one
 - the user explicitly or implicitly asks what happened/was said/was decided earlier, including first/last/origin/chronology;
 - the current material plausibly invokes a tracked callback, unresolved thread, recurring artifact/entity, or continuity-sensitive task where older evidence could change the interpretation;
 - the current prompt is underspecified and the exact recent context cannot resolve the referent;
-- a claim about conversation history must be verified.
+- a claim about conversation history must be verified;
+- the user asks whether the current product/system already supports or previously demonstrated a behavior and the exact recent context does not establish it. In that case, prefer concrete user-authored evidence, demonstrations, screenshots, or explicit prior user descriptions over panel speculation. When conversation retrieval is appropriate for this purpose, prefer speaker="user" unless the user specifically asks what a panelist said.
 
 Do NOT retrieve merely for:
 - general knowledge, explanation, speculation, opinion, brainstorming, or advice that can be answered from the current prompt;
@@ -855,7 +856,8 @@ Do NOT retrieve merely for:
 - the same broad topic continuing across turns;
 - background context that would be nice to have but would not materially change the answer;
 - repeated words/entities without a genuine cross-turn dependency;
-- subjective prompts such as "what do you think?", "is this exciting or scary?", or conceptual follow-ups that the exact recent rounds already make intelligible.
+- subjective prompts such as "what do you think?", "is this exciting or scary?", or conceptual follow-ups that the exact recent rounds already make intelligible;
+- prior panel statements merely to prove a current product capability is absent. Panel speculation is not authoritative evidence of product limitations.
 
 Additional rules:
 1. If the working context establishes an explicit history-sensitive goal—such as tracking callbacks across chapters or respecting earlier architecture decisions—retrieve when the current material plausibly touches that goal.
