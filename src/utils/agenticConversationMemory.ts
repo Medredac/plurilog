@@ -8,7 +8,7 @@ export const AGENTIC_CONVERSATION_MEMORY_TOOLS = [
     function: {
       name: 'search_conversation_memory',
       description:
-        'Search older conversation history only when answering the current request requires a fact, name, decision, wording, event, or continuity detail that is not reliably present in your current context. Returns compact grounded evidence candidates with evidence IDs. Do not search merely because history exists. Prefer a focused semantic query containing the uncertain entities or fact you need to verify. This is NOT the right tool when the answer depends on which relevant occurrence came first or last in conversation history, or when the user is trying to establish the origin/earliest prior appearance of a recurring detail; use find_conversation_event for that.',
+        'Search older conversation history when exact earlier evidence could materially improve the current answer: facts, names, decisions, constraints, wording, prior events, continuity, consistency, callbacks, or other cross-turn dependencies. A standing task goal can make older history materially relevant even when the current message does not explicitly ask to look back. When current material plausibly touches a tracked requirement, prior decision, unresolved thread, comparison target, or other history-sensitive goal, use a focused search if the earlier evidence could change the answer. Do not search merely because history exists, and do not search every repeated word or entity. Prefer a focused semantic query describing the evidence needed. This is NOT the right tool when first/last/origin ordering itself matters; use find_conversation_event for that.',
       parameters: {
         type: 'object',
         properties: {

@@ -124,6 +124,10 @@ import {
   type AgenticEvidenceLedgerEntry,
 } from '@/utils/agenticConversationMemory';
 import {
+  getOrRefreshConversationWorkingContext,
+  planProactiveConversationRetrieval,
+} from '@/utils/workingConversationContext';
+import {
   AGENTIC_DOCUMENT_EVIDENCE_TOOLS,
   AGENTIC_DOCUMENT_TOOL_NAMES,
   resolveAgenticDocumentEvidenceTool,
@@ -2411,6 +2415,7 @@ export function buildPanelMessages(
   visualDeliveryMismatch?: { requestedCount: number; deliveredCount: number } | null,
   runtimeProductContext?: PlurilogRuntimeProductContext,
   sharedAgenticEvidenceContext?: string | null,
+  workingConversationContext?: string | null,
   userDisplayName?: string | null
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
@@ -2422,6 +2427,18 @@ export function buildPanelMessages(
     sections.push(
       `VECTOR ARTWORK OUTPUT:
 If you choose to provide standalone vector artwork (for example a logo, icon, logomark, wordmark, or diagram), output the finished visual as one self-contained fenced \`\`\`svg code block. Keep every visible element, including text, inside the SVG itself; do not wrap the artwork in HTML, JSX, Tailwind, or surrounding <span>/<div> elements. Plurilog can preview and download self-contained SVG blocks directly. Use ordinary HTML/code only when the user is specifically asking for implementation code rather than a standalone visual asset.`
+    );
+  }
+
+  if (workingConversationContext?.trim()) {
+    sections.push(
+      `ONGOING WORKING CONTEXT — NAVIGATION MAP, NOT SOURCE EVIDENCE:
+The following compact state helps you understand the ongoing task, standing instructions, active work, and when older history may matter. It is NOT proof of historical facts, chronology, exact wording, prior occurrences, or what a user/model literally said. When those details matter, use grounded conversation-memory tools before relying on them.
+
+INTERNAL ORCHESTRATION PRIVACY:
+Use working context, memory-planner decisions, retrieval attempts, evidence-ledger state, retrieval confidence, retrieval budgets, and failed/irrelevant retrievals silently. Do not mention these internal mechanisms to the user, including statements such as "the retrieved evidence was irrelevant" or "the memory planner decided to search." If retrieved evidence is irrelevant, simply ignore it and answer normally. Only explain at a high level that earlier conversation context was consulted if the user explicitly asks how the answer was grounded.
+
+${workingConversationContext.trim()}`
     );
   }
 
@@ -3387,6 +3404,49 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let workingConversationContext = '';
+    let workingContextMetrics: {
+      refreshed: boolean;
+      refreshReason: string;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      costUsd: number | null;
+      formattedTokens: number;
+    } = {
+      refreshed: false,
+      refreshReason: 'none',
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: null,
+      formattedTokens: 0,
+    };
+
+    if (
+      AGENTIC_MEMORY_EXPERIMENT &&
+      discussionId &&
+      Array.isArray(discussionMemory?.allRounds)
+    ) {
+      const workingContextResult =
+        await getOrRefreshConversationWorkingContext({
+          discussionId,
+          allRounds: discussionMemory?.allRounds || [],
+          openai,
+          supabase,
+          signal: req.signal,
+        });
+      workingConversationContext = workingContextResult.formatted || '';
+      workingContextMetrics = {
+        refreshed: workingContextResult.refreshed,
+        refreshReason: workingContextResult.refreshReason,
+        inputTokens: workingContextResult.inputTokens,
+        outputTokens: workingContextResult.outputTokens,
+        costUsd: workingContextResult.costUsd,
+        formattedTokens: workingConversationContext
+          ? estimateTokens(workingConversationContext)
+          : 0,
+      };
+    }
+
     const classifyControllerArtifact = (
       filename?: string | null,
       url?: string | null
@@ -4234,6 +4294,10 @@ export async function POST(req: NextRequest) {
             recentRoundCount: panelDiscussionMemory?.recentRounds?.length || 0,
             knownDocumentCount: panelDiscussionMemory?.knownDocuments?.length || 0,
             rollingSummaryIncluded: false,
+            workingContextIncluded: Boolean(workingConversationContext),
+            workingContextTokens: workingContextMetrics.formattedTokens,
+            workingContextRefreshed: workingContextMetrics.refreshed,
+            workingContextRefreshReason: workingContextMetrics.refreshReason,
             precomputedChronologyIncluded: false,
             jevExecuted: false,
           });
@@ -6606,6 +6670,135 @@ export async function POST(req: NextRequest) {
           const createAgenticEvidenceId = () =>
             `mem_${++agenticEvidenceSequence}`;
 
+          let proactiveMemoryPlannerMeta: {
+            shouldRetrieve: boolean;
+            confidence: number;
+            intents: Array<{
+              kind: string;
+              query: string;
+              speaker: string;
+              max_results: number;
+            }>;
+            reason: string;
+            inputTokens: number | null;
+            outputTokens: number | null;
+            costUsd: number | null;
+            retrievalCount: number;
+          } = {
+            shouldRetrieve: false,
+            confidence: 1,
+            intents: [],
+            reason: '',
+            inputTokens: null,
+            outputTokens: null,
+            costUsd: null,
+            retrievalCount: 0,
+          };
+
+          if (
+            AGENTIC_MEMORY_EXPERIMENT &&
+            discussionId &&
+            prompt?.trim() &&
+            Array.isArray(discussionMemory?.allRounds) &&
+            discussionMemory!.allRounds!.length > 2 &&
+            !req.signal.aborted
+          ) {
+            try {
+              const recentExactRounds = (
+                discussionMemory?.allRounds || []
+              ).slice(-2);
+              const olderRoundCount = Math.max(
+                0,
+                (discussionMemory?.allRounds || []).length -
+                  recentExactRounds.length
+              );
+              const proactivePlan =
+                await planProactiveConversationRetrieval({
+                  currentPrompt: prompt,
+                  workingContext: workingConversationContext,
+                  recentRounds: recentExactRounds,
+                  olderRoundCount,
+                  openai,
+                  signal: req.signal,
+                });
+
+              proactiveMemoryPlannerMeta = {
+                shouldRetrieve: proactivePlan.should_retrieve,
+                confidence: proactivePlan.confidence,
+                intents: proactivePlan.intents,
+                reason: proactivePlan.reason,
+                inputTokens: proactivePlan.inputTokens,
+                outputTokens: proactivePlan.outputTokens,
+                costUsd: proactivePlan.costUsd,
+                retrievalCount: 0,
+              };
+
+              if (
+                proactivePlan.should_retrieve &&
+                proactivePlan.confidence >= 0.55
+              ) {
+                const proactiveServiceClient = createServiceClient();
+                for (const intent of proactivePlan.intents.slice(0, 2)) {
+                  if (req.signal.aborted) break;
+
+                  const toolName =
+                    intent.kind === 'semantic'
+                      ? 'search_conversation_memory'
+                      : 'find_conversation_event';
+                  const toolArgs =
+                    intent.kind === 'semantic'
+                      ? {
+                          query: intent.query,
+                          speaker: intent.speaker,
+                          max_results: intent.max_results,
+                        }
+                      : {
+                          mode: 'topic',
+                          query: intent.query,
+                          occurrence: intent.kind,
+                          speaker: intent.speaker,
+                        };
+
+                  const resolution =
+                    await resolveAgenticConversationTool({
+                      toolName,
+                      toolArgs,
+                      serviceSupabase: proactiveServiceClient,
+                      openai,
+                      discussionId,
+                      allRounds: discussionMemory?.allRounds || [],
+                      ledger: sharedAgenticEvidenceLedger,
+                      requestedBySeatId: 'shared_memory_planner',
+                      createEvidenceId: createAgenticEvidenceId,
+                      signal: req.signal,
+                    });
+
+                  proactiveMemoryPlannerMeta.retrievalCount += 1;
+
+                  console.log('[Proactive Shared Memory Retrieval]', {
+                    discussionId,
+                    tool: toolName,
+                    query: resolution.query,
+                    addedEvidenceIds: resolution.addedEntries.map(
+                      (entry) => entry.evidenceId
+                    ),
+                    reusedEvidenceIds: resolution.reusedEvidenceIds,
+                    latencyMs: resolution.latencyMs,
+                    ledgerSize: sharedAgenticEvidenceLedger.length,
+                  });
+                }
+              }
+            } catch (plannerErr: any) {
+              console.warn(
+                '[Proactive Memory Planner] Non-critical shared retrieval failure',
+                {
+                  discussionId,
+                  message: plannerErr?.message || String(plannerErr),
+                }
+              );
+            }
+          }
+
           if (AGENTIC_MEMORY_EXPERIMENT) {
             // The agentic branch must never inherit a precomputed semantic
             // conversation or parsed-document evidence package. The active
@@ -7052,6 +7245,7 @@ export async function POST(req: NextRequest) {
               visualDeliveryMismatch,
               runtimeProductContext,
               sharedAgenticEvidenceContext,
+              workingConversationContext,
               userDisplayName
             );
 
@@ -13911,8 +14105,13 @@ export async function POST(req: NextRequest) {
           if (
             AGENTIC_MEMORY_EXPERIMENT &&
             discussionId &&
-            sharedAgenticEvidenceLedger.length > 0 &&
-            !req.signal.aborted
+            !req.signal.aborted &&
+            (
+              sharedAgenticEvidenceLedger.length > 0 ||
+              workingContextMetrics.refreshed ||
+              proactiveMemoryPlannerMeta.inputTokens !== null ||
+              proactiveMemoryPlannerMeta.shouldRetrieve
+            )
           ) {
             try {
               const isOwner = await verifyDiscussionOwnership(
@@ -13953,6 +14152,9 @@ export async function POST(req: NextRequest) {
                             sourceUserMessageId || null,
                           agenticEvidenceIsContinue:
                             isContinueRound === true,
+                          workingContext: workingContextMetrics,
+                          proactiveMemoryPlanner:
+                            proactiveMemoryPlannerMeta,
                         },
                       })
                       .eq('id', spendRow.id);
