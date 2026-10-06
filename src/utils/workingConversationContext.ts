@@ -69,9 +69,9 @@ const WORKING_CONTEXT_LIMITS = {
   ongoing_task: 2,
   standing_instructions: 4,
   durable_decisions: 5,
-  active_threads: 6,
-  open_questions: 4,
-  retrieval_cues: 4,
+  active_threads: 5,
+  open_questions: 3,
+  retrieval_cues: 3,
 } as const;
 
 const WORKING_CONTEXT_KEYS = [
