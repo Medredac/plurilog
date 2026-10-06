@@ -537,15 +537,16 @@ async function qualifyTopicChronologyCandidates(options: {
   query: string;
   candidates: TopicChronologyCandidate[];
   signal?: AbortSignal;
+  strict?: boolean;
 }): Promise<{
   candidates: TopicChronologyCandidate[];
   method: 'semantic_qualifier' | 'keyword_fallback' | 'semantic_fallback' | 'none';
 }> {
-  const { openai, query, candidates, signal } = options;
+  const { openai, query, candidates, signal, strict = false } = options;
   if (candidates.length === 0) {
     return { candidates: [], method: 'none' };
   }
-  if (candidates.length === 1) {
+  if (candidates.length === 1 && !strict) {
     return { candidates, method: 'semantic_qualifier' };
   }
 
@@ -595,11 +596,13 @@ async function qualifyTopicChronologyCandidates(options: {
             value >= 0 &&
             value < classifierCandidates.length
         );
-      const keywordIds = candidates
-        .map((candidate, index) =>
-          typeof candidate.row?.keyword_rank === 'number' ? index : -1
-        )
-        .filter((index) => index >= 0);
+      const keywordIds = strict
+        ? []
+        : candidates
+            .map((candidate, index) =>
+              typeof candidate.row?.keyword_rank === 'number' ? index : -1
+            )
+            .filter((index) => index >= 0);
       const ids = Array.from(new Set([...semanticIds, ...keywordIds]));
 
       return {
@@ -611,6 +614,10 @@ async function qualifyTopicChronologyCandidates(options: {
     console.warn('[Agentic Chronology] Relevance qualification failed; using deterministic fallback', {
       message: error?.message || String(error),
     });
+  }
+
+  if (strict) {
+    return { candidates: [], method: 'none' };
   }
 
   const keywordCandidates = candidates.filter(
@@ -802,6 +809,7 @@ export async function resolveAgenticConversationTool(options: {
         query,
         candidates: qualificationCandidates,
         signal,
+        strict: true,
       });
       const allowedSourceIds = new Set(
         qualification.candidates.map(
