@@ -6,7 +6,7 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v2';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v3';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
@@ -15,7 +15,7 @@ type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
 export interface ConversationWorkingContext {
   _meta: {
-    version: 2;
+    version: 3;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -163,7 +163,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 2,
+        version: 3,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -331,18 +331,19 @@ Return JSON only with exactly these six arrays:
 Rules:
 1. Keep the result extremely compact. Prefer fewer, stronger entries.
 2. ongoing_task: what the user and panel are currently doing across turns.
-3. standing_instructions: persistent goals, constraints, preferences, or evaluation criteria the user established for this task.
-4. durable_decisions: choices actually settled, adopted, or operationally in force. Do not preserve unresolved panel opinions here.
-5. active_threads: neutral labels for concepts, entities, requirements, artifacts, hypotheses, or workstreams that may matter later. Do not resolve ambiguity merely because something recurs. Do not add chronology claims such as "X first appeared in Y".
-6. open_questions: deliberately unresolved issues that still matter to the ongoing task.
+3. standing_instructions: ONLY explicit persistent instructions or constraints the user actually stated for the ongoing task. Never infer a standing instruction from tone, repeated behavior, jokes, wording style, or what the assistants happened to do.
+4. durable_decisions: ONLY operational/project/task choices explicitly settled or adopted for future work. Ordinary factual conclusions, explanations, opinions, analogies, and answers about an external topic are NOT durable decisions.
+5. active_threads: a small set of neutral labels for genuinely ongoing concepts, entities, requirements, artifacts, hypotheses, or workstreams likely to matter across future turns. Do not preserve every topic mentioned in casual conversation. Do not add chronology claims such as "X first appeared in Y".
+6. open_questions: ONLY questions or issues explicitly left unresolved/deferred and likely to be revisited. Never invent interesting follow-up questions, research directions, or hypothetical issues merely because they are related to the topic.
 7. retrieval_cues: GENERAL task-level conditions that should make older exact history worth retrieving. These are not one-off patches. Example shape: "When a new change touches a previously settled architecture decision, retrieve the earlier decision before evaluating it." Do not hard-code a single missed phrase or isolated incident unless the user explicitly made it a standing requirement.
 8. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
-9. Panel responses may help you understand the task, but do not preserve panel disagreements, speculation, or unsupported interpretations as durable state.
-10. When the user explicitly corrects the panel, the corrected constraint/state should supersede the stale one.
-11. For fiction, roleplay, examples, or hypothetical material, keep labels neutral and inside the task context. Never turn fictional details into real-world user facts.
-12. Maximum items: ongoing_task 2; standing_instructions 4; durable_decisions 5; active_threads 6; open_questions 4; retrieval_cues 4.
-13. Each item should usually be under 24 words.
-14. Do not include metadata; the application adds it.`;
+9. Default to EMPTY arrays for standing_instructions, durable_decisions, and open_questions unless the conversation clearly satisfies their strict definitions. It is better to omit state than to invent persistence.
+10. Panel responses may help you understand the task, but do not preserve panel disagreements, speculation, factual answers, or unsupported interpretations as durable state.
+11. When the user explicitly corrects the panel, the corrected constraint/state should supersede the stale one.
+12. For fiction, roleplay, examples, or hypothetical material, keep labels neutral and inside the task context. Never turn fictional details into real-world user facts.
+13. Maximum items: ongoing_task 2; standing_instructions 4; durable_decisions 5; active_threads 6; open_questions 4; retrieval_cues 4.
+14. Each item should usually be under 24 words.
+15. Do not include metadata; the application adds it.`;
 
   const existingBlock = existingContext
     ? `EXISTING WORKING CONTEXT:\n${JSON.stringify(
@@ -406,7 +407,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 2,
+        version: 3,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
@@ -790,7 +791,7 @@ General rules:
 5. Generate focused retrieval intents for the historical evidence that would actually matter. Do not paste the whole current request as a search query.
 6. Use kind="first" or kind="last" only when chronological origin/most-recent occurrence itself matters. Otherwise use kind="semantic".
 7. At most 2 intents. Prefer 1 when sufficient.
-8. If recent exact context already contains enough evidence, do not retrieve.
+8. The two exact recent rounds are already visible to every seat. NEVER retrieve them proactively. If the needed evidence is already present there, return should_retrieve=false. Proactive retrieval is only for older history outside that baseline.
 9. Do not treat the working-context statements as proof of historical facts. Retrieval is how exact evidence is established.
 10. Return JSON only.
 
