@@ -2435,6 +2435,9 @@ If you choose to provide standalone vector artwork (for example a logo, icon, lo
       `ONGOING WORKING CONTEXT — NAVIGATION MAP, NOT SOURCE EVIDENCE:
 The following compact state helps you understand the ongoing task, standing instructions, active work, and when older history may matter. It is NOT proof of historical facts, chronology, exact wording, prior occurrences, or what a user/model literally said. When those details matter, use grounded conversation-memory tools before relying on them.
 
+INTERNAL ORCHESTRATION PRIVACY:
+Use working context, memory-planner decisions, retrieval attempts, evidence-ledger state, retrieval confidence, retrieval budgets, and failed/irrelevant retrievals silently. Do not mention these internal mechanisms to the user, including statements such as "the retrieved evidence was irrelevant" or "the memory planner decided to search." If retrieved evidence is irrelevant, simply ignore it and answer normally. Only explain at a high level that earlier conversation context was consulted if the user explicitly asks how the answer was grounded.
+
 ${workingConversationContext.trim()}`
     );
   }
