@@ -14102,8 +14102,13 @@ export async function POST(req: NextRequest) {
           if (
             AGENTIC_MEMORY_EXPERIMENT &&
             discussionId &&
-            sharedAgenticEvidenceLedger.length > 0 &&
-            !req.signal.aborted
+            !req.signal.aborted &&
+            (
+              sharedAgenticEvidenceLedger.length > 0 ||
+              workingContextMetrics.refreshed ||
+              proactiveMemoryPlannerMeta.inputTokens !== null ||
+              proactiveMemoryPlannerMeta.shouldRetrieve
+            )
           ) {
             try {
               const isOwner = await verifyDiscussionOwnership(
