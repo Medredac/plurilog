@@ -6,7 +6,7 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v3';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v4';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
@@ -15,7 +15,7 @@ type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
 export interface ConversationWorkingContext {
   _meta: {
-    version: 3;
+    version: 4;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -176,7 +176,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 3,
+        version: 4,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -347,8 +347,8 @@ Rules:
 3. standing_instructions: ONLY explicit persistent instructions or constraints the user actually stated for the ongoing task. Never infer a standing instruction from tone, repeated behavior, jokes, wording style, or what the assistants happened to do.
 4. durable_decisions: ONLY operational/project/task choices explicitly settled or adopted for future work. Ordinary factual conclusions, explanations, opinions, analogies, and answers about an external topic are NOT durable decisions.
 5. active_threads: a small set of neutral labels for genuinely ongoing concepts, entities, requirements, artifacts, hypotheses, or workstreams likely to matter across future turns. Do not preserve every topic mentioned in casual conversation. Do not add chronology claims such as "X first appeared in Y".
-6. open_questions: ONLY questions or issues explicitly left unresolved/deferred and likely to be revisited. Never invent interesting follow-up questions, research directions, or hypothetical issues merely because they are related to the topic.
-7. retrieval_cues: GENERAL task-level conditions that should make older exact history worth retrieving. These are not one-off patches. Example shape: "When a new change touches a previously settled architecture decision, retrieve the earlier decision before evaluating it." Do not hard-code a single missed phrase or isolated incident unless the user explicitly made it a standing requirement.
+6. open_questions: ONLY questions or issues explicitly left unresolved/deferred and likely to be revisited. A normal user question that received substantive panel answers is resolved for state purposes unless the user explicitly says it remains open, unresolved, deferred, or needs later follow-up. Never invent interesting follow-up questions, research directions, or hypothetical issues merely because they are related to the topic.
+7. retrieval_cues: ONLY durable, history-sensitive task conditions where older exact conversation evidence may later matter. Ordinary topical discussion, factual Q&A, opinions, or a recurring subject do NOT justify a retrieval cue. Example shape: "When a new change touches a previously settled architecture decision, retrieve the earlier decision before evaluating it." Do not hard-code a single missed phrase or isolated incident unless the user explicitly made it a standing requirement.
 8. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
 9. Default to EMPTY arrays for standing_instructions, durable_decisions, and open_questions unless the conversation clearly satisfies their strict definitions. It is better to omit state than to invent persistence.
 10. Panel responses may help you understand the task, but do not preserve panel disagreements, speculation, factual answers, or unsupported interpretations as durable state.
@@ -420,7 +420,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 3,
+        version: 4,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
@@ -792,21 +792,40 @@ export async function planProactiveConversationRetrieval(options: {
 
   const systemPrompt = `You are the SHARED conversation-memory relevance planner for a multi-model panel.
 
-Your job is NOT to answer the user. Decide whether older conversation evidence, beyond the exact recent context already provided, could materially improve correctness, continuity, consistency, or fulfillment of the current request.
+Your job is NOT to answer the user. Decide whether the current request actually DEPENDS on older conversation evidence beyond the exact recent context already provided.
 
-The WORKING CONTEXT is a navigation map only. It is NOT evidence. Use it to understand the ongoing task, persistent instructions, active work, and what kinds of older context may matter.
+The default is NO RETRIEVAL.
 
-General rules:
-1. Do not retrieve merely because history exists.
-2. Retrieve when older material could materially change the answer, prevent a contradiction, enforce a standing instruction, preserve an earlier decision/constraint, connect ongoing work, or verify a historical claim.
-3. If the working context establishes cross-turn comparison, continuity, consistency, callback tracking, adherence to prior decisions, or another standing history-sensitive goal, lower the threshold when the current material plausibly touches that goal.
-4. This rule is domain-general. Do not invent case-specific patches or search every recurring word.
-5. Generate focused retrieval intents for the historical evidence that would actually matter. Do not paste the whole current request as a search query.
-6. Use kind="first" or kind="last" only when chronological origin/most-recent occurrence itself matters. Otherwise use kind="semantic".
-7. At most 2 intents. Prefer 1 when sufficient.
-8. The two exact recent rounds are already visible to every seat. NEVER retrieve them proactively. If the needed evidence is already present there, return should_retrieve=false. Proactive retrieval is only for older history outside that baseline.
-9. Do not treat the working-context statements as proof of historical facts. Retrieval is how exact evidence is established.
-10. Return JSON only.
+The WORKING CONTEXT is a navigation map only. It is NOT evidence. Active threads and retrieval cues are hints, never automatic triggers.
+
+Core test:
+Would an otherwise competent answer that used only the current message + exact recent context risk being wrong about THIS CONVERSATION, violate a durable task constraint, miss a genuine callback/cross-turn dependency, or make an unsupported historical claim? If not, return should_retrieve=false.
+
+Retrieve only when older exact conversation evidence is genuinely needed for one or more of these:
+- a prior user instruction, decision, constraint, correction, or settled project state materially controls the current answer;
+- the user explicitly or implicitly asks what happened/was said/was decided earlier, including first/last/origin/chronology;
+- the current material plausibly invokes a tracked callback, unresolved thread, recurring artifact/entity, or continuity-sensitive task where older evidence could change the interpretation;
+- the current prompt is underspecified and the exact recent context cannot resolve the referent;
+- a claim about conversation history must be verified.
+
+Do NOT retrieve merely for:
+- general knowledge, explanation, speculation, opinion, brainstorming, or advice that can be answered from the current prompt;
+- maintaining "consistency with the panel's established stance" or recalling what the panel previously believed;
+- the same broad topic continuing across turns;
+- background context that would be nice to have but would not materially change the answer;
+- repeated words/entities without a genuine cross-turn dependency;
+- subjective prompts such as "what do you think?", "is this exciting or scary?", or conceptual follow-ups that the exact recent rounds already make intelligible.
+
+Additional rules:
+1. If the working context establishes an explicit history-sensitive goal—such as tracking callbacks across chapters or respecting earlier architecture decisions—retrieve when the current material plausibly touches that goal.
+2. This rule is domain-general. Do not invent case-specific patches.
+3. Generate focused retrieval intents only for the older evidence actually needed. Do not paste the whole current request as a search query.
+4. Use kind="first" or kind="last" only when chronological origin/most-recent occurrence itself matters. Otherwise use kind="semantic".
+5. At most 2 intents. Prefer 1 when sufficient.
+6. The two exact recent rounds are already visible to every seat. NEVER retrieve them proactively. If the needed evidence is already present there, return should_retrieve=false.
+7. Do not treat working-context statements as proof of historical facts. Retrieval is how exact evidence is established.
+8. When uncertain whether retrieval is necessary versus merely potentially useful, choose NO RETRIEVAL.
+9. Return JSON only.
 
 Schema:
 {
