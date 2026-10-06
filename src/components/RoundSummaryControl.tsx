@@ -192,25 +192,25 @@ export const RoundSummaryControl: React.FC<RoundSummaryControlProps> = ({
   return (
     <div
       ref={wrapperRef}
-      className="absolute right-0 top-0 z-[60] sm:-right-12"
+      className="relative z-[70]"
     >
       <button
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className={`flex h-9 w-9 items-center justify-center rounded-full border bg-white shadow-[0_2px_8px_rgba(28,27,26,0.06)] transition-all duration-150 cursor-pointer ${isOpen ? 'border-[#CFCBC2] text-[#1C1B1A] bg-[#F7F6F3]' : 'border-[#D9D6CF] text-[#6A675F] hover:border-[#CFCBC2] hover:text-[#1C1B1A] hover:bg-[#F7F6F3]'}`}
+        className={`flex h-8 w-8 items-center justify-center rounded-full border bg-white shadow-[0_1px_5px_rgba(28,27,26,0.05)] transition-all duration-150 cursor-pointer ${isOpen ? 'border-[#CFCBC2] text-[#1C1B1A] bg-[#F7F6F3]' : 'border-[#D9D6CF] text-[#6A675F] hover:border-[#CFCBC2] hover:text-[#1C1B1A] hover:bg-white'}`}
         title="Summarize this round"
         aria-label="Summarize this round"
         aria-expanded={isOpen}
       >
-        <RoundSummaryIcon className="h-[17px] w-[17px]" />
+        <RoundSummaryIcon className="h-[15px] w-[15px]" />
       </button>
 
       {isOpen && (
         <div
           role="dialog"
           aria-label="Round summary"
-          className={`absolute right-0 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_48px_rgba(28,27,26,0.14)] sm:w-[350px] ${openUp ? 'bottom-11' : 'top-11'}`}
+          className={`absolute right-0 z-[80] w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_48px_rgba(28,27,26,0.14)] sm:w-[350px] ${openUp ? 'bottom-10' : 'top-10'}`}
         >
           <div className="flex h-11 items-center gap-2 border-b border-[#ECEAE5] px-3.5">
             <RoundSummaryIcon className="h-4 w-4 shrink-0 text-[#6A675F]" />
