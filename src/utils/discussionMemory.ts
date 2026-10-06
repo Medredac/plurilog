@@ -106,10 +106,13 @@ export function parseDiscussionSummary(rawSummary?: string | null): {
     try {
       const parsed = JSON.parse(trimmed);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        // Agentic working-context v2 shares the legacy summary storage column,
-        // but must never be injected wholesale if agentic mode is later disabled.
-        // Recover the preserved legacy summary, if any, and parse it normally.
-        if (parsed._memory_type === 'working_context_v2') {
+        // Agentic versioned working context shares the legacy summary storage
+        // column, but must never be injected wholesale if agentic mode is later
+        // disabled. Recover the preserved legacy summary, if any.
+        if (
+          typeof parsed._memory_type === 'string' &&
+          /^working_context_v\\d+$/.test(parsed._memory_type)
+        ) {
           const backup =
             typeof parsed.legacy_summary_backup === 'string'
               ? parsed.legacy_summary_backup.trim()
