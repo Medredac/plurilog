@@ -1376,6 +1376,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+  const [activeStickyRoundId, setActiveStickyRoundId] = useState<string | null>(null);
+  const stickyRoundOverlayRef = useRef<HTMLDivElement>(null);
+
 
   // Completed history opens at the bottom. A newly-created live discussion is
   // already owned by the top-turn anchor and must never race with this jump.
@@ -1448,6 +1451,188 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     preserveScrollTop,
     layoutVersion: messages.length,
   });
+
+  const getRoundDescriptor = (roundIndex: number) => {
+    const roundMessage = messages[roundIndex];
+    if (
+      !roundMessage ||
+      roundMessage.role !== 'user' ||
+      roundMessage.content !== 'Continue'
+    ) {
+      return null;
+    }
+
+    const hasAnswerBeforeNextUser = (continueIndex: number) => {
+      for (let index = continueIndex + 1; index < messages.length; index += 1) {
+        const item = messages[index];
+        if (item.role === 'user') return false;
+        if (item.role === 'model' && item.content.trim()) return true;
+      }
+      return false;
+    };
+
+    const hasRoundOutput = hasAnswerBeforeNextUser(roundIndex);
+    const hasLaterUserTurn = messages
+      .slice(roundIndex + 1)
+      .some((item) => item.role === 'user');
+    const isPendingCurrentRound =
+      isDebating && !hasRoundOutput && !hasLaterUserTurn;
+
+    if (!hasRoundOutput && !isPendingCurrentRound) {
+      return null;
+    }
+
+    let roundNumber = 0;
+    for (let index = roundIndex; index >= 0; index -= 1) {
+      const item = messages[index];
+      if (item.role !== 'user') continue;
+      if (item.content !== 'Continue') break;
+
+      const isCurrentPendingMarker =
+        index === roundIndex && isPendingCurrentRound;
+      if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
+        roundNumber += 1;
+      }
+    }
+
+    let roundEndIndex = messages.length;
+    for (
+      let nextIndex = roundIndex + 1;
+      nextIndex < messages.length;
+      nextIndex += 1
+    ) {
+      if (messages[nextIndex]?.role === 'user') {
+        roundEndIndex = nextIndex;
+        break;
+      }
+    }
+
+    const roundModelMessages = messages
+      .slice(roundIndex + 1, roundEndIndex)
+      .filter((item) => item.role === 'model' && item.content.trim());
+
+    const visibleRoundModelMessages = roundModelMessages.filter((item) => {
+      const phase = presentation.phaseFor(item.id);
+      return phase === 'static' || phase === 'complete';
+    });
+
+    const allRoundResponsesSettled =
+      roundModelMessages.length > 0 &&
+      roundModelMessages.every((item) => {
+        const phase = presentation.phaseFor(item.id);
+        return phase === 'static' || phase === 'complete';
+      });
+
+    const isInterruptedRound = interruptedTurnUserIds.has(roundMessage.id);
+    const roundSummaryReady =
+      visibleRoundModelMessages.length > 0 &&
+      (
+        hasLaterUserTurn ||
+        (
+          !isDebating &&
+          (isInterruptedRound || allRoundResponsesSettled)
+        )
+      );
+
+    const roundContextPrompt = [...messages.slice(0, roundIndex)]
+      .reverse()
+      .find(
+        (item) =>
+          item.role === 'user' &&
+          item.content.trim() &&
+          item.content !== 'Continue'
+      )?.content || '';
+
+    return {
+      id: roundMessage.id,
+      roundNumber,
+      roundSummaryReady,
+      roundContextPrompt,
+      visibleRoundModelMessages,
+    };
+  };
+
+  const activeStickyRound = activeStickyRoundId
+    ? (() => {
+        const roundIndex = messages.findIndex(
+          (item) => item.id === activeStickyRoundId
+        );
+        return roundIndex >= 0 ? getRoundDescriptor(roundIndex) : null;
+      })()
+    : null;
+
+  // CSS sticky can be defeated by transformed/layout-managed ancestors.
+  // Track the scroll viewport directly and pin one round-level overlay by
+  // translating it with the viewport's scrollTop. Section markers remain in
+  // normal flow; the overlay appears only after a round marker crosses the top
+  // and disappears when the next real user turn crosses it.
+  useEffect(() => {
+    const viewport = scrollContainerRef?.current;
+    const content = contentRef.current;
+
+    if (!viewport || !content || viewMode !== 'discussion') {
+      setActiveStickyRoundId(null);
+      return;
+    }
+
+    let rafId: number | null = null;
+
+    const updateStickyRound = () => {
+      rafId = null;
+
+      const overlay = stickyRoundOverlayRef.current;
+      if (overlay) {
+        overlay.style.transform = `translate3d(0, ${viewport.scrollTop}px, 0)`;
+      }
+
+      const viewportTop = viewport.getBoundingClientRect().top;
+      const markers = Array.from(
+        content.querySelectorAll<HTMLElement>(
+          '[data-round-sticky-marker], [data-user-turn-marker]'
+        )
+      );
+
+      let activeRoundId: string | null = null;
+      for (const marker of markers) {
+        if (marker.getBoundingClientRect().top > viewportTop + 1) break;
+
+        if (marker.dataset.roundStickyMarker) {
+          activeRoundId = marker.dataset.roundStickyMarker;
+        } else if (marker.dataset.userTurnMarker) {
+          activeRoundId = null;
+        }
+      }
+
+      setActiveStickyRoundId((current) =>
+        current === activeRoundId ? current : activeRoundId
+      );
+    };
+
+    const scheduleUpdate = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(updateStickyRound);
+    };
+
+    viewport.addEventListener('scroll', scheduleUpdate, { passive: true });
+
+    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    resizeObserver.observe(viewport);
+    resizeObserver.observe(content);
+
+    scheduleUpdate();
+
+    return () => {
+      viewport.removeEventListener('scroll', scheduleUpdate);
+      resizeObserver.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [
+    activeDebateId,
+    isDebating,
+    messages.length,
+    scrollContainerRef,
+    viewMode,
+  ]);
 
   const toggleExpand = (id: string) => {
     setExpandedMsgIds((prev) => ({
@@ -1550,11 +1735,43 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   };
 
   return (
-    <div ref={contentRef} className={`pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
+    <div ref={contentRef} className={`relative pl-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pr-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-right))] pt-5 sm:pt-7 pb-6 mx-auto w-full min-w-0 ${
       viewMode === 'side-by-side'
         ? 'max-w-[1040px] grid grid-cols-1 sm:grid-cols-3 gap-x-[14px] gap-y-4'
         : 'max-w-[760px] flex flex-col'
     }`}>
+      {viewMode === 'discussion' && activeStickyRound && (
+        <div
+          ref={stickyRoundOverlayRef}
+          className="absolute inset-x-0 top-0 z-50 px-[max(clamp(0.75rem,calc(2vw_+_0.25rem),2rem),env(safe-area-inset-left))] pointer-events-none will-change-transform"
+          aria-label={`Current round: Round ${activeStickyRound.roundNumber}`}
+        >
+          <div className="relative flex min-h-10 items-center gap-3 bg-[#F7F6F3]/95 py-2.5 backdrop-blur-md pointer-events-auto">
+            <div className="h-px flex-1 bg-[#DEDBD4]" />
+            <span className="shrink-0 select-none text-[11px] font-medium tracking-[0.01em] text-[#6A675F]">
+              Round {activeStickyRound.roundNumber}
+            </span>
+            <div className="h-px flex-1 bg-[#DEDBD4]" />
+
+            {activeStickyRound.roundSummaryReady && (
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-[#F7F6F3]/95 pl-2">
+                <RoundSummaryControl
+                  discussionId={activeDebateId}
+                  roundId={activeStickyRound.id}
+                  contextPrompt={activeStickyRound.roundContextPrompt}
+                  messages={activeStickyRound.visibleRoundModelMessages.map((item) => ({
+                    id: item.id,
+                    modelId: item.modelId,
+                    authorName: item.authorName,
+                    content: item.content,
+                  }))}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Error Notice (Non-turn errors, e.g. upload/storage issues) */}
       {errorMessage && (
         <div className="col-span-full p-3.5 mb-5 rounded-[14px] bg-white border border-[#E2E0DB] text-[#B5432E] text-xs flex items-start gap-2.5 min-w-0 max-w-full">
@@ -1582,88 +1799,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
         const formattedDate = formatConversationDate(message.createdAt);
 
         if (message.role === 'user' && message.content === 'Continue') {
-          const hasAnswerBeforeNextUser = (continueIndex: number) => {
-            for (let index = continueIndex + 1; index < messages.length; index += 1) {
-              const item = messages[index];
-              if (item.role === 'user') return false;
-              if (item.role === 'model' && item.content.trim()) return true;
-            }
-            return false;
-          };
-
-          const hasRoundOutput = hasAnswerBeforeNextUser(idx);
-          const hasLaterUserTurn = messages
-            .slice(idx + 1)
-            .some((item) => item.role === 'user');
-          const isPendingCurrentRound =
-            isDebating && !hasRoundOutput && !hasLaterUserTurn;
-
-          // Show the current Round marker immediately while the round is
-          // running. If the user stops before any AI output, runRelay removes
-          // this Continue message entirely, so the empty Round disappears.
-          // Historical unanswered Continue markers remain hidden.
-          if (!hasRoundOutput && !isPendingCurrentRound) {
-            return null;
-          }
-
-          let roundNumber = 0;
-          for (let index = idx; index >= 0; index -= 1) {
-            const item = messages[index];
-            if (item.role !== 'user') continue;
-            if (item.content !== 'Continue') break;
-
-            const isCurrentPendingMarker =
-              index === idx && isPendingCurrentRound;
-            if (hasAnswerBeforeNextUser(index) || isCurrentPendingMarker) {
-              roundNumber += 1;
-            }
-          }
-
-          let roundEndIndex = messages.length;
-          for (let nextIndex = idx + 1; nextIndex < messages.length; nextIndex += 1) {
-            if (messages[nextIndex]?.role === 'user') {
-              roundEndIndex = nextIndex;
-              break;
-            }
-          }
-
-          const roundModelMessages = messages
-            .slice(idx + 1, roundEndIndex)
-            .filter(
-              (item) => item.role === 'model' && item.content.trim()
-            );
-
-          const visibleRoundModelMessages = roundModelMessages.filter((item) => {
-            const phase = presentation.phaseFor(item.id);
-            return phase === 'static' || phase === 'complete';
-          });
-
-          const allRoundResponsesSettled =
-            roundModelMessages.length > 0 &&
-            roundModelMessages.every((item) => {
-              const phase = presentation.phaseFor(item.id);
-              return phase === 'static' || phase === 'complete';
-            });
-
-          const isInterruptedRound = interruptedTurnUserIds.has(message.id);
-          const roundSummaryReady =
-            visibleRoundModelMessages.length > 0 &&
-            (
-              hasLaterUserTurn ||
-              (
-                !isDebating &&
-                (isInterruptedRound || allRoundResponsesSettled)
-              )
-            );
-
-          const roundContextPrompt = [...messages.slice(0, idx)]
-            .reverse()
-            .find(
-              (item) =>
-                item.role === 'user' &&
-                item.content.trim() &&
-                item.content !== 'Continue'
-            )?.content || '';
+          const round = getRoundDescriptor(idx);
+          if (!round) return null;
 
           return (
             <React.Fragment key={message.id}>
@@ -1682,22 +1819,23 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               <div
                 id={message.id}
                 data-turn-anchor-id={message.id}
-                className="sticky top-0 z-40 col-span-full scroll-mt-0 bg-[#F7F6F3]/95 backdrop-blur-md"
+                data-round-sticky-marker={message.id}
+                className="col-span-full scroll-mt-0"
               >
                 <div className="relative flex min-h-10 items-center gap-3 py-2.5">
                   <div className="h-px flex-1 bg-[#DEDBD4]" />
                   <span className="shrink-0 select-none text-[11px] font-medium tracking-[0.01em] text-[#6A675F]">
-                    Round {roundNumber}
+                    Round {round.roundNumber}
                   </span>
                   <div className="h-px flex-1 bg-[#DEDBD4]" />
 
-                  {roundSummaryReady && (
-                    <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-[#F7F6F3]/95 pl-2">
+                  {round.roundSummaryReady && (
+                    <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-[#F7F6F3] pl-2">
                       <RoundSummaryControl
                         discussionId={activeDebateId}
-                        roundId={message.id}
-                        contextPrompt={roundContextPrompt}
-                        messages={visibleRoundModelMessages.map((item) => ({
+                        roundId={round.id}
+                        contextPrompt={round.roundContextPrompt}
+                        messages={round.visibleRoundModelMessages.map((item) => ({
                           id: item.id,
                           modelId: item.modelId,
                           authorName: item.authorName,
@@ -1738,6 +1876,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </div>
               )}
               <motion.div
+                data-user-turn-marker={message.id}
                 id={message.id}
                 data-turn-anchor-id={message.id}
                 layout="position"
