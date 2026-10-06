@@ -140,7 +140,20 @@ export function parseConversationWorkingContextEnvelope(
       parsed._memory_type !== WORKING_CONTEXT_MEMORY_TYPE ||
       !parsed.working_context
     ) {
-      return { envelope: null, legacySummaryBackup: raw };
+      const isOlderWorkingContext =
+        parsed &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed) &&
+        typeof parsed._memory_type === 'string' &&
+        /^working_context_v\d+$/.test(parsed._memory_type);
+      return {
+        envelope: null,
+        legacySummaryBackup: isOlderWorkingContext
+          ? (typeof parsed.legacy_summary_backup === 'string'
+              ? parsed.legacy_summary_backup
+              : null)
+          : raw,
+      };
     }
 
     const body = validateWorkingContextBody(parsed.working_context);
