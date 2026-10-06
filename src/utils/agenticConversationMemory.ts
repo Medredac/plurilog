@@ -537,15 +537,16 @@ async function qualifyTopicChronologyCandidates(options: {
   query: string;
   candidates: TopicChronologyCandidate[];
   signal?: AbortSignal;
+  strict?: boolean;
 }): Promise<{
   candidates: TopicChronologyCandidate[];
   method: 'semantic_qualifier' | 'keyword_fallback' | 'semantic_fallback' | 'none';
 }> {
-  const { openai, query, candidates, signal } = options;
+  const { openai, query, candidates, signal, strict = false } = options;
   if (candidates.length === 0) {
     return { candidates: [], method: 'none' };
   }
-  if (candidates.length === 1) {
+  if (candidates.length === 1 && !strict) {
     return { candidates, method: 'semantic_qualifier' };
   }
 
@@ -595,11 +596,13 @@ async function qualifyTopicChronologyCandidates(options: {
             value >= 0 &&
             value < classifierCandidates.length
         );
-      const keywordIds = candidates
-        .map((candidate, index) =>
-          typeof candidate.row?.keyword_rank === 'number' ? index : -1
-        )
-        .filter((index) => index >= 0);
+      const keywordIds = strict
+        ? []
+        : candidates
+            .map((candidate, index) =>
+              typeof candidate.row?.keyword_rank === 'number' ? index : -1
+            )
+            .filter((index) => index >= 0);
       const ids = Array.from(new Set([...semanticIds, ...keywordIds]));
 
       return {
@@ -611,6 +614,10 @@ async function qualifyTopicChronologyCandidates(options: {
     console.warn('[Agentic Chronology] Relevance qualification failed; using deterministic fallback', {
       message: error?.message || String(error),
     });
+  }
+
+  if (strict) {
+    return { candidates: [], method: 'none' };
   }
 
   const keywordCandidates = candidates.filter(
@@ -752,10 +759,88 @@ export async function resolveAgenticConversationTool(options: {
       };
     }
 
+    let candidateRows = rows;
+
+    if (requestedBySeatId === 'shared_memory_planner') {
+      const qualificationCandidates = rows
+        .map((row: any) => {
+          const sourceUserMessageId =
+            typeof row?.source_user_message_id === 'string'
+              ? row.source_user_message_id
+              : null;
+          if (
+            !sourceUserMessageId ||
+            excludedSourceIds.has(sourceUserMessageId)
+          ) {
+            return null;
+          }
+
+          const roundIndex = allRounds.findIndex(
+            (round) => round.userMessageId === sourceUserMessageId
+          );
+          if (roundIndex < 0) return null;
+
+          const round = allRounds[roundIndex];
+          const speakerText = speakerTextFromRound(round, speaker);
+          if (speaker !== 'any' && !speakerText.trim()) return null;
+
+          const rawMatchedText =
+            typeof row?.content === 'string' && row.content.trim()
+              ? row.content.trim()
+              : speakerText;
+          const sourceText =
+            speaker === 'any' ? rawMatchedText : speakerText;
+          if (!sourceText.trim()) return null;
+
+          return {
+            row,
+            sourceUserMessageId,
+            roundIndex,
+            sourceText,
+          };
+        })
+        .filter(
+          (candidate): candidate is TopicChronologyCandidate =>
+            Boolean(candidate?.sourceText?.trim())
+        );
+
+      const qualification = await qualifyTopicChronologyCandidates({
+        openai,
+        query,
+        candidates: qualificationCandidates,
+        signal,
+        strict: true,
+      });
+      const allowedSourceIds = new Set(
+        qualification.candidates.map(
+          (candidate) => candidate.sourceUserMessageId
+        )
+      );
+
+      candidateRows = rows.filter((row: any) => {
+        const sourceUserMessageId =
+          typeof row?.source_user_message_id === 'string'
+            ? row.source_user_message_id
+            : null;
+        return Boolean(
+          sourceUserMessageId &&
+            allowedSourceIds.has(sourceUserMessageId)
+        );
+      });
+
+      console.log('[Proactive Semantic Qualification]', {
+        discussionId,
+        query,
+        candidateCount: qualificationCandidates.length,
+        qualifiedCount: qualification.candidates.length,
+        method: qualification.method,
+      });
+    }
+
     const candidates: AgenticEvidenceLedgerEntry[] = [];
     const seenSourceIds = new Set<string>();
 
-    for (const row of rows) {
+    for (const row of candidateRows) {
       if (candidates.length >= maxResults) break;
       const sourceUserMessageId =
         typeof row?.source_user_message_id === 'string'
