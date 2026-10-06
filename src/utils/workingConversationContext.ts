@@ -6,7 +6,7 @@ import {
   type Round,
 } from '@/utils/discussionMemory';
 
-const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v4';
+const WORKING_CONTEXT_MEMORY_TYPE = 'working_context_v5';
 const WORKING_CONTEXT_TOKEN_LIMIT = 500;
 const WORKING_CONTEXT_REFRESH_ROUNDS = 2;
 const WORKING_CONTEXT_MODEL = 'google/gemini-3.1-flash-lite';
@@ -15,7 +15,7 @@ type SpeakerConstraint = 'any' | 'user' | 'chatgpt' | 'claude' | 'gemini';
 
 export interface ConversationWorkingContext {
   _meta: {
-    version: 4;
+    version: 5;
     processed_rounds_count: number;
     last_processed_user_message_id?: string;
     updated_at?: string;
@@ -176,7 +176,7 @@ export function parseConversationWorkingContextEnvelope(
 
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 4,
+        version: 5,
         processed_rounds_count: processedCount,
         ...(typeof meta?.last_processed_user_message_id === 'string' &&
         meta.last_processed_user_message_id.trim()
@@ -343,11 +343,11 @@ Return JSON only with exactly these six arrays:
 
 Rules:
 1. Keep the result extremely compact. Prefer fewer, stronger entries.
-2. ongoing_task: what the user and panel are currently doing across turns.
+2. ongoing_task: what the user and panel are actually doing across turns right now. Do not promote a hypothetical example, possible future test, illustrative scenario, or merely proposed next step into the ongoing task unless the user actually begins that task.
 3. standing_instructions: ONLY explicit persistent instructions or constraints the user actually stated for the ongoing task. Never infer a standing instruction from tone, repeated behavior, jokes, wording style, or what the assistants happened to do.
 4. durable_decisions: ONLY operational/project/task choices explicitly settled or adopted for future work. Ordinary factual conclusions, explanations, opinions, analogies, and answers about an external topic are NOT durable decisions.
-5. active_threads: a small set of neutral labels for genuinely ongoing concepts, entities, requirements, artifacts, hypotheses, or workstreams likely to matter across future turns. Do not preserve every topic mentioned in casual conversation. Do not add chronology claims such as "X first appeared in Y".
-6. open_questions: ONLY questions or issues explicitly left unresolved/deferred and likely to be revisited. A normal user question that received substantive panel answers is resolved for state purposes unless the user explicitly says it remains open, unresolved, deferred, or needs later follow-up. Never invent interesting follow-up questions, research directions, or hypothetical issues merely because they are related to the topic.
+5. active_threads: a small set of neutral labels for genuinely ongoing concepts, entities, requirements, artifacts, hypotheses, or workstreams likely to matter across future turns. Prune threads that the conversation has clearly moved away from unless a durable decision/instruction still depends on them. Do not preserve every topic mentioned in casual conversation. Do not add chronology claims such as "X first appeared in Y".
+6. open_questions: ONLY questions or issues the user explicitly leaves unresolved, deferred, undecided, or marked for later follow-up. Planned examples, demos, possible future tests, rhetorical questions, and questions already answered by the panel are NOT open questions. Never infer an open question merely because a future scenario could be tested.
 7. retrieval_cues: ONLY durable, history-sensitive task conditions where older exact conversation evidence may later matter. Ordinary topical discussion, factual Q&A, opinions, or a recurring subject do NOT justify a retrieval cue. Example shape: "When a new change touches a previously settled architecture decision, retrieve the earlier decision before evaluating it." Do not hard-code a single missed phrase or isolated incident unless the user explicitly made it a standing requirement.
 8. The working context is a MAP, never evidence. Do not include quotations, exact chronology, or claims whose correctness depends on a specific historical occurrence.
 9. Default to EMPTY arrays for standing_instructions, durable_decisions, and open_questions unless the conversation clearly satisfies their strict definitions. It is better to omit state than to invent persistence.
@@ -420,7 +420,7 @@ Rules:
     const lastRound = allRounds[allRounds.length - 1];
     const context: ConversationWorkingContext = {
       _meta: {
-        version: 4,
+        version: 5,
         processed_rounds_count: allRounds.length,
         ...(lastRound?.userMessageId
           ? { last_processed_user_message_id: lastRound.userMessageId }
