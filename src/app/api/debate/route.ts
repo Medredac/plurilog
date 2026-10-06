@@ -2753,6 +2753,12 @@ The backend is authoritative for artifact identity, lineage, version and provena
     .filter(Boolean)
     .join('\n\n');
 
+  const priorPanelTurnMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+    priorResponses.map((p) => ({
+      role: 'assistant',
+      content: `[Earlier panel turn — ${p.name}]\n${p.response}`,
+    }));
+
   // When reusing existing PDF file annotations via OpenRouter's documented assistant-message pattern:
   if (fileAnnotations && fileAnnotations.length > 0 && attachments && attachments.length > 0) {
     const pdfBlocks: any[] = [];
@@ -2819,12 +2825,6 @@ The backend is authoritative for artifact identity, lineage, version and provena
       ];
     }
   }
-
-  const priorPanelTurnMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
-    priorResponses.map((p) => ({
-      role: 'assistant',
-      content: `[Earlier panel turn — ${p.name}]\n${p.response}`,
-    }));
 
   let userMessageParam: OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
