@@ -1548,7 +1548,7 @@ export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   );
 }
 
-export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on which models are active. Each panel round is orchestrated sequentially in the configured seat order: a later seat is deliberately given the responses of earlier seats in that same round before it answers, while an earlier seat cannot see responses that have not happened yet. Forming an independent assessment means making your own judgment about the user's question and earlier seat responses; it does NOT mean independently restarting the answer from the user's original message. If earlier seats are shown, those turns have already happened in the live conversation and your reply comes after them. Continue from the current conversational frontier: engage the most consequential point already made, then correct, sharpen, challenge, extend, or add a genuinely distinct implication. Do not re-explain definitions, background, examples, or conclusions that an earlier seat has already established unless they are materially wrong or incomplete. Your response should make sense as the next thing a thoughtful participant would say after hearing the preceding speakers, not as a standalone answer generated in parallel. If no prior responses are shown, you are the first speaker and should answer the user's message directly. If the user asks how the panel works, never claim that all models generate independently at the same time or that no model can see an earlier seat's response. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' Independent judgment still matters: do not inherit a peer's unsupported factual claim merely because it came first. But independence is about evaluating what was said, not ignoring the live thread or repeating the user's question from scratch. Address, qualify, correct, question, or extend earlier points naturally when useful; do not turn the exchange into a formal critique exercise or mechanically announce that you are "building on" another model. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
+export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on which models are active. Each panel round is orchestrated sequentially in the configured seat order: a later seat is deliberately given the responses of earlier seats in that same round before it answers, while an earlier seat cannot see responses that have not happened yet. Forming an independent assessment means making your own judgment about the user's question and earlier seat responses; it does NOT mean independently restarting the answer from the user's original message. If earlier seats are shown, those turns have already happened in the live conversation and your reply comes after them. Continue from the current conversational frontier: engage the most consequential point already made, then correct, sharpen, challenge, extend, or add a genuinely distinct implication. Do not re-explain definitions, background, examples, or conclusions that an earlier seat has already established unless they are materially wrong or incomplete. Your response should make sense as the next thing a thoughtful participant would say after hearing the preceding speakers, not as a standalone answer generated in parallel. If no prior responses are shown, you are the first speaker and should answer the user's message directly. If the user asks how the panel works, never claim that all models generate independently at the same time or that no model can see an earlier seat's response. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' Independent judgment still matters: do not inherit a peer's unsupported factual claim merely because it came first. But independence is about evaluating what was said, not ignoring the live thread or repeating the user's question from scratch. Address, qualify, correct, question, or extend earlier points naturally when useful; do not turn the exchange into a formal critique exercise or mechanically announce that you are "building on" another model. When earlier panelists have already responded in this round, their completed turns are supplied to you as preceding assistant-role messages labeled with the panelist identity. Treat them as turns that already happened in the live conversation. Only reference or respond to what is explicitly present in those turns. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
 
 Only treat a message as directed at a specific panelist if the user's CURRENT message literally contains that panelist's name. The mere fact that another panelist already responded in this round, or was addressed in an earlier turn, is NOT a signal that the current question excludes you — if no name appears in the user's current message, treat it as open to the whole panel.
 
@@ -2515,16 +2515,6 @@ Layout/style/template changes must not silently delete names, contact details, d
     sections.push(sharedAgenticEvidenceContext.trim());
   }
 
-  // 4. [current round's prior seat responses — provisional peer claims to evaluate]
-  if (priorResponses.length > 0) {
-    const priorFormatted = priorResponses
-      .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
-      .join('');
-
-    sections.push(
-      `CURRENT-ROUND LIVE PANEL TURNS — THESE HAPPENED BEFORE YOUR REPLY:\nThe user has already received the turns below for this exact message. You are the next speaker in the same live conversation. Start from the conversational state AFTER these turns rather than answering the user's original message again from the beginning. If an earlier turn already supplied a definition, setup, background, example, or baseline conclusion, treat that as conversationally established unless you have a reason to correct it. Focus your response on what changes, deepens, challenges, qualifies, or newly follows from what was just said. Avoid duplicating an earlier answer merely to make your own response self-contained.\n\nEVIDENCE DISCIPLINE:\nThe prior turns are conversational contributions, not source evidence by themselves. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present rather than fetching it again merely for independence. Do not inherit unsupported factual claims merely because one or more panelists stated them.\n\n${priorFormatted.trimEnd()}`
-    );
-  }
 
   if (
     runtimeProductContext?.documentCreatedThisTurn &&
@@ -2763,6 +2753,12 @@ The backend is authoritative for artifact identity, lineage, version and provena
     .filter(Boolean)
     .join('\n\n');
 
+  const priorPanelTurnMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] =
+    priorResponses.map((p) => ({
+      role: 'assistant',
+      content: `[Earlier panel turn — ${p.name}]\n${p.response}`,
+    }));
+
   // When reusing existing PDF file annotations via OpenRouter's documented assistant-message pattern:
   if (fileAnnotations && fileAnnotations.length > 0 && attachments && attachments.length > 0) {
     const pdfBlocks: any[] = [];
@@ -2825,6 +2821,7 @@ The backend is authoritative for artifact identity, lineage, version and provena
               ? currentUserBlocks
               : (userContent || 'Please respond to the attached PDF document context.'),
         },
+        ...priorPanelTurnMessages,
       ];
     }
   }
@@ -2930,6 +2927,7 @@ The backend is authoritative for artifact identity, lineage, version and provena
       content: systemContent,
     },
     userMessageParam,
+    ...priorPanelTurnMessages,
   ];
 }
 
