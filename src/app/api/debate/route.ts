@@ -3182,6 +3182,26 @@ export async function POST(req: NextRequest) {
         : Date.now();
     const turnStartedAt = Date.now();
 
+    // Diagnostic-only lifecycle state. This is intentionally read-only and
+    // must never influence routing, cancellation, billing, or persistence.
+    let diagnosticActiveSeatId: string | null = null;
+    let diagnosticActiveModelId: string | null = null;
+    let diagnosticActiveSeatStartedAt: number | null = null;
+    const diagnosticCompletedSeatIds: string[] = [];
+
+    const describeDiagnosticReason = (reason: unknown): string | null => {
+      if (reason == null) return null;
+      if (reason instanceof Error) {
+        return `${reason.name}: ${reason.message}`;
+      }
+      if (typeof reason === 'string') return reason;
+      try {
+        return JSON.stringify(reason);
+      } catch {
+        return String(reason);
+      }
+    };
+
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
       return new Response(
@@ -3299,6 +3319,30 @@ export async function POST(req: NextRequest) {
         );
       }
     }
+
+    const onRequestAbort = () => {
+      console.warn('[Request Lifecycle] Request aborted', {
+        turnId,
+        discussionId: discussionId || null,
+        activeSeatId: diagnosticActiveSeatId,
+        activeModelId: diagnosticActiveModelId,
+        activeSeatElapsedMs:
+          diagnosticActiveSeatStartedAt == null
+            ? null
+            : Date.now() - diagnosticActiveSeatStartedAt,
+        completedSeatIds: [...diagnosticCompletedSeatIds],
+        elapsedTurnMs: Date.now() - turnStartedAt,
+        abortReason: describeDiagnosticReason(req.signal.reason),
+      });
+    };
+    req.signal.addEventListener('abort', onRequestAbort, { once: true });
+
+    console.log('[Request Lifecycle] Monitoring armed', {
+      turnId,
+      discussionId: discussionId || null,
+      clientRunStartedAt,
+      requestAlreadyAborted: req.signal.aborted,
+    });
 
     // Get hardcoded fallback arrays for each seat.
     // Claude routing repeats on a $1.00 usage cycle:
@@ -4390,8 +4434,23 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        const safeClose = () => {
+        const safeClose = (reason = 'unspecified') => {
           if (!isClosed) {
+            console.log('[Stream Lifecycle] Closing', {
+              turnId,
+              discussionId: discussionId || null,
+              reason,
+              activeSeatId: diagnosticActiveSeatId,
+              activeModelId: diagnosticActiveModelId,
+              activeSeatElapsedMs:
+                diagnosticActiveSeatStartedAt == null
+                  ? null
+                  : Date.now() - diagnosticActiveSeatStartedAt,
+              completedSeatIds: [...diagnosticCompletedSeatIds],
+              requestAborted: req.signal.aborted,
+              requestAbortReason: describeDiagnosticReason(req.signal.reason),
+              elapsedTurnMs: Date.now() - turnStartedAt,
+            });
             isClosed = true;
             try {
               controller.close();
@@ -6919,6 +6978,9 @@ export async function POST(req: NextRequest) {
 
             const messageId = crypto.randomUUID();
             const seatStartedAt = Date.now();
+            diagnosticActiveSeatId = seat.seatId;
+            diagnosticActiveModelId = null;
+            diagnosticActiveSeatStartedAt = seatStartedAt;
 
             // Allocate each seat from the shared Pro wall-clock budget while
             // preserving a finalization reserve. These are safety ceilings only;
@@ -6940,6 +7002,15 @@ export async function POST(req: NextRequest) {
             const seatAbortController = new AbortController();
             const abortSeatFromRequest = () => {
               if (!seatAbortController.signal.aborted) {
+                console.warn('[Seat Abort Trigger]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  source: 'request_signal',
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                  abortReason: describeDiagnosticReason(req.signal.reason),
+                });
                 seatAbortController.abort(req.signal.reason);
               }
             };
@@ -6948,6 +7019,15 @@ export async function POST(req: NextRequest) {
             });
             const seatTimeoutHandle = setTimeout(() => {
               if (!seatAbortController.signal.aborted) {
+                console.warn('[Seat Abort Trigger]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  source: 'seat_timeout',
+                  seatTimeoutMs,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                });
                 seatAbortController.abort(
                   new Error(`${seat.name} exceeded its ${Math.round(
                     seatTimeoutMs / 1000
@@ -6972,6 +7052,14 @@ export async function POST(req: NextRequest) {
                 .then((active) => {
                   if (!active && !seatAbortController.signal.aborted) {
                     durableRunCancelled = true;
+                    console.warn('[Seat Abort Trigger]', {
+                      turnId,
+                      discussionId: discussionId || null,
+                      seatId: seat.seatId,
+                      source: 'durable_run_inactive',
+                      seatElapsedMs: Date.now() - seatStartedAt,
+                      elapsedTurnMs: Date.now() - turnStartedAt,
+                    });
                     seatAbortController.abort(
                       new Error('PLURILOG_DURABLE_RUN_CANCELLED')
                     );
@@ -6987,6 +7075,7 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
             let seatUsage: any = null;
@@ -7439,7 +7528,22 @@ export async function POST(req: NextRequest) {
             const consumeInitialSeatStream = async (
               attemptModels: string[]
             ) => {
-              const stream = await (openai.chat.completions.create as any)({
+              const providerAttemptStartedAt = Date.now();
+              console.log('[Provider Stream] Opening', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                primaryAttemptModel: attemptModels[0] || null,
+                fallbackModels: attemptModels,
+                seatElapsedMs: Date.now() - seatStartedAt,
+                elapsedTurnMs: Date.now() - turnStartedAt,
+                requestAborted: req.signal.aborted,
+              });
+
+              let initialProviderStream: any;
+              try {
+                initialProviderStream =
+                  await (openai.chat.completions.create as any)({
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
@@ -7509,9 +7613,51 @@ export async function POST(req: NextRequest) {
                       ],
                     }
                   : {}),
+                  });
+              } catch (providerOpenErr: any) {
+                console.error('[Provider Stream] Open failed', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  primaryAttemptModel: attemptModels[0] || null,
+                  latencyMs: Date.now() - providerAttemptStartedAt,
+                  requestAborted: req.signal.aborted,
+                  seatAborted: seatAbortController.signal.aborted,
+                  seatAbortReason: describeDiagnosticReason(
+                    seatAbortController.signal.reason
+                  ),
+                  error:
+                    providerOpenErr?.message || String(providerOpenErr),
+                });
+                throw providerOpenErr;
+              }
+
+              console.log('[Provider Stream] Opened', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                primaryAttemptModel: attemptModels[0] || null,
+                openLatencyMs: Date.now() - providerAttemptStartedAt,
               });
 
-              for await (const chunk of stream) {
+              let providerChunkCount = 0;
+              let providerFirstChunkAt: number | null = null;
+
+              for await (const chunk of initialProviderStream) {
+                providerChunkCount += 1;
+                if (providerFirstChunkAt == null) {
+                  providerFirstChunkAt = Date.now();
+                  console.log('[Provider Stream] First chunk', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    respondingModel: chunk.model || attemptModels[0] || null,
+                    firstChunkLatencyMs:
+                      providerFirstChunkAt - providerAttemptStartedAt,
+                    seatElapsedMs: Date.now() - seatStartedAt,
+                    elapsedTurnMs: Date.now() - turnStartedAt,
+                  });
+                }
                 if (req.signal.aborted) {
                   break;
                 }
@@ -7551,6 +7697,21 @@ export async function POST(req: NextRequest) {
                   }
                 }
               }
+
+              console.log('[Provider Stream] Ended', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                respondingModel,
+                chunkCount: providerChunkCount,
+                totalLatencyMs: Date.now() - providerAttemptStartedAt,
+                requestAborted: req.signal.aborted,
+                seatAborted: seatAbortController.signal.aborted,
+                seatAbortReason: describeDiagnosticReason(
+                  seatAbortController.signal.reason
+                ),
+                responseChars: seatResponse.length,
+              });
             };
 
             try {
@@ -7624,7 +7785,15 @@ export async function POST(req: NextRequest) {
               }
 
               if (req.signal.aborted) {
-                safeClose();
+                console.warn('[Seat Lifecycle] Request aborted after initial provider stream', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                  abortReason: describeDiagnosticReason(req.signal.reason),
+                });
+                safeClose('request_aborted_after_initial_stream');
                 return;
               }
 
@@ -13880,6 +14049,9 @@ export async function POST(req: NextRequest) {
                 seatElapsedMs: Date.now() - seatStartedAt,
                 elapsedTurnMs: Date.now() - turnStartedAt,
               });
+              if (!diagnosticCompletedSeatIds.includes(seat.seatId)) {
+                diagnosticCompletedSeatIds.push(seat.seatId);
+              }
 
               // Record in prior responses for subsequent speakers (untainted by synthetic Sources footer)
               priorResponses.push({
@@ -13893,12 +14065,20 @@ export async function POST(req: NextRequest) {
                   discussionId: discussionId || null,
                   seatId: seat.seatId,
                 });
-                safeClose();
+                safeClose('durable_run_cancelled_during_seat');
                 return;
               }
 
               if (req.signal.aborted) {
-                safeClose();
+                console.warn('[Seat Lifecycle] Exiting on request abort', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  seatElapsedMs: Date.now() - seatStartedAt,
+                  elapsedTurnMs: Date.now() - turnStartedAt,
+                  abortReason: describeDiagnosticReason(req.signal.reason),
+                });
+                safeClose('request_aborted_during_seat');
                 return;
               }
 
@@ -14218,6 +14398,14 @@ export async function POST(req: NextRequest) {
                 seatElapsedMs: Date.now() - seatStartedAt,
                 elapsedTurnMs: Date.now() - turnStartedAt,
                 error: err?.message || String(err),
+                requestAborted: req.signal.aborted,
+                requestAbortReason: describeDiagnosticReason(req.signal.reason),
+                seatAborted: seatAbortController.signal.aborted,
+                seatAbortReason: describeDiagnosticReason(
+                  seatAbortController.signal.reason
+                ),
+                durableRunCancelled,
+                spendRecorded,
               });
               sendEvent('seat_error', {
                 seatId: seat.seatId,
@@ -14227,9 +14415,30 @@ export async function POST(req: NextRequest) {
               });
               continue;
             } finally {
+              console.log('[Seat Lifecycle] Finalized', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                modelId: respondingModel,
+                seatElapsedMs: Date.now() - seatStartedAt,
+                elapsedTurnMs: Date.now() - turnStartedAt,
+                requestAborted: req.signal.aborted,
+                seatAborted: seatAbortController.signal.aborted,
+                seatAbortReason: describeDiagnosticReason(
+                  seatAbortController.signal.reason
+                ),
+                durableRunCancelled,
+                spendRecorded,
+                responseChars: seatResponse.length,
+              });
               clearInterval(durableCancellationPoll);
               clearTimeout(seatTimeoutHandle);
               req.signal.removeEventListener('abort', abortSeatFromRequest);
+              if (diagnosticActiveSeatId === seat.seatId) {
+                diagnosticActiveSeatId = null;
+                diagnosticActiveModelId = null;
+                diagnosticActiveSeatStartedAt = null;
+              }
             }
           }
 
@@ -14771,6 +14980,8 @@ export async function POST(req: NextRequest) {
             configuredSeats: configuredSeats.map((seat) => seat.seatId),
             completedSeatCount: priorResponses.length,
             elapsedTurnMs: Date.now() - turnStartedAt,
+            requestAborted: req.signal.aborted,
+            completedSeatIds: [...diagnosticCompletedSeatIds],
           });
 
           sendEvent('council_done', {
@@ -14778,12 +14989,32 @@ export async function POST(req: NextRequest) {
           });
         } catch (globalErr: any) {
           console.error('Fatal API stream error:', globalErr);
+          console.error('[Turn Fatal]', {
+            turnId,
+            discussionId: discussionId || null,
+            activeSeatId: diagnosticActiveSeatId,
+            activeModelId: diagnosticActiveModelId,
+            activeSeatElapsedMs:
+              diagnosticActiveSeatStartedAt == null
+                ? null
+                : Date.now() - diagnosticActiveSeatStartedAt,
+            completedSeatIds: [...diagnosticCompletedSeatIds],
+            requestAborted: req.signal.aborted,
+            requestAbortReason: describeDiagnosticReason(req.signal.reason),
+            elapsedTurnMs: Date.now() - turnStartedAt,
+            error: globalErr?.message || String(globalErr),
+          });
           await markDurableRunTerminalAfterFailure();
           sendEvent('error', {
             message: globalErr?.message || 'An unexpected error occurred.',
           });
         } finally {
-          safeClose();
+          safeClose(
+            req.signal.aborted
+              ? 'stream_finally_after_request_abort'
+              : 'stream_finally'
+          );
+          req.signal.removeEventListener('abort', onRequestAbort);
         }
       },
     });
