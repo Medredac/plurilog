@@ -2429,7 +2429,8 @@ export function buildPanelMessages(
   runtimeProductContext?: PlurilogRuntimeProductContext,
   sharedAgenticEvidenceContext?: string | null,
   workingConversationContext?: string | null,
-  userDisplayName?: string | null
+  userDisplayName?: string | null,
+  isContinueRound?: boolean
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   const sections: string[] = [];
   const hasTargetedChronology = Boolean(
@@ -2443,16 +2444,18 @@ If you choose to provide standalone vector artwork (for example a logo, icon, lo
     );
   }
 
-  if (workingConversationContext?.trim()) {
-    sections.push(
-      `ONGOING WORKING CONTEXT — NAVIGATION MAP, NOT SOURCE EVIDENCE:
-The following compact state helps you understand the ongoing task, standing instructions, active work, and when older history may matter. It is NOT proof of historical facts, chronology, exact wording, prior occurrences, or what a user/model literally said. When those details matter, use grounded conversation-memory tools before relying on them.
+  const workingConversationContextBlock = workingConversationContext?.trim()
+    ? `ONGOING WORKING CONTEXT — NAVIGATION MAP, NOT SOURCE EVIDENCE:
+The following compact state helps you understand the ongoing task, standing instructions, active work, and when older history may matter. It is NOT the current user request and must not be treated as one. It is NOT proof of historical facts, chronology, exact wording, prior occurrences, or what a user/model literally said. When those details matter, use grounded conversation-memory tools before relying on them.
 
 INTERNAL ORCHESTRATION PRIVACY:
 Use working context, memory-planner decisions, retrieval attempts, evidence-ledger state, retrieval confidence, retrieval budgets, and failed/irrelevant retrievals silently. Do not mention these internal mechanisms to the user, including statements such as "the retrieved evidence was irrelevant" or "the memory planner decided to search." If retrieved evidence is irrelevant, simply ignore it and answer normally. Only explain at a high level that earlier conversation context was consulted if the user explicitly asks how the answer was grounded.
 
 ${workingConversationContext.trim()}`
-    );
+    : '';
+
+  if (workingConversationContextBlock && !isContinueRound) {
+    sections.push(workingConversationContextBlock);
   }
 
   // 1. [rolling summary, if one exists for this discussion]
@@ -2515,14 +2518,20 @@ Layout/style/template changes must not silently delete names, contact details, d
     sections.push(sharedAgenticEvidenceContext.trim());
   }
 
-  // 4. [current round's prior seat responses — provisional peer claims to evaluate]
+  // 4. [current round's prior seat responses — live conversational frontier]
   if (priorResponses.length > 0) {
     const priorFormatted = priorResponses
       .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
       .join('');
 
     sections.push(
-      `CURRENT-ROUND PEER CLAIMS — PROVISIONAL, NOT EVIDENCE:\nEvaluate these against your own independent assessment. Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain peer claims unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present rather than fetching it again merely for independence. Do not inherit unsupported factual claims merely because one or more panelists stated them.\n\n${priorFormatted.trimEnd()}`
+      `CURRENT-ROUND LIVE PANEL TURNS — THESE HAPPENED BEFORE YOUR REPLY:
+The turns below are the live conversational state you are responding from in this round. Form your own judgment from that point; do not restart the discussion merely to make your answer standalone.
+
+EVIDENCE DISCIPLINE:
+Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present when appropriate, and independently use available capabilities when the live thread warrants it.
+
+${priorFormatted.trimEnd()}`
     );
   }
 
@@ -2680,7 +2689,7 @@ ${rawRoundsFormatted}`
   const trimmedPrompt = prompt.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
   const effectivePrompt =
-    !trimmedPrompt && hasAttachments
+    !isContinueRound && !trimmedPrompt && hasAttachments
       ? 'Please review and discuss the attached document(s).'
       : trimmedPrompt;
 
@@ -2734,8 +2743,28 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
       ? userDisplayName.replace(/\s+/g, ' ').trim().slice(0, 120)
       : '';
 
+  const continueFrontierRound =
+    isContinueRound && discussionMemory?.recentRounds?.length
+      ? discussionMemory.recentRounds[discussionMemory.recentRounds.length - 1]
+      : null;
+  const continueFrontierText = continueFrontierRound
+    ? formatRoundForContext(continueFrontierRound).trim()
+    : '';
+  const continueSystemContext = isContinueRound
+    ? `CONTINUATION STATE — AUTHORITATIVE:
+This is the next round of the same live discussion. There is no new user request. The immediately preceding completed round is the current conversational frontier. Respond from the state reached there as the next participant in that same discussion. Form your own judgment from that point and decide independently how to proceed within the live thread, using the capabilities and evidence available to you as appropriate.
+The absence of a new user message does not reset the conversation or reissue an earlier task. Working context, document registries, retained evidence, attachments, and other background material remain available resources; they are not a new user request.
+
+${continueFrontierText
+  ? `IMMEDIATELY PRECEDING COMPLETED ROUND — CURRENT CONVERSATIONAL FRONTIER:
+${continueFrontierText}`
+  : 'No completed previous round was available in the recent-context window; preserve continuity from the supplied discussion context.'}`
+    : '';
+
   const systemContent = [
     `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
+    continueSystemContext,
+    isContinueRound ? workingConversationContextBlock : '',
     `USER-FACING PRESENTATION:
 Internal evidence handles and orchestration labels are for tool use only. Never expose identifiers such as mem_1, mem_7, evidence IDs, ledger labels, retrieval-round counts, retrieval-budget status, tool names, or other internal routing/orchestration mechanics in your user-facing answer. Never use an internal evidence handle as a citation. Translate the underlying evidence into natural language and, when useful, refer to the actual public source by its normal name.
 When referring to the person currently chatting with the panel, address them directly as "you" / "your". Do not call them "the user" in ordinary user-facing prose. This does not prevent quoting source text verbatim when the source itself uses that wording.`,
@@ -7262,7 +7291,8 @@ export async function POST(req: NextRequest) {
               runtimeProductContext,
               sharedAgenticEvidenceContext,
               workingConversationContext,
-              userDisplayName
+              userDisplayName,
+              isContinueRound === true
             );
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
