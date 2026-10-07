@@ -8057,31 +8057,28 @@ export async function POST(req: NextRequest) {
                   bufferedSeatChunks.length = 0;
                   seatUsage = null;
 
-                  const gracefulFinalizationStream =
-                    await (openai.chat.completions.create as any)({
-                      model: primaryModel,
-                      models,
-                      messages: [
-                        ...seatMessages,
-                        {
-                          role: 'system',
-                          content:
-                            buildAgenticRetrievalBudgetInstruction(
-                              AGENTIC_HARD_RETRIEVAL_ROUNDS
-                            ),
-                        } as any,
-                      ],
-                      stream: true,
-                      temperature: 0.7,
-                      signal: seatAbortController.signal,
-                      ...(discussionId
-                        ? {
-                            session_id: `${discussionId}:${seat.seatId}:memory:finalize`,
-                          }
-                        : {}),
+                  const gracefulFinalizationRun =
+                    await runRetryableBufferedSeatStream({
+                      stage: 'memory_graceful_finalization',
+                      sessionId: discussionId
+                        ? `${discussionId}:${seat.seatId}:memory:finalize`
+                        : null,
+                      request: {
+                        messages: [
+                          ...seatMessages,
+                          {
+                            role: 'system',
+                            content:
+                              buildAgenticRetrievalBudgetInstruction(
+                                AGENTIC_HARD_RETRIEVAL_ROUNDS
+                              ),
+                          } as any,
+                        ],
+                        temperature: 0.7,
+                      },
                     });
 
-                  for await (const chunk of gracefulFinalizationStream) {
+                  for (const chunk of gracefulFinalizationRun.chunks) {
                     if (req.signal.aborted) break;
                     if (chunk.model) respondingModel = chunk.model;
                     if ((chunk as any).usage) {
@@ -8093,6 +8090,17 @@ export async function POST(req: NextRequest) {
                       seatResponse += text;
                       bufferedSeatChunks.push(text);
                     }
+                  }
+
+                  if (gracefulFinalizationRun.failedAttemptCostUsd > 0) {
+                    seatUsage = {
+                      ...(seatUsage || {}),
+                      cost:
+                        (typeof seatUsage?.cost === 'number'
+                          ? seatUsage.cost
+                          : 0) +
+                        gracefulFinalizationRun.failedAttemptCostUsd,
+                    };
                   }
 
                   console.log('[Agentic Retrieval] Graceful finalization completed', {
@@ -8354,34 +8362,33 @@ export async function POST(req: NextRequest) {
                   label: 'Reviewing findings…',
                 });
 
-                const memoryContinuationStream =
-                  await (openai.chat.completions.create as any)({
-                    model: primaryModel,
-                    models,
-                    messages: seatMessages,
-                    stream: true,
-                    temperature: 0.7,
-                    signal: seatAbortController.signal,
-                    tools: continuationTools,
-                    ...(discussionId
-                      ? {
-                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
-                        }
-                      : {}),
-                    ...(needsPdfPlugin
-                      ? {
-                          plugins: [
-                            {
-                              id: 'file-parser',
-                              pdf: { engine: pdfEngine },
-                            },
-                          ],
-                        }
-                      : {}),
+                const memoryContinuationRun =
+                  await runRetryableBufferedSeatStream({
+                    stage: `memory_continuation_${agenticRetrievalRounds}`,
+                    sessionId: discussionId
+                      ? `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`
+                      : null,
+                    request: {
+                      messages: seatMessages,
+                      temperature: 0.7,
+                      tools: continuationTools,
+                      ...(needsPdfPlugin
+                        ? {
+                            plugins: [
+                              {
+                                id: 'file-parser',
+                                pdf: { engine: pdfEngine },
+                              },
+                            ],
+                          }
+                        : {}),
+                    },
                   });
 
-                let continuationModel = primaryModel;
-                for await (const chunk of memoryContinuationStream) {
+                let continuationModel =
+                  memoryContinuationRun.responseModel ||
+                  memoryContinuationRun.attemptModel;
+                for (const chunk of memoryContinuationRun.chunks) {
                   if (req.signal.aborted) break;
                   if (chunk.model) {
                     respondingModel = chunk.model;
@@ -8413,6 +8420,17 @@ export async function POST(req: NextRequest) {
                     seatResponse += text;
                     bufferedSeatChunks.push(text);
                   }
+                }
+
+                if (memoryContinuationRun.failedAttemptCostUsd > 0) {
+                  seatUsage = {
+                    ...(seatUsage || {}),
+                    cost:
+                      (typeof seatUsage?.cost === 'number'
+                        ? seatUsage.cost
+                        : 0) +
+                      memoryContinuationRun.failedAttemptCostUsd,
+                  };
                 }
 
                 const continuationCostUsd =
