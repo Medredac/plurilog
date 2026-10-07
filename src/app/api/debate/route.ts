@@ -7075,6 +7075,7 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            let seatFallbackStartIndex = 0;
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7521,6 +7522,192 @@ export async function POST(req: NextRequest) {
                 errorType.includes('timeout') ||
                 /timed? ?out|temporar(?:y|ily)|overloaded|unavailable|connection reset|network error/.test(
                   message
+                )
+              );
+            };
+
+            const runRetryableBufferedSeatStream = async (options: {
+              stage: string;
+              request: Record<string, any>;
+              sessionId?: string | null;
+            }): Promise<{
+              chunks: any[];
+              failedAttemptCostUsd: number;
+              attemptModel: string;
+              responseModel: string;
+            }> => {
+              const startIndex = Math.min(
+                Math.max(seatFallbackStartIndex, 0),
+                Math.max(models.length - 1, 0)
+              );
+              let failedAttemptCostUsd = 0;
+              let lastError: any = null;
+
+              for (
+                let modelIndex = startIndex;
+                modelIndex < models.length;
+                modelIndex += 1
+              ) {
+                const attemptModel = models[modelIndex];
+                const attemptStartedAt = Date.now();
+                const chunks: any[] = [];
+                let attemptUsage: any = null;
+                let responseModel = attemptModel;
+                const attemptSessionId = options.sessionId
+                  ? modelIndex === startIndex
+                    ? options.sessionId
+                    : `${options.sessionId}:fallback:${modelIndex + 1}`
+                  : null;
+
+                try {
+                  console.log('[Seat Stage Attempt]', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    stage: options.stage,
+                    attemptModel,
+                    modelIndex,
+                    fallbackStartIndex: startIndex,
+                    inheritedEvidenceCount:
+                      sharedAgenticEvidenceLedger.length,
+                    elapsedTurnMs: Date.now() - turnStartedAt,
+                  });
+
+                  const retryableStream =
+                    await (openai.chat.completions.create as any)({
+                      ...options.request,
+                      model: attemptModel,
+                      stream: true,
+                      signal: seatAbortController.signal,
+                      ...(attemptSessionId
+                        ? { session_id: attemptSessionId }
+                        : {}),
+                    });
+
+                  for await (const chunk of retryableStream) {
+                    if (req.signal.aborted) break;
+                    chunks.push(chunk);
+                    if (chunk.model) responseModel = chunk.model;
+                    if ((chunk as any).usage) {
+                      attemptUsage = (chunk as any).usage;
+                    }
+                  }
+
+                  if (req.signal.aborted) {
+                    const abortReason = req.signal.reason;
+                    throw abortReason instanceof Error
+                      ? abortReason
+                      : new Error(
+                          describeDiagnosticReason(abortReason) ||
+                            'Request aborted.'
+                        );
+                  }
+
+                  if (seatAbortController.signal.aborted) {
+                    const abortReason =
+                      seatAbortController.signal.reason;
+                    throw abortReason instanceof Error
+                      ? abortReason
+                      : new Error(
+                          describeDiagnosticReason(abortReason) ||
+                            `${seat.name} was aborted.`
+                        );
+                  }
+
+                  seatFallbackStartIndex = Math.max(
+                    seatFallbackStartIndex,
+                    modelIndex
+                  );
+
+                  console.log('[Seat Stage Complete]', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    stage: options.stage,
+                    attemptModel,
+                    responseModel,
+                    modelIndex,
+                    chunkCount: chunks.length,
+                    latencyMs: Date.now() - attemptStartedAt,
+                    failedAttemptCostUsd,
+                    fallbackStartIndex: seatFallbackStartIndex,
+                  });
+
+                  return {
+                    chunks,
+                    failedAttemptCostUsd,
+                    attemptModel,
+                    responseModel,
+                  };
+                } catch (stageError: any) {
+                  const partialAttemptCostUsd =
+                    typeof attemptUsage?.cost === 'number'
+                      ? attemptUsage.cost
+                      : 0;
+                  failedAttemptCostUsd += partialAttemptCostUsd;
+
+                  const canRetry =
+                    !req.signal.aborted &&
+                    !seatAbortController.signal.aborted &&
+                    modelIndex < models.length - 1 &&
+                    isRetryableProviderStreamError(stageError);
+
+                  console.warn(
+                    canRetry
+                      ? '[Seat Stage Retry]'
+                      : '[Seat Stage Failed]',
+                    {
+                      turnId,
+                      discussionId: discussionId || null,
+                      seatId: seat.seatId,
+                      stage: options.stage,
+                      failedModel: attemptModel,
+                      nextModel: canRetry
+                        ? models[modelIndex + 1]
+                        : null,
+                      code:
+                        stageError?.code ??
+                        stageError?.status ??
+                        stageError?.error?.code ??
+                        null,
+                      errorType:
+                        stageError?.error?.metadata?.error_type ||
+                        stageError?.type ||
+                        null,
+                      message:
+                        stageError?.message ||
+                        stageError?.error?.message ||
+                        String(stageError),
+                      partialChunkCount: chunks.length,
+                      partialAttemptCostUsd,
+                      discardedPartialOutput: true,
+                      inheritedEvidenceCount:
+                        sharedAgenticEvidenceLedger.length,
+                      requestAborted: req.signal.aborted,
+                      seatAborted:
+                        seatAbortController.signal.aborted,
+                      latencyMs: Date.now() - attemptStartedAt,
+                    }
+                  );
+
+                  if (!canRetry) {
+                    throw stageError;
+                  }
+
+                  // Advance the rest of this seat to the fallback that is about
+                  // to inherit the same completed evidence/tool transcript.
+                  seatFallbackStartIndex = Math.max(
+                    seatFallbackStartIndex,
+                    modelIndex + 1
+                  );
+                  lastError = stageError;
+                }
+              }
+
+              throw (
+                lastError ||
+                new Error(
+                  `${seat.name} exhausted its fallback models during ${options.stage}.`
                 )
               );
             };
