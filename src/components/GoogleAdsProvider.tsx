@@ -127,23 +127,6 @@ function cleanPurchaseParams() {
   window.history.replaceState(window.history.state, '', url.toString());
 }
 
-function logGoogleRegistrationDebug(
-  stage: string,
-  details: Record<string, unknown> = {}
-) {
-  if (typeof window === 'undefined') return;
-
-  void fetch('/api/google/registration-debug', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    keepalive: true,
-    body: JSON.stringify({ stage, details }),
-  }).catch(() => {
-    // Diagnostics must never interfere with registration.
-  });
-}
-
 function GoogleAdsTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -280,45 +263,26 @@ function GoogleAdsTracker() {
     if (searchParams.get('registered') !== 'true') return;
     if (handledRegistrationRef.current) return;
 
-    logGoogleRegistrationDebug('bridge_seen', {
-      eligible: eligibility?.eligible ?? null,
-      tagReady,
-      hasGtag: typeof window.gtag === 'function',
-      hasSendTo: Boolean(GOOGLE_ADS_REGISTRATION_SEND_TO),
-    });
-
     const finishRegistrationBridge = () => {
       window.dispatchEvent(new CustomEvent(GOOGLE_REGISTRATION_BRIDGE_EVENT));
     };
 
     if (!eligibility?.eligible) {
       if (eligibility !== null) {
-        logGoogleRegistrationDebug('eligibility_blocked', {
-          consentRequired: eligibility.consentRequired,
-          consentStatus: eligibility.consentStatus,
-        });
         handledRegistrationRef.current = true;
         finishRegistrationBridge();
       }
       return;
     }
 
-    if (!tagReady || typeof window.gtag !== 'function') {
-      logGoogleRegistrationDebug('waiting_for_tag', {
-        tagReady,
-        hasGtag: typeof window.gtag === 'function',
-      });
-      return;
-    }
+    if (!tagReady || typeof window.gtag !== 'function') return;
 
     handledRegistrationRef.current = true;
-    logGoogleRegistrationDebug('report_start');
     let cancelled = false;
 
     const reportRegistration = async () => {
       try {
         if (!GOOGLE_ADS_REGISTRATION_SEND_TO) {
-          logGoogleRegistrationDebug('missing_send_to');
           finishRegistrationBridge();
           return;
         }
@@ -328,24 +292,15 @@ function GoogleAdsTracker() {
           data: { user },
         } = await supabase.auth.getUser();
 
-        if (cancelled) {
-          logGoogleRegistrationDebug('cancelled_before_user');
-          return;
-        }
+        if (cancelled) return;
         if (!user) {
-          logGoogleRegistrationDebug('no_user');
           finishRegistrationBridge();
           return;
         }
 
-        logGoogleRegistrationDebug('user_ready', {
-          hasEmail: Boolean(user.email),
-        });
-
         const dedupeKey = `plurilog:google-registration:${user.id}`;
         try {
           if (localStorage.getItem(dedupeKey) === 'sent') {
-            logGoogleRegistrationDebug('dedupe_hit');
             finishRegistrationBridge();
             return;
           }
@@ -382,25 +337,16 @@ function GoogleAdsTracker() {
         };
 
         fallbackTimer = window.setTimeout(() => {
-          logGoogleRegistrationDebug('conversion_timeout');
           finishOnce(false);
         }, 2000);
-
-        logGoogleRegistrationDebug('conversion_queued');
         window.gtag?.('event', 'conversion', {
           send_to: GOOGLE_ADS_REGISTRATION_SEND_TO,
           value: 1.0,
           currency: 'CAD',
-          event_callback: () => {
-            logGoogleRegistrationDebug('conversion_callback');
-            finishOnce(true);
-          },
+          event_callback: () => finishOnce(true),
           event_timeout: 1800,
         });
       } catch (error) {
-        logGoogleRegistrationDebug('report_error', {
-          message: error instanceof Error ? error.message : 'unknown',
-        });
         console.warn('[Google Ads] Registration reporting failed:', error);
         finishRegistrationBridge();
       }
