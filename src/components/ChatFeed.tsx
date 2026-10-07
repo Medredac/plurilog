@@ -1458,7 +1458,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const toggleAiCollapse = (id: string) => {
     setCollapsedAiMsgIds((prev) => ({
       ...prev,
-      [id]: !prev[id],
+      // Settled AI responses default to collapsed. An undefined entry therefore
+      // means "collapsed" until the user explicitly expands that response.
+      [id]: !(prev[id] ?? true),
     }));
   };
 
@@ -2041,7 +2043,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             attachments.length > 0
           );
         const isAiCollapsed =
-          isAiCollapsible && Boolean(collapsedAiMsgIds[message.id]);
+          isAiCollapsible && (collapsedAiMsgIds[message.id] ?? true);
 
         return (
           <React.Fragment key={message.id}>
@@ -2162,8 +2164,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   initial={false}
                   animate={{ height: isAiCollapsed ? 82 : 'auto' }}
                   transition={{
-                    duration: shouldReduceMotion ? 0 : 0.28,
-                    ease: [0.16, 1, 0.3, 1],
+                    duration: shouldReduceMotion ? 0 : 0.38,
+                    ease: [0.22, 1, 0.36, 1],
                   }}
                   className="relative min-w-0 max-w-full overflow-hidden"
                 >
@@ -2406,11 +2408,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
                         aria-expanded={!isAiCollapsed}
                       >
-                        {isAiCollapsed ? (
+                        <motion.span
+                          className="flex items-center justify-center"
+                          animate={{ rotate: isAiCollapsed ? 0 : 180 }}
+                          transition={{
+                            duration: shouldReduceMotion ? 0 : 0.3,
+                            ease: [0.22, 1, 0.36, 1],
+                          }}
+                        >
                           <ChevronDown className="w-3.5 h-3.5" />
-                        ) : (
-                          <ChevronUp className="w-3.5 h-3.5" />
-                        )}
+                        </motion.span>
                       </button>
                     )}
                   </motion.div>
