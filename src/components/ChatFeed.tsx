@@ -1546,10 +1546,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               animate={{ opacity: 1, y: 0 }}
               exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
               transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-              className="min-w-0 truncate whitespace-nowrap"
+              className={`min-w-0 truncate whitespace-nowrap ${
+                summary.status === 'loading' ? 'animate-text-shimmer' : ''
+              }`}
             >
               {summary.status === 'loading'
-                ? 'Summarizing the panel…'
+                ? 'Summarizing the panel'
                 : summary.status === 'ready'
                   ? isOpen
                     ? 'Close panel summary'
@@ -1557,6 +1559,31 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   : 'Panel summary unavailable'}
             </motion.span>
           </AnimatePresence>
+
+          {summary.status === 'loading' && (
+            <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+              {[0, 1, 2].map((_, index) => (
+                <motion.span
+                  key={index}
+                  className="thinking-dot-shimmer h-1 w-1 rounded-full"
+                  animate={
+                    shouldReduceMotion
+                      ? undefined
+                      : {
+                          y: [0, -1.5, 0],
+                          opacity: [0.5, 1, 0.5],
+                        }
+                  }
+                  transition={{
+                    duration: 0.9,
+                    repeat: Infinity,
+                    delay: index * 0.12,
+                    ease: 'easeInOut',
+                  }}
+                />
+              ))}
+            </span>
+          )}
 
           <span
             className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#D3E0F8_0%,#E8D8F5_48%,#F6D3C9_100%)]"
