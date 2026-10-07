@@ -934,6 +934,11 @@ export interface FailedTurnState {
   seatOrder: ModelId[];
 }
 
+export interface TurnSummaryState {
+  status: 'loading' | 'ready' | 'error';
+  content: string;
+}
+
 interface ChatFeedProps {
   messages: ChatMessage[];
   onPromptClick: (prompt: string) => void;
@@ -959,6 +964,7 @@ interface ChatFeedProps {
   scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   preserveScrollTop?: number | null;
   interruptedTurnUserIds?: Set<string>;
+  turnSummaries?: Record<string, TurnSummaryState>;
   viewMode?: 'discussion' | 'side-by-side';
 }
 
@@ -1362,6 +1368,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   scrollContainerRef,
   preserveScrollTop = null,
   interruptedTurnUserIds = new Set<string>(),
+  turnSummaries = {},
   viewMode = 'discussion',
 }) => {
   const shouldReduceMotion = useReducedMotion();
@@ -1468,6 +1475,164 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const renderTurnSummary = (userMessageId: string) => {
+    const summary = turnSummaries[userMessageId];
+    if (!summary) return null;
+
+    return (
+      <motion.div
+        layout="position"
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 6, scale: 0.992 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{
+          layout: {
+            type: 'spring',
+            stiffness: 340,
+            damping: 32,
+            mass: 0.86,
+          },
+          opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
+          y: {
+            duration: shouldReduceMotion ? 0 : 0.22,
+            ease: [0.16, 1, 0.3, 1],
+          },
+          scale: {
+            duration: shouldReduceMotion ? 0 : 0.2,
+            ease: [0.16, 1, 0.3, 1],
+          },
+        }}
+        className="col-span-full mt-4 w-full min-w-0"
+      >
+        <div className="overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_1px_3px_rgba(28,27,26,0.04)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#8A867D]" aria-hidden="true" />
+              <span className="text-[12px] font-semibold tracking-[-0.01em] text-[#1C1B1A]">
+                Panel summary
+              </span>
+            </div>
+            <span className="flex -space-x-1.5" aria-hidden="true">
+              {seatOrder
+                .filter((id) => activeModels.includes(id))
+                .map((id) => (
+                  <ProviderBadge
+                    key={id}
+                    provider={id}
+                    size="sm"
+                  />
+                ))}
+            </span>
+          </div>
+
+          <AnimatePresence initial={false} mode="wait">
+            {summary.status === 'loading' ? (
+              <motion.div
+                key="summary-loading"
+                initial={shouldReduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
+                className="flex min-h-[82px] items-center gap-3 px-4 py-4 sm:px-5"
+              >
+                <span className="flex items-center gap-1" aria-hidden="true">
+                  {[0, 1, 2].map((dot) => (
+                    <motion.span
+                      key={dot}
+                      className="h-1.5 w-1.5 rounded-full bg-[#8A867D]"
+                      animate={
+                        shouldReduceMotion
+                          ? { opacity: 0.55 }
+                          : { opacity: [0.28, 0.9, 0.28], y: [0, -2, 0] }
+                      }
+                      transition={
+                        shouldReduceMotion
+                          ? { duration: 0 }
+                          : {
+                              duration: 0.9,
+                              repeat: Infinity,
+                              delay: dot * 0.12,
+                              ease: 'easeInOut',
+                            }
+                      }
+                    />
+                  ))}
+                </span>
+                <span className="text-[12px] font-medium text-[#6A675F]">
+                  Synthesizing the panel…
+                </span>
+              </motion.div>
+            ) : summary.status === 'ready' ? (
+              <motion.div
+                key="summary-ready"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: shouldReduceMotion ? 0 : 0.22,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
+                className="max-h-[320px] overflow-y-auto px-4 py-4 sm:px-5"
+              >
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    ...markdownComponents,
+                    p: ({ children }) => (
+                      <p className="mb-2.5 text-[13.5px] font-normal leading-[1.65] text-[#1C1B1A] last:mb-0 break-words [overflow-wrap:anywhere]">
+                        {children}
+                      </p>
+                    ),
+                    ul: ({ children }) => (
+                      <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                        {children}
+                      </ul>
+                    ),
+                    ol: ({ children }) => (
+                      <ol className="my-2.5 list-decimal space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                        {children}
+                      </ol>
+                    ),
+                    li: ({ children }) => (
+                      <li className="text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                        {children}
+                      </li>
+                    ),
+                    h1: ({ children }) => (
+                      <h1 className="mb-2 mt-3 text-[15px] font-semibold text-[#1C1B1A] first:mt-0">
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2 className="mb-1.5 mt-3 text-[14px] font-semibold text-[#1C1B1A] first:mt-0">
+                        {children}
+                      </h2>
+                    ),
+                    h3: ({ children }) => (
+                      <h3 className="mb-1 mt-2.5 text-[13.5px] font-semibold text-[#1C1B1A] first:mt-0">
+                        {children}
+                      </h3>
+                    ),
+                  }}
+                >
+                  {summary.content}
+                </ReactMarkdown>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="summary-error"
+                initial={shouldReduceMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.16 }}
+                className="px-4 py-4 text-[12px] text-[#6A675F] sm:px-5"
+              >
+                Summary unavailable for this round.
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </motion.div>
+    );
   };
 
   const activeModelSet = new Set(activeModels);
@@ -1653,6 +1818,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 </span>
                 <div className="h-px flex-1 bg-[#E7E5E0]" />
               </motion.div>
+              {renderTurnSummary(message.id)}
             </React.Fragment>
           );
         }
@@ -1956,6 +2122,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </div>
                 ) : null}
               </motion.div>
+              {renderTurnSummary(message.id)}
             </React.Fragment>
           );
         }
