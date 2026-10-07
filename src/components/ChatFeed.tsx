@@ -1502,7 +1502,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     });
 
     return (
-      <div className="col-span-full sticky top-3 sm:top-4 z-30 mt-2 flex justify-center">
+      <div
+        className={`col-span-full sticky top-3 sm:top-4 mt-2 flex justify-center ${
+          isOpen ? 'z-50' : 'z-30'
+        }`}
+      >
         <motion.button
           type="button"
           disabled={summary.status !== 'ready'}
