@@ -7949,6 +7949,14 @@ export async function POST(req: NextRequest) {
 
                 await consumeInitialSeatStream(retryModels);
 
+                // The fallback that successfully inherited the initial seat
+                // state becomes the floor for all later agentic calls in this
+                // seat. Do not jump back to a model that already failed.
+                seatFallbackStartIndex = Math.max(
+                  seatFallbackStartIndex,
+                  models.length - retryModels.length
+                );
+
                 if (
                   failedAttemptCostUsd > 0 &&
                   typeof seatUsage?.cost === 'number'
@@ -7958,6 +7966,15 @@ export async function POST(req: NextRequest) {
                     cost: seatUsage.cost + failedAttemptCostUsd,
                   };
                 }
+              }
+
+              const initialRespondingModelIndex =
+                models.indexOf(respondingModel);
+              if (
+                initialRespondingModelIndex > seatFallbackStartIndex
+              ) {
+                seatFallbackStartIndex =
+                  initialRespondingModelIndex;
               }
 
               if (
