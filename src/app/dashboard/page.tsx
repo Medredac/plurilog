@@ -833,6 +833,7 @@ export default function DashboardPage() {
   ) => {
     if (!discussionId) {
       setMessages([]);
+      setTurnSummaries({});
       setCanContinue(false);
       return;
     }
@@ -1064,6 +1065,7 @@ export default function DashboardPage() {
       if (currentFetchIdRef.current === discussionId) {
         console.error('[Supabase Exception] fetchDiscussionMessages exception:', err);
         setMessages([]);
+        setTurnSummaries({});
         setCanContinue(false);
       }
     } finally {
@@ -1405,6 +1407,7 @@ export default function DashboardPage() {
         setRehydratedRun(null);
         setActiveDebateId(null);
         setMessages([]);
+        setTurnSummaries({});
         setCanContinue(false);
         setSeatStatuses(INITIAL_SEAT_STATUSES);
         setIsDebating(false);
@@ -1490,6 +1493,7 @@ export default function DashboardPage() {
     setRehydratedRun(null);
     setActiveDebateId(null);
     setMessages([]);
+    setTurnSummaries({});
     setErrorMessage(null);
     setFailedTurn(null);
     setAbandonedFailedTurnIds([]);
