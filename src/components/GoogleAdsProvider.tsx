@@ -314,17 +314,37 @@ function GoogleAdsTracker() {
           });
         }
 
+        let finished = false;
+        let fallbackTimer: number | null = null;
+
+        const finishOnce = (markSent: boolean) => {
+          if (finished || cancelled) return;
+          finished = true;
+
+          if (fallbackTimer !== null) {
+            window.clearTimeout(fallbackTimer);
+          }
+
+          if (markSent) {
+            try {
+              localStorage.setItem(dedupeKey, 'sent');
+            } catch {
+              // Non-critical: Google has already acknowledged the callback.
+            }
+          }
+
+          finishRegistrationBridge();
+        };
+
+        fallbackTimer = window.setTimeout(() => {
+          finishOnce(false);
+        }, 2000);
+
         window.gtag?.('event', 'conversion', {
           send_to: GOOGLE_ADS_REGISTRATION_SEND_TO,
+          event_callback: () => finishOnce(true),
+          event_timeout: 1800,
         });
-
-        try {
-          localStorage.setItem(dedupeKey, 'sent');
-        } catch {
-          // Non-critical: conversion was still queued to the Google tag.
-        }
-
-        finishRegistrationBridge();
       } catch (error) {
         console.warn('[Google Ads] Registration reporting failed:', error);
         finishRegistrationBridge();
