@@ -1640,9 +1640,20 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           disabled={summary.status !== 'ready'}
           onClick={() => {
             if (summary.status !== 'ready') return;
+
+            const isOpening = openTurnSummaryId !== userMessageId;
             setOpenTurnSummaryId((current) =>
               current === userMessageId ? null : userMessageId
             );
+
+            if (isOpening) {
+              void fetch('/api/user/panel-summary-open', {
+                method: 'POST',
+                keepalive: true,
+              }).catch(() => {
+                // Analytics must never interfere with opening the summary.
+              });
+            }
           }}
           className={`relative z-30 inline-flex min-h-9 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[12px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
             summary.status === 'ready'
