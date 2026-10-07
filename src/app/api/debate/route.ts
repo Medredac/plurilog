@@ -11262,11 +11262,13 @@ export async function POST(req: NextRequest) {
                       label: 'Reviewing findings…',
                     });
 
-                    const iterativeStream =
-                      await (openai.chat.completions.create as any)(
-                        {
-                          model: primaryModel,
-                          models,
+                    const iterativeRun =
+                      await runRetryableBufferedSeatStream({
+                        stage: `evidence_iteration_${agenticRetrievalRounds}`,
+                        sessionId: discussionId
+                          ? `${discussionId}:${seat.seatId}:evidence:${agenticRetrievalRounds}`
+                          : null,
+                        request: {
                           messages: [
                             ...evidenceBaseMessages,
                             ...evidenceToolTranscript,
@@ -11280,10 +11282,7 @@ export async function POST(req: NextRequest) {
                                 ]
                               : []),
                           ],
-                          stream: true,
                           temperature: 0.7,
-                          signal:
-                            seatAbortController.signal,
                           tools: [
                             ...(agenticRetrievalRounds <
                             AGENTIC_HARD_RETRIEVAL_ROUNDS
@@ -11337,12 +11336,6 @@ export async function POST(req: NextRequest) {
                               : []),
                           ],
                           tool_choice: 'auto',
-                          ...(discussionId
-                            ? {
-                                session_id:
-                                  `${discussionId}:${seat.seatId}:evidence:${agenticRetrievalRounds}`,
-                              }
-                            : {}),
                           ...(evidenceHasPdf
                             ? {
                                 plugins: [
@@ -11355,13 +11348,14 @@ export async function POST(req: NextRequest) {
                                 ],
                               }
                             : {}),
-                        }
-                      );
+                        },
+                      });
 
                     let iterativeModel =
-                      respondingModel || primaryModel;
-                    for await (const chunk of
-                      iterativeStream) {
+                      iterativeRun.responseModel ||
+                      iterativeRun.attemptModel;
+                    for (const chunk of
+                      iterativeRun.chunks) {
                       if (req.signal.aborted) break;
                       if (chunk.model) {
                         respondingModel = chunk.model;
@@ -11414,6 +11408,17 @@ export async function POST(req: NextRequest) {
                     if (req.signal.aborted) {
                       safeClose();
                       return;
+                    }
+
+                    if (iterativeRun.failedAttemptCostUsd > 0) {
+                      seatUsage = {
+                        ...(seatUsage || {}),
+                        cost:
+                          (typeof seatUsage?.cost === 'number'
+                            ? seatUsage.cost
+                            : 0) +
+                          iterativeRun.failedAttemptCostUsd,
+                      };
                     }
 
                     const iterativeCostUsd =
