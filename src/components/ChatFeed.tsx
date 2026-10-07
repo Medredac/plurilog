@@ -2370,9 +2370,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ease: [0.16, 1, 0.3, 1],
                       },
                     }}
-                    className="col-start-2 mt-2 flex items-center justify-between gap-2 text-xs min-w-0"
+                    className="col-start-2 mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs min-w-0"
                   >
-                    <div className="flex items-center gap-1.5 sm:gap-2">
+                    <div className="flex items-center gap-1.5 sm:gap-2 justify-self-start">
                       <button
                         onClick={() => handleCopy(message.id, message.content)}
                         className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
@@ -2403,11 +2403,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       <button
                         type="button"
                         onClick={() => toggleAiCollapse(message.id)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                        title={isAiCollapsed ? 'Expand response' : 'Collapse response'}
-                        aria-label={isAiCollapsed ? 'Expand response' : 'Collapse response'}
+                        className="col-start-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[11px] font-medium text-[#6A675F] shadow-[0_1px_2px_rgba(28,27,26,0.04)] transition-all duration-200 hover:border-[#D9D6CF] hover:bg-[#F7F6F3] hover:text-[#1C1B1A] cursor-pointer target-secondary"
+                        title={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
+                        aria-label={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
                         aria-expanded={!isAiCollapsed}
                       >
+                        <span>{isAiCollapsed ? 'Show full answer' : 'Collapse answer'}</span>
                         <motion.span
                           className="flex items-center justify-center"
                           animate={{ rotate: isAiCollapsed ? 0 : 180 }}
