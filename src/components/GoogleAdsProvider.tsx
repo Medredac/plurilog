@@ -389,6 +389,8 @@ function GoogleAdsTracker() {
         logGoogleRegistrationDebug('conversion_queued');
         window.gtag?.('event', 'conversion', {
           send_to: GOOGLE_ADS_REGISTRATION_SEND_TO,
+          value: 1.0,
+          currency: 'CAD',
           event_callback: () => {
             logGoogleRegistrationDebug('conversion_callback');
             finishOnce(true);
