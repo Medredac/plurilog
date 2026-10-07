@@ -7356,10 +7356,44 @@ export async function POST(req: NextRequest) {
               }
             };
 
-            try {
+            const initialSeatStreamsBuffered =
+              isEvidenceEnabledForSeat ||
+              isDocumentCreationEnabledForSeat ||
+              isAgenticMemoryEnabledForSeat;
+
+            const isRetryableProviderStreamError = (error: any) => {
+              const code = Number(
+                error?.code ??
+                  error?.status ??
+                  error?.error?.code ??
+                  error?.response?.status
+              );
+              const errorType = String(
+                error?.error?.metadata?.error_type ||
+                  error?.type ||
+                  ''
+              ).toLowerCase();
+              const message = String(
+                error?.message ||
+                  error?.error?.message ||
+                  ''
+              ).toLowerCase();
+
+              return (
+                [408, 429, 500, 502, 503, 504].includes(code) ||
+                errorType.includes('timeout') ||
+                /timed? ?out|temporar(?:y|ily)|overloaded|unavailable|connection reset|network error/.test(
+                  message
+                )
+              );
+            };
+
+            const consumeInitialSeatStream = async (
+              attemptModels: string[]
+            ) => {
               const stream = await (openai.chat.completions.create as any)({
-                model: primaryModel,
-                models: models,
+                model: attemptModels[0],
+                models: attemptModels,
                 messages: seatMessages,
                 stream: true,
                 temperature: 0.7,
@@ -7450,24 +7484,83 @@ export async function POST(req: NextRequest) {
                 // Capture streaming tool calls from chunk.choices[0].delta.tool_calls
                 const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
                 if (deltaToolCalls) {
-                  accumulatedToolCalls = mergeStreamingToolCalls(accumulatedToolCalls, deltaToolCalls);
+                  accumulatedToolCalls = mergeStreamingToolCalls(
+                    accumulatedToolCalls,
+                    deltaToolCalls
+                  );
                 }
 
                 const text = chunk.choices[0]?.delta?.content || '';
                 if (text) {
                   seatResponse += text;
-                  if (
-                    isEvidenceEnabledForSeat ||
-                    isDocumentCreationEnabledForSeat ||
-                    isAgenticMemoryEnabledForSeat
-                  ) {
+                  if (initialSeatStreamsBuffered) {
                     bufferedSeatChunks.push(text);
                   } else {
                     sendEvent('seat_chunk', {
                       seatId: seat.seatId,
-                      text: text,
+                      text,
                     });
                   }
+                }
+              }
+            };
+
+            try {
+              try {
+                await consumeInitialSeatStream(models);
+              } catch (initialStreamError: any) {
+                const canRetryWithNextModel =
+                  !req.signal.aborted &&
+                  !seatAbortController.signal.aborted &&
+                  models.length > 1 &&
+                  isRetryableProviderStreamError(initialStreamError) &&
+                  (initialSeatStreamsBuffered ||
+                    (seatResponse.length === 0 &&
+                      accumulatedToolCalls.length === 0));
+
+                if (!canRetryWithNextModel) {
+                  throw initialStreamError;
+                }
+
+                const retryModels = models.slice(1);
+                const failedAttemptCostUsd =
+                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+
+                console.warn('[Seat Retry]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  failedModel: respondingModel || primaryModel,
+                  retryModel: retryModels[0],
+                  code:
+                    initialStreamError?.code ??
+                    initialStreamError?.status ??
+                    initialStreamError?.error?.code ??
+                    null,
+                  errorType:
+                    initialStreamError?.error?.metadata?.error_type || null,
+                  message:
+                    initialStreamError?.message ||
+                    initialStreamError?.error?.message ||
+                    String(initialStreamError),
+                });
+
+                seatResponse = '';
+                seatUsage = null;
+                accumulatedToolCalls = [];
+                bufferedSeatChunks.length = 0;
+                respondingModel = retryModels[0];
+
+                await consumeInitialSeatStream(retryModels);
+
+                if (
+                  failedAttemptCostUsd > 0 &&
+                  typeof seatUsage?.cost === 'number'
+                ) {
+                  seatUsage = {
+                    ...seatUsage,
+                    cost: seatUsage.cost + failedAttemptCostUsd,
+                  };
                 }
               }
 
