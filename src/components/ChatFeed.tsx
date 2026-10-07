@@ -3078,6 +3078,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         aria-label={`Read by ${readByLabel}`}
                         title={`Read by ${readByLabel}`}
                       >
+                        <Eye className="h-3 w-3 shrink-0" aria-hidden="true" />
                         <span>Read by</span>
                         <span className="flex -space-x-1" aria-hidden="true">
                           {readByModels.map((id) => (
