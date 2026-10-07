@@ -90,10 +90,29 @@ export function normalizeReferrer(referrer: string, currentOrigin: string): stri
   }
 }
 
+export function hasGoogleAdsClickId(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    return ['gclid', 'gbraid', 'wbraid'].some((key) => {
+      const value = searchParams.get(key);
+      return Boolean(value && value.trim());
+    });
+  } catch {
+    return false;
+  }
+}
+
 export function determineSignupSource(): string {
   if (typeof window === 'undefined') return 'direct';
 
-  // 1. `utm_source` query parameter if present
+  // 1. A Google Ads click identifier is the strongest paid-search signal.
+  if (hasGoogleAdsClickId()) {
+    return 'google_ads';
+  }
+
+  // 2. `utm_source` query parameter if present
   try {
     const searchParams = new URLSearchParams(window.location.search);
     const utmSource = searchParams.get('utm_source');
@@ -104,7 +123,7 @@ export function determineSignupSource(): string {
     // Ignore search params parsing errors
   }
 
-  // 2. otherwise `document.referrer`
+  // 3. otherwise `document.referrer`
   if (typeof document !== 'undefined' && document.referrer) {
     const norm = normalizeReferrer(document.referrer, window.location.origin);
     if (norm !== 'direct') {
@@ -121,9 +140,15 @@ export function SignupSourceTracker() {
     try {
       if (typeof window === 'undefined' || !window.localStorage) return;
 
+      // A fresh Google Ads click must override stale first-touch values such as
+      // "direct", otherwise paid users can be misclassified in Supabase.
+      if (hasGoogleAdsClickId()) {
+        localStorage.setItem(STORAGE_KEY, 'google_ads');
+        return;
+      }
+
       const existingSource = localStorage.getItem(STORAGE_KEY);
       if (existingSource) {
-        // If the key already exists: DO NOTHING.
         return;
       }
 
