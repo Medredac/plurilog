@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react
 import { flushSync } from 'react-dom';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Sidebar } from '../../components/Sidebar';
-import { ChatFeed, FailedTurnState } from '../../components/ChatFeed';
+import { ChatFeed, FailedTurnState, TurnSummaryState } from '../../components/ChatFeed';
 import { DocumentPreviewDrawer } from '../../components/DocumentPreviewDrawer';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
@@ -359,6 +359,7 @@ export default function DashboardPage() {
   }, []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [turnSummaries, setTurnSummaries] = useState<Record<string, TurnSummaryState>>({});
   const [seatOrder, setSeatOrder] = useState<ModelId[]>([...DEFAULT_SEAT_ORDER]);
   const [activeModels, setActiveModels] = useState<ModelId[]>([...DEFAULT_ACTIVE_MODELS]);
   const seatOrderRef = useRef<ModelId[]>([...DEFAULT_SEAT_ORDER]);
@@ -1677,6 +1678,76 @@ export default function DashboardPage() {
     persistedMessageId?: string | null;
   }
 
+  interface PanelSummaryResponse {
+    modelId: ModelId;
+    name: string;
+    content: string;
+    attachmentUrls?: string[] | null;
+  }
+
+  const clearTurnSummary = (userMessageId: string | null | undefined) => {
+    if (!userMessageId) return;
+    setTurnSummaries((previous) => {
+      if (!previous[userMessageId]) return previous;
+      const next = { ...previous };
+      delete next[userMessageId];
+      return next;
+    });
+  };
+
+  const requestTurnSummary = async ({
+    userMessageId,
+    userPrompt,
+    isContinue,
+    responses,
+  }: {
+    userMessageId: string;
+    userPrompt: string;
+    isContinue: boolean;
+    responses: PanelSummaryResponse[];
+  }) => {
+    try {
+      const response = await fetch('/api/synthesize-turn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userPrompt,
+          isContinueRound: isContinue,
+          responses,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Summary request failed with HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const summary =
+        typeof data?.summary === 'string' ? data.summary.trim() : '';
+
+      if (!summary) {
+        throw new Error('Summary response was empty');
+      }
+
+      setTurnSummaries((previous) => ({
+        ...previous,
+        [userMessageId]: {
+          status: 'ready',
+          content: summary,
+        },
+      }));
+    } catch (summaryErr) {
+      console.warn('[Panel Summary] Could not synthesize turn', summaryErr);
+      setTurnSummaries((previous) => ({
+        ...previous,
+        [userMessageId]: {
+          status: 'error',
+          content: '',
+        },
+      }));
+    }
+  };
+
   // Executes sequential SSE relay stream for either new user message or continue round
   const runRelay = async (
     promptToSend: string,
@@ -1688,7 +1759,8 @@ export default function DashboardPage() {
     retrySnapshot?: FailedTurnState | null,
     optimisticPlaceholder?: OptimisticPlaceholder | null,
     existingController?: AbortController | null,
-    continueMarker?: ContinueMarker | null
+    continueMarker?: ContinueMarker | null,
+    summaryAnchorUserMessageId?: string | null
   ) => {
     const controller = existingController || new AbortController();
     const runId = crypto.randomUUID();
@@ -1703,6 +1775,55 @@ export default function DashboardPage() {
     let uiReleasedForReady = false;
     const currentAttemptModelMsgIds = new Set<string>();
     const pendingSeatPlaceholders = new Map<ModelId, string>();
+    const summaryResponses = new Map<ModelId, PanelSummaryResponse>();
+    let summaryRequestStarted = false;
+    const shouldSummarizeTurn =
+      Boolean(summaryAnchorUserMessageId) && activeSeatOrder.length > 1;
+
+    if (shouldSummarizeTurn && summaryAnchorUserMessageId) {
+      setTurnSummaries((previous) => ({
+        ...previous,
+        [summaryAnchorUserMessageId]: {
+          status: 'loading',
+          content: '',
+        },
+      }));
+    }
+
+    const finalizeTurnSummary = (
+      partialResponse?: PanelSummaryResponse | null
+    ) => {
+      if (
+        !shouldSummarizeTurn ||
+        !summaryAnchorUserMessageId ||
+        summaryRequestStarted
+      ) {
+        return;
+      }
+
+      if (partialResponse?.content.trim()) {
+        summaryResponses.set(partialResponse.modelId, partialResponse);
+      }
+
+      const completed = Array.from(summaryResponses.values()).filter(
+        (item) =>
+          item.content.trim().length > 0 ||
+          (item.attachmentUrls?.length || 0) > 0
+      );
+
+      if (completed.length === 0) {
+        clearTurnSummary(summaryAnchorUserMessageId);
+        return;
+      }
+
+      summaryRequestStarted = true;
+      void requestTurnSummary({
+        userMessageId: summaryAnchorUserMessageId,
+        userPrompt: promptToSend,
+        isContinue: Boolean(isContinueRound),
+        responses: completed,
+      });
+    };
 
     const removeUnansweredContinueMarker = async () => {
       if (!isContinueRound || !continueMarker) return;
@@ -1815,6 +1936,7 @@ export default function DashboardPage() {
     }
 
     if (controller.signal.aborted) {
+      clearTurnSummary(summaryAnchorUserMessageId);
       if (discussionId) {
         activeGenerationsRef.current.delete(discussionId);
       }
@@ -2353,6 +2475,22 @@ export default function DashboardPage() {
               completedSeatsCount++;
               const seatId = data.seatId as ModelId;
               const completedContent = data.content || inProgressContent || '';
+              const normalizedSummaryAttachments =
+                Array.isArray(data.attachment_urls) && data.attachment_urls.length > 0
+                  ? data.attachment_urls
+                      .map((url: unknown) => String(url || '').trim())
+                      .filter(Boolean)
+                  : null;
+
+              if (completedContent.trim() || normalizedSummaryAttachments?.length) {
+                summaryResponses.set(seatId, {
+                  modelId: seatId,
+                  name: COUNCIL_MEMBERS[seatId]?.name || data.name || 'AI',
+                  content: completedContent,
+                  attachmentUrls: normalizedSummaryAttachments,
+                });
+              }
+
               inProgressModelId = null;
               inProgressContent = '';
               inProgressMessageId = null;
@@ -2482,6 +2620,7 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'turn_ready') {
               startDeferredPdfIndexing();
+              finalizeTurnSummary();
               uiReleasedForReady = true;
 
               const activeGen = discussionId
@@ -2576,6 +2715,17 @@ export default function DashboardPage() {
                 message: data.message || 'Model request failed',
               });
             } else if (eventType === 'error') {
+              finalizeTurnSummary(
+                inProgressModelId && inProgressContent.trim()
+                  ? {
+                      modelId: inProgressModelId,
+                      name: COUNCIL_MEMBERS[inProgressModelId]?.name || 'AI',
+                      content: inProgressContent,
+                      attachmentUrls: null,
+                    }
+                  : null
+              );
+
               if (discussionId) {
                 activeGenerationsRef.current.delete(discussionId);
                 if (
@@ -2625,7 +2775,19 @@ export default function DashboardPage() {
           completedSeatsCount > 0 || Boolean(inProgressContent.trim());
 
         if (!hasStoppedOutput) {
+          clearTurnSummary(summaryAnchorUserMessageId);
           await removeUnansweredContinueMarker();
+        } else {
+          finalizeTurnSummary(
+            inProgressModelId && inProgressContent.trim()
+              ? {
+                  modelId: inProgressModelId,
+                  name: COUNCIL_MEMBERS[inProgressModelId]?.name || 'AI',
+                  content: inProgressContent,
+                  attachmentUrls: null,
+                }
+              : null
+          );
         }
 
         // If stopped mid-stream, persist whatever partial response was already received
@@ -2678,6 +2840,21 @@ export default function DashboardPage() {
           clearTitlePending(discussionId);
         }
         console.error('Error in relay stream:', err);
+        if (completedSeatsCount > 0 || inProgressContent.trim()) {
+          finalizeTurnSummary(
+            inProgressModelId && inProgressContent.trim()
+              ? {
+                  modelId: inProgressModelId,
+                  name: COUNCIL_MEMBERS[inProgressModelId]?.name || 'AI',
+                  content: inProgressContent,
+                  attachmentUrls: null,
+                }
+              : null
+          );
+        } else {
+          clearTurnSummary(summaryAnchorUserMessageId);
+        }
+
         if (activeDebateIdRef.current === discussionId) {
           if (err?.code === 'INSUFFICIENT_CREDITS') {
             setIsOutOfCredits(true);
@@ -3215,7 +3392,9 @@ export default function DashboardPage() {
         insertedUserMessageId,
         retrySnapshot,
         optimisticPlaceholder,
-        controller
+        controller,
+        null,
+        tempUserMsgId
       );
     }
   };
@@ -3299,7 +3478,9 @@ export default function DashboardPage() {
         snapshot.sourceUserMessageId,
         snapshot,
         optimisticPlaceholder,
-        controller
+        controller,
+        null,
+        snapshot.uiMessageId
       );
     } finally {
       retryInFlightRef.current = false;
@@ -3458,7 +3639,8 @@ export default function DashboardPage() {
         null,
         optimisticPlaceholder,
         controller,
-        continueMarker
+        continueMarker,
+        tempUserMsgId
       );
     } finally {
       continueInFlightRef.current = false;
@@ -3699,6 +3881,7 @@ export default function DashboardPage() {
                   scrollContainerRef={scrollContainerRef}
                   preserveScrollTop={preservedStopScrollTop}
                   interruptedTurnUserIds={interruptedTurnUserIds}
+                  turnSummaries={turnSummaries}
                 />
               )}
             </motion.div>
