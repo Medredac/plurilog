@@ -951,26 +951,26 @@ export default function DashboardPage() {
         if (!matchingUiMessage) continue;
 
         const rawArtifacts = Array.isArray(row?.artifacts) ? row.artifacts : [];
-        const artifacts = rawArtifacts
-          .map((artifact: any) => {
-            const normalizedUrl = normalizeAttachmentUrlForUi(artifact?.url || null);
-            const modelId =
-              artifact?.modelId === 'chatgpt' ||
-              artifact?.modelId === 'claude' ||
-              artifact?.modelId === 'gemini'
-                ? artifact.modelId
-                : null;
-            if (!normalizedUrl || !modelId) return null;
-            return {
-              url: normalizedUrl,
-              modelId,
-              name:
-                typeof artifact?.name === 'string' && artifact.name.trim()
-                  ? artifact.name.trim()
-                  : COUNCIL_MEMBERS[modelId]?.name || 'AI',
-            };
-          })
-          .filter(Boolean);
+        const artifacts = rawArtifacts.flatMap((artifact: any) => {
+          const normalizedUrl = normalizeAttachmentUrlForUi(artifact?.url || null);
+          const modelId: ModelId | null =
+            artifact?.modelId === 'chatgpt' ||
+            artifact?.modelId === 'claude' ||
+            artifact?.modelId === 'gemini'
+              ? artifact.modelId
+              : null;
+
+          if (!normalizedUrl || !modelId) return [];
+
+          return [{
+            url: normalizedUrl,
+            modelId,
+            name:
+              typeof artifact?.name === 'string' && artifact.name.trim()
+                ? artifact.name.trim()
+                : COUNCIL_MEMBERS[modelId]?.name || 'AI',
+          }];
+        });
 
         persistedSummaryMap[matchingUiMessage.id] = {
           status: 'ready',
