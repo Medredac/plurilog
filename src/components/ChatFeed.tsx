@@ -1543,13 +1543,32 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             <motion.span
               key={`summary-trigger-${summary.status}-${isOpen ? 'open' : 'closed'}`}
               initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
-              animate={{ opacity: 1, y: 0 }}
+              animate={
+                summary.status === 'loading' && !shouldReduceMotion
+                  ? {
+                      opacity: [0.55, 1, 0.55],
+                      textShadow: [
+                        '0 0 0 rgba(170,167,200,0)',
+                        '0 0 8px rgba(170,167,200,0.55)',
+                        '0 0 0 rgba(170,167,200,0)',
+                      ],
+                    }
+                  : { opacity: 1, y: 0, textShadow: '0 0 0 rgba(0,0,0,0)' }
+              }
               exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
-              transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-              className="min-w-0 truncate whitespace-nowrap"
+              transition={
+                summary.status === 'loading' && !shouldReduceMotion
+                  ? { duration: 1.15, repeat: Infinity, ease: 'easeInOut' }
+                  : { duration: shouldReduceMotion ? 0 : 0.15 }
+              }
+              className={
+                summary.status === 'loading'
+                  ? 'min-w-0 truncate whitespace-nowrap bg-[linear-gradient(90deg,#5F5C55_0%,#AAA7C8_45%,#E6A999_60%,#5F5C55_100%)] bg-[length:220%_100%] bg-clip-text text-transparent animate-[textShimmer_1.55s_linear_infinite]'
+                  : 'min-w-0 truncate whitespace-nowrap'
+              }
             >
               {summary.status === 'loading'
-                ? 'Summarizing the panel…'
+                ? 'Summarizing the panel'
                 : summary.status === 'ready'
                   ? isOpen
                     ? 'Close panel summary'
@@ -1557,6 +1576,32 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   : 'Panel summary unavailable'}
             </motion.span>
           </AnimatePresence>
+
+          {summary.status === 'loading' && (
+            <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
+              {[0, 1, 2].map((_, index) => (
+                <motion.span
+                  key={index}
+                  className="h-1 w-1 rounded-full bg-[#AAA7C8] shadow-[0_0_4px_rgba(170,167,200,0.55)]"
+                  animate={
+                    shouldReduceMotion
+                      ? undefined
+                      : {
+                          y: [0, -1.5, 0],
+                          opacity: [0.35, 1, 0.35],
+                          scale: [0.85, 1.15, 0.85],
+                        }
+                  }
+                  transition={{
+                    duration: 0.82,
+                    repeat: Infinity,
+                    delay: index * 0.12,
+                    ease: 'easeInOut',
+                  }}
+                />
+              ))}
+            </span>
+          )}
 
           <span
             className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#D3E0F8_0%,#E8D8F5_48%,#F6D3C9_100%)]"
