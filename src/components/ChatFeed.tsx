@@ -2678,6 +2678,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           );
         const isAiCollapsed =
           isAiCollapsible && (collapsedAiMsgIds[message.id] ?? true);
+        const readByModels = orderedActiveModels.filter((id) => id !== modelKey);
+        const readByLabel = readByModels
+          .map((id) => COUNCIL_MEMBERS[id]?.name || id)
+          .join(readByModels.length === 2 ? ' and ' : ', ');
 
         return (
           <React.Fragment key={message.id}>
@@ -3066,6 +3070,26 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
+                    )}
+
+                    {readByModels.length > 0 && (
+                      <div
+                        className="ml-1 inline-flex items-center gap-1.5 text-[10.5px] font-medium text-[#8A867D] select-none"
+                        aria-label={`Read by ${readByLabel}`}
+                        title={`Read by ${readByLabel}`}
+                      >
+                        <span>Read by</span>
+                        <span className="flex -space-x-1" aria-hidden="true">
+                          {readByModels.map((id) => (
+                            <ProviderBadge
+                              key={id}
+                              provider={id}
+                              size="sm"
+                              className="!h-5 !w-5"
+                            />
+                          ))}
+                        </span>
+                      </div>
                     )}
                   </motion.div>
                 )}
