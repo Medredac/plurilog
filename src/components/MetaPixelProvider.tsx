@@ -177,18 +177,11 @@ function MetaPixelTracker() {
     let postFireTimer: NodeJS.Timeout | null = null;
 
     const finishRegistrationBridge = () => {
-      try {
-        const currentParams = new URLSearchParams(window.location.search);
-        currentParams.delete('registered');
-        const remainingQuery = currentParams.toString();
-        const cleanUrl = remainingQuery
-          ? `${window.location.pathname}?${remainingQuery}${window.location.hash}`
-          : `${window.location.pathname}${window.location.hash}`;
-        window.history.replaceState(window.history.state, '', cleanUrl);
-      } catch (err) {
-        console.error('[MetaPixel] Error cleaning registered parameter:', err);
-      }
-
+      // Do not remove the registration marker here. Google Ads and Meta both
+      // consume the same bridge marker, so cleaning it in one provider can
+      // race the other provider and prevent its conversion from firing.
+      // The registration-complete page redirects away once both providers
+      // finish (or its safety timeout expires), which naturally clears it.
       window.dispatchEvent(new CustomEvent(REGISTRATION_BRIDGE_EVENT));
     };
 
