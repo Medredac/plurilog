@@ -79,6 +79,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    console.log('[Durable Stop] Cancel request processed', {
+      discussionId,
+      runId,
+      runStartedAt,
+      cancelled: cancelledRun === true,
+    });
+
     return NextResponse.json({
       ok: true,
       cancelled: cancelledRun === true,
