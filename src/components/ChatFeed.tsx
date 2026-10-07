@@ -1381,6 +1381,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
+  const [openTurnSummaryId, setOpenTurnSummaryId] = useState<string | null>(null);
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
   // Completed history opens at the bottom. A newly-created live discussion is
@@ -1481,157 +1482,207 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     const summary = turnSummaries[userMessageId];
     if (!summary) return null;
 
-    return (
-      <motion.div
-        layout="position"
-        initial={shouldReduceMotion ? false : { opacity: 0, y: 6, scale: 0.992 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{
-          layout: {
-            type: 'spring',
-            stiffness: 340,
-            damping: 32,
-            mass: 0.86,
-          },
-          opacity: { duration: shouldReduceMotion ? 0 : 0.18 },
-          y: {
-            duration: shouldReduceMotion ? 0 : 0.22,
-            ease: [0.16, 1, 0.3, 1],
-          },
-          scale: {
-            duration: shouldReduceMotion ? 0 : 0.2,
-            ease: [0.16, 1, 0.3, 1],
-          },
-        }}
-        className="col-span-full mt-4 w-full min-w-0"
-      >
-        <div className="overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_1px_3px_rgba(28,27,26,0.04)]">
-          <div className="flex items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
-            <div className="flex min-w-0 items-center gap-2">
-              <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#8A867D]" aria-hidden="true" />
-              <span className="text-[12px] font-semibold tracking-[-0.01em] text-[#1C1B1A]">
-                Panel summary
-              </span>
-            </div>
-            <span className="flex -space-x-1.5" aria-hidden="true">
-              {seatOrder
-                .filter((id) => activeModels.includes(id))
-                .map((id) => (
-                  <ProviderBadge
-                    key={id}
-                    provider={id}
-                    size="sm"
-                  />
-                ))}
-            </span>
-          </div>
+    const isOpen = openTurnSummaryId === userMessageId;
+    const activePanel = seatOrder.filter((id) => activeModels.includes(id));
 
-          <AnimatePresence initial={false} mode="wait">
-            {summary.status === 'loading' ? (
-              <motion.div
-                key="summary-loading"
-                initial={shouldReduceMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
-                className="flex min-h-[82px] items-center gap-3 px-4 py-4 sm:px-5"
-              >
-                <span className="flex items-center gap-1" aria-hidden="true">
-                  {[0, 1, 2].map((dot) => (
-                    <motion.span
-                      key={dot}
-                      className="h-1.5 w-1.5 rounded-full bg-[#8A867D]"
-                      animate={
-                        shouldReduceMotion
-                          ? { opacity: 0.55 }
-                          : { opacity: [0.28, 0.9, 0.28], y: [0, -2, 0] }
-                      }
-                      transition={
-                        shouldReduceMotion
-                          ? { duration: 0 }
-                          : {
-                              duration: 0.9,
-                              repeat: Infinity,
-                              delay: dot * 0.12,
-                              ease: 'easeInOut',
-                            }
-                      }
-                    />
-                  ))}
-                </span>
-                <span className="text-[12px] font-medium text-[#6A675F]">
-                  Synthesizing the panel…
-                </span>
-              </motion.div>
-            ) : summary.status === 'ready' ? (
-              <motion.div
-                key="summary-ready"
-                initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.22,
-                  ease: [0.16, 1, 0.3, 1],
-                }}
-                className="max-h-[320px] overflow-y-auto px-4 py-4 sm:px-5"
-              >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    ...markdownComponents,
-                    p: ({ children }) => (
-                      <p className="mb-2.5 text-[13.5px] font-normal leading-[1.65] text-[#1C1B1A] last:mb-0 break-words [overflow-wrap:anywhere]">
-                        {children}
-                      </p>
-                    ),
-                    ul: ({ children }) => (
-                      <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
-                        {children}
-                      </ul>
-                    ),
-                    ol: ({ children }) => (
-                      <ol className="my-2.5 list-decimal space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
-                        {children}
-                      </ol>
-                    ),
-                    li: ({ children }) => (
-                      <li className="text-[13.5px] leading-[1.6] text-[#1C1B1A]">
-                        {children}
-                      </li>
-                    ),
-                    h1: ({ children }) => (
-                      <h1 className="mb-2 mt-3 text-[15px] font-semibold text-[#1C1B1A] first:mt-0">
-                        {children}
-                      </h1>
-                    ),
-                    h2: ({ children }) => (
-                      <h2 className="mb-1.5 mt-3 text-[14px] font-semibold text-[#1C1B1A] first:mt-0">
-                        {children}
-                      </h2>
-                    ),
-                    h3: ({ children }) => (
-                      <h3 className="mb-1 mt-2.5 text-[13.5px] font-semibold text-[#1C1B1A] first:mt-0">
-                        {children}
-                      </h3>
-                    ),
-                  }}
-                >
-                  {summary.content}
-                </ReactMarkdown>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="summary-error"
-                initial={shouldReduceMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: shouldReduceMotion ? 0 : 0.16 }}
-                className="px-4 py-4 text-[12px] text-[#6A675F] sm:px-5"
-              >
-                Summary unavailable for this round.
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </motion.div>
+    return (
+      <div className="col-span-full relative mt-2 flex justify-center">
+        <motion.button
+          type="button"
+          onClick={() =>
+            setOpenTurnSummaryId((current) =>
+              current === userMessageId ? null : userMessageId
+            )
+          }
+          className="relative z-30 inline-flex h-8 w-8 items-center justify-center text-[#6A675F] transition-colors hover:text-[#1C1B1A] cursor-pointer"
+          title={summary.status === 'loading' ? 'Panel summary is being prepared' : 'Open panel summary'}
+          aria-label={summary.status === 'loading' ? 'Panel summary is being prepared' : 'Open panel summary'}
+          aria-expanded={isOpen}
+          animate={
+            summary.status === 'loading' && !shouldReduceMotion
+              ? { opacity: [0.55, 1, 0.55], scale: [1, 1.06, 1] }
+              : { opacity: 1, scale: 1 }
+          }
+          transition={
+            summary.status === 'loading' && !shouldReduceMotion
+              ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }
+              : { duration: shouldReduceMotion ? 0 : 0.16 }
+          }
+        >
+          <Sparkles className="h-4 w-4" aria-hidden="true" />
+          {summary.status === 'loading' && (
+            <motion.span
+              className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#8A867D]"
+              animate={
+                shouldReduceMotion
+                  ? { opacity: 0.65 }
+                  : { opacity: [0.25, 1, 0.25] }
+              }
+              transition={
+                shouldReduceMotion
+                  ? { duration: 0 }
+                  : { duration: 0.8, repeat: Infinity, ease: 'easeInOut' }
+              }
+              aria-hidden="true"
+            />
+          )}
+        </motion.button>
+
+        <AnimatePresence initial={false}>
+          {isOpen && (
+            <motion.div
+              key={`summary-overlay-${userMessageId}`}
+              initial={
+                shouldReduceMotion
+                  ? false
+                  : { opacity: 0, y: -6, scale: 0.985 }
+              }
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={
+                shouldReduceMotion
+                  ? undefined
+                  : { opacity: 0, y: -5, scale: 0.99 }
+              }
+              transition={{
+                duration: shouldReduceMotion ? 0 : 0.2,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+              className="absolute left-1/2 top-9 z-40 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_50px_rgba(28,27,26,0.16)]"
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#8A867D]" aria-hidden="true" />
+                  <span className="text-[12px] font-semibold tracking-[-0.01em] text-[#1C1B1A]">
+                    Panel summary
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="flex -space-x-1.5" aria-hidden="true">
+                    {activePanel.map((id) => (
+                      <ProviderBadge key={id} provider={id} size="sm" />
+                    ))}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenTurnSummaryId(null)}
+                    className="inline-flex h-7 w-7 items-center justify-center text-[#8A867D] transition-colors hover:text-[#1C1B1A] cursor-pointer"
+                    aria-label="Close panel summary"
+                    title="Close panel summary"
+                  >
+                    <span className="text-[18px] leading-none">×</span>
+                  </button>
+                </div>
+              </div>
+
+              <AnimatePresence initial={false} mode="wait">
+                {summary.status === 'loading' ? (
+                  <motion.div
+                    key="summary-loading"
+                    initial={shouldReduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
+                    className="flex min-h-[110px] items-center gap-3 px-4 py-5 sm:px-5"
+                  >
+                    <span className="flex items-center gap-1" aria-hidden="true">
+                      {[0, 1, 2].map((dot) => (
+                        <motion.span
+                          key={dot}
+                          className="h-1.5 w-1.5 rounded-full bg-[#8A867D]"
+                          animate={
+                            shouldReduceMotion
+                              ? { opacity: 0.55 }
+                              : { opacity: [0.28, 0.9, 0.28], y: [0, -2, 0] }
+                          }
+                          transition={
+                            shouldReduceMotion
+                              ? { duration: 0 }
+                              : {
+                                  duration: 0.9,
+                                  repeat: Infinity,
+                                  delay: dot * 0.12,
+                                  ease: 'easeInOut',
+                                }
+                          }
+                        />
+                      ))}
+                    </span>
+                    <span className="text-[12px] font-medium text-[#6A675F]">
+                      Reviewing the panel…
+                    </span>
+                  </motion.div>
+                ) : summary.status === 'ready' ? (
+                  <motion.div
+                    key="summary-ready"
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      duration: shouldReduceMotion ? 0 : 0.2,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
+                    className="max-h-[420px] overflow-y-auto px-4 py-4 sm:px-5"
+                  >
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        ...markdownComponents,
+                        p: ({ children }) => (
+                          <p className="mb-2.5 text-[13.5px] font-normal leading-[1.65] text-[#1C1B1A] last:mb-0 break-words [overflow-wrap:anywhere]">
+                            {children}
+                          </p>
+                        ),
+                        ul: ({ children }) => (
+                          <ul className="my-2.5 list-disc space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                            {children}
+                          </ul>
+                        ),
+                        ol: ({ children }) => (
+                          <ol className="my-2.5 list-decimal space-y-1.5 pl-5 text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                            {children}
+                          </ol>
+                        ),
+                        li: ({ children }) => (
+                          <li className="text-[13.5px] leading-[1.6] text-[#1C1B1A]">
+                            {children}
+                          </li>
+                        ),
+                        h1: ({ children }) => (
+                          <h1 className="mb-2 mt-3 text-[15px] font-semibold text-[#1C1B1A] first:mt-0">
+                            {children}
+                          </h1>
+                        ),
+                        h2: ({ children }) => (
+                          <h2 className="mb-1.5 mt-3 text-[14px] font-semibold text-[#1C1B1A] first:mt-0">
+                            {children}
+                          </h2>
+                        ),
+                        h3: ({ children }) => (
+                          <h3 className="mb-1 mt-2.5 text-[13.5px] font-semibold text-[#1C1B1A] first:mt-0">
+                            {children}
+                          </h3>
+                        ),
+                      }}
+                    >
+                      {summary.content}
+                    </ReactMarkdown>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="summary-error"
+                    initial={shouldReduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.16 }}
+                    className="px-4 py-5 text-[12px] text-[#6A675F] sm:px-5"
+                  >
+                    Summary unavailable for this round.
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     );
   };
 
