@@ -2822,150 +2822,6 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       }
                     />
 
-                  {/* Attached Images (if present) */}
-                  {hasSettledPresentation && imageAttachments.length > 0 && (
-                    <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
-                      {imageAttachments.map((url, i) => {
-                        const filename = getAttachmentDisplayFilename(url);
-                        return (
-                          <div key={`${url}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setLightboxImageUrl(url)}
-                              className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
-                              title={`Click to view ${filename}`}
-                            >
-                              <img
-                                src={url}
-                                alt={filename}
-                                className="w-full h-full object-cover"
-                              />
-                            </button>
-                            <span
-                              className="text-[10px] sm:text-[11px] font-mono text-[#6A675F] hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
-                              title={filename}
-                            >
-                              {filename}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Generated/downloadable documents (if present) */}
-                  {hasSettledPresentation && documentAttachments.length > 0 && (
-                    <div className="mt-3 flex w-full max-w-[330px] flex-col gap-2 min-w-0">
-                      {documentAttachments.map((url, i) => {
-                        const filename = getAttachmentDisplayFilename(url);
-                        const lowerFilename = filename.toLowerCase();
-                        const isPdfDocument = lowerFilename.endsWith('.pdf');
-                        const isDocxDocument = lowerFilename.endsWith('.docx');
-                        const isTextDocument =
-                          isTextFileUrl(url) || isTextFileName(lowerFilename);
-                        const documentBadge = isPdfDocument
-                          ? 'PDF'
-                          : isDocxDocument
-                            ? 'DOCX'
-                            : isTextDocument
-                              ? getTextFileDisplayBadge(filename)
-                              : 'FILE';
-                        const documentTypeLabel = isPdfDocument
-                          ? 'PDF document'
-                          : isDocxDocument
-                            ? 'Word document'
-                            : isTextDocument
-                              ? `${documentBadge} document`
-                              : 'Document';
-                        const documentIconSrc = isPdfDocument
-                          ? '/file-icon-pdf.svg'
-                          : isDocxDocument
-                            ? '/file-icon-docx.svg'
-                            : null;
-                        const fallbackBadgeClass = isTextDocument
-                          ? 'bg-[#4F8A68]'
-                          : 'bg-[#6A675F]';
-
-                        const openPreview = () =>
-                          onPreviewDocument?.({ url, filename });
-
-                        return (
-                          <div
-                            key={`${url}-doc-${i}`}
-                            role="button"
-                            tabIndex={0}
-                            onClick={openPreview}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                openPreview();
-                              }
-                            }}
-                            className="group flex min-h-[64px] w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-white px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
-                            title={`Preview ${filename}`}
-                            aria-label={`Preview ${filename}`}
-                          >
-                            <div className="flex h-14 w-11 shrink-0 items-center justify-center">
-                              {documentIconSrc ? (
-                                <img
-                                  src={documentIconSrc}
-                                  alt=""
-                                  className="h-14 w-11 object-contain"
-                                  aria-hidden="true"
-                                />
-                              ) : (
-                                <div className="relative flex h-11 w-9 items-center justify-center">
-                                  <FileText className="h-10 w-10 text-[#B7B3AA]" />
-                                  <span
-                                    className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${fallbackBadgeClass}`}
-                                  >
-                                    {documentBadge}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <p
-                                className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
-                                title={filename}
-                              >
-                                {filename}
-                              </p>
-                              <p className="mt-1 text-[10px] leading-4 text-[#6A675F]">
-                                {documentTypeLabel}
-                              </p>
-                            </div>
-
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openPreview();
-                                }}
-                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
-                                title={`Preview ${filename}`}
-                                aria-label={`Preview ${filename}`}
-                              >
-                                <Eye className="h-3.5 w-3.5" />
-                              </button>
-                              <a
-                                href={url}
-                                download={filename}
-                                onClick={(event) => event.stopPropagation()}
-                                className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
-                                title={`Download ${filename}`}
-                                aria-label={`Download ${filename}`}
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                              </a>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                   </div>
 
                   <AnimatePresence initial={false}>
@@ -3022,6 +2878,152 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Attached Images (if present) */}
+              {hasSettledPresentation && imageAttachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 sm:gap-2.5 mt-3 max-w-full min-w-0">
+                  {imageAttachments.map((url, i) => {
+                    const filename = getAttachmentDisplayFilename(url);
+                    return (
+                      <div key={`${url}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setLightboxImageUrl(url)}
+                          className="w-20 h-20 sm:w-28 sm:h-28 rounded-[24px] overflow-hidden border border-zinc-200/90 bg-zinc-100 block cursor-pointer hover:opacity-90 transition-opacity shrink-0"
+                          title={`Click to view ${filename}`}
+                        >
+                          <img
+                            src={url}
+                            alt={filename}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                        <span
+                          className="text-[10px] sm:text-[11px] font-mono text-[#6A675F] hover:text-zinc-700 max-w-[80px] sm:max-w-[112px] truncate px-1 text-center select-all"
+                          title={filename}
+                        >
+                          {filename}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Generated/downloadable documents (if present) */}
+              {hasSettledPresentation && documentAttachments.length > 0 && (
+                <div className="mt-3 flex w-full max-w-[330px] flex-col gap-2 min-w-0">
+                  {documentAttachments.map((url, i) => {
+                    const filename = getAttachmentDisplayFilename(url);
+                    const lowerFilename = filename.toLowerCase();
+                    const isPdfDocument = lowerFilename.endsWith('.pdf');
+                    const isDocxDocument = lowerFilename.endsWith('.docx');
+                    const isTextDocument =
+                      isTextFileUrl(url) || isTextFileName(lowerFilename);
+                    const documentBadge = isPdfDocument
+                      ? 'PDF'
+                      : isDocxDocument
+                        ? 'DOCX'
+                        : isTextDocument
+                          ? getTextFileDisplayBadge(filename)
+                          : 'FILE';
+                    const documentTypeLabel = isPdfDocument
+                      ? 'PDF document'
+                      : isDocxDocument
+                        ? 'Word document'
+                        : isTextDocument
+                          ? `${documentBadge} document`
+                          : 'Document';
+                    const documentIconSrc = isPdfDocument
+                      ? '/file-icon-pdf.svg'
+                      : isDocxDocument
+                        ? '/file-icon-docx.svg'
+                        : null;
+                    const fallbackBadgeClass = isTextDocument
+                      ? 'bg-[#4F8A68]'
+                      : 'bg-[#6A675F]';
+
+                    const openPreview = () =>
+                      onPreviewDocument?.({ url, filename });
+
+                    return (
+                      <div
+                        key={`${url}-doc-${i}`}
+                        role="button"
+                        tabIndex={0}
+                        onClick={openPreview}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openPreview();
+                          }
+                        }}
+                        className="group flex min-h-[64px] w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-white px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
+                        title={`Preview ${filename}`}
+                        aria-label={`Preview ${filename}`}
+                      >
+                        <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                          {documentIconSrc ? (
+                            <img
+                              src={documentIconSrc}
+                              alt=""
+                              className="h-14 w-11 object-contain"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <div className="relative flex h-11 w-9 items-center justify-center">
+                              <FileText className="h-10 w-10 text-[#B7B3AA]" />
+                              <span
+                                className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${fallbackBadgeClass}`}
+                              >
+                                {documentBadge}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
+                            title={filename}
+                          >
+                            {filename}
+                          </p>
+                          <p className="mt-1 text-[10px] leading-4 text-[#6A675F]">
+                            {documentTypeLabel}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openPreview();
+                            }}
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                            title={`Preview ${filename}`}
+                            aria-label={`Preview ${filename}`}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          <a
+                            href={url}
+                            download={filename}
+                            onClick={(event) => event.stopPropagation()}
+                            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                            title={`Download ${filename}`}
+                            aria-label={`Download ${filename}`}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
 
               {/* Bottom actions enter only after this seat has visually settled. */}
               <AnimatePresence initial={false}>
