@@ -934,9 +934,16 @@ export interface FailedTurnState {
   seatOrder: ModelId[];
 }
 
+export interface TurnSummaryArtifact {
+  url: string;
+  modelId: ModelId;
+  name: string;
+}
+
 export interface TurnSummaryState {
   status: 'loading' | 'ready' | 'error';
   content: string;
+  artifacts?: TurnSummaryArtifact[];
 }
 
 interface ChatFeedProps {
@@ -1484,6 +1491,15 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
     const isOpen = openTurnSummaryId === userMessageId;
     const activePanel = seatOrder.filter((id) => activeModels.includes(id));
+    const summaryArtifacts = summary.artifacts || [];
+    const summaryImageArtifacts = summaryArtifacts.filter((artifact) => {
+      const filename = getAttachmentDisplayFilename(artifact.url);
+      return isImageUrl(artifact.url, filename);
+    });
+    const summaryDocumentArtifacts = summaryArtifacts.filter((artifact) => {
+      const filename = getAttachmentDisplayFilename(artifact.url);
+      return !isImageUrl(artifact.url, filename);
+    });
 
     return (
       <div className="col-span-full relative mt-2 flex justify-center">
@@ -1752,6 +1768,178 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     >
                       {summary.content}
                     </ReactMarkdown>
+
+                    {summaryArtifacts.length > 0 && (
+                      <div className="mt-4 border-t border-[#E7E5E0] pt-3">
+                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8A867D]">
+                          Panel artifacts
+                        </div>
+
+                        {summaryImageArtifacts.length > 0 && (
+                          <div className="mb-3 flex flex-wrap gap-2.5">
+                            {summaryImageArtifacts.map((artifact, index) => {
+                              const filename = getAttachmentDisplayFilename(artifact.url);
+                              return (
+                                <div
+                                  key={`summary-image-${artifact.url}-${index}`}
+                                  className="flex w-24 flex-col gap-1.5"
+                                >
+                                  <div className="relative">
+                                    <button
+                                      type="button"
+                                      onClick={() => setLightboxImageUrl(artifact.url)}
+                                      className="block h-24 w-24 cursor-pointer overflow-hidden rounded-[16px] border border-[#E2E0DB] bg-[#F7F6F3] transition-opacity hover:opacity-90"
+                                      title={`View ${filename}`}
+                                      aria-label={`View ${filename}`}
+                                    >
+                                      <img
+                                        src={artifact.url}
+                                        alt={filename}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    </button>
+                                    <a
+                                      href={artifact.url}
+                                      download={filename}
+                                      className="absolute bottom-1.5 right-1.5 inline-flex h-7 w-7 items-center justify-center rounded-[8px] border border-white/80 bg-white/95 text-[#6A675F] shadow-sm transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                      title={`Download ${filename}`}
+                                      aria-label={`Download ${filename}`}
+                                    >
+                                      <Download className="h-3 w-3" />
+                                    </a>
+                                  </div>
+                                  <span
+                                    className="truncate px-0.5 text-[10px] font-medium text-[#1C1B1A]"
+                                    title={filename}
+                                  >
+                                    {filename}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 text-[9px] text-[#8A867D]">
+                                    <ProviderBadge provider={artifact.modelId} size="sm" className="!h-4 !w-4" />
+                                    <span className="truncate">{artifact.name}</span>
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {summaryDocumentArtifacts.length > 0 && (
+                          <div className="flex w-full flex-col gap-2">
+                            {summaryDocumentArtifacts.map((artifact, index) => {
+                              const filename = getAttachmentDisplayFilename(artifact.url);
+                              const lowerFilename = filename.toLowerCase();
+                              const isPdfDocument = lowerFilename.endsWith('.pdf');
+                              const isDocxDocument = lowerFilename.endsWith('.docx');
+                              const isTextDocument =
+                                isTextFileUrl(artifact.url) || isTextFileName(lowerFilename);
+                              const documentBadge = isPdfDocument
+                                ? 'PDF'
+                                : isDocxDocument
+                                  ? 'DOCX'
+                                  : isTextDocument
+                                    ? getTextFileDisplayBadge(filename)
+                                    : 'FILE';
+                              const documentTypeLabel = isPdfDocument
+                                ? 'PDF document'
+                                : isDocxDocument
+                                  ? 'Word document'
+                                  : isTextDocument
+                                    ? `${documentBadge} document`
+                                    : 'Document';
+                              const documentIconSrc = isPdfDocument
+                                ? '/file-icon-pdf.svg'
+                                : isDocxDocument
+                                  ? '/file-icon-docx.svg'
+                                  : null;
+                              const fallbackBadgeClass = isTextDocument
+                                ? 'bg-[#4F8A68]'
+                                : 'bg-[#6A675F]';
+                              const openPreview = () =>
+                                onPreviewDocument?.({ url: artifact.url, filename });
+
+                              return (
+                                <div
+                                  key={`summary-document-${artifact.url}-${index}`}
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={openPreview}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      openPreview();
+                                    }
+                                  }}
+                                  className="group flex min-h-[64px] w-full cursor-pointer items-center gap-3 rounded-[12px] border border-[#E2E0DB] bg-[#F7F6F3]/55 px-2.5 py-2 transition-colors hover:border-[#D9D6CF] hover:bg-[#F7F6F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#D9D6CF]"
+                                  title={`Preview ${filename}`}
+                                  aria-label={`Preview ${filename}`}
+                                >
+                                  <div className="flex h-14 w-11 shrink-0 items-center justify-center">
+                                    {documentIconSrc ? (
+                                      <img
+                                        src={documentIconSrc}
+                                        alt=""
+                                        className="h-14 w-11 object-contain"
+                                        aria-hidden="true"
+                                      />
+                                    ) : (
+                                      <div className="relative flex h-11 w-9 items-center justify-center">
+                                        <FileText className="h-10 w-10 text-[#B7B3AA]" />
+                                        <span
+                                          className={`absolute bottom-0 left-1/2 -translate-x-1/2 rounded-[3px] px-1 py-[1px] text-[7px] font-semibold leading-none tracking-[0.04em] text-white ${fallbackBadgeClass}`}
+                                        >
+                                          {documentBadge}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="min-w-0 flex-1">
+                                    <p
+                                      className="line-clamp-2 break-all text-[12px] font-medium leading-[15px] text-[#1C1B1A]"
+                                      title={filename}
+                                    >
+                                      {filename}
+                                    </p>
+                                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] leading-4 text-[#6A675F]">
+                                      <span>{documentTypeLabel}</span>
+                                      <span aria-hidden="true">·</span>
+                                      <ProviderBadge provider={artifact.modelId} size="sm" className="!h-4 !w-4" />
+                                      <span className="truncate">{artifact.name}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openPreview();
+                                      }}
+                                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                      title={`Preview ${filename}`}
+                                      aria-label={`Preview ${filename}`}
+                                    >
+                                      <Eye className="h-3.5 w-3.5" />
+                                    </button>
+                                    <a
+                                      href={artifact.url}
+                                      download={filename}
+                                      onClick={(event) => event.stopPropagation()}
+                                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white text-[#6A675F] transition-colors hover:bg-[#EFEDE9] hover:text-[#1C1B1A]"
+                                      title={`Download ${filename}`}
+                                      aria-label={`Download ${filename}`}
+                                    >
+                                      <Download className="h-3.5 w-3.5" />
+                                    </a>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </motion.div>
                 ) : (
                   <motion.div
