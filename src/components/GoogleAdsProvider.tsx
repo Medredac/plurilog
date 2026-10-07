@@ -85,8 +85,8 @@ function loadGoogleTag(): Promise<void> {
     window.dataLayer = window.dataLayer || [];
     window.gtag =
       window.gtag ||
-      function gtag(...args: any[]) {
-        window.dataLayer?.push(args);
+      function gtag(..._args: any[]) {
+        window.dataLayer?.push(arguments);
       };
 
     window.gtag('js', new Date());
