@@ -1644,7 +1644,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               current === userMessageId ? null : userMessageId
             );
           }}
-          className={`relative z-30 inline-flex min-h-9 w-[264px] max-w-[calc(100vw-2rem)] items-center justify-center gap-2 rounded-full border px-2.5 py-1.5 text-[12px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
+          className={`relative z-30 inline-flex min-h-9 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[12px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
             summary.status === 'ready'
               ? 'border-[#D9D6CF] bg-white/95 text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white hover:shadow-[0_6px_20px_rgba(28,27,26,0.10)] cursor-pointer'
               : summary.status === 'loading'
@@ -1687,26 +1687,36 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             ))}
           </span>
 
-          <AnimatePresence initial={false} mode="wait">
-            <motion.span
-              key={`summary-trigger-${summary.status}-${isOpen ? 'open' : 'closed'}`}
-              initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
-              transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-              className={`min-w-0 truncate whitespace-nowrap ${
-                summary.status === 'loading' ? 'animate-text-shimmer' : ''
-              }`}
-            >
-              {summary.status === 'loading'
-                ? 'Summarizing the panel'
-                : summary.status === 'ready'
-                  ? isOpen
-                    ? 'Close panel summary'
-                    : 'Read the panel summary'
-                  : 'Panel summary unavailable'}
-            </motion.span>
-          </AnimatePresence>
+          <span className="grid min-w-0 items-center">
+            {summary.status === 'ready' && (
+              <span
+                className="invisible col-start-1 row-start-1 whitespace-nowrap"
+                aria-hidden="true"
+              >
+                Read the panel summary
+              </span>
+            )}
+            <AnimatePresence initial={false} mode="wait">
+              <motion.span
+                key={`summary-trigger-${summary.status}-${isOpen ? 'open' : 'closed'}`}
+                initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
+                className={`col-start-1 row-start-1 min-w-0 justify-self-center truncate whitespace-nowrap ${
+                  summary.status === 'loading' ? 'animate-text-shimmer' : ''
+                }`}
+              >
+                {summary.status === 'loading'
+                  ? 'Summarizing the panel'
+                  : summary.status === 'ready'
+                    ? isOpen
+                      ? 'Close panel summary'
+                      : 'Read the panel summary'
+                    : 'Panel summary unavailable'}
+              </motion.span>
+            </AnimatePresence>
+          </span>
 
           {summary.status === 'loading' && (
             <span className="inline-flex shrink-0 items-center gap-[3px]" aria-hidden="true">
