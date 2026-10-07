@@ -1489,43 +1489,102 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
       <div className="col-span-full relative mt-2 flex justify-center">
         <motion.button
           type="button"
-          onClick={() =>
+          disabled={summary.status !== 'ready'}
+          onClick={() => {
+            if (summary.status !== 'ready') return;
             setOpenTurnSummaryId((current) =>
               current === userMessageId ? null : userMessageId
-            )
+            );
+          }}
+          className={`relative z-30 inline-flex min-h-9 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[12px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
+            summary.status === 'ready'
+              ? 'border-[#D9D6CF] bg-white/95 text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white hover:shadow-[0_6px_20px_rgba(28,27,26,0.10)] cursor-pointer'
+              : summary.status === 'loading'
+                ? 'border-[#DDD9D1] bg-white/90 text-[#5F5C55] cursor-default'
+                : 'border-[#E2E0DB] bg-[#F7F6F3]/90 text-[#8A867D] cursor-default'
+          }`}
+          title={
+            summary.status === 'loading'
+              ? 'Summarizing the panel'
+              : summary.status === 'ready'
+                ? isOpen
+                  ? 'Close panel summary'
+                  : 'Read the panel summary'
+                : 'Panel summary unavailable'
           }
-          className="relative z-30 inline-flex h-8 w-8 items-center justify-center text-[#6A675F] transition-colors hover:text-[#1C1B1A] cursor-pointer"
-          title={summary.status === 'loading' ? 'Panel summary is being prepared' : 'Open panel summary'}
-          aria-label={summary.status === 'loading' ? 'Panel summary is being prepared' : 'Open panel summary'}
-          aria-expanded={isOpen}
+          aria-label={
+            summary.status === 'loading'
+              ? 'Summarizing the panel'
+              : summary.status === 'ready'
+                ? isOpen
+                  ? 'Close panel summary'
+                  : 'Read the panel summary'
+                : 'Panel summary unavailable'
+          }
+          aria-expanded={summary.status === 'ready' ? isOpen : undefined}
           animate={
             summary.status === 'loading' && !shouldReduceMotion
-              ? { opacity: [0.55, 1, 0.55], scale: [1, 1.06, 1] }
-              : { opacity: 1, scale: 1 }
+              ? { y: [0, -0.5, 0] }
+              : { y: 0 }
           }
           transition={
             summary.status === 'loading' && !shouldReduceMotion
-              ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }
+              ? { duration: 1.3, repeat: Infinity, ease: 'easeInOut' }
               : { duration: shouldReduceMotion ? 0 : 0.16 }
           }
         >
-          <Sparkles className="h-4 w-4" aria-hidden="true" />
-          {summary.status === 'loading' && (
+          <span className="flex -space-x-1.5 shrink-0" aria-hidden="true">
+            {activePanel.map((id) => (
+              <ProviderBadge key={id} provider={id} size="sm" />
+            ))}
+          </span>
+
+          <AnimatePresence initial={false} mode="wait">
             <motion.span
-              className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#8A867D]"
+              key={`summary-trigger-${summary.status}-${isOpen ? 'open' : 'closed'}`}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 2 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
+              transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
+              className="min-w-0 truncate whitespace-nowrap"
+            >
+              {summary.status === 'loading'
+                ? 'Summarizing the panel…'
+                : summary.status === 'ready'
+                  ? isOpen
+                    ? 'Close panel summary'
+                    : 'Read the panel summary'
+                  : 'Panel summary unavailable'}
+            </motion.span>
+          </AnimatePresence>
+
+          <span
+            className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#D3E0F8_0%,#E8D8F5_48%,#F6D3C9_100%)]"
+            aria-hidden="true"
+          >
+            <motion.span
               animate={
-                shouldReduceMotion
-                  ? { opacity: 0.65 }
-                  : { opacity: [0.25, 1, 0.25] }
+                summary.status === 'loading' && !shouldReduceMotion
+                  ? { rotate: [0, 12, -8, 0], scale: [0.92, 1.08, 0.96, 0.92] }
+                  : { rotate: 0, scale: 1 }
               }
               transition={
-                shouldReduceMotion
-                  ? { duration: 0 }
-                  : { duration: 0.8, repeat: Infinity, ease: 'easeInOut' }
+                summary.status === 'loading' && !shouldReduceMotion
+                  ? { duration: 1.45, repeat: Infinity, ease: 'easeInOut' }
+                  : { duration: shouldReduceMotion ? 0 : 0.18 }
               }
-              aria-hidden="true"
-            />
-          )}
+              className="flex items-center justify-center"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-[#4D4A70]" />
+            </motion.span>
+            {summary.status === 'loading' && !shouldReduceMotion && (
+              <motion.span
+                className="absolute inset-0 rounded-full border border-white/80"
+                animate={{ opacity: [0.25, 0.9, 0.25], scale: [0.82, 1.08, 0.82] }}
+                transition={{ duration: 1.15, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
+          </span>
         </motion.button>
 
         <AnimatePresence initial={false}>
