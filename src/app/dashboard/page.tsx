@@ -2649,6 +2649,11 @@ export default function DashboardPage() {
             } else if (eventType === 'council_done') {
               startDeferredPdfIndexing();
 
+              // Some relay paths can finish with council_done without emitting
+              // turn_ready. Start synthesis here too so the loading summary
+              // can never remain stuck after the visible panel has finished.
+              finalizeTurnSummary();
+
               // Compatibility fallback if the server did not emit turn_ready.
               // If a newer turn already owns this discussion, never let this
               // older relay reset or delete the newer generation.
