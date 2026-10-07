@@ -1391,6 +1391,56 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [openTurnSummaryId, setOpenTurnSummaryId] = useState<string | null>(null);
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
 
+  // While a summary is open, keep the open overlay in sync with whichever
+  // summary pill currently owns the sticky position. Closed summaries keep
+  // their existing scroll behavior and are never opened automatically.
+  useEffect(() => {
+    const viewport = scrollContainerRef?.current;
+    const content = contentRef.current;
+    if (!viewport || !content || !openTurnSummaryId) return;
+
+    let frame = 0;
+
+    const syncOpenSummaryToStickyOwner = () => {
+      frame = 0;
+      const stickyTop = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
+      const threshold = viewport.scrollTop + stickyTop + 1;
+
+      const summaryNodes = Array.from(
+        content.querySelectorAll<HTMLElement>('[data-panel-summary-id]')
+      );
+
+      let nextOpenId: string | null = null;
+      let greatestTop = Number.NEGATIVE_INFINITY;
+
+      for (const node of summaryNodes) {
+        const summaryId = node.dataset.panelSummaryId;
+        if (!summaryId || turnSummaries[summaryId]?.status !== 'ready') continue;
+
+        const normalFlowTop = node.offsetTop;
+        if (normalFlowTop <= threshold && normalFlowTop >= greatestTop) {
+          greatestTop = normalFlowTop;
+          nextOpenId = summaryId;
+        }
+      }
+
+      if (nextOpenId && nextOpenId !== openTurnSummaryId) {
+        setOpenTurnSummaryId(nextOpenId);
+      }
+    };
+
+    const handleScroll = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(syncOpenSummaryToStickyOwner);
+    };
+
+    viewport.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      viewport.removeEventListener('scroll', handleScroll);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [openTurnSummaryId, scrollContainerRef, turnSummaries]);
+
   // Completed history opens at the bottom. A newly-created live discussion is
   // already owned by the top-turn anchor and must never race with this jump.
   useEffect(() => {
@@ -1503,6 +1553,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
     return (
       <div
+        data-panel-summary-id={userMessageId}
         className={`col-span-full sticky top-3 sm:top-4 mt-2 flex justify-center ${
           isOpen ? 'z-50' : 'z-30'
         }`}
