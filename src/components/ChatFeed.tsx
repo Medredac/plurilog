@@ -2348,6 +2348,43 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
+              {/* The expand control belongs to the response itself, so show it
+                  as soon as a completed response becomes collapsible. */}
+              <AnimatePresence initial={false}>
+                {!isThinking && isAiCollapsible && (
+                  <motion.div
+                    key={`expand-${message.id}`}
+                    layout="position"
+                    initial={shouldReduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.1 }}
+                    className="col-start-2 mt-1 flex justify-center"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleAiCollapse(message.id)}
+                      className="inline-flex items-center justify-center gap-1.5 px-1 py-1 text-[11px] font-medium text-[#6A675F] transition-colors hover:text-[#1C1B1A] cursor-pointer"
+                      title={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
+                      aria-label={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
+                      aria-expanded={!isAiCollapsed}
+                    >
+                      <span>{isAiCollapsed ? 'Show full answer' : 'Collapse answer'}</span>
+                      <motion.span
+                        className="flex items-center justify-center"
+                        animate={{ rotate: isAiCollapsed ? 0 : 180 }}
+                        transition={{
+                          duration: shouldReduceMotion ? 0 : 0.24,
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </motion.span>
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Bottom actions enter only after this seat has visually settled. */}
               <AnimatePresence initial={false}>
                 {!isThinking && hasSettledPresentation && (
@@ -2370,55 +2407,30 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ease: [0.16, 1, 0.3, 1],
                       },
                     }}
-                    className="col-start-2 mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs min-w-0"
+                    className="col-start-2 mt-1 flex items-center gap-1.5 sm:gap-2 text-xs min-w-0"
                   >
-                    <div className="flex items-center gap-1.5 sm:gap-2 justify-self-start">
-                      <button
-                        onClick={() => handleCopy(message.id, message.content)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                        title={`Copy ${member.name}'s reply`}
-                        aria-label={`Copy ${member.name}'s reply`}
-                      >
-                        {copiedId === message.id ? (
-                          <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
-                        ) : (
-                          <Copy className="w-4 h-4 shrink-0" />
-                        )}
-                      </button>
-
-                      {onExportMessage && (
-                        <button
-                          type="button"
-                          onClick={() => onExportMessage(message)}
-                          className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
-                          title="Download response as PDF"
-                          aria-label="Download response as PDF"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                        </button>
+                    <button
+                      onClick={() => handleCopy(message.id, message.content)}
+                      className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                      title={`Copy ${member.name}'s reply`}
+                      aria-label={`Copy ${member.name}'s reply`}
+                    >
+                      {copiedId === message.id ? (
+                        <Check className="w-4 h-4 text-[#F2C94C] shrink-0" />
+                      ) : (
+                        <Copy className="w-4 h-4 shrink-0" />
                       )}
-                    </div>
+                    </button>
 
-                    {isAiCollapsible && (
+                    {onExportMessage && (
                       <button
                         type="button"
-                        onClick={() => toggleAiCollapse(message.id)}
-                        className="col-start-2 inline-flex h-9 items-center justify-center gap-1.5 rounded-full border border-[#E2E0DB] bg-white px-3.5 text-[11px] font-medium text-[#6A675F] shadow-[0_1px_2px_rgba(28,27,26,0.04)] transition-all duration-200 hover:border-[#D9D6CF] hover:bg-[#F7F6F3] hover:text-[#1C1B1A] cursor-pointer target-secondary"
-                        title={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
-                        aria-label={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
-                        aria-expanded={!isAiCollapsed}
+                        onClick={() => onExportMessage(message)}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg text-[#6A675F] hover:text-[#1C1B1A] hover:bg-[#EFEDE9] transition-colors cursor-pointer target-secondary"
+                        title="Download response as PDF"
+                        aria-label="Download response as PDF"
                       >
-                        <span>{isAiCollapsed ? 'Show full answer' : 'Collapse answer'}</span>
-                        <motion.span
-                          className="flex items-center justify-center"
-                          animate={{ rotate: isAiCollapsed ? 0 : 180 }}
-                          transition={{
-                            duration: shouldReduceMotion ? 0 : 0.3,
-                            ease: [0.22, 1, 0.36, 1],
-                          }}
-                        >
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        </motion.span>
+                        <Download className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </motion.div>
