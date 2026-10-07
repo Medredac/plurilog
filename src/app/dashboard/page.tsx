@@ -1706,6 +1706,19 @@ export default function DashboardPage() {
     isContinue: boolean;
     responses: PanelSummaryResponse[];
   }) => {
+    const summaryArtifacts = responses
+      .flatMap((panelResponse) =>
+        (panelResponse.attachmentUrls || []).map((url) => ({
+          url,
+          modelId: panelResponse.modelId,
+          name: panelResponse.name,
+        }))
+      )
+      .filter(
+        (artifact, index, allArtifacts) =>
+          allArtifacts.findIndex((candidate) => candidate.url === artifact.url) === index
+      );
+
     try {
       const response = await fetch('/api/synthesize-turn', {
         method: 'POST',
@@ -1734,6 +1747,7 @@ export default function DashboardPage() {
         [userMessageId]: {
           status: 'ready',
           content: summary,
+          artifacts: summaryArtifacts,
         },
       }));
     } catch (summaryErr) {
