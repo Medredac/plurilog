@@ -867,11 +867,18 @@ export default function DashboardPage() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('discussion_id', discussionId)
-        .order('created_at', { ascending: true });
+      const [{ data, error }, { data: summaryRows, error: summaryError }] =
+        await Promise.all([
+          supabase
+            .from('messages')
+            .select('*')
+            .eq('discussion_id', discussionId)
+            .order('created_at', { ascending: true }),
+          supabase
+            .from('panel_turn_summaries')
+            .select('user_message_id, content, artifacts')
+            .eq('discussion_id', discussionId),
+        ]);
 
       // If another discussion was selected in the meantime, ignore stale result
       if (currentFetchIdRef.current !== discussionId) {
@@ -881,8 +888,13 @@ export default function DashboardPage() {
       if (error) {
         console.error('[Supabase Error] Error fetching messages for discussion:', error, { discussion_id: discussionId });
         setMessages([]);
+        setTurnSummaries({});
         setCanContinue(false);
         return;
+      }
+
+      if (summaryError) {
+        console.warn('[Panel Summary] Could not load persisted summaries', summaryError);
       }
 
       const formatted: ChatMessage[] = (data || []).map((m: any) => {
@@ -925,6 +937,47 @@ export default function DashboardPage() {
       });
 
       console.log(`[Supabase Success] Loaded ${formatted.length} messages for discussion ${discussionId}`);
+
+      const persistedSummaryMap: Record<string, TurnSummaryState> = {};
+      for (const row of summaryRows || []) {
+        const persistedUserMessageId =
+          typeof row?.user_message_id === 'string' ? row.user_message_id : '';
+        if (!persistedUserMessageId) continue;
+
+        const matchingUiMessage = formatted.find(
+          (message) => message.role === 'user' && message.id === persistedUserMessageId
+        );
+        if (!matchingUiMessage) continue;
+
+        const rawArtifacts = Array.isArray(row?.artifacts) ? row.artifacts : [];
+        const artifacts = rawArtifacts
+          .map((artifact: any) => {
+            const normalizedUrl = normalizeAttachmentUrlForUi(artifact?.url || null);
+            const modelId =
+              artifact?.modelId === 'chatgpt' ||
+              artifact?.modelId === 'claude' ||
+              artifact?.modelId === 'gemini'
+                ? artifact.modelId
+                : null;
+            if (!normalizedUrl || !modelId) return null;
+            return {
+              url: normalizedUrl,
+              modelId,
+              name:
+                typeof artifact?.name === 'string' && artifact.name.trim()
+                  ? artifact.name.trim()
+                  : COUNCIL_MEMBERS[modelId]?.name || 'AI',
+            };
+          })
+          .filter(Boolean);
+
+        persistedSummaryMap[matchingUiMessage.id] = {
+          status: 'ready',
+          content: typeof row?.content === 'string' ? row.content : '',
+          artifacts,
+        };
+      }
+      setTurnSummaries(persistedSummaryMap);
 
       // Atomic swap: update discussion ID, messages, and state together once data arrives
       activeDebateIdRef.current = discussionId;
