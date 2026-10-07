@@ -1535,6 +1535,83 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const decoratePanelModelMentions = (
+    node: React.ReactNode
+  ): React.ReactNode => {
+    if (typeof node === 'string') {
+      return node.split(/(ChatGPT|Claude|Gemini)/g).map((part, index) => {
+        if (part === 'ChatGPT') {
+          return (
+            <span
+              key={`panel-model-chatgpt-${index}`}
+              data-panel-model-mention
+              className="font-semibold text-[#1C1B1A]"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        if (part === 'Claude') {
+          return (
+            <span
+              key={`panel-model-claude-${index}`}
+              data-panel-model-mention
+              className="font-semibold text-[hsl(14.8,63.1%,59.6%)]"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        if (part === 'Gemini') {
+          return (
+            <span
+              key={`panel-model-gemini-${index}`}
+              data-panel-model-mention
+              className="font-semibold text-[#3186FF]"
+            >
+              {part}
+            </span>
+          );
+        }
+
+        return part;
+      });
+    }
+
+    if (Array.isArray(node)) {
+      return node.map((child, index) => (
+        <React.Fragment key={index}>
+          {decoratePanelModelMentions(child)}
+        </React.Fragment>
+      ));
+    }
+
+    if (React.isValidElement(node)) {
+      const element = node as React.ReactElement<{
+        children?: React.ReactNode;
+        'data-panel-model-mention'?: boolean;
+      }>;
+
+      if (element.props['data-panel-model-mention']) {
+        return element;
+      }
+
+      if (element.props.children === undefined) {
+        return element;
+      }
+
+      return React.cloneElement(
+        element,
+        undefined,
+        decoratePanelModelMentions(element.props.children)
+      );
+    }
+
+    return node;
+  };
+
   const renderTurnSummary = (userMessageId: string) => {
     const summary = turnSummaries[userMessageId];
     if (!summary) return null;
@@ -1786,7 +1863,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ...markdownComponents,
                         p: ({ children }) => (
                           <p className="mb-2.5 text-[13.5px] font-normal leading-[1.65] text-[#1C1B1A] last:mb-0 break-words [overflow-wrap:anywhere]">
-                            {children}
+                            {decoratePanelModelMentions(children)}
                           </p>
                         ),
                         ul: ({ children }) => (
@@ -1801,22 +1878,22 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ),
                         li: ({ children }) => (
                           <li className="text-[13.5px] leading-[1.6] text-[#1C1B1A]">
-                            {children}
+                            {decoratePanelModelMentions(children)}
                           </li>
                         ),
                         h1: ({ children }) => (
                           <h1 className="mb-2 mt-3 text-[15px] font-semibold text-[#1C1B1A] first:mt-0">
-                            {children}
+                            {decoratePanelModelMentions(children)}
                           </h1>
                         ),
                         h2: ({ children }) => (
                           <h2 className="mb-1.5 mt-3 text-[14px] font-semibold text-[#1C1B1A] first:mt-0">
-                            {children}
+                            {decoratePanelModelMentions(children)}
                           </h2>
                         ),
                         h3: ({ children }) => (
                           <h3 className="mb-1 mt-2.5 text-[13.5px] font-semibold text-[#1C1B1A] first:mt-0">
-                            {children}
+                            {decoratePanelModelMentions(children)}
                           </h3>
                         ),
                       }}
