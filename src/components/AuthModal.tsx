@@ -169,7 +169,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           setEmail(submittedEmail);
           setErrorMessage(`An account associated with ${submittedEmail} already exists.`);
         } else if (data.user) {
-          window.fbq?.('track', 'CompleteRegistration');
           if (data.session) {
             onSuccess();
           } else {
