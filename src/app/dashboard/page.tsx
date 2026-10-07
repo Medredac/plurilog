@@ -1697,11 +1697,15 @@ export default function DashboardPage() {
 
   const requestTurnSummary = async ({
     userMessageId,
+    persistedUserMessageId,
+    discussionId,
     userPrompt,
     isContinue,
     responses,
   }: {
     userMessageId: string;
+    persistedUserMessageId?: string | null;
+    discussionId: string;
     userPrompt: string;
     isContinue: boolean;
     responses: PanelSummaryResponse[];
@@ -1750,6 +1754,26 @@ export default function DashboardPage() {
           artifacts: summaryArtifacts,
         },
       }));
+
+      if (persistedUserMessageId && userId) {
+        const { error: persistSummaryError } = await supabase
+          .from('panel_turn_summaries')
+          .upsert(
+            {
+              user_id: userId,
+              discussion_id: discussionId,
+              user_message_id: persistedUserMessageId,
+              content: summary,
+              artifacts: summaryArtifacts,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_message_id' }
+          );
+
+        if (persistSummaryError) {
+          console.warn('[Panel Summary] Could not persist summary', persistSummaryError);
+        }
+      }
     } catch (summaryErr) {
       console.warn('[Panel Summary] Could not synthesize turn', summaryErr);
       setTurnSummaries((previous) => ({
@@ -1833,6 +1857,11 @@ export default function DashboardPage() {
       summaryRequestStarted = true;
       void requestTurnSummary({
         userMessageId: summaryAnchorUserMessageId,
+        persistedUserMessageId:
+          isContinueRound
+            ? continueMarker?.persistedMessageId || null
+            : sourceUserMessageId || null,
+        discussionId,
         userPrompt: promptToSend,
         isContinue: Boolean(isContinueRound),
         responses: completed,
