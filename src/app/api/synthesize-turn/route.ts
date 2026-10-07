@@ -152,7 +152,6 @@ Use clean Markdown. Do not add a heading like \"Panel Summary\" because the surr
               },
             ],
             max_tokens: 1200,
-            temperature: 0.25,
           },
           {
             timeout: 45000,
