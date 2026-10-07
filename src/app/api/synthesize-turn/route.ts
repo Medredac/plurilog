@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const userPrompt = cleanText(body?.userPrompt, 6000);
     const isContinueRound = Boolean(body?.isContinueRound);
-    const rawResponses = Array.isArray(body?.responses)
-      ? body.responses.slice(0, 3)
+    const rawResponses: PanelResponseInput[] = Array.isArray(body?.responses)
+      ? (body.responses.slice(0, 3) as PanelResponseInput[])
       : [];
 
     const responses = rawResponses
