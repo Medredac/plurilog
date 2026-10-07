@@ -8497,25 +8497,25 @@ export async function POST(req: NextRequest) {
                   refusalPreview: originalRefusal.slice(0, 220),
                 });
 
-                const guardStream = await (openai.chat.completions.create as any)({
-                  model: primaryModel,
-                  models,
-                  messages: seatMessages,
-                  stream: true,
-                  temperature: 0,
-                  signal: seatAbortController.signal,
-                  tools: REQUEST_EVIDENCE_TOOL,
-                  tool_choice: {
-                    type: 'function',
-                    function: { name: 'request_evidence' },
-                  },
-                  ...(discussionId
-                    ? { session_id: `${discussionId}:${seat.seatId}` }
-                    : {}),
-                });
+                const guardRun =
+                  await runRetryableBufferedSeatStream({
+                    stage: 'evidence_guard',
+                    sessionId: discussionId
+                      ? `${discussionId}:${seat.seatId}:evidence-guard`
+                      : null,
+                    request: {
+                      messages: seatMessages,
+                      temperature: 0,
+                      tools: REQUEST_EVIDENCE_TOOL,
+                      tool_choice: {
+                        type: 'function',
+                        function: { name: 'request_evidence' },
+                      },
+                    },
+                  });
 
                 let guardUsage: any = null;
-                for await (const chunk of guardStream) {
+                for (const chunk of guardRun.chunks) {
                   if (req.signal.aborted) break;
                   if (chunk.model) respondingModel = chunk.model;
                   if ((chunk as any).usage) {
@@ -8530,6 +8530,17 @@ export async function POST(req: NextRequest) {
                       deltaToolCalls
                     );
                   }
+                }
+
+                if (guardRun.failedAttemptCostUsd > 0) {
+                  guardUsage = {
+                    ...(guardUsage || {}),
+                    cost:
+                      (typeof guardUsage?.cost === 'number'
+                        ? guardUsage.cost
+                        : 0) +
+                      guardRun.failedAttemptCostUsd,
+                  };
                 }
 
                 incurredEvidenceGuardRetryCostUsd =
@@ -10388,76 +10399,76 @@ export async function POST(req: NextRequest) {
                     label: 'Reviewing findings…',
                   });
 
-                  const evidenceStream = await (openai.chat.completions.create as any)({
-                    model: primaryModel,
-                    models,
-                    messages: evidenceMessages,
-                    stream: true,
-                    temperature: 0.7,
-                    signal: seatAbortController.signal,
-                    tools: [
-                      {
-                        type: 'openrouter:web_search',
-                        parameters: {
-                          max_results: 3,
-                          max_total_results: 6,
-                        },
-                      },
-                      ...(isImageGenerationEnabledForSeat
-                        ? GEMINI_IMAGE_TOOLS
-                        : []),
-                      ...(AGENTIC_MEMORY_EXPERIMENT
-                        ? [
-                            ...(evidenceContinuationCanCreateFile
-                              ? GPT_FILE_TOOLS
-                              : []),
-                            ...(evidenceContinuationCanSourceEdit
-                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                              : []),
-                            ...(evidenceContinuationCanReviseFile
-                              ? GPT_REVISE_FILE_TOOL
-                              : []),
-                          ]
-                        : evidenceContinuationCanSourceEdit
-                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                          : evidenceContinuationCanReviseFile
-                            ? GPT_REVISE_FILE_TOOL
-                            : evidenceContinuationCanCreateFile
-                              ? GPT_FILE_TOOLS
-                              : []),
-                      ...(agenticRetrievalRounds <
-                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
-                      isEvidenceEnabledForSeat
-                        ? REQUEST_EVIDENCE_TOOL
-                        : []),
-                      ...(agenticRetrievalRounds <
-                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
-                      isAgenticMemoryEnabledForSeat
-                        ? AGENTIC_CONVERSATION_MEMORY_TOOLS
-                        : []),
-                      ...(agenticRetrievalRounds <
-                        AGENTIC_HARD_RETRIEVAL_ROUNDS &&
-                      isAgenticDocumentEvidenceEnabledForSeat
-                        ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
-                        : []),
-                    ],
-                    tool_choice: 'auto',
-                    ...(discussionId
-                      ? { session_id: `${discussionId}:${seat.seatId}` }
-                      : {}),
-                    ...(evidenceHasPdf
-                      ? {
-                          plugins: [
-                            {
-                              id: 'file-parser',
-                              pdf: { engine: 'native' },
+                  const evidenceRun =
+                    await runRetryableBufferedSeatStream({
+                      stage: 'artifact_evidence_continuation',
+                      sessionId: discussionId
+                        ? `${discussionId}:${seat.seatId}:evidence`
+                        : null,
+                      request: {
+                        messages: evidenceMessages,
+                        temperature: 0.7,
+                        tools: [
+                          {
+                            type: 'openrouter:web_search',
+                            parameters: {
+                              max_results: 3,
+                              max_total_results: 6,
                             },
-                          ],
-                        }
-                      : {}),
-                  });
+                          },
+                          ...(isImageGenerationEnabledForSeat
+                            ? GEMINI_IMAGE_TOOLS
+                            : []),
+                          ...(AGENTIC_MEMORY_EXPERIMENT
+                            ? [
+                                ...(evidenceContinuationCanCreateFile
+                                  ? GPT_FILE_TOOLS
+                                  : []),
+                                ...(evidenceContinuationCanSourceEdit
+                                  ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                                  : []),
+                                ...(evidenceContinuationCanReviseFile
+                                  ? GPT_REVISE_FILE_TOOL
+                                  : []),
+                              ]
+                            : evidenceContinuationCanSourceEdit
+                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                              : evidenceContinuationCanReviseFile
+                                ? GPT_REVISE_FILE_TOOL
+                                : evidenceContinuationCanCreateFile
+                                  ? GPT_FILE_TOOLS
+                                  : []),
+                          ...(agenticRetrievalRounds <
+                            AGENTIC_HARD_RETRIEVAL_ROUNDS &&
+                          isEvidenceEnabledForSeat
+                            ? REQUEST_EVIDENCE_TOOL
+                            : []),
+                          ...(agenticRetrievalRounds <
+                            AGENTIC_HARD_RETRIEVAL_ROUNDS &&
+                          isAgenticMemoryEnabledForSeat
+                            ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                            : []),
+                          ...(agenticRetrievalRounds <
+                            AGENTIC_HARD_RETRIEVAL_ROUNDS &&
+                          isAgenticDocumentEvidenceEnabledForSeat
+                            ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
+                            : []),
+                        ],
+                        tool_choice: 'auto',
+                        ...(evidenceHasPdf
+                          ? {
+                              plugins: [
+                                {
+                                  id: 'file-parser',
+                                  pdf: { engine: 'native' },
+                                },
+                              ],
+                            }
+                          : {}),
+                      },
+                    });
 
-                  for await (const chunk of evidenceStream) {
+                  for (const chunk of evidenceRun.chunks) {
                     if (req.signal.aborted) break;
                     if (chunk.model) respondingModel = chunk.model;
                     if ((chunk as any).usage) {
@@ -10490,6 +10501,21 @@ export async function POST(req: NextRequest) {
                       // it needs another grounded lookup before finalizing.
                       evidenceContinuationChunks.push(text);
                     }
+                  }
+
+                  if (evidenceRun.failedAttemptCostUsd > 0) {
+                    seatUsage = {
+                      ...(seatUsage || {}),
+                      cost:
+                        (typeof seatUsage?.cost === 'number'
+                          ? seatUsage.cost
+                          : 0) +
+                        evidenceRun.failedAttemptCostUsd,
+                    };
+                    incurredEvidenceSecondPassCostUsd =
+                      typeof seatUsage.cost === 'number'
+                        ? seatUsage.cost
+                        : incurredEvidenceSecondPassCostUsd;
                   }
 
                   if (
@@ -10551,32 +10577,29 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationChunks.length = 0;
                       seatUsage = null;
 
-                      const evidenceFinalizationStream =
-                        await (openai.chat.completions.create as any)({
-                          model: primaryModel,
-                          models,
-                          messages: [
-                            ...evidenceBaseMessages,
-                            ...evidenceToolTranscript,
-                            {
-                              role: 'system',
-                              content:
-                                buildAgenticRetrievalBudgetInstruction(
-                                  AGENTIC_HARD_RETRIEVAL_ROUNDS
-                                ),
-                            } as any,
-                          ],
-                          stream: true,
-                          temperature: 0.7,
-                          signal: seatAbortController.signal,
-                          ...(discussionId
-                            ? {
-                                session_id: `${discussionId}:${seat.seatId}:evidence:finalize`,
-                              }
-                            : {}),
+                      const evidenceFinalizationRun =
+                        await runRetryableBufferedSeatStream({
+                          stage: 'evidence_graceful_finalization',
+                          sessionId: discussionId
+                            ? `${discussionId}:${seat.seatId}:evidence:finalize`
+                            : null,
+                          request: {
+                            messages: [
+                              ...evidenceBaseMessages,
+                              ...evidenceToolTranscript,
+                              {
+                                role: 'system',
+                                content:
+                                  buildAgenticRetrievalBudgetInstruction(
+                                    AGENTIC_HARD_RETRIEVAL_ROUNDS
+                                  ),
+                              } as any,
+                            ],
+                            temperature: 0.7,
+                          },
                         });
 
-                      for await (const chunk of evidenceFinalizationStream) {
+                      for (const chunk of evidenceFinalizationRun.chunks) {
                         if (req.signal.aborted) break;
                         if (chunk.model) respondingModel = chunk.model;
                         if ((chunk as any).usage) {
@@ -10588,6 +10611,19 @@ export async function POST(req: NextRequest) {
                           seatResponse += text;
                           evidenceContinuationChunks.push(text);
                         }
+                      }
+
+                      if (
+                        evidenceFinalizationRun.failedAttemptCostUsd > 0
+                      ) {
+                        seatUsage = {
+                          ...(seatUsage || {}),
+                          cost:
+                            (typeof seatUsage?.cost === 'number'
+                              ? seatUsage.cost
+                              : 0) +
+                            evidenceFinalizationRun.failedAttemptCostUsd,
+                        };
                       }
 
                       console.log(
