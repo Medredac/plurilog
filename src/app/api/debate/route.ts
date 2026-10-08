@@ -10450,6 +10450,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name === 'request_evidence' ||
+                          (deferPdfVisualDelivery && call?.name === DEFERRED_IMAGE_TOOL_NAME) ||
                           AGENTIC_CONVERSATION_TOOL_NAMES.has(
                             call?.name as any
                           ) ||
@@ -10539,6 +10540,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name !== 'request_evidence' &&
+                          call?.name !== DEFERRED_IMAGE_TOOL_NAME &&
                           !AGENTIC_CONVERSATION_TOOL_NAMES.has(
                             call?.name as any
                           ) &&
@@ -10563,10 +10565,19 @@ export async function POST(req: NextRequest) {
                       toolCall: (typeof retrievalCalls)[number];
                       result: Record<string, unknown>;
                     }> = [];
-                    const iterativeNewAttachments: RouteAttachment[] =
-                      [];
+                    const iterativeNewAttachments: RouteAttachment[] = [];
+                    const iterativeDeferredImageBlocks: any[] = [];
 
                     for (const toolCall of retrievalCalls) {
+                      if (toolCall.name === DEFERRED_IMAGE_TOOL_NAME && deferPdfVisualDelivery) {
+                        const resolved = resolveDeferredPdfImages(
+                          (toolCall.arguments || {}) as Record<string, unknown>
+                        );
+                        retrievalResults.push({ toolCall, result: resolved.result });
+                        iterativeDeferredImageBlocks.push(...resolved.blocks);
+                        sendEvent('seat_activity', { seatId: seat.seatId, activity: 'checking_images' });
+                        continue;
+                      }
                       const liveActivity = buildAgenticSeatActivity(
                         toolCall.name,
                         toolCall.arguments
@@ -11140,6 +11151,22 @@ export async function POST(req: NextRequest) {
                         userDisplayName
                       );
 
+                    if (visualInventoryPrompt) {
+                      evidenceBaseMessages = [
+                        ...evidenceBaseMessages,
+                        { role: 'system', content: visualInventoryPrompt } as any,
+                      ];
+                    }
+                    if (iterativeDeferredImageBlocks.length) {
+                      evidenceToolTranscript.push({
+                        role: 'user',
+                        content: [
+                          { type: 'text', text: 'Inspect these selected original PDF images and use only details visible in the pixels:' },
+                          ...iterativeDeferredImageBlocks,
+                        ],
+                      } as any);
+                    }
+
                     seatResponse = '';
                     seatUsage = null;
                     accumulatedToolCalls = [];
@@ -11181,6 +11208,9 @@ export async function POST(req: NextRequest) {
                           signal:
                             seatAbortController.signal,
                           tools: [
+                            ...(deferPdfVisualDelivery &&
+                              agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                              ? DEFERRED_PDF_IMAGE_TOOL : []),
                             ...(agenticRetrievalRounds <
                             AGENTIC_HARD_RETRIEVAL_ROUNDS
                               ? [
