@@ -14833,19 +14833,23 @@ export async function POST(req: NextRequest) {
                   let fallbackUsage: any = null;
                   let fallbackRespondingModel = respondingModel;
 
-                  const fallbackStream = await (openai.chat.completions.create as any)({
-                    model: primaryModel,
-                    models,
-                    messages: fallbackMessages,
-                    stream: true,
-                    temperature: 0.7,
-                    signal: seatAbortController.signal,
-                    ...(discussionId
-                      ? { session_id: `${discussionId}:${seat.seatId}` }
-                      : {}),
-                  });
+                  const sourceEditRecoveryRun =
+                    await runRetryableBufferedSeatStream({
+                      stage: 'source_edit_recovery',
+                      sessionId: discussionId
+                        ? `${discussionId}:${seat.seatId}:source-edit-recovery`
+                        : null,
+                      request: {
+                        messages: fallbackMessages,
+                        temperature: 0.7,
+                      },
+                    });
 
-                  for await (const chunk of fallbackStream) {
+                  fallbackRespondingModel =
+                    sourceEditRecoveryRun.responseModel ||
+                    sourceEditRecoveryRun.attemptModel;
+
+                  for (const chunk of sourceEditRecoveryRun.chunks) {
                     if (req.signal.aborted) break;
                     if (chunk.model) fallbackRespondingModel = chunk.model;
                     if ((chunk as any).usage) {
@@ -14859,6 +14863,17 @@ export async function POST(req: NextRequest) {
                         text,
                       });
                     }
+                  }
+
+                  if (sourceEditRecoveryRun.failedAttemptCostUsd > 0) {
+                    fallbackUsage = {
+                      ...(fallbackUsage || {}),
+                      cost:
+                        (typeof fallbackUsage?.cost === 'number'
+                          ? fallbackUsage.cost
+                          : 0) +
+                        sourceEditRecoveryRun.failedAttemptCostUsd,
+                    };
                   }
 
                   if (req.signal.aborted) {
