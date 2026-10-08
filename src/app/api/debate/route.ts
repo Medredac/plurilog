@@ -7073,7 +7073,52 @@ export async function POST(req: NextRequest) {
                 });
             }, 750);
 
-            const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
+            const currentUploadedDocumentCountForRouting = (
+              Array.isArray(attachments) ? attachments : []
+            ).filter((attachment: any) => {
+              const filename = String(attachment?.filename || '').toLowerCase();
+              const cleanUrl = String(attachment?.url || '')
+                .split('?')[0]
+                .split('#')[0]
+                .toLowerCase();
+              return (
+                filename.endsWith('.pdf') ||
+                filename.endsWith('.docx') ||
+                cleanUrl.endsWith('.pdf') ||
+                cleanUrl.endsWith('.docx')
+              );
+            }).length;
+
+            let models =
+              seatFallbacks[seat.seatId] ||
+              PROVIDER_MODELS[seat.providerPrefix];
+
+            // Economy routing is appropriate for ordinary turns, but large
+            // multi-document analysis should not start on Haiku. Keep the
+            // same fallback pool and simply promote Sonnet to the front.
+            if (
+              seat.seatId === 'claude' &&
+              currentUploadedDocumentCountForRouting >= 3 &&
+              models[0]?.includes('haiku')
+            ) {
+              const sonnetModel = models.find((model) =>
+                model.includes('sonnet')
+              );
+              if (sonnetModel) {
+                models = [
+                  sonnetModel,
+                  ...models.filter((model) => model !== sonnetModel),
+                ];
+                console.log('[Heavy Document Routing]', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  documentCount: currentUploadedDocumentCountForRouting,
+                  models,
+                });
+              }
+            }
+
             const primaryModel = models[0];
             let seatFallbackStartIndex = 0;
             diagnosticActiveModelId = primaryModel;
@@ -7194,10 +7239,49 @@ export async function POST(req: NextRequest) {
             const reviewScopedToGeneratedDocument =
               documentCreatedThisTurn &&
               sameRoundRenderedDocumentPages.length > 0;
-            const modelInputAttachments =
+            const baseModelInputAttachments =
               reviewScopedToGeneratedDocument
                 ? sameRoundDocumentReviewPages
                 : currentRoundAttachments;
+
+            // Large text-centric PDF batches can expose dozens of extracted
+            // images. Keep those assets indexed for evidence retrieval, but do
+            // not eagerly inject every extracted image into every seat unless
+            // the user is actually asking for visual inspection/generation.
+            const pdfEmbeddedImageUrls = new Set(
+              pdfEmbeddedImageAttachments.map((attachment) => attachment.url)
+            );
+            const shouldLazyLoadPdfEmbeddedImages =
+              currentUploadedDocumentCountForRouting >= 3 &&
+              !isVisualQuery &&
+              !isVerificationFollowUp &&
+              !isImageGenerationEnabledForSeat &&
+              !isImageEditingEnabledForSeat;
+
+            const modelInputAttachments =
+              shouldLazyLoadPdfEmbeddedImages
+                ? baseModelInputAttachments.filter(
+                    (attachment) =>
+                      !pdfEmbeddedImageUrls.has(attachment.url)
+                  )
+                : baseModelInputAttachments;
+
+            if (
+              shouldLazyLoadPdfEmbeddedImages &&
+              modelInputAttachments.length !==
+                baseModelInputAttachments.length
+            ) {
+              console.log('[Heavy Document Context]', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                documentCount: currentUploadedDocumentCountForRouting,
+                eagerAttachmentCount: modelInputAttachments.length,
+                deferredEmbeddedImageCount:
+                  baseModelInputAttachments.length -
+                  modelInputAttachments.length,
+              });
+            }
 
             const pdfAttachments = modelInputAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
@@ -7355,6 +7439,39 @@ export async function POST(req: NextRequest) {
                   hasKnownInspectableDocument &&
                   !hasCurrentUserDocumentUpload)
               );
+
+            const explicitWebSearchRequested =
+              /\b(?:search|browse)\s+(?:the\s+)?(?:web|internet)\b|\b(?:look\s*up|lookup|check|verify)\s+(?:this\s+)?(?:online|on\s+the\s+web|on\s+the\s+internet)\b|\bweb\s+search\b|\bonline\s+sources?\b/i.test(
+                prompt || ''
+              );
+            const freshnessWebNeed =
+              /\b(?:latest|today|current(?:ly)?|recent(?:ly)?|this\s+week|this\s+month|up[- ]to[- ]date|breaking|news)\b/i.test(
+                prompt || ''
+              );
+            const shouldOfferWebSearchForTurn =
+              !hasCurrentUserDocumentUpload ||
+              explicitWebSearchRequested ||
+              freshnessWebNeed;
+            const webSearchTools = shouldOfferWebSearchForTurn
+              ? [
+                  {
+                    type: 'openrouter:web_search',
+                    parameters: {
+                      max_results: 3,
+                      max_total_results: 6,
+                    },
+                  },
+                ]
+              : [];
+
+            if (!shouldOfferWebSearchForTurn) {
+              console.log('[Web Search Tool] Suppressed for document-grounded turn', {
+                turnId,
+                discussionId: discussionId || null,
+                seatId: seat.seatId,
+                currentDocumentAttachmentCount,
+              });
+            }
 
             if (reviewScopedToGeneratedDocument) {
               console.log('[Generated Document Review Scope]', {
@@ -7738,13 +7855,7 @@ export async function POST(req: NextRequest) {
                 temperature: 0.7,
                 signal: seatAbortController.signal,
                 tools: [
-                  {
-                    type: 'openrouter:web_search',
-                    parameters: {
-                      max_results: 3,
-                      max_total_results: 6,
-                    },
-                  },
+                  ...webSearchTools,
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(AGENTIC_MEMORY_EXPERIMENT
@@ -8328,15 +8439,7 @@ export async function POST(req: NextRequest) {
                   AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
                   ...(retrievalToolsStillAvailable
-                    ? [
-                        {
-                          type: 'openrouter:web_search',
-                          parameters: {
-                            max_results: 3,
-                            max_total_results: 6,
-                          },
-                        },
-                      ]
+                    ? webSearchTools
                     : []),
                   ...(isImageGenerationEnabledForSeat
                     ? GEMINI_IMAGE_TOOLS
@@ -10426,13 +10529,7 @@ export async function POST(req: NextRequest) {
                         messages: evidenceMessages,
                         temperature: 0.7,
                         tools: [
-                          {
-                            type: 'openrouter:web_search',
-                            parameters: {
-                              max_results: 3,
-                              max_total_results: 6,
-                            },
-                          },
+                          ...webSearchTools,
                           ...(isImageGenerationEnabledForSeat
                             ? GEMINI_IMAGE_TOOLS
                             : []),
