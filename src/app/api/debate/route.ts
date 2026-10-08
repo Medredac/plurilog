@@ -7204,42 +7204,14 @@ export async function POST(req: NextRequest) {
             ) || [];
             const hasPdf = pdfAttachments.length > 0;
 
-            // When visual reinspection is active, every model seat must independently receive the visual PDF
-            // with engine: 'native' rather than using text-only OCR annotation reuse.
-            const isVisualInspectionActive =
-              hasPdf &&
-              (
-                Boolean(visualAttachments && visualAttachments.length > 0) ||
-                (!AGENTIC_MEMORY_EXPERIMENT && isVisualQuery)
-              );
-
-            // Only reuse text annotations when not in visual inspection mode AND annotations captured for ALL PDFs
-            const hasAllPdfAnnotations =
-              !isVisualInspectionActive &&
-              hasPdf &&
-              roundFileAnnotations.length >= pdfAttachments.length &&
-              pdfAttachments.every((pdf: any) =>
-                roundFileAnnotations.some(
-                  (ann: any) =>
-                    ann?.file?.hash &&
-                    (!pdf.filename || !ann?.file?.name || ann.file.name.toLowerCase() === pdf.filename.toLowerCase())
-                )
-              );
-
-            const isReusingAnnotations = hasAllPdfAnnotations;
-            const needsPdfPlugin = hasPdf && !isReusingAnnotations;
-            const pdfEngine = isVisualInspectionActive ? 'native' : 'mistral-ocr';
-
+            // Let OpenRouter select native PDF input for each compatible seat. If a
+            // model cannot accept PDFs natively, OpenRouter falls back to its file
+            // parser. Never reuse OCR annotations across seats: later seats must
+            // independently inspect the original PDF, including all visual pages.
             console.log('[PDF Relay Mode]', {
               seatId: seat.seatId,
-              mode: hasPdf
-                ? isVisualInspectionActive
-                  ? 'visual-native'
-                  : isReusingAnnotations
-                    ? 'reusing-ocr'
-                    : 'parsing-ocr'
-                : 'none',
-              engine: hasPdf && needsPdfPlugin ? pdfEngine : 'none',
+              mode: hasPdf ? 'per-seat-auto-native' : 'none',
+              engine: hasPdf ? 'openrouter-auto' : 'none',
               annotationCount: roundFileAnnotations.length,
               pdfCount: pdfAttachments.length,
             });
@@ -7252,7 +7224,7 @@ export async function POST(req: NextRequest) {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
               });
-            } else if (hasPdf && needsPdfPlugin) {
+            } else if (hasPdf) {
               sendEvent('seat_activity', {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
@@ -7390,7 +7362,7 @@ export async function POST(req: NextRequest) {
               priorResponses,
               panelDiscussionMemory,
               seatAttachments,
-              isReusingAnnotations ? roundFileAnnotations : null,
+              null,
               retrievedMemory,
               seatRetrievedDocuments,
               isVisualUnavailable,
@@ -7602,18 +7574,7 @@ export async function POST(req: NextRequest) {
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
-                ...(needsPdfPlugin
-                  ? {
-                      plugins: [
-                        {
-                          id: 'file-parser',
-                          pdf: {
-                            engine: pdfEngine,
-                          },
-                        },
-                      ],
-                    }
-                  : {}),
+                
                   });
               } catch (providerOpenErr: any) {
                 console.error('[Provider Stream] Open failed', {
@@ -8182,16 +8143,7 @@ export async function POST(req: NextRequest) {
                           session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
                         }
                       : {}),
-                    ...(needsPdfPlugin
-                      ? {
-                          plugins: [
-                            {
-                              id: 'file-parser',
-                              pdf: { engine: pdfEngine },
-                            },
-                          ],
-                        }
-                      : {}),
+                    
                   });
 
                 let continuationModel = primaryModel;
