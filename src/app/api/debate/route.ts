@@ -6738,9 +6738,9 @@ export async function POST(req: NextRequest) {
           // before a document can enter selective-delivery mode.
           const deferPdfVisualDelivery =
             process.env.VERCEL_ENV === 'preview' && visualDelivery.deferred;
-          const visualInventoryPrompt = formatDocumentVisualInventory(
-            currentVisualInventory, deferPdfVisualDelivery
-          );
+          const visualInventoryPrompt = process.env.VERCEL_ENV === 'preview'
+            ? formatDocumentVisualInventory(currentVisualInventory, deferPdfVisualDelivery)
+            : '';
           const deferredVisualAssets = new Map<string, PdfVisualAsset>(
             deferPdfVisualDelivery
               ? currentVisualInventory.filter((d) => d.format === 'pdf')
