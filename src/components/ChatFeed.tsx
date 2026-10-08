@@ -2680,7 +2680,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           const filename = getAttachmentDisplayFilename(url);
           return !isImageUrl(url, filename);
         });
+        // Do not collapse a live reply merely because the provider stream
+        // finished. The presentation layer may still be draining buffered text
+        // word-by-word. Wait until that visual reveal has fully settled so the
+        // answer never appears to keep typing while its container collapses.
         const isAiCollapsible =
+          hasSettledPresentation &&
           !message.isStreaming &&
           (
             message.content.length > 280 ||
@@ -2853,8 +2858,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
-              {/* The expand control belongs to the response itself, so show it
-                  as soon as a completed response becomes collapsible. */}
+              {/* Show the expand control only after the visual response reveal
+                  has settled; never while buffered text is still presenting. */}
               <AnimatePresence initial={false}>
                 {!isThinking && isAiCollapsible && (
                   <motion.div
