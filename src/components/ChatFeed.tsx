@@ -2680,13 +2680,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           const filename = getAttachmentDisplayFilename(url);
           return !isImageUrl(url, filename);
         });
+        // Individual panel replies are collapsed from the moment visible
+        // content begins. The answer streams/reveals inside this fixed viewport,
+        // so there is never a later "full answer -> sudden collapse" transition.
         const isAiCollapsible =
-          !message.isStreaming &&
-          (
-            message.content.length > 280 ||
-            message.content.split('\n').length > 5 ||
-            attachments.length > 0
-          );
+          Boolean(message.content.trim()) || attachments.length > 0;
         const isAiCollapsed =
           isAiCollapsible && (collapsedAiMsgIds[message.id] ?? true);
         const readByModels = orderedActiveModels.filter((id) => id !== modelKey);
@@ -2853,8 +2851,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
-              {/* The expand control belongs to the response itself, so show it
-                  as soon as a completed response becomes collapsible. */}
+              {/* The response is collapsed from first visible content, so the
+                  expand control belongs to the live reply from the start. */}
               <AnimatePresence initial={false}>
                 {!isThinking && isAiCollapsible && (
                   <motion.div
@@ -2869,7 +2867,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     <button
                       type="button"
                       onClick={() => toggleAiCollapse(message.id)}
-                      className="inline-flex items-center justify-center gap-1.5 px-1 py-1 text-[11px] font-medium text-[#6A675F] transition-colors hover:text-[#1C1B1A] cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 px-1.5 py-1.5 text-[12px] font-medium text-[#6A675F] transition-colors hover:text-[#1C1B1A] cursor-pointer"
                       title={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
                       aria-label={isAiCollapsed ? 'Show full answer' : 'Collapse answer'}
                       aria-expanded={!isAiCollapsed}
