@@ -8,8 +8,8 @@ export type ProviderPrefix = 'google/' | 'anthropic/' | 'openai/';
 
 export const PROVIDER_MODELS: Record<ProviderPrefix, string[]> = {
   'google/': [
-    'google/gemini-3.8-flash',
     'google/gemini-3.7-flash',
+    'google/gemini-3.8-flash',
     'google/gemini-3.5-flash-lite',
   ],
   'anthropic/': [
