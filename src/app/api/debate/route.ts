@@ -7636,11 +7636,200 @@ export async function POST(req: NextRequest) {
 
               return (
                 [408, 429, 500, 502, 503, 504].includes(code) ||
+                (code === 400 &&
+                  /server tool .*web_search.*failed/.test(message)) ||
                 errorType.includes('timeout') ||
                 /timed? ?out|temporar(?:y|ily)|overloaded|unavailable|connection reset|network error/.test(
                   message
                 )
               );
+            };
+
+            const PROVIDER_OPEN_TIMEOUT_MS = 60_000;
+            const PROVIDER_FIRST_CHUNK_TIMEOUT_MS = 120_000;
+            const PROVIDER_IDLE_CHUNK_TIMEOUT_MS = 90_000;
+
+            const createProviderAttemptTimeoutError = (
+              stage: string,
+              phase: 'open' | 'first_chunk' | 'idle_chunk',
+              timeoutMs: number,
+              model: string
+            ) => {
+              const timeoutError: any = new Error(
+                `${seat.name} ${model} timed out during ${phase} after ${Math.round(
+                  timeoutMs / 1000
+                )}s (${stage}).`
+              );
+              timeoutError.code = 408;
+              timeoutError.type = 'provider_attempt_timeout';
+              timeoutError.phase = phase;
+              timeoutError.model = model;
+              return timeoutError;
+            };
+
+            const createProviderAttemptController = () => {
+              const attemptController = new AbortController();
+              const relaySeatAbort = () => {
+                if (!attemptController.signal.aborted) {
+                  attemptController.abort(
+                    seatAbortController.signal.reason ||
+                      new Error(`${seat.name} seat aborted.`)
+                  );
+                }
+              };
+
+              if (seatAbortController.signal.aborted) {
+                relaySeatAbort();
+              } else {
+                seatAbortController.signal.addEventListener(
+                  'abort',
+                  relaySeatAbort,
+                  { once: true }
+                );
+              }
+
+              return {
+                attemptController,
+                cleanup: () =>
+                  seatAbortController.signal.removeEventListener(
+                    'abort',
+                    relaySeatAbort
+                  ),
+              };
+            };
+
+            const awaitProviderAttemptStep = async <T,>(options: {
+              promise: Promise<T>;
+              attemptController: AbortController;
+              stage: string;
+              phase: 'open' | 'first_chunk' | 'idle_chunk';
+              timeoutMs: number;
+              model: string;
+            }): Promise<T> => {
+              let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+              let parentAbortListener: (() => void) | null = null;
+
+              const timeoutPromise = new Promise<T>((_resolve, reject) => {
+                timeoutHandle = setTimeout(() => {
+                  const timeoutError =
+                    createProviderAttemptTimeoutError(
+                      options.stage,
+                      options.phase,
+                      options.timeoutMs,
+                      options.model
+                    );
+                  if (!options.attemptController.signal.aborted) {
+                    options.attemptController.abort(timeoutError);
+                  }
+                  reject(timeoutError);
+                }, options.timeoutMs);
+              });
+
+              const parentAbortPromise = new Promise<T>(
+                (_resolve, reject) => {
+                  const rejectForSeatAbort = () => {
+                    const reason =
+                      seatAbortController.signal.reason ||
+                      new Error(`${seat.name} seat aborted.`);
+                    if (!options.attemptController.signal.aborted) {
+                      options.attemptController.abort(reason);
+                    }
+                    reject(
+                      reason instanceof Error
+                        ? reason
+                        : new Error(
+                            describeDiagnosticReason(reason) ||
+                              `${seat.name} seat aborted.`
+                          )
+                    );
+                  };
+
+                  if (seatAbortController.signal.aborted) {
+                    rejectForSeatAbort();
+                    return;
+                  }
+
+                  parentAbortListener = rejectForSeatAbort;
+                  seatAbortController.signal.addEventListener(
+                    'abort',
+                    rejectForSeatAbort,
+                    { once: true }
+                  );
+                }
+              );
+
+              try {
+                return await Promise.race([
+                  options.promise,
+                  timeoutPromise,
+                  parentAbortPromise,
+                ]);
+              } finally {
+                if (timeoutHandle) clearTimeout(timeoutHandle);
+                if (parentAbortListener) {
+                  seatAbortController.signal.removeEventListener(
+                    'abort',
+                    parentAbortListener
+                  );
+                }
+              }
+            };
+
+            const consumeProviderStreamWithWatchdog = async (options: {
+              stream: any;
+              attemptController: AbortController;
+              stage: string;
+              model: string;
+              onChunk: (chunk: any) => void | Promise<void>;
+            }) => {
+              const iterator = options.stream[Symbol.asyncIterator]();
+              let chunkCount = 0;
+              let firstChunkAt: number | null = null;
+
+              try {
+                while (true) {
+                  const phase =
+                    chunkCount === 0 ? 'first_chunk' : 'idle_chunk';
+                  const timeoutMs =
+                    chunkCount === 0
+                      ? PROVIDER_FIRST_CHUNK_TIMEOUT_MS
+                      : PROVIDER_IDLE_CHUNK_TIMEOUT_MS;
+
+                  const nextResult =
+                    await awaitProviderAttemptStep<any>({
+                      promise: Promise.resolve(iterator.next()),
+                      attemptController: options.attemptController,
+                      stage: options.stage,
+                      phase,
+                      timeoutMs,
+                      model: options.model,
+                    });
+
+                  if (nextResult.done) break;
+
+                  chunkCount += 1;
+                  if (firstChunkAt == null) {
+                    firstChunkAt = Date.now();
+                  }
+
+                  await options.onChunk(nextResult.value);
+                }
+
+                return { chunkCount, firstChunkAt };
+              } catch (streamError) {
+                try {
+                  const returnPromise = iterator.return?.();
+                  if (
+                    returnPromise &&
+                    typeof (returnPromise as any).catch === 'function'
+                  ) {
+                    void (returnPromise as Promise<any>).catch(() => undefined);
+                  }
+                } catch {
+                  // Best-effort iterator cleanup only.
+                }
+                throw streamError;
+              }
             };
 
             const runRetryableBufferedSeatStream = async (options: {
@@ -7675,6 +7864,10 @@ export async function POST(req: NextRequest) {
                     ? options.sessionId
                     : `${options.sessionId}:fallback:${modelIndex + 1}`
                   : null;
+                const { attemptController, cleanup } =
+                  createProviderAttemptController();
+
+                diagnosticActiveModelId = attemptModel;
 
                 try {
                   console.log('[Seat Stage Attempt]', {
@@ -7690,25 +7883,40 @@ export async function POST(req: NextRequest) {
                     elapsedTurnMs: Date.now() - turnStartedAt,
                   });
 
-                  const retryableStream =
-                    await (openai.chat.completions.create as any)({
+                  const openPromise =
+                    (openai.chat.completions.create as any)({
                       ...options.request,
                       model: attemptModel,
                       stream: true,
-                      signal: seatAbortController.signal,
+                      signal: attemptController.signal,
                       ...(attemptSessionId
                         ? { session_id: attemptSessionId }
                         : {}),
+                    }) as Promise<any>;
+
+                  const retryableStream =
+                    await awaitProviderAttemptStep<any>({
+                      promise: openPromise,
+                      attemptController,
+                      stage: options.stage,
+                      phase: 'open',
+                      timeoutMs: PROVIDER_OPEN_TIMEOUT_MS,
+                      model: attemptModel,
                     });
 
-                  for await (const chunk of retryableStream) {
-                    if (req.signal.aborted) break;
-                    chunks.push(chunk);
-                    if (chunk.model) responseModel = chunk.model;
-                    if ((chunk as any).usage) {
-                      attemptUsage = (chunk as any).usage;
-                    }
-                  }
+                  await consumeProviderStreamWithWatchdog({
+                    stream: retryableStream,
+                    attemptController,
+                    stage: options.stage,
+                    model: attemptModel,
+                    onChunk: (chunk) => {
+                      chunks.push(chunk);
+                      if (chunk.model) responseModel = chunk.model;
+                      if ((chunk as any).usage) {
+                        attemptUsage = (chunk as any).usage;
+                      }
+                    },
+                  });
 
                   if (req.signal.aborted) {
                     const abortReason = req.signal.reason;
@@ -7791,6 +7999,7 @@ export async function POST(req: NextRequest) {
                         stageError?.error?.metadata?.error_type ||
                         stageError?.type ||
                         null,
+                      phase: stageError?.phase || null,
                       message:
                         stageError?.message ||
                         stageError?.error?.message ||
@@ -7811,13 +8020,13 @@ export async function POST(req: NextRequest) {
                     throw stageError;
                   }
 
-                  // Advance the rest of this seat to the fallback that is about
-                  // to inherit the same completed evidence/tool transcript.
                   seatFallbackStartIndex = Math.max(
                     seatFallbackStartIndex,
                     modelIndex + 1
                   );
                   lastError = stageError;
+                } finally {
+                  cleanup();
                 }
               }
 
@@ -7829,254 +8038,395 @@ export async function POST(req: NextRequest) {
               );
             };
 
+            const applyInitialSeatChunk = (chunk: any) => {
+              if (chunk.model) {
+                respondingModel = chunk.model;
+              }
+              if ((chunk as any).usage) {
+                seatUsage = (chunk as any).usage;
+              }
+
+              const deltaAnnotations =
+                (chunk.choices?.[0]?.delta as any)?.annotations;
+              if (deltaAnnotations) {
+                addFileAnnotations(deltaAnnotations);
+                addWebCitations(deltaAnnotations);
+              }
+
+              const deltaToolCalls =
+                (chunk.choices?.[0]?.delta as any)?.tool_calls;
+              if (deltaToolCalls) {
+                accumulatedToolCalls = mergeStreamingToolCalls(
+                  accumulatedToolCalls,
+                  deltaToolCalls
+                );
+              }
+
+              const text = chunk.choices?.[0]?.delta?.content || '';
+              if (text) {
+                seatResponse += text;
+                if (initialSeatStreamsBuffered) {
+                  bufferedSeatChunks.push(text);
+                } else {
+                  sendEvent('seat_chunk', {
+                    seatId: seat.seatId,
+                    text,
+                  });
+                }
+              }
+            };
+
             const consumeInitialSeatStream = async (
-              attemptModels: string[]
+              attemptModel: string,
+              modelIndex: number
             ) => {
               const providerAttemptStartedAt = Date.now();
+              const attemptSessionId = discussionId
+                ? modelIndex === 0
+                  ? `${discussionId}:${seat.seatId}`
+                  : `${discussionId}:${seat.seatId}:fallback:${modelIndex + 1}`
+                : null;
+              const { attemptController, cleanup } =
+                createProviderAttemptController();
+              const attemptChunks: any[] = [];
+              let attemptUsage: any = null;
+              let attemptResponseModel = attemptModel;
+
+              diagnosticActiveModelId = attemptModel;
+
               console.log('[Provider Stream] Opening', {
                 turnId,
                 discussionId: discussionId || null,
                 seatId: seat.seatId,
-                primaryAttemptModel: attemptModels[0] || null,
-                fallbackModels: attemptModels,
+                primaryAttemptModel: attemptModel,
+                configuredFallbackModels: models,
+                modelIndex,
                 seatElapsedMs: Date.now() - seatStartedAt,
                 elapsedTurnMs: Date.now() - turnStartedAt,
                 requestAborted: req.signal.aborted,
               });
 
-              let initialProviderStream: any;
               try {
-                initialProviderStream =
-                  await (openai.chat.completions.create as any)({
-                model: attemptModels[0],
-                models: attemptModels,
-                messages: seatMessages,
-                stream: true,
-                temperature: 0.7,
-                signal: seatAbortController.signal,
-                tools: [
-                  ...webSearchTools,
-                  ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
-                  ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(AGENTIC_MEMORY_EXPERIMENT
-                    ? [
-                        ...(isDocumentCreationEnabledForSeat
-                          ? GPT_FILE_TOOLS
-                          : []),
-                        ...(canEditCurrentUserDocument
-                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                          : []),
-                      ]
-                    : sourceDocumentEditingForCurrentTurn
-                      ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
-                      : isDocumentCreationEnabledForSeat
-                        ? GPT_FILE_TOOLS
+                const openPromise =
+                  (openai.chat.completions.create as any)({
+                    model: attemptModel,
+                    messages: seatMessages,
+                    stream: true,
+                    temperature: 0.7,
+                    signal: attemptController.signal,
+                    tools: [
+                      ...webSearchTools,
+                      ...(isImageGenerationEnabledForSeat
+                        ? GEMINI_IMAGE_TOOLS
                         : []),
-                  ...(isEvidenceEnabledForSeat ? REQUEST_EVIDENCE_TOOL : []),
-                  ...(isAgenticMemoryEnabledForSeat
-                    ? AGENTIC_CONVERSATION_MEMORY_TOOLS
-                    : []),
-                  ...(isAgenticDocumentEvidenceEnabledForSeat
-                    ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
-                    : []),
-                ],
-                ...(shouldForceEvidenceOnFirstPass
-                  ? {
-                      tool_choice: {
-                        type: 'function',
-                        function: { name: 'request_evidence' },
-                      },
-                    }
-                  : !AGENTIC_MEMORY_EXPERIMENT &&
-                      sourceDocumentEditingForCurrentTurn
-                    ? {
-                        tool_choice: {
-                          type: 'function',
-                          function: { name: 'edit_source_document' },
-                        },
-                      }
-                    : {}),
-                ...(discussionId
-                  ? { session_id: `${discussionId}:${seat.seatId}` }
-                  : {}),
-                ...(needsPdfPlugin
-                  ? {
-                      plugins: [
-                        {
-                          id: 'file-parser',
-                          pdf: {
-                            engine: pdfEngine,
+                      ...(isImageEditingEnabledForSeat
+                        ? GEMINI_IMAGE_EDIT_TOOLS
+                        : []),
+                      ...(AGENTIC_MEMORY_EXPERIMENT
+                        ? [
+                            ...(isDocumentCreationEnabledForSeat
+                              ? GPT_FILE_TOOLS
+                              : []),
+                            ...(canEditCurrentUserDocument
+                              ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                              : []),
+                          ]
+                        : sourceDocumentEditingForCurrentTurn
+                          ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
+                          : isDocumentCreationEnabledForSeat
+                            ? GPT_FILE_TOOLS
+                            : []),
+                      ...(isEvidenceEnabledForSeat
+                        ? REQUEST_EVIDENCE_TOOL
+                        : []),
+                      ...(isAgenticMemoryEnabledForSeat
+                        ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                        : []),
+                      ...(isAgenticDocumentEvidenceEnabledForSeat
+                        ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
+                        : []),
+                    ],
+                    ...(shouldForceEvidenceOnFirstPass
+                      ? {
+                          tool_choice: {
+                            type: 'function',
+                            function: { name: 'request_evidence' },
                           },
-                        },
-                      ],
-                    }
-                  : {}),
+                        }
+                      : !AGENTIC_MEMORY_EXPERIMENT &&
+                          sourceDocumentEditingForCurrentTurn
+                        ? {
+                            tool_choice: {
+                              type: 'function',
+                              function: { name: 'edit_source_document' },
+                            },
+                          }
+                        : {}),
+                    ...(attemptSessionId
+                      ? { session_id: attemptSessionId }
+                      : {}),
+                    ...(needsPdfPlugin
+                      ? {
+                          plugins: [
+                            {
+                              id: 'file-parser',
+                              pdf: {
+                                engine: pdfEngine,
+                              },
+                            },
+                          ],
+                        }
+                      : {}),
+                  }) as Promise<any>;
+
+                const initialProviderStream =
+                  await awaitProviderAttemptStep<any>({
+                    promise: openPromise,
+                    attemptController,
+                    stage: 'initial',
+                    phase: 'open',
+                    timeoutMs: PROVIDER_OPEN_TIMEOUT_MS,
+                    model: attemptModel,
                   });
-              } catch (providerOpenErr: any) {
-                console.error('[Provider Stream] Open failed', {
+
+                console.log('[Provider Stream] Opened', {
                   turnId,
                   discussionId: discussionId || null,
                   seatId: seat.seatId,
-                  primaryAttemptModel: attemptModels[0] || null,
-                  latencyMs: Date.now() - providerAttemptStartedAt,
+                  primaryAttemptModel: attemptModel,
+                  openLatencyMs: Date.now() - providerAttemptStartedAt,
+                });
+
+                const streamResult =
+                  await consumeProviderStreamWithWatchdog({
+                    stream: initialProviderStream,
+                    attemptController,
+                    stage: 'initial',
+                    model: attemptModel,
+                    onChunk: (chunk) => {
+                      attemptChunks.push(chunk);
+                      if (chunk.model) {
+                        attemptResponseModel = chunk.model;
+                      }
+                      if ((chunk as any).usage) {
+                        attemptUsage = (chunk as any).usage;
+                      }
+
+                      if (!initialSeatStreamsBuffered) {
+                        applyInitialSeatChunk(chunk);
+                      }
+                    },
+                  });
+
+                if (streamResult.firstChunkAt != null) {
+                  console.log('[Provider Stream] First chunk', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    respondingModel: attemptResponseModel,
+                    firstChunkLatencyMs:
+                      streamResult.firstChunkAt -
+                      providerAttemptStartedAt,
+                    seatElapsedMs: Date.now() - seatStartedAt,
+                    elapsedTurnMs: Date.now() - turnStartedAt,
+                  });
+                }
+
+                if (initialSeatStreamsBuffered) {
+                  for (const chunk of attemptChunks) {
+                    applyInitialSeatChunk(chunk);
+                  }
+                }
+
+                console.log('[Provider Stream] Ended', {
+                  turnId,
+                  discussionId: discussionId || null,
+                  seatId: seat.seatId,
+                  respondingModel: attemptResponseModel,
+                  chunkCount: streamResult.chunkCount,
+                  totalLatencyMs: Date.now() - providerAttemptStartedAt,
                   requestAborted: req.signal.aborted,
                   seatAborted: seatAbortController.signal.aborted,
                   seatAbortReason: describeDiagnosticReason(
                     seatAbortController.signal.reason
                   ),
-                  error:
-                    providerOpenErr?.message || String(providerOpenErr),
+                  responseChars: seatResponse.length,
                 });
-                throw providerOpenErr;
-              }
 
-              console.log('[Provider Stream] Opened', {
-                turnId,
-                discussionId: discussionId || null,
-                seatId: seat.seatId,
-                primaryAttemptModel: attemptModels[0] || null,
-                openLatencyMs: Date.now() - providerAttemptStartedAt,
-              });
+                return {
+                  attemptUsage,
+                  responseModel: attemptResponseModel,
+                };
+              } catch (providerError: any) {
+                providerError.__plurilogPartialCostUsd =
+                  typeof attemptUsage?.cost === 'number'
+                    ? attemptUsage.cost
+                    : 0;
+                providerError.__plurilogPartialChunkCount =
+                  attemptChunks.length;
 
-              let providerChunkCount = 0;
-              let providerFirstChunkAt: number | null = null;
-
-              for await (const chunk of initialProviderStream) {
-                providerChunkCount += 1;
-                if (providerFirstChunkAt == null) {
-                  providerFirstChunkAt = Date.now();
-                  console.log('[Provider Stream] First chunk', {
-                    turnId,
-                    discussionId: discussionId || null,
-                    seatId: seat.seatId,
-                    respondingModel: chunk.model || attemptModels[0] || null,
-                    firstChunkLatencyMs:
-                      providerFirstChunkAt - providerAttemptStartedAt,
-                    seatElapsedMs: Date.now() - seatStartedAt,
-                    elapsedTurnMs: Date.now() - turnStartedAt,
-                  });
-                }
-                if (req.signal.aborted) {
-                  break;
-                }
-                if (chunk.model) {
-                  respondingModel = chunk.model;
-                }
-                if ((chunk as any).usage) {
-                  seatUsage = (chunk as any).usage;
-                }
-
-                // Capture file annotations and web url_citation annotations from chunk.choices[0].delta.annotations
-                const deltaAnnotations = (chunk.choices?.[0]?.delta as any)?.annotations;
-                if (deltaAnnotations) {
-                  addFileAnnotations(deltaAnnotations);
-                  addWebCitations(deltaAnnotations);
-                }
-
-                // Capture streaming tool calls from chunk.choices[0].delta.tool_calls
-                const deltaToolCalls = (chunk.choices?.[0]?.delta as any)?.tool_calls;
-                if (deltaToolCalls) {
-                  accumulatedToolCalls = mergeStreamingToolCalls(
-                    accumulatedToolCalls,
-                    deltaToolCalls
-                  );
-                }
-
-                const text = chunk.choices[0]?.delta?.content || '';
-                if (text) {
-                  seatResponse += text;
-                  if (initialSeatStreamsBuffered) {
-                    bufferedSeatChunks.push(text);
-                  } else {
-                    sendEvent('seat_chunk', {
-                      seatId: seat.seatId,
-                      text,
-                    });
-                  }
-                }
-              }
-
-              console.log('[Provider Stream] Ended', {
-                turnId,
-                discussionId: discussionId || null,
-                seatId: seat.seatId,
-                respondingModel,
-                chunkCount: providerChunkCount,
-                totalLatencyMs: Date.now() - providerAttemptStartedAt,
-                requestAborted: req.signal.aborted,
-                seatAborted: seatAbortController.signal.aborted,
-                seatAbortReason: describeDiagnosticReason(
-                  seatAbortController.signal.reason
-                ),
-                responseChars: seatResponse.length,
-              });
-            };
-
-            try {
-              try {
-                await consumeInitialSeatStream(models);
-              } catch (initialStreamError: any) {
-                const canRetryWithNextModel =
-                  !req.signal.aborted &&
-                  !seatAbortController.signal.aborted &&
-                  models.length > 1 &&
-                  isRetryableProviderStreamError(initialStreamError) &&
-                  (initialSeatStreamsBuffered ||
-                    (seatResponse.length === 0 &&
-                      accumulatedToolCalls.length === 0));
-
-                if (!canRetryWithNextModel) {
-                  throw initialStreamError;
-                }
-
-                const retryModels = models.slice(1);
-                const failedAttemptCostUsd =
-                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-
-                console.warn('[Seat Retry]', {
+                console.error('[Provider Stream] Attempt failed', {
                   turnId,
                   discussionId: discussionId || null,
                   seatId: seat.seatId,
-                  failedModel: respondingModel || primaryModel,
-                  retryModel: retryModels[0],
+                  attemptModel,
+                  modelIndex,
+                  latencyMs: Date.now() - providerAttemptStartedAt,
+                  partialChunkCount: attemptChunks.length,
+                  requestAborted: req.signal.aborted,
+                  seatAborted: seatAbortController.signal.aborted,
+                  seatAbortReason: describeDiagnosticReason(
+                    seatAbortController.signal.reason
+                  ),
+                  phase: providerError?.phase || null,
                   code:
-                    initialStreamError?.code ??
-                    initialStreamError?.status ??
-                    initialStreamError?.error?.code ??
+                    providerError?.code ??
+                    providerError?.status ??
+                    providerError?.error?.code ??
                     null,
-                  errorType:
-                    initialStreamError?.error?.metadata?.error_type || null,
-                  message:
-                    initialStreamError?.message ||
-                    initialStreamError?.error?.message ||
-                    String(initialStreamError),
+                  error:
+                    providerError?.message ||
+                    providerError?.error?.message ||
+                    String(providerError),
                 });
+                throw providerError;
+              } finally {
+                cleanup();
+              }
+            };
 
-                seatResponse = '';
-                seatUsage = null;
-                accumulatedToolCalls = [];
-                bufferedSeatChunks.length = 0;
-                respondingModel = retryModels[0];
+            try {
+              let failedInitialAttemptCostUsd = 0;
+              let initialSeatCompleted = false;
+              let lastInitialError: any = null;
 
-                await consumeInitialSeatStream(retryModels);
+              for (
+                let modelIndex = 0;
+                modelIndex < models.length;
+                modelIndex += 1
+              ) {
+                const attemptModel = models[modelIndex];
+                const roundFileAnnotationCountBeforeAttempt =
+                  roundFileAnnotations.length;
+                const seatWebCitationCountBeforeAttempt =
+                  seatWebCitations.length;
+                const sharedEvidenceCountBeforeAttempt =
+                  sharedAgenticEvidenceLedger.length;
 
-                // The fallback that successfully inherited the initial seat
-                // state becomes the floor for all later agentic calls in this
-                // seat. Do not jump back to a model that already failed.
-                seatFallbackStartIndex = Math.max(
-                  seatFallbackStartIndex,
-                  models.length - retryModels.length
-                );
+                respondingModel = attemptModel;
+                diagnosticActiveModelId = attemptModel;
 
-                if (
-                  failedAttemptCostUsd > 0 &&
-                  typeof seatUsage?.cost === 'number'
-                ) {
-                  seatUsage = {
-                    ...seatUsage,
-                    cost: seatUsage.cost + failedAttemptCostUsd,
-                  };
+                try {
+                  await consumeInitialSeatStream(
+                    attemptModel,
+                    modelIndex
+                  );
+                  seatFallbackStartIndex = Math.max(
+                    seatFallbackStartIndex,
+                    modelIndex
+                  );
+                  initialSeatCompleted = true;
+                  break;
+                } catch (initialStreamError: any) {
+                  lastInitialError = initialStreamError;
+                  failedInitialAttemptCostUsd +=
+                    Number(
+                      initialStreamError
+                        ?.__plurilogPartialCostUsd
+                    ) || 0;
+
+                  const canRetryWithNextModel =
+                    !req.signal.aborted &&
+                    !seatAbortController.signal.aborted &&
+                    modelIndex < models.length - 1 &&
+                    isRetryableProviderStreamError(
+                      initialStreamError
+                    ) &&
+                    (initialSeatStreamsBuffered ||
+                      (seatResponse.length === 0 &&
+                        accumulatedToolCalls.length === 0));
+
+                  console.warn(
+                    canRetryWithNextModel
+                      ? '[Seat Retry]'
+                      : '[Seat Retry Exhausted]',
+                    {
+                      turnId,
+                      discussionId: discussionId || null,
+                      seatId: seat.seatId,
+                      failedModel: attemptModel,
+                      retryModel: canRetryWithNextModel
+                        ? models[modelIndex + 1]
+                        : null,
+                      modelIndex,
+                      code:
+                        initialStreamError?.code ??
+                        initialStreamError?.status ??
+                        initialStreamError?.error?.code ??
+                        null,
+                      errorType:
+                        initialStreamError?.error?.metadata?.error_type ||
+                        initialStreamError?.type ||
+                        null,
+                      phase: initialStreamError?.phase || null,
+                      message:
+                        initialStreamError?.message ||
+                        initialStreamError?.error?.message ||
+                        String(initialStreamError),
+                      partialChunkCount:
+                        initialStreamError
+                          ?.__plurilogPartialChunkCount || 0,
+                    }
+                  );
+
+                  if (!canRetryWithNextModel) {
+                    throw initialStreamError;
+                  }
+
+                  // Roll back all attempt-local state. Completed evidence from
+                  // earlier stages/seats remains intact; only partial state from
+                  // the failed model attempt is discarded.
+                  seatResponse = '';
+                  seatUsage = null;
+                  accumulatedToolCalls = [];
+                  bufferedSeatChunks.length = 0;
+                  roundFileAnnotations.length =
+                    roundFileAnnotationCountBeforeAttempt;
+                  seatWebCitations.length =
+                    seatWebCitationCountBeforeAttempt;
+                  sharedAgenticEvidenceLedger.length =
+                    sharedEvidenceCountBeforeAttempt;
+                  seenCitationUrls.clear();
+                  for (const citation of seatWebCitations) {
+                    seenCitationUrls.add(citation.url);
+                  }
+
+                  seatFallbackStartIndex = Math.max(
+                    seatFallbackStartIndex,
+                    modelIndex + 1
+                  );
                 }
+              }
+
+              if (!initialSeatCompleted) {
+                throw (
+                  lastInitialError ||
+                  new Error(
+                    `${seat.name} exhausted its initial fallback chain.`
+                  )
+                );
+              }
+
+              if (
+                failedInitialAttemptCostUsd > 0 &&
+                typeof seatUsage?.cost === 'number'
+              ) {
+                seatUsage = {
+                  ...seatUsage,
+                  cost:
+                    seatUsage.cost +
+                    failedInitialAttemptCostUsd,
+                };
               }
 
               const initialRespondingModelIndex =
