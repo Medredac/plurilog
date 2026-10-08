@@ -7251,12 +7251,15 @@ export async function POST(req: NextRequest) {
             const pdfEmbeddedImageUrls = new Set(
               pdfEmbeddedImageAttachments.map((attachment) => attachment.url)
             );
+            const explicitImageWorkflowRequest =
+              /\b(?:generate|create|make|draw|render|design|edit|modify|change|retouch|restore|enhance|upscale)\b[^\n]{0,80}\b(?:image|photo|picture|portrait|illustration|graphic)\b|\b(?:image|photo|picture|portrait|illustration|graphic)\b[^\n]{0,80}\b(?:generate|create|make|draw|render|design|edit|modify|change|retouch|restore|enhance|upscale)\b/i.test(
+                prompt || ''
+              );
             const shouldLazyLoadPdfEmbeddedImages =
               currentUploadedDocumentCountForRouting >= 3 &&
               !isVisualQuery &&
               !isVerificationFollowUp &&
-              !isImageGenerationEnabledForSeat &&
-              !isImageEditingEnabledForSeat;
+              !explicitImageWorkflowRequest;
 
             const modelInputAttachments =
               shouldLazyLoadPdfEmbeddedImages
