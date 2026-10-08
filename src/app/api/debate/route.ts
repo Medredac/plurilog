@@ -7444,7 +7444,7 @@ export async function POST(req: NextRequest) {
               );
 
             const explicitWebSearchRequested =
-              /\b(?:search|browse)\s+(?:the\s+)?(?:web|internet)\b|\b(?:look\s*up|lookup|check|verify)\s+(?:this\s+)?(?:online|on\s+the\s+web|on\s+the\s+internet)\b|\bweb\s+search\b|\bonline\s+sources?\b/i.test(
+              /\b(?:search|browse)\s+(?:the\s+)?(?:web|internet)\b|\b(?:look\s*up|lookup|check|verify)\s+(?:this\s+)?(?:online|on\s+the\s+web|on\s+the\s+internet)\b|\bweb\s+search\b|\bonline\s+sources?\b|\bexternal(?:ly|\s+sources?)\b|\bindependent\s+sources?\b|\bfact[- ]check\b|\bcorroborat(?:e|ion)\b/i.test(
                 prompt || ''
               );
             const freshnessWebNeed =
