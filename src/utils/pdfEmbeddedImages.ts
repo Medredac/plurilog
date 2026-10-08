@@ -4,7 +4,9 @@ import { Sandbox } from '@vercel/sandbox';
 const STORAGE_BUCKET = 'message-images';
 const URL_EXPIRY_SECONDS = 259200;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
-const MAX_EXTRACTED_IMAGES = 12;
+// The original 12-image cap silently lost evidence in image-heavy PDFs.
+// Fail explicitly above a generous resource ceiling rather than returning a partial inventory.
+const MAX_EXTRACTED_IMAGES = 128;
 
 export interface ExtractedPdfImage {
   index: number;
@@ -13,6 +15,8 @@ export interface ExtractedPdfImage {
   width: number;
   height: number;
   portraitCandidate: boolean;
+  pageNumber: number | null;
+  sourceIndex: number;
 }
 
 export interface PersistedPdfEmbeddedImage {
@@ -25,6 +29,8 @@ export interface PersistedPdfEmbeddedImage {
   width: number;
   height: number;
   portraitCandidate: boolean;
+  pageNumber: number | null;
+  sourceIndex: number;
 }
 
 async function assertSucceeded(
@@ -176,6 +182,19 @@ export async function extractPdfEmbeddedImages(
     });
     await assertSucceeded(listing, 'PDF embedded-image enumeration');
 
+    // pdfimages -list reports source order and page for the same indexed image objects.
+    // Keep this metadata alongside the extracted pixels; no model is used to build the map.
+    const sourceListing = await sandbox.runCommand({
+      cmd: 'pdfimages',
+      args: ['-list', '/vercel/sandbox/input.pdf'],
+    });
+    await assertSucceeded(sourceListing, 'PDF image page enumeration');
+    const sourcePages = new Map<number, number>();
+    for (const line of (await sourceListing.stdout()).split(/\\r?\\n/)) {
+      const match = /^\\s*(\\d+)\\s+(\\d+)\\s+(?:image|smask|stencil)\\s/.exec(line);
+      if (match) sourcePages.set(Number(match[2]), Number(match[1]));
+    }
+
     const filenames = (await listing.stdout())
       .split(/\r?\n/)
       .map((name) => name.trim())
@@ -185,7 +204,6 @@ export async function extractPdfEmbeddedImages(
     const extracted: ExtractedPdfImage[] = [];
 
     for (let index = 0; index < filenames.length; index += 1) {
-      if (extracted.length >= MAX_EXTRACTED_IMAGES) break;
       if (options?.signal?.aborted) {
         throw new DOMException('PDF image extraction aborted.', 'AbortError');
       }
@@ -221,8 +239,14 @@ export async function extractPdfEmbeddedImages(
         ratio >= 0.55 &&
         ratio <= 1.05;
 
+      if (extracted.length >= MAX_EXTRACTED_IMAGES) {
+        throw new Error(`PDF contains more than ${MAX_EXTRACTED_IMAGES} eligible embedded images; refusing incomplete visual inventory.`);
+      }
+      const sourceIndex = Number(/-(\\d+)\\.png$/.exec(filenames[index])?.[1] ?? index);
       extracted.push({
         index: extracted.length,
+        sourceIndex,
+        pageNumber: sourcePages.get(sourceIndex) ?? null,
         data,
         contentType: 'image/png',
         width: dims.width,
@@ -289,7 +313,7 @@ export async function persistPdfEmbeddedImages(options: {
       ? 'embedded portrait photo candidate'
       : 'embedded image';
     const filename =
-      `${parentBase} — ${roleLabel} ${image.index + 1} — ${image.width}x${image.height}.png`;
+      `${parentBase} — ${roleLabel} ${image.index + 1}${image.pageNumber ? ` (page ${image.pageNumber})` : ''} — ${image.width}x${image.height}.png`;
 
     const { error: uploadError } = await supabase.storage
       .from(STORAGE_BUCKET)
@@ -332,6 +356,8 @@ export async function persistPdfEmbeddedImages(options: {
       width: image.width,
       height: image.height,
       portraitCandidate: image.portraitCandidate,
+      pageNumber: image.pageNumber,
+      sourceIndex: image.sourceIndex,
     });
   }
 
