@@ -7659,6 +7659,7 @@ export async function POST(req: NextRequest) {
                 temperature: 0.7,
                 signal: seatAbortController.signal,
                 tools: [
+                  ...(deferPdfVisualDelivery ? DEFERRED_PDF_IMAGE_TOOL : []),
                   {
                     type: 'openrouter:web_search',
                     parameters: {
@@ -7920,7 +7921,8 @@ export async function POST(req: NextRequest) {
 
               while (
                 (isAgenticMemoryEnabledForSeat ||
-                  isAgenticDocumentEvidenceEnabledForSeat) &&
+                  isAgenticDocumentEvidenceEnabledForSeat ||
+                  deferPdfVisualDelivery) &&
                 accumulatedToolCalls.length > 0
               ) {
                 const finalizedMemoryCandidateCalls =
@@ -7933,7 +7935,8 @@ export async function POST(req: NextRequest) {
                       ) ||
                       AGENTIC_DOCUMENT_TOOL_NAMES.has(
                         call.name as any
-                      )
+                      ) ||
+                      (deferPdfVisualDelivery && call.name === DEFERRED_IMAGE_TOOL_NAME)
                   );
 
                 if (memoryCandidateCalls.length === 0) break;
@@ -7946,7 +7949,8 @@ export async function POST(req: NextRequest) {
                       ) &&
                       !AGENTIC_DOCUMENT_TOOL_NAMES.has(
                         call.name as any
-                      )
+                      ) &&
+                      call.name !== DEFERRED_IMAGE_TOOL_NAME
                   );
                 if (deferredNonMemoryCalls.length > 0) {
                   console.log(
@@ -8035,8 +8039,18 @@ export async function POST(req: NextRequest) {
                   toolCall: (typeof memoryCandidateCalls)[number];
                   result: Record<string, unknown>;
                 }> = [];
+                const deferredImageBlocks: any[] = [];
 
                 for (const toolCall of memoryCandidateCalls) {
+                  if (toolCall.name === DEFERRED_IMAGE_TOOL_NAME && deferPdfVisualDelivery) {
+                    const resolved = resolveDeferredPdfImages(
+                      (toolCall.arguments || {}) as Record<string, unknown>
+                    );
+                    toolResolutions.push({ toolCall, result: resolved.result });
+                    deferredImageBlocks.push(...resolved.blocks);
+                    sendEvent('seat_activity', { seatId: seat.seatId, activity: 'checking_images' });
+                    continue;
+                  }
                   const liveActivity = buildAgenticSeatActivity(
                     toolCall.name,
                     toolCall.arguments
@@ -8192,6 +8206,12 @@ export async function POST(req: NextRequest) {
                         content: JSON.stringify(result),
                       }) as any
                   ),
+                  ...(deferredImageBlocks.length
+                    ? [{ role: 'user', content: [
+                        { type: 'text', text: 'Inspect these selected original PDF images; integrate only visible evidence:' },
+                        ...deferredImageBlocks,
+                      ] } as any]
+                    : []),
                 ];
 
                 // The current seat receives the newly grounded evidence as
@@ -8223,6 +8243,8 @@ export async function POST(req: NextRequest) {
                   agenticRetrievalRounds <
                   AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
+                  ...(retrievalToolsStillAvailable && deferPdfVisualDelivery
+                    ? DEFERRED_PDF_IMAGE_TOOL : []),
                   ...(retrievalToolsStillAvailable
                     ? [
                         {
@@ -10133,6 +10155,12 @@ export async function POST(req: NextRequest) {
                     userDisplayName
                   );
 
+                  if (visualInventoryPrompt) {
+                    evidenceBaseMessages = [
+                      ...evidenceBaseMessages,
+                      { role: 'system', content: visualInventoryPrompt } as any,
+                    ];
+                  }
                   const evidenceMessages = [
                     ...evidenceBaseMessages,
                     {
@@ -10299,6 +10327,7 @@ export async function POST(req: NextRequest) {
                     temperature: 0.7,
                     signal: seatAbortController.signal,
                     tools: [
+                      ...(deferPdfVisualDelivery ? DEFERRED_PDF_IMAGE_TOOL : []),
                       {
                         type: 'openrouter:web_search',
                         parameters: {
