@@ -2864,13 +2864,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     animate={{ opacity: 1 }}
                     exit={shouldReduceMotion ? undefined : { opacity: 0 }}
                     transition={{ duration: shouldReduceMotion ? 0 : 0.1 }}
-                    className="col-start-2 mt-1 flex flex-col items-center justify-center"
+                    className="col-start-2 mt-1 flex justify-center"
                   >
-                    {isAiCollapsed && (
-                      <span className="mb-0.5 text-center text-[11px] leading-4 text-[#8A867D]">
-                        This answer is collapsed. Click “Show full answer” to read the complete response.
-                      </span>
-                    )}
                     <button
                       type="button"
                       onClick={() => toggleAiCollapse(message.id)}
