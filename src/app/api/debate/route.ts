@@ -7090,35 +7090,9 @@ export async function POST(req: NextRequest) {
               );
             }).length;
 
-            let models =
+            const models =
               seatFallbacks[seat.seatId] ||
               PROVIDER_MODELS[seat.providerPrefix];
-
-            // Economy routing is appropriate for ordinary turns, but large
-            // multi-document analysis should not start on Haiku. Keep the
-            // same fallback pool and simply promote Sonnet to the front.
-            if (
-              seat.seatId === 'claude' &&
-              currentUploadedDocumentCountForRouting >= 3 &&
-              models[0]?.includes('haiku')
-            ) {
-              const sonnetModel = models.find((model) =>
-                model.includes('sonnet')
-              );
-              if (sonnetModel) {
-                models = [
-                  sonnetModel,
-                  ...models.filter((model) => model !== sonnetModel),
-                ];
-                console.log('[Heavy Document Routing]', {
-                  turnId,
-                  discussionId: discussionId || null,
-                  seatId: seat.seatId,
-                  documentCount: currentUploadedDocumentCountForRouting,
-                  models,
-                });
-              }
-            }
 
             const primaryModel = models[0];
             let seatFallbackStartIndex = 0;
