@@ -190,8 +190,8 @@ export async function extractPdfEmbeddedImages(
     });
     await assertSucceeded(sourceListing, 'PDF image page enumeration');
     const sourcePages = new Map<number, number>();
-    for (const line of (await sourceListing.stdout()).split(/\\r?\\n/)) {
-      const match = /^\\s*(\\d+)\\s+(\\d+)\\s+(?:image|smask|stencil)\\s/.exec(line);
+    for (const line of (await sourceListing.stdout()).split(/\r?\n/)) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(?:image|smask|stencil)\s/.exec(line);
       if (match) sourcePages.set(Number(match[2]), Number(match[1]));
     }
 
@@ -242,7 +242,7 @@ export async function extractPdfEmbeddedImages(
       if (extracted.length >= MAX_EXTRACTED_IMAGES) {
         throw new Error(`PDF contains more than ${MAX_EXTRACTED_IMAGES} eligible embedded images; refusing incomplete visual inventory.`);
       }
-      const sourceIndex = Number(/-(\\d+)\\.png$/.exec(filenames[index])?.[1] ?? index);
+      const sourceIndex = Number(/-(\d+)\.png$/.exec(filenames[index])?.[1] ?? index);
       extracted.push({
         index: extracted.length,
         sourceIndex,
