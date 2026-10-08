@@ -7499,33 +7499,6 @@ export async function POST(req: NextRequest) {
               isDocumentCreationEnabledForSeat ||
               isAgenticMemoryEnabledForSeat;
 
-            const isRetryableProviderStreamError = (error: any) => {
-              const code = Number(
-                error?.code ??
-                  error?.status ??
-                  error?.error?.code ??
-                  error?.response?.status
-              );
-              const errorType = String(
-                error?.error?.metadata?.error_type ||
-                  error?.type ||
-                  ''
-              ).toLowerCase();
-              const message = String(
-                error?.message ||
-                  error?.error?.message ||
-                  ''
-              ).toLowerCase();
-
-              return (
-                [408, 429, 500, 502, 503, 504].includes(code) ||
-                errorType.includes('timeout') ||
-                /timed? ?out|temporar(?:y|ily)|overloaded|unavailable|connection reset|network error/.test(
-                  message
-                )
-              );
-            };
-
             const consumeInitialSeatStream = async (
               attemptModels: string[]
             ) => {
@@ -7716,63 +7689,7 @@ export async function POST(req: NextRequest) {
             };
 
             try {
-              try {
-                await consumeInitialSeatStream(models);
-              } catch (initialStreamError: any) {
-                const canRetryWithNextModel =
-                  !req.signal.aborted &&
-                  !seatAbortController.signal.aborted &&
-                  models.length > 1 &&
-                  isRetryableProviderStreamError(initialStreamError) &&
-                  (initialSeatStreamsBuffered ||
-                    (seatResponse.length === 0 &&
-                      accumulatedToolCalls.length === 0));
-
-                if (!canRetryWithNextModel) {
-                  throw initialStreamError;
-                }
-
-                const retryModels = models.slice(1);
-                const failedAttemptCostUsd =
-                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
-
-                console.warn('[Seat Retry]', {
-                  turnId,
-                  discussionId: discussionId || null,
-                  seatId: seat.seatId,
-                  failedModel: respondingModel || primaryModel,
-                  retryModel: retryModels[0],
-                  code:
-                    initialStreamError?.code ??
-                    initialStreamError?.status ??
-                    initialStreamError?.error?.code ??
-                    null,
-                  errorType:
-                    initialStreamError?.error?.metadata?.error_type || null,
-                  message:
-                    initialStreamError?.message ||
-                    initialStreamError?.error?.message ||
-                    String(initialStreamError),
-                });
-
-                seatResponse = '';
-                seatUsage = null;
-                accumulatedToolCalls = [];
-                bufferedSeatChunks.length = 0;
-                respondingModel = retryModels[0];
-
-                await consumeInitialSeatStream(retryModels);
-
-                if (
-                  failedAttemptCostUsd > 0 &&
-                  typeof seatUsage?.cost === 'number'
-                ) {
-                  seatUsage = {
-                    ...seatUsage,
-                    cost: seatUsage.cost + failedAttemptCostUsd,
-                  };
-                }
-              }
+              await consumeInitialSeatStream(models);
 
               if (
                 seatAbortController.signal.aborted &&
