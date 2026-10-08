@@ -134,6 +134,15 @@ import {
 } from '@/utils/agenticDocumentEvidence';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
 import {
+  decidePdfImageDelivery,
+  formatDocumentVisualInventory,
+  type DocumentVisualInventory,
+  type PdfVisualAsset,
+  DEFERRED_PDF_IMAGE_TOOL,
+  DEFERRED_IMAGE_TOOL_NAME,
+  MAX_IMAGES_PER_INSPECTION,
+} from '@/utils/conditionalPdfVisual';
+import {
   extractPdfEmbeddedImages,
   persistPdfEmbeddedImages,
 } from '@/utils/pdfEmbeddedImages';
@@ -5388,6 +5397,7 @@ export async function POST(req: NextRequest) {
           const docxEmbeddedImageAttachments: RouteAttachment[] = [];
           const docxRenderedPageAttachments: RouteAttachment[] = [];
           const pdfEmbeddedImageAttachments: RouteAttachment[] = [];
+          const currentVisualInventory: DocumentVisualInventory[] = [];
           const wantsCurrentDocxVisualInspection =
             !AGENTIC_MEMORY_EXPERIMENT && isVisualEvidenceQuery(prompt);
 
@@ -5408,7 +5418,12 @@ export async function POST(req: NextRequest) {
               try {
                 const serviceClient = createServiceClient();
 
-                for (const pdfAtt of currentPdfAttachments) {
+                for (const [pdfOrdinal, pdfAtt] of currentPdfAttachments.entries()) {
+                  const visualRecord: DocumentVisualInventory = {
+                    filename: pdfAtt.filename || 'document.pdf', format: 'pdf',
+                    imageCount: 0, assets: [], complete: false,
+                  };
+                  currentVisualInventory.push(visualRecord);
                   if (req.signal.aborted) break;
 
                   const storagePath = extractStoragePathFromSignedUrl(pdfAtt.url);
@@ -5453,6 +5468,8 @@ export async function POST(req: NextRequest) {
                       signal: req.signal,
                       timeoutMs: 25_000,
                     });
+                    visualRecord.imageCount = extracted.length;
+                    visualRecord.complete = true;
                     if (extracted.length === 0) continue;
 
                     const persisted = await persistPdfEmbeddedImages({
@@ -5462,6 +5479,16 @@ export async function POST(req: NextRequest) {
                       images: extracted,
                     });
 
+                    visualRecord.complete = persisted.length === extracted.length;
+                    visualRecord.assets = persisted.map((image): PdfVisualAsset => ({
+                      id: `pdf${pdfOrdinal + 1}_image${image.index + 1}`,
+                      filename: visualRecord.filename,
+                      pageNumber: image.pageNumber,
+                      sourceIndex: image.sourceIndex,
+                      width: image.width,
+                      height: image.height,
+                      signedUrl: image.signedUrl,
+                    }));
                     pdfEmbeddedImageAttachments.push(
                       ...persisted.map((image) => ({
                         url: image.signedUrl,
@@ -5550,6 +5577,12 @@ export async function POST(req: NextRequest) {
                         const parsed = await parseDocx(fileBuffer);
                         parsedMarkdown = parsed?.markdown || '';
 
+                        const docxVisualRecord: DocumentVisualInventory = {
+                          filename: docFilename, format: 'docx',
+                          imageCount: parsed?.embeddedImages?.length || 0,
+                          assets: [], complete: !parsed?.embeddedImages?.length,
+                        };
+                        currentVisualInventory.push(docxVisualRecord);
                         if (parsed?.embeddedImages?.length) {
                           try {
                             const imageSelection =
@@ -5575,6 +5608,8 @@ export async function POST(req: NextRequest) {
                               }));
 
                             docxEmbeddedImageAttachments.push(...embeddedAttachments);
+                            docxVisualRecord.complete =
+                              persistedEmbeddedImages.length === imageSelection.originalCount;
 
                             console.log('[DOCX Visual] Materialized embedded images for current turn:', {
                               filename: docFilename,
@@ -6697,6 +6732,33 @@ export async function POST(req: NextRequest) {
             }
           }
 
+          const visualDelivery = decidePdfImageDelivery(currentVisualInventory);
+          // Preview only: no behavioural changes in production, even if a preview
+          // commit were accidentally promoted. A complete inventory is required
+          // before a document can enter selective-delivery mode.
+          const deferPdfVisualDelivery =
+            process.env.VERCEL_ENV === 'preview' && visualDelivery.deferred;
+          const visualInventoryPrompt = formatDocumentVisualInventory(
+            currentVisualInventory, deferPdfVisualDelivery
+          );
+          const deferredVisualAssets = new Map<string, PdfVisualAsset>(
+            deferPdfVisualDelivery
+              ? currentVisualInventory.filter((d) => d.format === 'pdf')
+                  .flatMap((d) => d.assets).map((asset) => [asset.id, asset] as const)
+              : []
+          );
+          console.log('[Document Visual Inventory]', {
+            documents: currentVisualInventory.map(d => ({
+              filename: d.filename, format: d.format,
+              imageCount: d.imageCount, availableCount: d.assets.length,
+              complete: d.complete,
+            })),
+            totalPdfImages: visualDelivery.totalImages,
+            totalPdfMegapixels: Math.round(visualDelivery.totalMegapixels * 100) / 100,
+            inventoryComplete: visualDelivery.inventoryComplete,
+            deferred: deferPdfVisualDelivery,
+          });
+
           const userAttachments: RouteAttachment[] = [
             ...(Array.isArray(attachments)
               ? attachments.map((att: any) => ({
@@ -6707,7 +6769,7 @@ export async function POST(req: NextRequest) {
               : []),
             ...docxEmbeddedImageAttachments,
             ...docxRenderedPageAttachments,
-            ...pdfEmbeddedImageAttachments,
+            ...(!deferPdfVisualDelivery ? pdfEmbeddedImageAttachments : []),
           ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
@@ -7403,6 +7465,50 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
 
+            if (visualInventoryPrompt) {
+              seatMessages = [
+                ...seatMessages,
+                { role: 'system', content: visualInventoryPrompt } as any,
+              ];
+            }
+
+            const inspectedDeferredImageIds = new Set<string>();
+            const resolveDeferredPdfImages = (input: Record<string, unknown>) => {
+              const requested = Array.isArray(input.image_ids)
+                ? input.image_ids.filter((v): v is string => typeof v === 'string')
+                    .slice(0, MAX_IMAGES_PER_INSPECTION)
+                : [];
+              const selected: PdfVisualAsset[] = [];
+              const missing: string[] = [];
+              for (const id of requested) {
+                const asset = deferredVisualAssets.get(id);
+                if (!asset) { missing.push(id); continue; }
+                if (inspectedDeferredImageIds.has(id)) continue;
+                selected.push(asset);
+                inspectedDeferredImageIds.add(id);
+              }
+              console.log('[Deferred PDF Image Inspection]', {
+                discussionId, seatId: seat.seatId, requested,
+                delivered: selected.map(a => a.id), missing,
+              });
+              return {
+                result: {
+                  ok: missing.length === 0,
+                  images: selected.map(a => ({
+                    id: a.id, filename: a.filename, page: a.pageNumber,
+                    width: a.width, height: a.height,
+                  })),
+                  missing,
+                  already_inspected: requested.filter(id =>
+                    !missing.includes(id) && !selected.some(a => a.id === id)),
+                },
+                blocks: selected.flatMap(a => [
+                  { type: 'text', text: `Original image ${a.id} from ${a.filename}, page ${a.pageNumber ?? 'unknown'}` },
+                  { type: 'image_url', image_url: { url: a.signedUrl } },
+                ]),
+              };
+            };
+
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
             let webSearchActivityStarted = false;
@@ -7497,7 +7603,8 @@ export async function POST(req: NextRequest) {
             const initialSeatStreamsBuffered =
               isEvidenceEnabledForSeat ||
               isDocumentCreationEnabledForSeat ||
-              isAgenticMemoryEnabledForSeat;
+              isAgenticMemoryEnabledForSeat ||
+              deferPdfVisualDelivery;
 
             const isRetryableProviderStreamError = (error: any) => {
               const code = Number(
