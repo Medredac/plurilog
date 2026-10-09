@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
+import { ExistingSubscriptionError, qualifiesForIntro, introCheckoutDiscount } from '@/lib/stripeIntroOffer';
 import { cookies } from 'next/headers';
 import {
   META_CONSENT_COOKIE,
@@ -45,9 +46,22 @@ export async function POST(request: Request) {
     );
   }
 
+  let offerParams;
+  try {
+    const eligible = await qualifiesForIntro(stripe, profile);
+    offerParams = await introCheckoutDiscount(stripe, process.env.STRIPE_PRICE_ID_PLUS!, eligible);
+  } catch (error) {
+    if (error instanceof ExistingSubscriptionError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    console.error('[Stripe Checkout] Unable to verify introductory offer:', error);
+    return NextResponse.json({ error: 'Unable to verify your price. Please try again shortly.' }, { status: 503 });
+  }
+
   const origin = new URL(request.url).origin;
 
   const sessionParams: any = {
+    ...offerParams,
     mode: 'subscription',
     client_reference_id: user.id,
     line_items: [{ price: process.env.STRIPE_PRICE_ID_PLUS!, quantity: 1 }],

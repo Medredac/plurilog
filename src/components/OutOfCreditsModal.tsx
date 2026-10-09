@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { usePlusOffer } from '@/hooks/usePlusOffer';
 import { Check, X } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
@@ -33,6 +34,8 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
   onClose,
   variant = 'out',
 }) => {
+  const { offer, error: offerError } = usePlusOffer(isOpen);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
   useEffect(() => {
@@ -50,15 +53,18 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
   const handleUpgrade = async () => {
     setIsRedirecting(true);
     try {
+      setCheckoutError(null);
       const res = await fetch('/api/stripe/checkout', { method: 'POST' });
       const data = await res.json();
-      if (data.url) {
+      if (res.ok && data.url) {
         window.location.href = data.url;
       } else {
+        setCheckoutError(data.error || 'Unable to start checkout. Please try again.');
         console.error('[Upgrade] No checkout URL returned:', data);
         setIsRedirecting(false);
       }
     } catch (err) {
+      setCheckoutError('Unable to start checkout. Please try again.');
       console.error('[Upgrade] Failed to start checkout:', err);
       setIsRedirecting(false);
     }
@@ -112,21 +118,24 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             <div className="mb-2 flex items-center gap-2">
               <h4 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h4>
               <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
-                Recommended
+                {offer?.label || 'Plus'}
               </span>
             </div>
 
             <div className="mb-1 flex items-end gap-1.5">
               <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">
-                $19
+                {offer?.amount != null ? `$${offer.amount}` : '…'}
               </span>
               <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
             </div>
 
-            <p className="mb-4 text-[11px] leading-5 text-[#6A675F]">
-              For ongoing use of Plurilog.
+            <p className="mb-4 text-[12px] leading-5 text-[#6A675F]">
+              {offer?.terms || (offerError ? 'Pricing unavailable.' : 'Loading your price…')}
             </p>
 
+            {(offerError || checkoutError) && (
+              <p role="alert" className="mb-3 text-[12px] text-red-700">{offerError || checkoutError}</p>
+            )}
             <ul className="space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
               {PLAN_FEATURES.map((feature) => (
                 <li key={feature} className="flex items-start gap-2">
@@ -141,7 +150,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             <button
               type="button"
               onClick={handleUpgrade}
-              disabled={isRedirecting}
+              disabled={isRedirecting || !offer?.canSubscribe}
               className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isRedirecting ? 'Redirecting…' : 'Get Plus'}

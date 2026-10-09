@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { usePlusOffer } from '@/hooks/usePlusOffer';
 import { Check, ExternalLink, KeyRound, X } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { ResetPasswordModal } from './ResetPasswordModal';
@@ -57,6 +58,8 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   periodResetAt,
   planStatus,
 }) => {
+  const { offer, error: offerError } = usePlusOffer(isOpen);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
   const [isRedirectingCard, setIsRedirectingCard] = useState(false);
@@ -108,14 +111,17 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   const handleUpgrade = async (setLoading: (v: boolean) => void) => {
     setLoading(true);
     try {
+      setCheckoutError(null);
       const res = await fetch('/api/stripe/checkout', { method: 'POST' });
       const data = await res.json();
-      if (data.url) {
+      if (res.ok && data.url) {
         window.location.href = data.url;
       } else {
+        setCheckoutError(data.error || 'Unable to start checkout. Please try again.');
         setLoading(false);
       }
     } catch {
+      setCheckoutError('Unable to start checkout. Please try again.');
       setLoading(false);
     }
   };
@@ -252,25 +258,28 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <div className="mb-2 flex items-center gap-2">
                   <h4 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h4>
                   <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
-                    Recommended
+                    {offer?.label || 'Plus'}
                   </span>
                 </div>
 
                 <div className="mb-1 flex items-end gap-1.5">
-                  <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">$19</span>
+                  <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">{offer?.amount != null ? `$${offer.amount}` : '…'}</span>
                   <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
                 </div>
 
-                <p className="mb-4 text-[11px] leading-5 text-[#6A675F]">
-                  For ongoing use of Plurilog.
+                <p className="mb-4 text-[12px] leading-5 text-[#6A675F]">
+                  {offer?.terms || (offerError ? 'Pricing unavailable.' : 'Loading your price…')}
                 </p>
 
+                {(offerError || checkoutError) && (
+                  <p role="alert" className="mb-3 text-[12px] text-red-700">{offerError || checkoutError}</p>
+                )}
                 <FeatureList />
 
                 <button
                   type="button"
                   onClick={() => handleUpgrade(setIsRedirectingPromo)}
-                  disabled={isRedirectingPromo}
+                  disabled={isRedirectingPromo || !offer?.canSubscribe}
                   className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isRedirectingPromo ? 'Redirecting…' : 'Get Plus'}
@@ -287,7 +296,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-1.5">
                       <span className="text-[13px] font-semibold text-[#1C1B1A]">Plus</span>
-                      <span className="text-[11px] text-[#6A675F]">· $19 / month</span>
+                      <span className="text-[11px] text-[#6A675F]">{offer?.amount != null ? `· $${offer.amount} next payment` : ''}</span>
                     </div>
                     {billingDate && (
                       <p className="mt-0.5 text-[10px] leading-4 text-[#6A675F]">
