@@ -321,3 +321,54 @@ test('artifact registration keeps original image hash, source identity, and full
     assert.equal(source.storage_path, 'user/photo.png');
   }
 });
+
+function loadDocumentImageResolver(brokerResult) {
+  const filename = path.resolve('src/utils/gptDocumentCreation.ts');
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.paths = module.paths;
+  loaded.require = name => name === '@/utils/resourceBroker'
+    ? { resolveRequestedEvidence: () => brokerResult }
+    : name.startsWith('@/') ? {} : require(name);
+  loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
+    '\nexport { resolveDocumentBlocks, downloadImageBytes };', {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+  }).outputText, filename);
+  return loaded.exports;
+}
+
+test('document image reuse rejects a PDF broker result and downloads the original extracted image', async () => {
+  const { resolveDocumentBlocks } = loadDocumentImageResolver({
+    status: 'resolved', evidence: { kind: 'pdf', filename: 'original.pdf', storagePath: 'user/original.pdf' },
+  });
+  const downloads = [];
+  const client = { storage: { from: () => ({ download: async storagePath => {
+    downloads.push(storagePath);
+    return { data: new Blob([storagePath.endsWith('.pdf') ? pdf : png], { type: storagePath.endsWith('.pdf') ? 'application/pdf' : 'image/png' }), error: null };
+  } }) } };
+  const original = { filename: 'original embedded robot.png', storagePath: 'user/robot.png', artifactId: 'robot-id', sender: 'user' };
+  const result = await resolveDocumentBlocks([
+    { type: 'image', mode: 'existing', need: 'the exact original robot image from original.pdf' },
+  ], client, [original], {}, undefined);
+  assert.deepEqual(downloads, ['user/robot.png']);
+  assert.deepEqual(result.blocks[0].imageData, png);
+  assert.equal(result.imageBindings[0].source.artifactId, 'robot-id');
+});
+
+test('a genuine image broker result keeps its chosen source', async () => {
+  const { resolveDocumentBlocks } = loadDocumentImageResolver({
+    status: 'resolved', evidence: { kind: 'image', filename: 'chosen.png', storagePath: 'user/chosen.png' },
+  });
+  const client = { storage: { from: () => ({ download: async key => {
+    assert.equal(key, 'user/chosen.png');
+    return { data: new Blob([png], { type: 'image/png' }), error: null };
+  } }) } };
+  const result = await resolveDocumentBlocks([{ type: 'image', mode: 'existing', need: 'chosen image' }], client, [], {}, undefined);
+  assert.deepEqual(result.blocks[0].imageData, png);
+});
+
+test('mislabelled PDF bytes cannot be embedded in a Word image slot', async () => {
+  const { downloadImageBytes } = loadDocumentImageResolver({});
+  const client = { storage: { from: () => ({ download: async () => ({ data: new Blob([pdf], { type: 'image/png' }), error: null }) }) } };
+  await assert.rejects(downloadImageBytes(client, { filename: 'mislabelled.png', storagePath: 'user/mislabelled.png' }), /is a PDF/);
+});
