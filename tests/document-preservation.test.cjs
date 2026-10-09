@@ -30,6 +30,12 @@ const parent = {
 const prompt = 'Change only the title to Verified transfer check. Preserve the table, both codes, all other text, and the exact robot image.';
 const patch = [{ op: 'replace', path: '/title', value: 'Verified transfer check' }, { op: 'replace', path: '/blocks/0/text', value: 'Verified transfer check' }];
 const renamed = () => revision.applyDocumentJsonPatch(parent, patch);
+test('title edit detection covers a named historical file without treating new-file creation as a rename', () => {
+  assert.equal(revision.isDocumentTitleRevisionRequest(prompt), true);
+  assert.equal(revision.isDocumentTitleRevisionRequest('Use the original Word file you created named final-transparency-check.docx. Change only the title to Verified transfer check.'), true);
+  assert.equal(revision.isDocumentTitleRevisionRequest('Create a Word document. Title it Preview transfer check.'), false);
+  assert.equal(revision.isDocumentTitleRevisionRequest("Do not change the title. Make the table wider."), false);
+});
 test('requested title revision passes while preserving canonical body, table and image binding', () => {
   revision.assertNarrowRevisionPatchSafety(patch, prompt);
   const next = renamed();

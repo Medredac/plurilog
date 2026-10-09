@@ -100,6 +100,7 @@ import {
   selectGeneratedDocumentStateByReference,
   missingPreservedDocumentContent,
   normalizeRequestedTitleRevision,
+  isDocumentTitleRevisionRequest,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
   userExplicitlyAllowsContentRemoval,
@@ -7181,6 +7182,14 @@ export async function POST(req: NextRequest) {
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
+            const requiresCanonicalTitleRevision =
+              isDocumentCreationEnabledForSeat &&
+              isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
+              isDocumentTitleRevisionRequest(prompt || '') &&
+              Boolean(discussionMemory?.knownDocuments?.length);
+            const titleRevisionInstruction = requiresCanonicalTitleRevision
+              ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
+              : [];
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -7390,6 +7399,7 @@ export async function POST(req: NextRequest) {
               userDisplayName,
               isContinueRound === true
             );
+            seatMessages.push(...titleRevisionInstruction);
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7550,7 +7560,7 @@ export async function POST(req: NextRequest) {
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(AGENTIC_MEMORY_EXPERIMENT
                     ? [
-                        ...(isDocumentCreationEnabledForSeat
+                        ...(isDocumentCreationEnabledForSeat && !requiresCanonicalTitleRevision
                           ? GPT_FILE_TOOLS
                           : []),
                         ...(canEditCurrentUserDocument
@@ -8110,7 +8120,7 @@ export async function POST(req: NextRequest) {
                     : []),
                   ...(AGENTIC_MEMORY_EXPERIMENT
                     ? [
-                        ...(isDocumentCreationEnabledForSeat
+                        ...(isDocumentCreationEnabledForSeat && !requiresCanonicalTitleRevision
                           ? GPT_FILE_TOOLS
                           : []),
                         ...(canEditCurrentUserDocument
@@ -8413,7 +8423,8 @@ export async function POST(req: NextRequest) {
                 }
 
                 const isCreateFileCall =
-                  hasOnlyCreateFileCalls && documentCalls.length > 0;
+                  hasOnlyCreateFileCalls && documentCalls.length > 0 &&
+                  !requiresCanonicalTitleRevision;
 
                 if (isSourceDocumentEditCall) {
                   documentToolBranchActive = true;
@@ -9992,6 +10003,7 @@ export async function POST(req: NextRequest) {
 
                   const evidenceMessages = [
                     ...evidenceBaseMessages,
+                    ...titleRevisionInstruction,
                     {
                       role: 'assistant',
                       content: seatResponse || null,
@@ -10167,7 +10179,7 @@ export async function POST(req: NextRequest) {
                         : []),
                       ...(AGENTIC_MEMORY_EXPERIMENT
                         ? [
-                            ...(evidenceContinuationCanCreateFile
+                            ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
                               ? GPT_FILE_TOOLS
                               : []),
                             ...(evidenceContinuationCanSourceEdit
@@ -11023,7 +11035,7 @@ export async function POST(req: NextRequest) {
                               : []),
                             ...(AGENTIC_MEMORY_EXPERIMENT
                               ? [
-                                  ...(evidenceContinuationCanCreateFile
+                                  ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
                                     ? GPT_FILE_TOOLS
                                     : []),
                                   ...(evidenceContinuationCanSourceEdit
@@ -11191,6 +11203,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.length;
                   const hasOnlyEvidenceCreateFileCalls =
                     evidenceContinuationCanCreateFile &&
+                    !requiresCanonicalTitleRevision &&
                     evidenceCreateFileCalls.length > 0 &&
                     evidenceCreateFileCalls.length ===
                       evidenceContinuationCalls.length;

@@ -810,10 +810,13 @@ function semanticStringsFromBlock(block: any): string[] {
   }
 }
 
-function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPrompt: string): boolean {
+export function isDocumentTitleRevisionRequest(userPrompt: string): boolean {
   return /\b(?:change|rename|replace|update|set|retitle)\b[\s\S]{0,100}\btitle\b|\btitle\b[\s\S]{0,60}\b(?:to|as)\b/i.test(userPrompt) &&
-    !/\b(?:do not|don't|never)\s+(?:change|rename|replace|update)\b[^.!?\n]{0,40}\btitle\b/i.test(userPrompt) &&
-    Boolean(oldTitle.trim() && newTitle.trim()) &&
+    !/\b(?:do not|don't|never)\s+(?:change|rename|replace|update)\b[^.!?\n]{0,40}\btitle\b/i.test(userPrompt);
+}
+
+function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPrompt: string): boolean {
+  return isDocumentTitleRevisionRequest(userPrompt) && Boolean(oldTitle.trim() && newTitle.trim()) &&
     normalizeSemantic(userPrompt).includes(normalizeSemantic(newTitle)) &&
     normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
 }
