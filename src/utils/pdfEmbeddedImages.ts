@@ -1,16 +1,18 @@
 import crypto from 'node:crypto';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import sharp from 'sharp';
 import { Sandbox } from '@vercel/sandbox';
 import { applyPdfImageMask, parsePdfImageList } from './pdfImageTransparency';
 
 const STORAGE_BUCKET = 'message-images';
 const URL_EXPIRY_SECONDS = 259200;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
-const MAX_EXTRACTED_IMAGES = 12;
+const MAX_EXTRACTED_IMAGES = 32;
 
 export interface ExtractedPdfImage {
   index: number;
   data: Buffer;
-  contentType: 'image/png';
+  contentType: 'image/png' | 'image/jpeg';
   width: number;
   height: number;
   portraitCandidate: boolean;
@@ -21,7 +23,7 @@ export interface PersistedPdfEmbeddedImage {
   filename: string;
   storagePath: string;
   signedUrl: string;
-  contentType: 'image/png';
+  contentType: 'image/png' | 'image/jpeg';
   byteSize: number;
   width: number;
   height: number;
@@ -169,6 +171,7 @@ export async function extractPdfEmbeddedImages(
       cmd: 'pdfimages',
       args: [
         '-png',
+        '-j',
         '/vercel/sandbox/input.pdf',
         '/vercel/sandbox/pdfimg',
       ],
@@ -179,7 +182,7 @@ export async function extractPdfEmbeddedImages(
       cmd: 'sh',
       args: [
         '-lc',
-        "find /vercel/sandbox -maxdepth 1 -type f -name 'pdfimg-*.png' -printf '%f\\n' | sort -V",
+        "find /vercel/sandbox -maxdepth 1 -type f \\( -name 'pdfimg-*.png' -o -name 'pdfimg-*.jpg' \\) -printf '%f\\n' | sort -V",
       ],
     });
     await assertSucceeded(listing, 'PDF embedded-image enumeration');
@@ -189,16 +192,15 @@ export async function extractPdfEmbeddedImages(
       .map((name) => name.trim())
       .filter(Boolean);
 
-    const seenHashes = new Set<string>();
     const extracted: ExtractedPdfImage[] = [];
+    let extractedBytes = 0;
 
     for (let index = 0; index < filenames.length; index += 1) {
-      if (extracted.length >= MAX_EXTRACTED_IMAGES) break;
       if (options?.signal?.aborted) {
         throw new DOMException('PDF image extraction aborted.', 'AbortError');
       }
 
-      const number = Number(filenames[index].match(/^pdfimg-(\d+)\.png$/)?.[1]);
+      const number = Number(filenames[index].match(/^pdfimg-(\d+)\.(?:png|jpg)$/)?.[1]);
       const entryIndex = entries.findIndex((entry) => entry.number === number);
       const entry = entries[entryIndex];
       if (!entry || entry.type === 'mask' || entry.type === 'smask') continue;
@@ -208,8 +210,9 @@ export async function extractPdfEmbeddedImages(
       });
       if (!data || data.length === 0) continue;
 
-      const dims = pngDimensions(data);
-      if (!dims) continue;
+      const dims = pngDimensions(data) || await sharp(data, { limitInputPixels: 25_000_000 }).metadata();
+      if (!dims?.width || !dims?.height) continue;
+      let contentType: 'image/png' | 'image/jpeg' = filenames[index].endsWith('.jpg') ? 'image/jpeg' : 'image/png';
 
       // Ignore tiny decorative glyphs/icons by default. Tests may lower the
       // threshold to verify that conversion preserved even a deliberately tiny fixture.
@@ -233,11 +236,13 @@ export async function extractPdfEmbeddedImages(
         });
         if (!maskData) throw new Error('PDF transparency mask is missing.');
         data = await applyPdfImageMask(data, maskData, mask.interpolate);
+        contentType = 'image/png';
       }
 
-      const hash = crypto.createHash('sha256').update(data).digest('hex');
-      if (seenHashes.has(hash)) continue;
-      seenHashes.add(hash);
+      extractedBytes += data.length;
+      if (extracted.length >= MAX_EXTRACTED_IMAGES || extractedBytes > 100 * 1024 * 1024) {
+        throw new Error('PDF image collection exceeds extraction limits; refusing a partial collection.');
+      }
 
       const ratio = dims.width / dims.height;
       const portraitCandidate =
@@ -249,21 +254,15 @@ export async function extractPdfEmbeddedImages(
       extracted.push({
         index: extracted.length,
         data,
-        contentType: 'image/png',
+        contentType,
         width: dims.width,
         height: dims.height,
         portraitCandidate,
       });
     }
 
-    extracted.sort((a, b) => {
-      if (a.portraitCandidate !== b.portraitCandidate) {
-        return a.portraitCandidate ? -1 : 1;
-      }
-      return b.width * b.height - a.width * a.height;
-    });
-
-    return extracted.map((image, index) => ({ ...image, index }));
+    // Preserve source encounter order; portrait preference must not renumber photos.
+    return extracted;
   } finally {
     options?.signal?.removeEventListener('abort', abortHandler);
     await sandbox.stop().catch(() => undefined);
@@ -271,7 +270,7 @@ export async function extractPdfEmbeddedImages(
 }
 
 export async function persistPdfEmbeddedImages(options: {
-  supabase: any;
+  supabase: SupabaseClient;
   parentFilename: string;
   parentFileBytes: Buffer;
   images: ExtractedPdfImage[];
@@ -305,16 +304,18 @@ export async function persistPdfEmbeddedImages(options: {
   const parentBase = safeBaseFilename(parentFilename);
   const persisted: PersistedPdfEmbeddedImage[] = [];
 
-  for (const image of images.slice(0, MAX_EXTRACTED_IMAGES)) {
+  if (images.length > MAX_EXTRACTED_IMAGES) throw new Error('PDF image collection exceeds the 32-image limit.');
+  for (const image of images) {
     const imageHash = crypto.createHash('sha256').update(image.data).digest('hex');
     const ordinal = String(image.index + 1).padStart(3, '0');
+    const extension = image.contentType === 'image/jpeg' ? 'jpg' : 'png';
     const storagePath =
-      `${user.id}/pdf-assets/${parentHash}/${ordinal}-${imageHash.slice(0, 16)}.png`;
+      `${user.id}/pdf-assets/${parentHash}/${ordinal}-${imageHash.slice(0, 16)}.${extension}`;
     const roleLabel = image.portraitCandidate
       ? 'embedded portrait photo candidate'
       : 'embedded image';
     const filename =
-      `${parentBase} — ${roleLabel} ${image.index + 1} — ${image.width}x${image.height}.png`;
+      `${parentBase} — ${roleLabel} ${image.index + 1} — ${image.width}x${image.height}.${extension}`;
 
     const { error: uploadError } = await supabase.storage
       .from(STORAGE_BUCKET)

@@ -74,7 +74,7 @@ const MAX_TEXT_LENGTH = 30000;
 const MAX_LIST_ITEMS = 200;
 const MAX_TABLE_ROWS = 200;
 const MAX_TABLE_COLUMNS = 20;
-const MAX_IMAGES = 12;
+const MAX_IMAGES = 32;
 const EMU_PER_INCH = 914400;
 
 const IMAGE_WIDTH_INCHES: Record<DocxImageSize, number> = {
@@ -913,8 +913,10 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
         block.type === 'image' &&
         Buffer.isBuffer(block.imageData) &&
         block.imageData.length > 0
-    )
-    .slice(0, MAX_IMAGES);
+    );
+  if (imageBlocks.length > MAX_IMAGES) {
+    throw new Error(`Word document exceeds the ${MAX_IMAGES}-image limit; refusing to omit images.`);
+  }
 
   if (!fullText && imageBlocks.length === 0) {
     throw new Error('Word document content cannot be empty.');
