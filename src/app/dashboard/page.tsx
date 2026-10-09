@@ -2128,6 +2128,9 @@ export default function DashboardPage() {
           isContinueRound: isContinueRound || false,
           attachments: attachments || null,
           sourceUserMessageId: sourceUserMessageId || null,
+          continueSourceUserMessageId: isContinueRound
+            ? continueMarker?.persistedMessageId || null
+            : null,
           runId,
           runStartedAt,
         }),
