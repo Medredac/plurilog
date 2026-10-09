@@ -39,6 +39,8 @@ test('requested title revision passes while preserving canonical body, table and
 });
 test('title rename remains protected when not requested or blanked', () => {
   assert.equal(revision.missingPreservedDocumentContent(parent, renamed(), 'Make margins narrower').length, 2);
+  assert.equal(revision.missingPreservedDocumentContent(parent, renamed(), 'Change the title to Something else').length, 2);
+  assert.equal(revision.missingPreservedDocumentContent(parent, renamed(), "Don't change the title to Verified transfer check").length, 2);
   const next = renamed(); next.title = ''; next.blocks[0].text = '';
   assert.equal(revision.missingPreservedDocumentContent(parent, next, prompt).length, 2);
 });

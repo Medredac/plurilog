@@ -822,7 +822,9 @@ export function missingPreservedDocumentContent(
   const newTitle = typeof nextSpec.title === 'string' ? nextSpec.title : '';
   const renamesTitle =
     /\b(?:change|rename|replace|update|set|retitle)\b[\s\S]{0,100}\btitle\b|\btitle\b[\s\S]{0,60}\b(?:to|as)\b/i.test(userPrompt) &&
+    !/\b(?:do not|don't|never)\s+(?:change|rename|replace|update)\b[^.!?\n]{0,40}\btitle\b/i.test(userPrompt) &&
     Boolean(oldTitle.trim() && newTitle.trim()) &&
+    normalizeSemantic(userPrompt).includes(normalizeSemantic(newTitle)) &&
     normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
   const parentValues = [
     renamesTitle ? '' : oldTitle,
