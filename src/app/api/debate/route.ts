@@ -100,7 +100,7 @@ import {
   selectGeneratedDocumentStateByReference,
   missingPreservedDocumentContent,
   normalizeRequestedTitleRevision,
-  isDocumentTitleRevisionRequest,
+  isTitleOnlyDocumentRevision,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
   userExplicitlyAllowsContentRemoval,
@@ -7184,8 +7184,7 @@ export async function POST(req: NextRequest) {
               isGptDocumentCreationEnabled();
             const requiresCanonicalTitleRevision =
               isDocumentCreationEnabledForSeat &&
-              isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
-              isDocumentTitleRevisionRequest(prompt || '') &&
+              isTitleOnlyDocumentRevision(prompt || '') &&
               Boolean(discussionMemory?.knownDocuments?.length);
             const titleRevisionInstruction = requiresCanonicalTitleRevision
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
@@ -11459,7 +11458,8 @@ export async function POST(req: NextRequest) {
                           patch?: JsonPatchOperation[];
                         };
                         const preserveParentContent =
-                          isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
+                          (requiresCanonicalTitleRevision ||
+                            isNarrowDocumentRevisionFollowUpQuery(prompt || '')) &&
                           !userExplicitlyAllowsContentRemoval(prompt || '');
 
                         if (preserveParentContent) {

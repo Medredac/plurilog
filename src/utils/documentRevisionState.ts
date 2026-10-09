@@ -815,6 +815,11 @@ export function isDocumentTitleRevisionRequest(userPrompt: string): boolean {
     !/\b(?:do not|don't|never)\s+(?:change|rename|replace|update)\b[^.!?\n]{0,40}\btitle\b/i.test(userPrompt);
 }
 
+export function isTitleOnlyDocumentRevision(userPrompt: string): boolean {
+  return isDocumentTitleRevisionRequest(userPrompt) &&
+    /\b(?:only|just)\s+(?:the\s+)?title\b|\btitle\s+only\b/i.test(userPrompt);
+}
+
 function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPrompt: string): boolean {
   return isDocumentTitleRevisionRequest(userPrompt) && Boolean(oldTitle.trim() && newTitle.trim()) &&
     normalizeSemantic(userPrompt).includes(normalizeSemantic(newTitle)) &&
