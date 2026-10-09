@@ -1,5 +1,6 @@
 import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
+import { applyIntroOnResumption } from '@/lib/stripeIntroOffer';
 import { createServiceClient } from '@/utils/supabase/service';
 import Stripe from 'stripe';
 import {
@@ -376,6 +377,7 @@ export async function POST(request: Request) {
 
       case 'customer.subscription.updated': {
         const subscription = event.data.object as Stripe.Subscription;
+        await applyIntroOnResumption(stripe, subscription, event.data.previous_attributes, process.env.STRIPE_PRICE_ID_PLUS!);
         const subscriptionId = subscription.id;
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
