@@ -470,6 +470,10 @@ export const GPT_FILE_TOOLS = [
             description:
               'For an exact PDF export of an existing Word document, set this to the existing .docx filename so Plurilog converts that canonical Word file directly and preserves layout, tables, fonts, and embedded images. Leave this unset when the user wants substantive edits or reformatting before the PDF is created.',
           },
+          source_pdf_filename: {
+            type: 'string',
+            description: 'For a complete rebuild of an existing numbered-photo PDF, supply its exact known filename. Read the source first, then include one mode=existing image block for EVERY numbered Photo in source order, with need="Photo N" and its corrected caption. Plurilog extracts and binds the original photos on demand, including when earlier extraction failed. Supports up to 32 photos and refuses incomplete sets. Never generate replacement documentary photos or invent captions. Use this for extensive caption/layout improvements to a photo collection; edit_source_document is for narrow edits preserving the existing layout.',
+          },
           title: {
             type: 'string',
             description: 'Optional title shown inside the document. For rich PDFs, omit this when a banner block already provides the title treatment.',
@@ -590,7 +594,7 @@ export const GPT_FILE_TOOLS = [
                 need: {
                   type: 'string',
                   description:
-                    'For existing/edited images, a concise description of which discussion image is needed.',
+                    'For existing/edited images, a concise description of which discussion image is needed. With source_pdf_filename, use the exact source label Photo N, one block per photo, in source order.',
                 },
                 filename: {
                   type: 'string',
@@ -793,7 +797,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
     function: {
       name: 'edit_source_document',
       description:
-        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. Make only the requested localized edits. Identify target text exactly as it appears in the source evidence. Use occurrence when the same text appears more than once. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
+        'Edit an existing PDF or DOCX while preserving the original file as the source of truth. Use this for a user-uploaded document, or for a later revision descended from a user-uploaded document, instead of recreating the document with create_file. For an explicitly requested complete rebuild or extensive caption/layout improvements to a numbered-photo PDF, use create_file with source_pdf_filename and every numbered photo instead. Make only the requested localized edits. Identify target text exactly as it appears in the source evidence. Use occurrence when the same text appears more than once. For relative font-size requests such as slightly larger/smaller, use font_size_delta_pt (normally +1 or -1) rather than guessing an absolute size. Unmentioned content, layout, tables, images, headers, footers, page geometry, and styling are preserved by the source-edit engine.',
       parameters: {
         type: 'object',
         properties: {

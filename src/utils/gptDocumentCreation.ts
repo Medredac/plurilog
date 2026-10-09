@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { preparePdfPhotoRebuild, selectPhotoRebuildSource, photoNumber, MAX_REBUILT_PHOTOS } from './pdfPhotoRebuild';
 import { ModelId } from '@/types/chat';
 import { createServiceClient } from '@/utils/supabase/service';
 import {
@@ -52,6 +53,7 @@ export interface GptCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   design?: PdfDesign;
   design_reference_ids?: string[];
   source_docx_filename?: string;
+  source_pdf_filename?: string;
   blocks: RichDocumentBlock[];
 }
 
@@ -131,7 +133,7 @@ export interface ExecuteGptDocumentCreationResult {
   pageCount?: number | null;
 }
 
-const MAX_DOCUMENT_IMAGES = 12;
+const MAX_DOCUMENT_IMAGES = MAX_REBUILT_PHOTOS;
 const MAX_DOCUMENT_IMAGE_BYTES = 15 * 1024 * 1024;
 
 const PAGE_COUNT_WORDS: Record<string, number> = {
@@ -1018,13 +1020,16 @@ async function resolveDocumentBlocks(
   let imageAssetCount = 0;
   let imageOrdinal = 0;
 
+  if (blocks.filter(block => block?.type === 'image').length > MAX_DOCUMENT_IMAGES) {
+    throw new Error(`Document exceeds the ${MAX_DOCUMENT_IMAGES}-image limit; refusing to omit images.`);
+  }
+
   for (const block of blocks || []) {
     if (block?.type !== 'image') {
       resolved.push(block);
       continue;
     }
     const currentImageOrdinal = imageOrdinal++;
-    if (imageAssetCount >= MAX_DOCUMENT_IMAGES) continue;
 
     const preferredBinding = preferredImageBindings.find(
       (binding) => binding.imageOrdinal === currentImageOrdinal
@@ -1180,6 +1185,8 @@ function preserveImageSourceDirectives(
       prompt: original.prompt,
       need: original.need,
       filename: original.filename,
+      caption: original.caption,
+      preserveAspectRatio: original.preserveAspectRatio,
     } as RichDocumentBlock;
   });
 }
@@ -1331,6 +1338,7 @@ async function reviewRenderedPdfWithGpt(options: {
         'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
         'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
         'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
+        'Images marked preserveAspectRatio are original documentary photos. Preserve their complete frame and use legible sizes for portrait images and phone screenshots; do not force every image into a small landscape frame.',
         'If an exact page count was requested, treat it as a hard constraint and balance the content across those pages rather than leaving one page crowded and another mostly empty.',
         originalUserPrompt
           ? `Original user request:\n${originalUserPrompt}`
@@ -1876,12 +1884,38 @@ export async function executeGptDocumentCreation(
     args.format === 'pdf' &&
     Boolean(sourceDocx?.storagePath);
 
+  const photoBindings: DocumentStateImageBinding[] = [];
+  let photoSource: ReturnType<typeof selectPhotoRebuildSource> | undefined;
+  let blocksForResolution = args.blocks || [];
+  if (args.source_pdf_filename) {
+    if (useDirectDocxToPdf || revisionContext?.parentSnapshot) throw new Error('A source-PDF photo rebuild cannot be combined with a canonical document revision or Word conversion.');
+    const source = selectPhotoRebuildSource(args.source_pdf_filename, resourceContext?.knownDocuments || []);
+    photoSource = source;
+    onActivity?.('generating_file');
+    const photos = await preparePdfPhotoRebuild({ supabase, serviceClient, discussionId, source, blocks: args.blocks, signal });
+    let ordinal = 0;
+    blocksForResolution = args.blocks.map(block => {
+      if (block.type !== 'image') return block;
+      const photo = photos.find(p => p.number === photoNumber(block))!;
+      photoBindings.push({ imageOrdinal: ordinal++, source: { filename: photo.filename, storagePath: photo.storagePath, sender: 'user' } });
+      return { ...block, mode: 'existing', filename: photo.filename, preserveAspectRatio: true, imageData: photo.data, imageContentType: photo.contentType, imageAltText: block.need || `Photo ${photo.number}` };
+    });
+    // Keep binary payloads out of model review prompts and canonical JSON state.
+    // Extraction is an invocation directive, not something to rerun on revisions.
+    args.blocks = blocksForResolution.map(block => {
+      if (block.type !== 'image') return block;
+      const { imageData: _data, imageContentType: _type, imageAltText: _alt, ...spec } = block;
+      return spec;
+    });
+    delete args.source_pdf_filename;
+  }
+
   const parentImageBindings = revisionContext?.parentSnapshot
     ? reusableParentImageBindings(
         revisionContext.parentSnapshot,
         args.blocks || []
       )
-    : [];
+    : photoBindings;
 
   const resolvedDocument = useDirectDocxToPdf
     ? {
@@ -1890,7 +1924,7 @@ export async function executeGptDocumentCreation(
         imageBindings: [] as DocumentStateImageBinding[],
       }
     : await resolveDocumentBlocks(
-        args.blocks || [],
+        blocksForResolution,
         serviceClient,
         availableImages,
         resourceContext,
@@ -2247,7 +2281,7 @@ export async function executeGptDocumentCreation(
             resourceContext,
             signal,
             costAwareCallback,
-            [],
+            resolvedDocument.imageBindings,
             onActivity,
             supabase,
             seatId
@@ -2300,6 +2334,7 @@ export async function executeGptDocumentCreation(
             selectedRenderedText = reviewedPages.renderedText;
             finalDocxReviewPages = reviewedPages.pages;
             finalImageAssetCount = reviewedResolvedDocument.imageAssetCount;
+            finalImageBindings = reviewedResolvedDocument.imageBindings;
             visualReviewApplied = true;
           }
 
@@ -2895,11 +2930,11 @@ export async function executeGptDocumentCreation(
       pageCount: finalPageCount,
       parentSnapshotId: revisionContext?.parentSnapshot?.id || null,
       parentDocumentId:
-        revisionContext?.parentSnapshot?.documentId || null,
+        revisionContext?.parentSnapshot?.documentId || photoSource?.id || null,
       parentStoragePath:
-        revisionContext?.parentSnapshot?.storagePath || null,
-      sourceDocumentIds: revisionContext?.sourceDocumentIds || [],
-      imageSources: availableImages,
+        revisionContext?.parentSnapshot?.storagePath || photoSource?.storagePath || null,
+      sourceDocumentIds: revisionContext?.sourceDocumentIds || (photoSource?.id ? [photoSource.id] : []),
+      imageSources: [...availableImages, ...photoBindings.map(binding => binding.source)],
       imageBindings: finalImageBindings,
       generationKind:
         revisionContext?.generationKind ||
