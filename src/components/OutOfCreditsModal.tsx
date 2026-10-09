@@ -118,7 +118,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             <div className="mb-2 flex items-center gap-2">
               <h4 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h4>
               <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
-                {offer?.label || 'Plus'}
+                Popular
               </span>
             </div>
 
@@ -127,6 +127,9 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
                 {offer?.amount != null ? `$${offer.amount}` : '…'}
               </span>
               <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
+              {offer?.label === 'Limited-time offer' && (
+                <span className="ml-auto self-center rounded-full bg-[#FFF1E8] px-2 py-1 text-[10px] font-medium text-[#8A3D22]">Limited-time offer</span>
+              )}
             </div>
 
             <p className="mb-4 text-[12px] leading-5 text-[#6A675F]">

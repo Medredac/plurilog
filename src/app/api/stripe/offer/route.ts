@@ -30,7 +30,7 @@ export async function GET() {
     const eligible = await qualifiesForIntro(stripe, profile);
     return reply({
       amount: eligible ? 9 : 19,
-      label: eligible ? 'Introductory offer' : 'Plus',
+      label: eligible ? 'Limited-time offer' : 'Plus',
       terms: eligible ? INTRO_TERMS : 'USD. Billed monthly. Cancel anytime.',
       canSubscribe: true,
     });
