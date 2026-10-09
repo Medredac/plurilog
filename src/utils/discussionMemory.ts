@@ -2767,6 +2767,8 @@ export interface IngestDocumentsOptions {
   sourceUserMessageId?: string | null;
   signal?: AbortSignal;
   deferEmbedding?: boolean;
+  /** Authenticated request-local original bytes; never a process-global cache. */
+  readFileBytes?: (url: string, signal?: AbortSignal) => Promise<Buffer | null>;
 }
 
 export interface IngestDocumentsResult {
@@ -2835,13 +2837,18 @@ export async function ingestDiscussionDocuments(
     // Compute authoritative cryptographic SHA-256 from actual PDF storage bytes
     if (matchingStoragePath) {
       try {
-        const { data: fileBlob, error: downloadErr } = await serviceSupabase.storage
-          .from('message-images')
-          .download(matchingStoragePath);
+        const matchingUrl = attachments?.find((attachment) =>
+          extractStoragePathFromSignedUrl(attachment.url) === matchingStoragePath
+        )?.url;
+        const cachedBytes = matchingUrl && options.readFileBytes
+          ? await options.readFileBytes(matchingUrl, signal)
+          : null;
+        const { data: fileBlob, error: downloadErr } = cachedBytes
+          ? { data: null, error: null }
+          : await serviceSupabase.storage.from('message-images').download(matchingStoragePath);
 
-        if (!downloadErr && fileBlob) {
-          const arrayBuffer = await fileBlob.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
+        if (cachedBytes || (!downloadErr && fileBlob)) {
+          const buffer = cachedBytes || Buffer.from(await fileBlob!.arrayBuffer());
           stableFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
           console.log('[Doc Ingest] Computed authoritative SHA-256 for PDF bytes:', {
             filename,
@@ -3780,6 +3787,7 @@ export async function ingestParsedDocument(
 }
 
 export interface IngestArtifactsOptions {
+  readFileBytes?: (url: string, signal?: AbortSignal) => Promise<Buffer | null>;
   serviceSupabase: SupabaseClient;
   discussionId: string;
   attachments?: {
@@ -3878,9 +3886,10 @@ export async function ingestDiscussionArtifacts(
       // Read remote bytes via storage or fetch
       let fileBlob: Blob | null = null;
       try {
-        const { data: downloadData, error: dlErr } = await serviceSupabase.storage
-          .from('message-images')
-          .download(storagePath);
+        const cachedBytes = options.readFileBytes ? await options.readFileBytes(url, signal) : null;
+        const { data: downloadData, error: dlErr } = cachedBytes
+          ? { data: new Blob([new Uint8Array(cachedBytes)]), error: null }
+          : await serviceSupabase.storage.from('message-images').download(storagePath);
 
         if (!dlErr && downloadData) {
           fileBlob = downloadData;

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:file-transport": "node --test tests/request-file-transport.test.cjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

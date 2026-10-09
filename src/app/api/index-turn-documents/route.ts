@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import OpenAI from 'openai';
+import { createRequestFileTransport } from '@/utils/requestFileTransport';
 import {
   extractStoragePathFromSignedUrl,
   indexStoredDiscussionDocuments,
@@ -147,9 +148,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const fileTransport = createRequestFileTransport({
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      requestSignal: req.signal,
+      onDiagnostic: (event) => console.log('[Index File Transport]', { discussionId, ...event }),
+    });
     const openai = new OpenAI({
       apiKey,
       baseURL: 'https://openrouter.ai/api/v1',
+      fetch: fileTransport.fetch,
       defaultHeaders: {
         'HTTP-Referer': 'https://plurilog.app',
         'X-Title': 'Plurilog',
@@ -218,8 +225,8 @@ export async function POST(req: NextRequest) {
         ],
         stream: true,
         max_tokens: 10,
-        signal: req.signal,
-      });
+
+      }, { signal: req.signal });
 
       const captured: any[] = [];
       for await (const chunk of stream) {
@@ -245,6 +252,7 @@ export async function POST(req: NextRequest) {
           discussionId,
           fileAnnotations: captured,
           attachments: missingAttachments,
+          readFileBytes: async (url, signal) => (await fileTransport.read(url, signal))?.bytes || null,
           sourceUserMessageId,
           signal: req.signal,
           deferEmbedding: true,
