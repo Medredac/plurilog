@@ -18,6 +18,8 @@ export interface KnownDiscussionDocument {
   id?: string | null;
   filename: string;
   storagePath?: string | null;
+  /** Authoritative original-byte identity, used to scope derived visual assets. */
+  fileHash?: string | null;
   sourcePaths?: string[];
   createdAt?: string;
 }
@@ -2172,7 +2174,7 @@ export async function getScopedDiscussionMemory(
         const serviceClient = createServiceClient();
         const { data: docRows, error: docErr } = await serviceClient
           .from('discussion_documents')
-          .select('id, filename, storage_path, created_at')
+          .select('id, filename, storage_path, file_hash, created_at')
           .eq('discussion_id', discussionId)
           .order('created_at', { ascending: true });
 
@@ -2207,6 +2209,7 @@ export async function getScopedDiscussionMemory(
               id: d.id,
               filename: d.filename,
               storagePath: d.storage_path || sourcePaths[0] || null,
+              fileHash: d.file_hash || null,
               sourcePaths,
               createdAt: d.created_at,
             });

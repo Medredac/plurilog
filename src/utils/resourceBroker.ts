@@ -445,12 +445,81 @@ function resolveImageVisual(
 }
 
 /**
- * Normalizes and resolves a resource request against existing discussion context.
+ * Constrains explicitly requested embedded images to their named parent document.
  */
+function resolveNamedDocumentImage(
+  request: ResourceBrokerRequest,
+  context: ResourceBrokerContext
+): InternalBrokerResult | null {
+  if (request.modality !== 'visual' || request.resource_type !== 'image') return null;
+  // An image explicitly named by the human remains an ordinary filename lookup.
+  const requestedImage = (context.knownImageSources || []).find(source =>
+    source.filename.toLowerCase() === (request.filename || '').toLowerCase()
+  );
+  if (requestedImage && (context.currentUserPrompt || '').toLowerCase().includes(requestedImage.filename.toLowerCase())) return null;
+  const text = `${request.need || ''} ${context.currentUserPrompt || ''}`.toLowerCase();
+  if (!/\b(?:embedded|original)\b/.test(text) ||
+      !/\b(?:image|photo|picture|illustration|logo|diagram)\b/.test(text)) return null;
+  const namedText = `${request.filename || ''} ${text}`.toLowerCase();
+  const parents = (context.knownDocuments || []).filter(doc =>
+    (isPdf(doc.filename) || isDocx(doc.filename)) &&
+    Boolean(doc.filename) && namedText.includes(doc.filename.toLowerCase())
+  );
+  if (!parents.length) return null;
+  if (parents.length !== 1) return {
+    status: 'ambiguous',
+    message: 'Multiple parent documents match this embedded-image request. Specify the source document.',
+    candidates: parents.map(doc => ({ label: doc.filename, filename: doc.filename, kind: isPdf(doc.filename) ? 'pdf' : 'docx' })),
+  };
+  const parent = parents[0];
+  const kind = isPdf(parent.filename) ? 'pdf' as const : 'docx' as const;
+  // Extraction already stores assets under the exact parent byte hash. Do not
+  // infer original-image identity from recency, upload sender, or rendered pages.
+  const assetFolder = kind === 'pdf' ? 'pdf-assets' : 'docx-assets';
+  const hash = parent.fileHash || '';
+  const parentPaths = [parent.storagePath, ...(parent.sourcePaths || [])].filter(Boolean) as string[];
+  const assetPrefixes = /^[a-f0-9]{64}$/i.test(hash)
+    ? parentPaths.map(path => `${path.split('/')[0]}/${assetFolder}/${hash}/`)
+    : [];
+  const candidates = (context.knownImageSources || []).filter(source =>
+    assetPrefixes.some(prefix => source.storagePath?.startsWith(prefix))
+  );
+  const distinct = [...new Map(candidates.map(source => [source.artifactId || source.storagePath, source])).values()];
+  const explicitImage = candidates.filter(source =>
+    source.filename.toLowerCase() === (request.filename || '').toLowerCase()
+  );
+  const selected = explicitImage.length === 1 ? explicitImage : distinct;
+  if (selected.length === 1) {
+    const source = selected[0];
+    return {
+      status: 'resolved', kind: 'image',
+      message: `Resolved the original embedded image from "${parent.filename}" by its parent document identity.`,
+      evidence: { kind: 'image', filename: source.filename, storagePath: source.storagePath,
+        sourceIds: [source.sourceId], sources: [source], reason: 'parent_document_embedded_image' },
+    };
+  }
+  if (selected.length > 1) return {
+    status: 'ambiguous', kind: 'image',
+    message: `Multiple embedded images belong to "${parent.filename}". Specify the image filename; no rendered page was substituted.`,
+    candidates: selected.map(source => ({ label: source.filename, filename: source.filename, kind: 'image' })),
+  };
+  const storagePath = parent.storagePath || parent.sourcePaths?.[0];
+  if (!storagePath) return { status: 'not_found', message: 'The named document has no retrievable original image or source file.' };
+  return {
+    status: 'resolved', kind,
+    message: `An extracted original image is unavailable; reopen the actual source document "${parent.filename}" for visual inspection.`,
+    evidence: { kind, filename: parent.filename, storagePath, documentId: parent.id || undefined,
+      reason: 'embedded_image_parent_document_fallback' },
+  };
+}
+
+/** Normalizes and resolves a resource request against existing discussion context. */
 export function resolveRequestedEvidence(
   request: ResourceBrokerRequest,
   context: ResourceBrokerContext
 ): InternalBrokerResult {
+  const documentImage = resolveNamedDocumentImage(request, context);
+  if (documentImage) return documentImage;
   const { modality, resource_type = 'auto', need, filename } = request;
   const effectiveNeed = (need || '').trim();
   const explicitFilename = (filename || '').trim();

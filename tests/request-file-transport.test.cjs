@@ -34,6 +34,14 @@ memoryModule._compile(ts.transpileModule(fs.readFileSync(memoryPath, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
 }).outputText, memoryPath);
 const { ingestDiscussionDocuments, ingestDiscussionArtifacts } = memoryModule.exports;
+const brokerPath = path.resolve('src/utils/resourceBroker.ts');
+const brokerModule = new Module(brokerPath, module);
+brokerModule.filename = brokerPath;
+brokerModule.paths = module.paths;
+brokerModule.require = name => name === '@/utils/discussionMemory' ? memoryModule.exports : require(name);
+brokerModule._compile(ts.transpileModule(fs.readFileSync(brokerPath, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+}).outputText, brokerPath);
 const origin = 'https://test-project.supabase.co';
 const pdfUrl = `${origin}/storage/v1/object/sign/message-images/user/original.pdf?token=private`;
 const imageUrl = `${origin}/storage/v1/object/sign/message-images/user/photo.png?token=private`;
@@ -524,4 +532,72 @@ test('mislabelled PDF bytes cannot be embedded in a Word image slot', async () =
   const { downloadImageBytes } = loadDocumentImageResolver({});
   const client = { storage: { from: () => ({ download: async () => ({ data: new Blob([pdf], { type: 'image/png' }), error: null }) }) } };
   await assert.rejects(downloadImageBytes(client, { filename: 'mislabelled.png', storagePath: 'user/mislabelled.png' }), /is a PDF/);
+});
+
+const parentHash = 'a'.repeat(64);
+const originalEmbedded = { sourceId: 'original-source', artifactId: 'original-image', filename: 'source — embedded image 1.png', storagePath: `user/pdf-assets/${parentHash}/001-original.png`, sender: 'user', sourceMessageId: 'original-upload', attachmentIndex: 1, createdAt: '2026-10-08T01:00:00Z' };
+const unrelatedPage = { ...originalEmbedded, sourceId: 'page-source', artifactId: 'page-image', filename: 'summary — rendered page 1.png', storagePath: `user/docx-pages/${'b'.repeat(64)}/page-001.png`, sourceMessageId: 'later-request', createdAt: '2026-10-09T01:00:00Z' };
+const embeddedContext = {
+  knownDocuments: [{ id: 'parent-doc', filename: 'source.pdf', fileHash: parentHash, storagePath: 'user/original.pdf' }],
+  knownImageSources: [originalEmbedded, unrelatedPage],
+  currentUserPrompt: 'Reopen the original robot illustration from my uploaded PDF as image evidence, not a rendered document page.',
+};
+const embeddedRequest = { modality: 'visual', resource_type: 'image', filename: 'source.pdf', need: 'Reopen the original robot illustration embedded in the uploaded PDF source.pdf as the actual stored image evidence, not a rendered page or prior description.' };
+
+test('original embedded-image evidence resolves its parent bytes, never a later rendered page', () => {
+  const result = brokerModule.exports.resolveRequestedEvidence(embeddedRequest, embeddedContext);
+  assert.equal(result.status, 'resolved');
+  assert.equal(result.evidence.kind, 'image');
+  assert.equal(result.evidence.storagePath, originalEmbedded.storagePath);
+});
+
+test('embedded-image lookup preserves DOCX parents and ignores other owners or document hashes', () => {
+  const docxImage = { ...originalEmbedded, storagePath: `user/docx-assets/${parentHash}/001-original.png` };
+  const result = brokerModule.exports.resolveRequestedEvidence({ ...embeddedRequest, filename: 'source.docx', need: 'Inspect the original embedded logo in source.docx.' }, {
+    ...embeddedContext, knownDocuments: [{ ...embeddedContext.knownDocuments[0], filename: 'source.docx', storagePath: 'user/source.docx' }],
+    knownImageSources: [unrelatedPage, { ...docxImage, storagePath: `other-owner/docx-assets/${parentHash}/001-original.png` }, docxImage],
+  });
+  assert.equal(result.evidence.storagePath, docxImage.storagePath);
+});
+
+test('missing extracted images or legacy hash metadata reopen the actual parent document', () => {
+  for (const context of [
+    { ...embeddedContext, knownImageSources: [unrelatedPage] },
+    { ...embeddedContext, knownDocuments: [{ ...embeddedContext.knownDocuments[0], fileHash: null }] },
+  ]) {
+    const result = brokerModule.exports.resolveRequestedEvidence(embeddedRequest, context);
+    assert.equal(result.status, 'resolved');
+    assert.equal(result.evidence.kind, 'pdf');
+    assert.equal(result.evidence.storagePath, 'user/original.pdf');
+  }
+});
+
+test('multiple original embedded images are ambiguous until a specific asset is named', () => {
+  const second = { ...originalEmbedded, artifactId: 'second-image', sourceId: 'second-source', filename: 'source — embedded image 2.png', storagePath: `user/pdf-assets/${parentHash}/002-second.png` };
+  const context = { ...embeddedContext, knownImageSources: [originalEmbedded, second, unrelatedPage] };
+  const result = brokerModule.exports.resolveRequestedEvidence(embeddedRequest, context);
+  assert.equal(result.status, 'ambiguous');
+  assert.deepEqual(result.candidates.map(item => item.filename), [originalEmbedded.filename, second.filename]);
+  const explicit = brokerModule.exports.resolveRequestedEvidence({ ...embeddedRequest, filename: second.filename }, context);
+  assert.equal(explicit.evidence.storagePath, second.storagePath);
+});
+
+test('duplicate parent filenames do not select an arbitrary document', () => {
+  const result = brokerModule.exports.resolveRequestedEvidence(embeddedRequest, {
+    ...embeddedContext, knownDocuments: [...embeddedContext.knownDocuments, { id: 'other-doc', filename: 'source.pdf', fileHash: 'c'.repeat(64), storagePath: 'user/other.pdf' }],
+  });
+  assert.equal(result.status, 'ambiguous');
+  assert.equal(result.evidence, undefined);
+});
+
+test('explicit rendered-page and ordinary image requests keep their original filename lookup', () => {
+  for (const currentUserPrompt of [
+    `Inspect ${unrelatedPage.filename}.`,
+    `Inspect ${unrelatedPage.filename}, not the original embedded image in source.pdf.`,
+  ]) {
+    const result = brokerModule.exports.resolveRequestedEvidence({ modality: 'visual', resource_type: 'image', filename: unrelatedPage.filename, need: currentUserPrompt }, {
+      ...embeddedContext, currentUserPrompt,
+    });
+    assert.equal(result.evidence.storagePath, unrelatedPage.storagePath);
+  }
 });
