@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Sandbox } from '@vercel/sandbox';
+import { applyPdfImageMask, parsePdfImageList } from './pdfImageTransparency';
 
 const STORAGE_BUCKET = 'message-images';
 const URL_EXPIRY_SECONDS = 259200;
@@ -157,6 +158,13 @@ export async function extractPdfEmbeddedImages(
       },
     ]);
 
+    const imageList = await sandbox.runCommand({
+      cmd: 'pdfimages',
+      args: ['-list', '/vercel/sandbox/input.pdf'],
+    });
+    await assertSucceeded(imageList, 'PDF image metadata');
+    const entries = parsePdfImageList(await imageList.stdout());
+
     const extraction = await sandbox.runCommand({
       cmd: 'pdfimages',
       args: [
@@ -190,7 +198,12 @@ export async function extractPdfEmbeddedImages(
         throw new DOMException('PDF image extraction aborted.', 'AbortError');
       }
 
-      const data = await sandbox.readFileToBuffer({
+      const number = Number(filenames[index].match(/^pdfimg-(\d+)\.png$/)?.[1]);
+      const entryIndex = entries.findIndex((entry) => entry.number === number);
+      const entry = entries[entryIndex];
+      if (!entry || entry.type === 'mask' || entry.type === 'smask') continue;
+
+      let data = await sandbox.readFileToBuffer({
         path: `/vercel/sandbox/${filenames[index]}`,
       });
       if (!data || data.length === 0) continue;
@@ -208,6 +221,18 @@ export async function extractPdfEmbeddedImages(
         dims.width * dims.height < minArea
       ) {
         continue;
+      }
+
+      const mask = entries[entryIndex + 1];
+      if (entry.type === 'image' && mask?.page === entry.page &&
+          (mask.type === 'mask' || mask.type === 'smask')) {
+        const maskName = filenames.find((name) =>
+          Number(name.match(/^pdfimg-(\d+)\.png$/)?.[1]) === mask.number);
+        const maskData = maskName && await sandbox.readFileToBuffer({
+          path: `/vercel/sandbox/${maskName}`,
+        });
+        if (!maskData) throw new Error('PDF transparency mask is missing.');
+        data = await applyPdfImageMask(data, maskData, mask.interpolate);
       }
 
       const hash = crypto.createHash('sha256').update(data).digest('hex');

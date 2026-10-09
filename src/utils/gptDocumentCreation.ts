@@ -819,6 +819,9 @@ async function downloadImageBytes(
   }
 
   if (data.length === 0) throw new Error('Resolved document image is empty.');
+  if (data.subarray(0, 5).toString('ascii') === '%PDF-') {
+    throw new Error('Resolved document image is a PDF; use its extracted image asset instead.');
+  }
   if (data.length > MAX_DOCUMENT_IMAGE_BYTES) throw new Error('Document image exceeds the 15 MB image limit.');
   return { data, contentType, filename: source.filename || 'image.png' };
 }
@@ -1087,7 +1090,9 @@ async function resolveDocumentBlocks(
           { modality: 'visual', resource_type: 'image', need, filename: block.filename },
           resourceContext
         );
-        if (broker.status === 'resolved' && broker.evidence?.storagePath) {
+        // The general evidence broker may resolve a PDF when the user names
+        // its embedded image. A document image slot must use an image asset.
+        if (broker.status === 'resolved' && broker.evidence?.kind === 'image' && broker.evidence.storagePath) {
           const matched = availableImages.find((candidate) =>
             candidate.storagePath === broker.evidence?.storagePath
           );
@@ -2569,7 +2574,8 @@ export async function executeGptDocumentCreation(
   ) {
     const missingParentContent = missingPreservedDocumentContent(
       revisionContext.parentSnapshot.spec,
-      finalSpecForState
+      finalSpecForState,
+      originalUserPrompt
     );
     if (missingParentContent.length > 0) {
       console.error('[Document Revision] Refusing content regression', {

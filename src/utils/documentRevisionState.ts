@@ -810,14 +810,75 @@ function semanticStringsFromBlock(block: any): string[] {
   }
 }
 
+export function isDocumentTitleRevisionRequest(userPrompt: string): boolean {
+  return /\b(?:change|rename|replace|update|set|retitle)\b[\s\S]{0,100}\btitle\b|\btitle\b[\s\S]{0,60}\b(?:to|as)\b/i.test(userPrompt) &&
+    !/\b(?:do not|don't|never)\s+(?:change|rename|replace|update)\b[^.!?\n]{0,40}\btitle\b/i.test(userPrompt);
+}
+
+export function isTitleOnlyDocumentRevision(userPrompt: string): boolean {
+  return isDocumentTitleRevisionRequest(userPrompt) &&
+    /\b(?:only|just)\s+(?:the\s+)?title\b|\btitle\s+only\b/i.test(userPrompt);
+}
+
+function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPrompt: string): boolean {
+  return isDocumentTitleRevisionRequest(userPrompt) && Boolean(oldTitle.trim() && newTitle.trim()) &&
+    normalizeSemantic(userPrompt).includes(normalizeSemantic(newTitle)) &&
+    normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
+}
+
+export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
+  parentSpec: Record<string, any>, nextSpec: T, userPrompt: string
+): T {
+  const oldTitle = typeof parentSpec.title === 'string' ? parentSpec.title : '';
+  if (!oldTitle || !Array.isArray(parentSpec.blocks) || !Array.isArray(nextSpec.blocks)) return nextSpec;
+  const matchingHeadings = parentSpec.blocks.flatMap((block: any, index: number) =>
+    block?.type === 'heading' && normalizeSemantic(block.text) === normalizeSemantic(oldTitle)
+      ? [index] : []);
+  const candidates = [nextSpec.title, ...matchingHeadings.map((index: number) =>
+    nextSpec.blocks[index]?.type === 'heading' ? nextSpec.blocks[index].text : '')]
+    .filter((value): value is string => typeof value === 'string' &&
+      isRequestedTitleReplacement(oldTitle, value, userPrompt));
+  if (!candidates.length) return nextSpec;
+  const newTitle = candidates[0];
+  if (candidates.some((value) => normalizeSemantic(value) !== normalizeSemantic(newTitle))) {
+    throw new Error('Revision proposes conflicting document titles.');
+  }
+  const next = jsonClone(nextSpec) as T & { title: string };
+  // Renderers suppress a duplicate heading only when it matches the stored
+  // title. Synchronize both representations even if the model patches just one.
+  next.title = newTitle;
+  for (const index of matchingHeadings) {
+    const block = next.blocks[index];
+    if (block?.type === 'heading' &&
+        normalizeSemantic(block.text) === normalizeSemantic(oldTitle)) block.text = newTitle;
+  }
+  return next;
+}
+
 export function missingPreservedDocumentContent(
   parentSpec: Record<string, any>,
-  nextSpec: Record<string, any>
+  nextSpec: Record<string, any>,
+  userPrompt = ''
 ): string[] {
+  // A requested rename may replace the document title and its matching visible
+  // heading. Other headings, paragraphs and table cells remain protected, even
+  // when they happen to contain the same words as the old title.
+  const oldTitle = typeof parentSpec.title === 'string' ? parentSpec.title : '';
+  const newTitle = typeof nextSpec.title === 'string' ? nextSpec.title : '';
+  const renamesTitle = isRequestedTitleReplacement(oldTitle, newTitle, userPrompt);
   const parentValues = [
-    typeof parentSpec.title === 'string' ? parentSpec.title : '',
+    renamesTitle ? '' : oldTitle,
     ...(Array.isArray(parentSpec.blocks)
-      ? parentSpec.blocks.flatMap(semanticStringsFromBlock)
+      ? parentSpec.blocks.flatMap((block: any, index: number) => {
+          const nextBlock = nextSpec.blocks?.[index];
+          if (
+            renamesTitle && block?.type === 'heading' &&
+            normalizeSemantic(block.text) === normalizeSemantic(oldTitle) &&
+            nextBlock?.type === 'heading' &&
+            normalizeSemantic(nextBlock.text) === normalizeSemantic(newTitle)
+          ) return [];
+          return semanticStringsFromBlock(block);
+        })
       : []),
   ]
     .map((value) => String(value || '').trim())

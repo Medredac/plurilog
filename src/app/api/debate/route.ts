@@ -99,6 +99,8 @@ import {
   listDocumentStateSnapshots,
   selectGeneratedDocumentStateByReference,
   missingPreservedDocumentContent,
+  normalizeRequestedTitleRevision,
+  isTitleOnlyDocumentRevision,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
   userExplicitlyAllowsContentRemoval,
@@ -143,6 +145,7 @@ import {
   type SourceDocumentEditArgs,
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
+import { createRequestFileTransport } from '@/utils/requestFileTransport';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -2294,10 +2297,9 @@ async function generateImageActionFollowUp(options: {
     messages: followUpMessages,
     stream: true,
     temperature: 0.7,
-    signal,
     tool_choice: 'none',
     ...(sessionId ? { session_id: sessionId } : {}),
-  });
+  }, { signal });
 
   for await (const chunk of followUpStream) {
     if (signal.aborted) break;
@@ -2404,10 +2406,9 @@ async function generateDocumentActionFollowUp(options: {
     messages: followUpMessages,
     stream: true,
     temperature: 0.7,
-    signal,
     tool_choice: 'none',
     ...(sessionId ? { session_id: sessionId } : {}),
-  });
+  }, { signal });
 
   for await (const chunk of followUpStream) {
     if (signal.aborted) break;
@@ -3398,9 +3399,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const fileTransport = createRequestFileTransport({
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+      requestSignal: req.signal,
+      onDiagnostic: (event) => console.log('[File Transport]', { turnId, ...event }),
+    });
+    const readFileBytes = async (url: string, signal?: AbortSignal) =>
+      (await fileTransport.read(url, signal))?.bytes || null;
     const openai = new OpenAI({
       apiKey: apiKey.trim(),
       baseURL: 'https://openrouter.ai/api/v1',
+      fetch: fileTransport.fetch,
       defaultHeaders: {
         'HTTP-Referer': 'https://plurilog.app',
         'X-Title': 'Plurilog',
@@ -5180,7 +5189,7 @@ export async function POST(req: NextRequest) {
                       p_match_count: 10,
                     }
                   );
-  
+
                   if (searchErr) {
                     console.error(
                       '[Memory Retrieval] Error calling search_discussion_memory_hybrid:',
@@ -5201,7 +5210,7 @@ export async function POST(req: NextRequest) {
                     if (sourceUserMessageId) {
                       recentUserMessageIds.add(sourceUserMessageId);
                     }
-  
+
                     const rawCandidates: any[] = Array.isArray(hybridRows) ? hybridRows : [];
                     const qualifyingCandidates = rawCandidates.filter((row: any) => {
                       if (
@@ -5217,22 +5226,22 @@ export async function POST(req: NextRequest) {
                         row?.keyword_rank !== null && row?.keyword_rank !== undefined;
                       return hasSemanticMatch || hasKeywordMatch;
                     });
-  
+
                     // Select up to 3 retrieved rounds within RETRIEVED_MEMORY_TOKEN_BUDGET.
                     // Note: The 2500-token budget is a target, not an absolute maximum,
                     // because the highest-ranked usable result is always retained even if it alone exceeds the budget.
                     const budgetedRetrievedMemory: any[] = [];
                     let retrievedEstimatedTokens = 0;
-  
+
                     for (const candidate of qualifyingCandidates) {
                       if (budgetedRetrievedMemory.length >= 3) break;
-  
+
                       const contentText =
                         typeof candidate?.content === 'string' ? candidate.content.trim() : '';
                       if (!contentText) continue;
-  
+
                       const candidateTokens = estimateTokens(contentText);
-  
+
                       if (budgetedRetrievedMemory.length === 0) {
                         // Always include the first usable/highest-ranked qualifying retrieved round
                         budgetedRetrievedMemory.push(candidate);
@@ -5248,9 +5257,9 @@ export async function POST(req: NextRequest) {
                         continue;
                       }
                     }
-  
+
                     retrievedMemory = budgetedRetrievedMemory;
-  
+
                     console.log('[Memory Retrieval] Hybrid search completed', {
                       discussionId,
                       candidateCount: rawCandidates.length,
@@ -5266,7 +5275,7 @@ export async function POST(req: NextRequest) {
                         semantic_similarity: row?.semantic_similarity,
                       })),
                     });
-  
+
                     if (
                       isJevMemoryPilotShadowEnabled() &&
                       jevEffectiveOperations.includes('semantic_history') &&
@@ -5286,7 +5295,7 @@ export async function POST(req: NextRequest) {
                           text.includes('other contrast')
                         );
                       }) || retrievedMemory[0];
-  
+
                       console.log('[Jev Evidence Validator Shadow]', {
                         strategy: 'prefer-original-over-recap',
                         selectedSourceUserMessageId:
@@ -5294,7 +5303,7 @@ export async function POST(req: NextRequest) {
                         selectedSemanticSimilarity:
                           validated?.semantic_similarity ?? null,
                       });
-  
+
                       if (
                         validated?.source_user_message_id &&
                         !jevEffectiveOperations.includes('chronology')
@@ -5312,7 +5321,7 @@ export async function POST(req: NextRequest) {
                       }
                     }
                   }
-  
+
                 } else if (graphExecutedSemanticHistory) {
                   console.log(
                     '[Jev Memory Graph] Legacy semantic retrieval suppressed because the graph already executed semantic_history',
@@ -5447,6 +5456,7 @@ export async function POST(req: NextRequest) {
                   }
 
                   if (!pdfBuffer || pdfBuffer.length === 0) continue;
+                  fileTransport.remember(pdfAtt.url, pdfBuffer);
 
                   try {
                     const extracted = await extractPdfEmbeddedImages(pdfBuffer, {
@@ -5469,6 +5479,10 @@ export async function POST(req: NextRequest) {
                         provenance: 'current_user_upload' as const,
                       }))
                     );
+                    for (const image of persisted) {
+                      const original = extracted.find((item) => item.index === image.index);
+                      if (original) fileTransport.remember(image.signedUrl, original.data);
+                    }
 
                     console.log('[PDF Visual] Materialized embedded images for current turn:', {
                       filename: pdfAtt.filename || 'document.pdf',
@@ -6670,6 +6684,7 @@ export async function POST(req: NextRequest) {
                   attachments: currentArtifactAttachments,
                   sourceUserMessageId: sourceUserMessageId || null,
                   signal: req.signal,
+                  readFileBytes,
                 });
               }
             } catch (preRelayArtifactErr) {
@@ -6707,7 +6722,9 @@ export async function POST(req: NextRequest) {
               : []),
             ...docxEmbeddedImageAttachments,
             ...docxRenderedPageAttachments,
-            ...pdfEmbeddedImageAttachments,
+            // PDF-extracted images stay in currentArtifactAttachments for durable
+            // preservation, document editing and on-demand evidence retrieval.
+            // Do not send them automatically with the original PDFs to each AI seat.
           ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
@@ -7165,6 +7182,14 @@ export async function POST(req: NextRequest) {
               !isHistoryLookupTurn &&
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
+            const requiresCanonicalTitleRevision =
+              AGENTIC_MEMORY_EXPERIMENT &&
+              isDocumentCreationEnabledForSeat &&
+              isTitleOnlyDocumentRevision(prompt || '') &&
+              Boolean(discussionMemory?.knownDocuments?.length);
+            const titleRevisionInstruction = requiresCanonicalTitleRevision
+              ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
+              : [];
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
@@ -7374,6 +7399,7 @@ export async function POST(req: NextRequest) {
               userDisplayName,
               isContinueRound === true
             );
+            seatMessages.push(...titleRevisionInstruction);
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7522,7 +7548,6 @@ export async function POST(req: NextRequest) {
                 messages: seatMessages,
                 stream: true,
                 temperature: 0.7,
-                signal: seatAbortController.signal,
                 tools: [
                   {
                     type: 'openrouter:web_search',
@@ -7535,7 +7560,7 @@ export async function POST(req: NextRequest) {
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
                   ...(AGENTIC_MEMORY_EXPERIMENT
                     ? [
-                        ...(isDocumentCreationEnabledForSeat
+                        ...(isDocumentCreationEnabledForSeat && !requiresCanonicalTitleRevision
                           ? GPT_FILE_TOOLS
                           : []),
                         ...(canEditCurrentUserDocument
@@ -7574,8 +7599,8 @@ export async function POST(req: NextRequest) {
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
-                
-                  });
+
+                  }, { signal: seatAbortController.signal });
               } catch (providerOpenErr: any) {
                 console.error('[Provider Stream] Open failed', {
                   turnId,
@@ -7848,13 +7873,12 @@ export async function POST(req: NextRequest) {
                       ],
                       stream: true,
                       temperature: 0.7,
-                      signal: seatAbortController.signal,
                       ...(discussionId
                         ? {
                             session_id: `${discussionId}:${seat.seatId}:memory:finalize`,
                           }
                         : {}),
-                    });
+                    }, { signal: seatAbortController.signal });
 
                   for await (const chunk of gracefulFinalizationStream) {
                     if (req.signal.aborted) break;
@@ -8096,7 +8120,7 @@ export async function POST(req: NextRequest) {
                     : []),
                   ...(AGENTIC_MEMORY_EXPERIMENT
                     ? [
-                        ...(isDocumentCreationEnabledForSeat
+                        ...(isDocumentCreationEnabledForSeat && !requiresCanonicalTitleRevision
                           ? GPT_FILE_TOOLS
                           : []),
                         ...(canEditCurrentUserDocument
@@ -8136,15 +8160,14 @@ export async function POST(req: NextRequest) {
                     messages: seatMessages,
                     stream: true,
                     temperature: 0.7,
-                    signal: seatAbortController.signal,
                     tools: continuationTools,
                     ...(discussionId
                       ? {
                           session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
                         }
                       : {}),
-                    
-                  });
+
+                  }, { signal: seatAbortController.signal });
 
                 let continuationModel = primaryModel;
                 for await (const chunk of memoryContinuationStream) {
@@ -8251,7 +8274,6 @@ export async function POST(req: NextRequest) {
                   messages: seatMessages,
                   stream: true,
                   temperature: 0,
-                  signal: seatAbortController.signal,
                   tools: REQUEST_EVIDENCE_TOOL,
                   tool_choice: {
                     type: 'function',
@@ -8260,7 +8282,7 @@ export async function POST(req: NextRequest) {
                   ...(discussionId
                     ? { session_id: `${discussionId}:${seat.seatId}` }
                     : {}),
-                });
+                }, { signal: seatAbortController.signal });
 
                 let guardUsage: any = null;
                 for await (const chunk of guardStream) {
@@ -8401,7 +8423,8 @@ export async function POST(req: NextRequest) {
                 }
 
                 const isCreateFileCall =
-                  hasOnlyCreateFileCalls && documentCalls.length > 0;
+                  hasOnlyCreateFileCalls && documentCalls.length > 0 &&
+                  !requiresCanonicalTitleRevision;
 
                 if (isSourceDocumentEditCall) {
                   documentToolBranchActive = true;
@@ -8615,7 +8638,7 @@ export async function POST(req: NextRequest) {
                     });
                   }
 
-                  for (const attachment of currentRoundAttachments || []) {
+                  for (const attachment of [...(currentRoundAttachments || []), ...pdfEmbeddedImageAttachments]) {
                     if (!isImageUrl(attachment?.url || '')) continue;
                     const key =
                       extractStoragePathFromSignedUrl(attachment.url) ||
@@ -9980,6 +10003,7 @@ export async function POST(req: NextRequest) {
 
                   const evidenceMessages = [
                     ...evidenceBaseMessages,
+                    ...titleRevisionInstruction,
                     {
                       role: 'assistant',
                       content: seatResponse || null,
@@ -10142,7 +10166,6 @@ export async function POST(req: NextRequest) {
                     messages: evidenceMessages,
                     stream: true,
                     temperature: 0.7,
-                    signal: seatAbortController.signal,
                     tools: [
                       {
                         type: 'openrouter:web_search',
@@ -10156,7 +10179,7 @@ export async function POST(req: NextRequest) {
                         : []),
                       ...(AGENTIC_MEMORY_EXPERIMENT
                         ? [
-                            ...(evidenceContinuationCanCreateFile
+                            ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
                               ? GPT_FILE_TOOLS
                               : []),
                             ...(evidenceContinuationCanSourceEdit
@@ -10203,7 +10226,7 @@ export async function POST(req: NextRequest) {
                           ],
                         }
                       : {}),
-                  });
+                  }, { signal: seatAbortController.signal });
 
                   for await (const chunk of evidenceStream) {
                     if (req.signal.aborted) break;
@@ -10316,13 +10339,12 @@ export async function POST(req: NextRequest) {
                           ],
                           stream: true,
                           temperature: 0.7,
-                          signal: seatAbortController.signal,
                           ...(discussionId
                             ? {
                                 session_id: `${discussionId}:${seat.seatId}:evidence:finalize`,
                               }
                             : {}),
-                        });
+                        }, { signal: seatAbortController.signal });
 
                       for await (const chunk of evidenceFinalizationStream) {
                         if (req.signal.aborted) break;
@@ -10994,8 +11016,6 @@ export async function POST(req: NextRequest) {
                           ],
                           stream: true,
                           temperature: 0.7,
-                          signal:
-                            seatAbortController.signal,
                           tools: [
                             ...(agenticRetrievalRounds <
                             AGENTIC_HARD_RETRIEVAL_ROUNDS
@@ -11015,7 +11035,7 @@ export async function POST(req: NextRequest) {
                               : []),
                             ...(AGENTIC_MEMORY_EXPERIMENT
                               ? [
-                                  ...(evidenceContinuationCanCreateFile
+                                  ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
                                     ? GPT_FILE_TOOLS
                                     : []),
                                   ...(evidenceContinuationCanSourceEdit
@@ -11067,7 +11087,7 @@ export async function POST(req: NextRequest) {
                                 ],
                               }
                             : {}),
-                        }
+                        }, { signal: seatAbortController.signal }
                       );
 
                     let iterativeModel =
@@ -11183,6 +11203,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.length;
                   const hasOnlyEvidenceCreateFileCalls =
                     evidenceContinuationCanCreateFile &&
+                    !requiresCanonicalTitleRevision &&
                     evidenceCreateFileCalls.length > 0 &&
                     evidenceCreateFileCalls.length ===
                       evidenceContinuationCalls.length;
@@ -11383,7 +11404,7 @@ export async function POST(req: NextRequest) {
                       });
                     }
 
-                    for (const attachment of evidenceAttachments || []) {
+                    for (const attachment of [...(evidenceAttachments || []), ...pdfEmbeddedImageAttachments]) {
                       if (!isImageUrl(attachment?.url || '')) continue;
                       if (
                         attachment.provenance === 'same_round_document_render' ||
@@ -11438,7 +11459,8 @@ export async function POST(req: NextRequest) {
                           patch?: JsonPatchOperation[];
                         };
                         const preserveParentContent =
-                          isNarrowDocumentRevisionFollowUpQuery(prompt || '') &&
+                          (requiresCanonicalTitleRevision ||
+                            isNarrowDocumentRevisionFollowUpQuery(prompt || '')) &&
                           !userExplicitlyAllowsContentRemoval(prompt || '');
 
                         if (preserveParentContent) {
@@ -11452,6 +11474,11 @@ export async function POST(req: NextRequest) {
                           revisionParentState.spec as GptCreateFileArgs,
                           reviseArgs.patch || []
                         ) as GptCreateFileArgs;
+                        fileArgs = normalizeRequestedTitleRevision(
+                          revisionParentState.spec,
+                          fileArgs,
+                          prompt || ''
+                        );
                         fileArgs = normalizeRevisionCompositions(
                           fileArgs,
                           prompt || ''
@@ -11480,7 +11507,8 @@ export async function POST(req: NextRequest) {
                           const missingParentContent =
                             missingPreservedDocumentContent(
                               revisionParentState.spec,
-                              fileArgs
+                              fileArgs,
+                              prompt || ''
                             );
                           if (missingParentContent.length > 0) {
                             throw new Error(
@@ -14079,11 +14107,10 @@ export async function POST(req: NextRequest) {
                     messages: fallbackMessages,
                     stream: true,
                     temperature: 0.7,
-                    signal: seatAbortController.signal,
                     ...(discussionId
                       ? { session_id: `${discussionId}:${seat.seatId}` }
                       : {}),
-                  });
+                  }, { signal: seatAbortController.signal });
 
                   for await (const chunk of fallbackStream) {
                     if (req.signal.aborted) break;
@@ -14553,6 +14580,7 @@ export async function POST(req: NextRequest) {
                       discussionId,
                       fileAnnotations: annotationsToStage,
                       attachments,
+                      readFileBytes,
                       sourceUserMessageId,
                       signal: req.signal,
                       deferEmbedding: true,
@@ -14605,6 +14633,7 @@ export async function POST(req: NextRequest) {
                       attachments: currentArtifactAttachments,
                       sourceUserMessageId,
                       signal: req.signal,
+                      readFileBytes,
                     });
 
                     // Update persistent visual context for user upload
