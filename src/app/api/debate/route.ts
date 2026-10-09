@@ -1,3 +1,4 @@
+import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
@@ -3171,6 +3172,7 @@ export async function POST(req: NextRequest) {
       isContinueRound,
       attachments,
       sourceUserMessageId,
+      continueSourceUserMessageId,
       runId: requestedRunId,
       runStartedAt: requestedRunStartedAt,
     } = await req.json();
@@ -6911,9 +6913,12 @@ export async function POST(req: NextRequest) {
                       ledger: sharedAgenticEvidenceLedger,
                       requestedBySeatId: 'shared_memory_planner',
                       createEvidenceId: createAgenticEvidenceId,
-                      excludedSourceUserMessageIds: recentExactRounds
-                        .map((round) => round.userMessageId)
-                        .filter((id): id is string => Boolean(id)),
+                      // Chronology must include recent rounds to establish a true boundary.
+                      excludedSourceUserMessageIds: toolName === 'search_conversation_memory'
+                        ? recentExactRounds
+                            .map((round) => round.userMessageId)
+                            .filter((id): id is string => Boolean(id))
+                        : [],
                       signal: req.signal,
                     });
 
@@ -14899,64 +14904,23 @@ export async function POST(req: NextRequest) {
           // Post-turn indexing below is deliberately non-blocking from the UI's
           // perspective: turn_ready was already emitted after the final seat.
 
-          // Index completed text discussion round in discussion_memory_chunks (non-critical)
-          if (
-            discussionId &&
-            sourceUserMessageId &&
-            prompt &&
-            prompt.trim() &&
-            priorResponses.length > 0 &&
-            !req.signal.aborted
-          ) {
-            try {
-              let completedRoundText = `User said:\n"""\n${prompt}\n"""`;
-              for (const resp of priorResponses) {
-                completedRoundText += `\n\n${resp.name} said:\n"""\n${resp.response}\n"""`;
-              }
-
-              const embeddingResponse = await (openai.embeddings.create as any)(
-                {
-                  model: 'google/gemini-embedding-2',
-                  dimensions: 1536,
-                  input: completedRoundText,
-                  encoding_format: 'float',
-                },
-                {
-                  timeout: 10000,
-                  signal: req.signal,
-                }
-              );
-
-              const embedding = embeddingResponse?.data?.[0]?.embedding;
-              if (!Array.isArray(embedding) || embedding.length !== 1536) {
-                console.error('[Memory Index] Missing or invalid 1536-dimension embedding vector returned by model');
-              } else {
-                const { error: upsertErr } = await supabase
-                  .from('discussion_memory_chunks')
-                  .upsert(
-                    {
-                      discussion_id: discussionId,
-                      source_user_message_id: sourceUserMessageId,
-                      content: completedRoundText,
-                      embedding: embedding,
-                    },
-                    { onConflict: 'discussion_id,source_user_message_id' }
-                  );
-
-                if (upsertErr) {
-                  console.error('[Memory Index] Supabase upsert error:', upsertErr);
-                } else {
-                  console.log('[Memory Index] Stored round memory', {
-                    discussionId,
-                    sourceUserMessageId,
-                    characterCount: completedRoundText.length,
-                    successfulPanelResponses: priorResponses.length,
-                  });
-                }
-              }
-            } catch (memErr: any) {
-              console.error('[Memory Index] Error indexing round memory:', memErr);
-            }
+          // Continue has no new prompt; anchor its own panel contributions to
+          // the saved marker without changing the prompt or visual-memory paths.
+          try {
+            await indexCompletedConversationRound({
+              supabase,
+              openai,
+              discussionId,
+              sourceUserMessageId: isContinueRound
+                ? continueSourceUserMessageId
+                : sourceUserMessageId,
+              isContinueRound: isContinueRound === true,
+              prompt,
+              responses: priorResponses,
+              signal: req.signal,
+            });
+          } catch (memErr) {
+            console.error('[Memory Index] Error indexing round memory:', memErr);
           }
 
           // Complete event

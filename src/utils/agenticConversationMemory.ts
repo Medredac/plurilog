@@ -538,6 +538,7 @@ async function qualifyTopicChronologyCandidates(options: {
   candidates: TopicChronologyCandidate[];
   signal?: AbortSignal;
   strict?: boolean;
+  fullExcerpt?: boolean;
 }): Promise<{
   candidates: TopicChronologyCandidate[];
   method: 'semantic_qualifier' | 'keyword_fallback' | 'semantic_fallback' | 'none';
@@ -552,7 +553,9 @@ async function qualifyTopicChronologyCandidates(options: {
 
   const classifierCandidates = candidates.slice(0, 30).map((candidate, index) => ({
     id: index,
-    excerpt: relevantWindow(candidate.sourceText, query, 1000),
+    excerpt: options.fullExcerpt
+      ? candidate.sourceText
+      : relevantWindow(candidate.sourceText, query, 1000),
   }));
 
   try {
@@ -587,7 +590,10 @@ async function qualifyTopicChronologyCandidates(options: {
 
     const raw = response.choices?.[0]?.message?.content || '';
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed?.relevant_ids)) {
+    if (Array.isArray(parsed?.relevant_ids) && (!options.fullExcerpt || parsed.relevant_ids.every(
+      (id: unknown) => typeof id === 'number' && Number.isInteger(id) &&
+        id >= 0 && id < classifierCandidates.length
+    ))) {
       const semanticIds = parsed.relevant_ids
         .map((value: unknown) => Number(value))
         .filter(
@@ -655,6 +661,78 @@ async function qualifyTopicChronologyCandidates(options: {
   }
 
   return { candidates: [], method: 'none' };
+}
+
+// Only explicit first/last topic lookups pay for this scan. Limit both work and
+// classifier calls; a partial scan must never masquerade as an absolute boundary.
+const CHRONOLOGY_EXCERPT_CHARS = 3000;
+const CHRONOLOGY_OVERLAP_CHARS = 200;
+const CHRONOLOGY_MAX_CHARS = 120000;
+const CHRONOLOGY_BATCH_SIZE = 16;
+const CHRONOLOGY_MAX_BATCHES = 8;
+
+async function scanTopicChronology(options: {
+  openai: OpenAI;
+  query: string;
+  allRounds: Round[];
+  speaker: SpeakerConstraint;
+  occurrence: 'first' | 'last';
+  excludedSourceIds: Set<string>;
+  signal?: AbortSignal;
+}) {
+  const { openai, query, allRounds, speaker, occurrence, excludedSourceIds, signal } = options;
+  function* excerpts(): Generator<TopicChronologyCandidate> {
+    for (let step = 0; step < allRounds.length; step++) {
+      const roundIndex = occurrence === 'first' ? step : allRounds.length - 1 - step;
+      const round = allRounds[roundIndex];
+      if (round.userMessageId && excludedSourceIds.has(round.userMessageId)) continue;
+      const text = speakerTextFromRound(round, speaker);
+      for (let offset = 0; offset < text.length;) {
+        // Every character is considered; overlap preserves phrases at boundaries.
+        const end = Math.min(text.length, offset + CHRONOLOGY_EXCERPT_CHARS);
+        yield { row: {}, sourceUserMessageId: round.userMessageId || '', roundIndex,
+          sourceText: text.slice(offset, end) };
+        if (end === text.length) break;
+        offset = end - CHRONOLOGY_OVERLAP_CHARS;
+      }
+    }
+  }
+  const iterator = excerpts();
+  let pending = iterator.next();
+  let checkedCharacters = 0;
+  let batches = 0;
+  const checkedRounds = new Set<number>();
+  const result = (selected: TopicChronologyCandidate | null, complete: boolean, error?: string) => ({
+    selected, complete, error,
+    coverage: { direction: occurrence, checkedCharacters, checkedRounds: checkedRounds.size,
+      batches, completeThroughOccurrence: Boolean(selected), completeHistory: complete && !selected },
+  });
+  while (!pending.done) {
+    if (signal?.aborted) return result(null, false, 'request_aborted');
+    if (batches >= CHRONOLOGY_MAX_BATCHES) return result(null, false, 'chronology_scan_limit');
+    const batch: TopicChronologyCandidate[] = [];
+    let batchCharacters = 0;
+    while (!pending.done && batch.length < CHRONOLOGY_BATCH_SIZE) {
+      const candidate = pending.value;
+      if (checkedCharacters + batchCharacters + candidate.sourceText.length > CHRONOLOGY_MAX_CHARS) break;
+      batch.push(candidate);
+      batchCharacters += candidate.sourceText.length;
+      pending = iterator.next();
+    }
+    if (!batch.length) return result(null, false, 'chronology_scan_limit');
+    const qualified = await qualifyTopicChronologyCandidates({
+      openai, query, candidates: batch, signal, strict: true, fullExcerpt: true,
+    });
+    batches++;
+    if (signal?.aborted) return result(null, false, 'request_aborted');
+    if (qualified.method !== 'semantic_qualifier') return result(null, false, 'chronology_qualification_failed');
+    checkedCharacters += batchCharacters;
+    batch.forEach(candidate => checkedRounds.add(candidate.roundIndex));
+    // Classifier output order is not chronology; select in inspected order.
+    const selected = batch.find(candidate => qualified.candidates.includes(candidate));
+    if (selected) return result(selected, true);
+  }
+  return result(null, true);
 }
 
 export async function resolveAgenticConversationTool(options: {
@@ -1055,118 +1133,25 @@ export async function resolveAgenticConversationTool(options: {
       };
     }
 
-    const queryEmbedding = await embedQuery(openai, query, signal);
-    if (!queryEmbedding) {
-      return {
-        toolName,
-        result: { ok: false, error: 'embedding_unavailable' },
-        addedEntries,
-        reusedEvidenceIds,
-        query,
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-
-    const { data: rows, error } = await serviceSupabase.rpc(
-      'search_discussion_memory_hybrid',
-      {
-        p_discussion_id: discussionId,
-        p_query_text: query,
-        p_query_embedding: queryEmbedding,
-        p_match_count: 30,
-      }
-    );
-
-    if (error || !Array.isArray(rows)) {
-      return {
-        toolName,
-        result: {
-          ok: false,
-          error: 'chronology_search_failed',
-          detail: error?.message || null,
-        },
-        addedEntries,
-        reusedEvidenceIds,
-        query,
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-
-    const candidates = rows
-      .map((row: any) => {
-        const sourceUserMessageId =
-          typeof row?.source_user_message_id === 'string'
-            ? row.source_user_message_id
-            : null;
-        if (
-          !sourceUserMessageId ||
-          excludedSourceIds.has(sourceUserMessageId)
-        ) {
-          return null;
-        }
-        const roundIndex = allRounds.findIndex(
-          (round) => round.userMessageId === sourceUserMessageId
-        );
-        if (roundIndex < 0) return null;
-        const round = allRounds[roundIndex];
-        const speakerText = speakerTextFromRound(round, speaker);
-        if (speaker !== 'any' && !speakerText.trim()) return null;
-        const rawMatchedText =
-          typeof row?.content === 'string' && row.content.trim()
-            ? row.content.trim()
-            : speakerText;
-        const sourceText = speaker === 'any' ? rawMatchedText : speakerText;
-        return {
-          row,
-          sourceUserMessageId,
-          roundIndex,
-          sourceText,
-        };
-      })
-      .filter(
-        (candidate): candidate is TopicChronologyCandidate =>
-          Boolean(candidate?.sourceText?.trim())
-      );
-
-    const qualification = await qualifyTopicChronologyCandidates({
-      openai,
-      query,
-      candidates,
-      signal,
+    // Inspect the actual ordered history, including rounds whose embedding is
+    // missing. Ranking the top search hits cannot establish a first/last boundary.
+    const scan = await scanTopicChronology({
+      openai, query, allRounds, speaker, occurrence, excludedSourceIds, signal,
     });
-
-    const relevantCandidates = qualification.candidates.sort((a, b) =>
-      occurrence === 'first'
-        ? a.roundIndex - b.roundIndex
-        : b.roundIndex - a.roundIndex
-    );
-
-    console.log('[Agentic Chronology Qualification]', {
-      discussionId,
-      requestedBySeatId,
-      query,
-      occurrence,
-      speaker,
-      candidateCount: candidates.length,
-      relevantCount: relevantCandidates.length,
-      method: qualification.method,
-    });
-
-    const selected = relevantCandidates[0] || null;
+    const selected = scan.selected;
     if (!selected) {
       return {
         toolName,
         result: {
-          ok: true,
-          query,
-          occurrence,
-          speaker,
-          evidence: null,
-          note: 'No relevance-qualified chronological candidate was found.',
+          ok: scan.complete,
+          query, occurrence, speaker, evidence: null,
+          coverage: scan.coverage,
+          ...(scan.complete ? {} : { error: scan.error }),
+          note: scan.complete
+            ? 'No relevant occurrence was found after checking all eligible ordered history.'
+            : 'The ordered search is incomplete. Do not claim a first/last occurrence or that the topic never appeared.',
         },
-        addedEntries,
-        reusedEvidenceIds,
-        query,
+        addedEntries, reusedEvidenceIds, query,
         latencyMs: Date.now() - startedAt,
       };
     }
@@ -1218,7 +1203,8 @@ export async function resolveAgenticConversationTool(options: {
         speaker,
         evidence: publicEntry(entry),
         note:
-          'The occurrence was chosen by chronological round order only after the candidate set was relevance-qualified.',
+          'History was checked in the requested chronological direction through this relevance-qualified occurrence, without a top-ranked search cutoff.',
+        coverage: scan.coverage,
       },
       addedEntries,
       reusedEvidenceIds,
