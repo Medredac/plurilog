@@ -49,6 +49,8 @@ export interface DocxBlock {
   placement?: DocxImagePlacement;
   widthMm?: number;
   heightMm?: number;
+  // Source documentary photos must remain uncropped and undistorted on revisions.
+  preserveAspectRatio?: boolean;
 
   // Server-resolved image payload. These fields never come from the model tool call.
   imageData?: Buffer;
@@ -475,15 +477,19 @@ function imageParagraphXml(
   const dims = imageDimensions(block.imageData, contentType);
   const size = block.size || 'large';
   const alignment = block.alignment || 'center';
-  const widthInches =
+  let widthInches =
     typeof block.widthMm === 'number' && Number.isFinite(block.widthMm)
       ? Math.max(10, Math.min(180, block.widthMm)) / 25.4
       : IMAGE_WIDTH_INCHES[size] || IMAGE_WIDTH_INCHES.large;
   const ratio = dims.width > 0 && dims.height > 0 ? dims.height / dims.width : 0.5625;
-  const heightInches =
+  let heightInches =
     typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
       ? Math.max(10, Math.min(240, block.heightMm)) / 25.4
       : Math.min(widthInches * ratio, 7.2);
+  if (block.preserveAspectRatio) {
+    widthInches = Math.min(widthInches, heightInches / ratio);
+    heightInches = widthInches * ratio;
+  }
   const cx = Math.max(1, Math.round(widthInches * EMU_PER_INCH));
   const cy = Math.max(1, Math.round(heightInches * EMU_PER_INCH));
   const relId = `rIdImage${imageIndex + 1}`;
@@ -622,6 +628,7 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
         size,
         alignment,
         placement,
+        preserveAspectRatio: block.preserveAspectRatio === true,
         widthMm:
           typeof block.widthMm === 'number' && Number.isFinite(block.widthMm)
             ? Math.max(10, Math.min(180, block.widthMm))

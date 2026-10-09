@@ -1186,6 +1186,7 @@ function preserveImageSourceDirectives(
       need: original.need,
       filename: original.filename,
       caption: original.caption,
+      preserveAspectRatio: original.preserveAspectRatio,
     } as RichDocumentBlock;
   });
 }
@@ -1337,6 +1338,7 @@ async function reviewRenderedPdfWithGpt(options: {
         'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
         'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
         'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
+        'Images marked preserveAspectRatio are original documentary photos. Preserve their complete frame and use legible sizes for portrait images and phone screenshots; do not force every image into a small landscape frame.',
         'If an exact page count was requested, treat it as a hard constraint and balance the content across those pages rather than leaving one page crowded and another mostly empty.',
         originalUserPrompt
           ? `Original user request:\n${originalUserPrompt}`
@@ -1896,7 +1898,7 @@ export async function executeGptDocumentCreation(
       if (block.type !== 'image') return block;
       const photo = photos.find(p => p.number === photoNumber(block))!;
       photoBindings.push({ imageOrdinal: ordinal++, source: { filename: photo.filename, storagePath: photo.storagePath, sender: 'user' } });
-      return { ...block, mode: 'existing', filename: photo.filename, imageData: photo.data, imageContentType: photo.contentType, imageAltText: block.need || `Photo ${photo.number}` };
+      return { ...block, mode: 'existing', filename: photo.filename, preserveAspectRatio: true, imageData: photo.data, imageContentType: photo.contentType, imageAltText: block.need || `Photo ${photo.number}` };
     });
     // Keep binary payloads out of model review prompts and canonical JSON state.
     // Extraction is an invocation directive, not something to rerun on revisions.

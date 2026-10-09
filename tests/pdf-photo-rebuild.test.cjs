@@ -8,11 +8,11 @@ const { execFileSync } = require('node:child_process');
 const Module = require('node:module');
 const ts = require('typescript');
 const sharp = require('sharp');
-function load(file, overrides = {}) {
+function load(file, overrides = {}, extra = '') {
   const filename = path.resolve(file), mod = new Module(filename, module);
   mod.filename = filename; mod.paths = module.paths;
   mod.require = name => overrides[name] || require(name);
-  mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') + extra, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
   return mod.exports;
@@ -96,4 +96,16 @@ test('real extractor maps 20 originals across two-column pages and preserves JPE
     execFileSync(python,['-c',"import fitz,sys; d=fitz.open(sys.argv[1]); p=d[-1]; p.add_redact_annot(p.search_for('Photo 20')[0]); p.apply_redactions(images=0); d.save(sys.argv[2])",path.join(dir,'source.pdf'),path.join(dir,'missing.pdf')]);
     assert.throws(()=>execFileSync(python,[path.join(dir,'extract.py'),path.join(dir,'missing.pdf'),path.join(dir,'bad')],{stdio:'pipe'}),/verified caption binding/);
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+test('documentary image fit preserves full frame in PDF and aspect ratio in Word', async () => {
+  const {renderImageElement} = load('src/utils/richPdfRenderer.ts', {}, '\nexport {renderImageElement};');
+  const data=await sharp({create:{width:100,height:200,channels:3,background:'red'}}).png().toBuffer();
+  const block={type:'image',imageData:data,imageContentType:'image/png',widthMm:76,heightMm:48,preserveAspectRatio:true};
+  assert.match(renderImageElement(block),/object-fit:contain/);
+  assert.match(renderImageElement({...block,preserveAspectRatio:false}),/object-fit:cover/);
+  const out=writer.renderDocx({filename:'aspect.docx',blocks:[block]});
+  const match=out.buffer.toString('utf8').match(/<wp:extent cx="(\d+)" cy="(\d+)"/);
+  assert.ok(match);
+  assert.equal(Number(match[2])/Number(match[1]),2);
 });

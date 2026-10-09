@@ -336,7 +336,7 @@ function renderImageElement(block: DocxBlock): string {
     typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
       ? `${Math.max(10, Math.min(240, block.heightMm))}mm`
       : 'auto';
-  const objectFit = height === 'auto' ? 'contain' : 'cover';
+  const objectFit = height === 'auto' || block.preserveAspectRatio ? 'contain' : 'cover';
   return `<img src="data:${escapeHtml(contentType)};base64,${b64}" alt="${escapeHtml(
     cleanText(
       block.imageAltText ||

@@ -492,7 +492,7 @@ function loadDocumentImageResolver(brokerResult) {
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
-    '\nexport { resolveDocumentBlocks, downloadImageBytes };', {
+    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
   return loaded.exports;
@@ -600,4 +600,15 @@ test('explicit rendered-page and ordinary image requests keep their original fil
     });
     assert.equal(result.evidence.storagePath, unrelatedPage.storagePath);
   }
+});
+
+test('visual review cannot strip documentary-photo identity, caption or full-frame protection', () => {
+  const {preserveImageSourceDirectives}=loadDocumentImageResolver({});
+  const originals=[{type:'image',mode:'existing',need:'Photo 1',filename:'original.jpg',caption:'Original caption',preserveAspectRatio:true}];
+  const result=preserveImageSourceDirectives(originals,[{type:'image',mode:'generate',need:'replacement',caption:'Wrong caption',widthMm:76,heightMm:48}]);
+  assert.equal(result[0].preserveAspectRatio,true);
+  assert.equal(result[0].caption,'Original caption');
+  assert.equal(result[0].filename,'original.jpg');
+  assert.equal(result[0].mode,'existing');
+  assert.equal(preserveImageSourceDirectives(originals,[]),null);
 });
