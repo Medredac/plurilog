@@ -63,6 +63,25 @@ export function createRequestFileTransport(options: TransportOptions) {
     signal?.throwIfAborted();
   }
 
+  // Seats share the download, but each seat owns only its wait. A seat timeout
+  // must not poison the bytes needed by another seat or later memory indexing.
+  async function waitForFile(pending: Promise<CachedFile | null>, signal?: AbortSignal | null) {
+    const signals = [options.requestSignal, signal]
+      .filter((value): value is AbortSignal => Boolean(value));
+    if (!signals.length) return pending;
+    const waitSignal = AbortSignal.any(signals);
+    return new Promise<CachedFile | null>((resolve, reject) => {
+      const stop = () => reject(waitSignal.reason);
+      const cleanUp = () => waitSignal.removeEventListener('abort', stop);
+      waitSignal.addEventListener('abort', stop, { once: true });
+      if (waitSignal.aborted) stop();
+      pending.then(
+        (file) => { cleanUp(); resolve(file); },
+        (error) => { cleanUp(); reject(error); }
+      );
+    });
+  }
+
   // Seed only with original bytes already read by this authenticated request.
   function remember(url: string, bytes: Buffer): void {
     const entry = source(url);
@@ -79,7 +98,7 @@ export function createRequestFileTransport(options: TransportOptions) {
     const existing = cache.get(entry.key);
     if (existing) {
       cacheHits++;
-      const result = await existing;
+      const result = await waitForFile(existing, signal);
       throwIfCancelled(signal);
       return result;
     }
@@ -87,7 +106,7 @@ export function createRequestFileTransport(options: TransportOptions) {
     if (allowance <= 0 || cache.size >= 128) return null;
     reservedBytes += allowance;
     const pending = (async (): Promise<CachedFile | null> => {
-      const signals = [options.requestSignal, signal, AbortSignal.timeout(20_000)]
+      const signals = [options.requestSignal, AbortSignal.timeout(20_000)]
         .filter((value): value is AbortSignal => Boolean(value));
       try {
         const response = await upstreamFetch(url, {
@@ -118,22 +137,21 @@ export function createRequestFileTransport(options: TransportOptions) {
             chunks.push(next.value);
           }
         } finally { reader.releaseLock(); }
-        throwIfCancelled(signal);
+        throwIfCancelled();
         if (!size || (declaredLength > 0 && declaredLength !== size)) return null;
         const bytes = Buffer.concat(chunks, size);
         retainedBytes += size;
         downloads++;
         return { bytes, mime: entry.mime };
       } catch {
-        throwIfCancelled(signal);
+        throwIfCancelled();
         // A failed download must not remove the attachment or fail a working
         // URL-based model request. Do not log signed URLs or private filenames.
         return null;
       } finally { reservedBytes -= allowance; }
     })();
     cache.set(entry.key, pending);
-    try { return await pending; }
-    catch (error) { cache.delete(entry.key); throw error; }
+    return waitForFile(pending, signal);
   }
 
   const transportFetch: typeof fetch = async (input, init) => {

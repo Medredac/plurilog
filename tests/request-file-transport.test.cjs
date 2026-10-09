@@ -88,6 +88,48 @@ test('historical evidence and refreshed signatures reuse bytes; simultaneous req
   assert.equal(h.requests.length, 2);
 });
 
+test('one seat timing out cannot cancel another seat reading the same historical file', async () => {
+  const firstSeat = new AbortController();
+  let releaseDownload, storageSignal, downloads = 0;
+  const h = harness({ fetchImpl: async (url, init) => {
+    if (url === apiUrl) return response();
+    downloads++;
+    storageSignal = init.signal;
+    return new Promise((resolve, reject) => {
+      releaseDownload = () => resolve(new Response(pdf));
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  } });
+  const first = h.transport.read(pdfUrl, firstSeat.signal);
+  const firstStopped = assert.rejects(first, /seat timed out/);
+  const other = h.transport.read(pdfUrl.replace('private', 'refreshed'));
+  const otherCompleted = other.then(result => ({ result }), error => ({ error }));
+  firstSeat.abort(new Error('seat timed out'));
+  await firstStopped;
+  releaseDownload();
+  const outcome = await otherCompleted;
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.result.bytes, pdf);
+  assert.equal(storageSignal.aborted, false);
+  assert.equal(downloads, 1);
+  // End-of-turn memory indexing can still reuse the successfully fetched bytes.
+  assert.deepEqual((await h.transport.read(pdfUrl)).bytes, pdf);
+});
+
+test('a cancelled cache waiter stops promptly without aborting the active reader', async () => {
+  const waiter = new AbortController();
+  let releaseDownload;
+  const h = harness({ fetchImpl: async () => new Promise(resolve => {
+    releaseDownload = () => resolve(new Response(pdf));
+  }) });
+  const active = h.transport.read(pdfUrl);
+  const stopped = assert.rejects(h.transport.read(pdfUrl, waiter.signal), /waiter stopped/);
+  waiter.abort(new Error('waiter stopped'));
+  await stopped;
+  releaseDownload();
+  assert.deepEqual((await active).bytes, pdf);
+});
+
 test('already downloaded extraction bytes are reused without any additional storage GET', async () => {
   const h = harness();
   h.transport.remember(pdfUrl, pdf);
@@ -160,10 +202,10 @@ test('wrong MIME types cannot be sent as a PDF', async () => {
   await h.send(); assert.deepEqual(delivered, body());
 });
 
-test('abort during storage fetch stops before inference and does not trigger URL fallback', async () => {
+test('whole-request abort stops the shared storage fetch before inference without URL fallback', async () => {
   const controller = new AbortController();
   let inference = 0;
-  const h = harness({ fetchImpl: async (url, init) => {
+  const h = harness({ requestSignal: controller.signal, fetchImpl: async (url, init) => {
     if (url === apiUrl) { inference++; return response(); }
     return new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }); controller.abort(); });
   } });
@@ -320,6 +362,117 @@ test('artifact registration keeps original image hash, source identity, and full
     assert.equal(source.filename, 'exact portrait.png');
     assert.equal(source.storage_path, 'user/photo.png');
   }
+});
+
+// Stateful fake storage/DB: exercise canonical records and their aliases across
+// multiple ingestion calls, rather than assuming an existing canonical row.
+function memoryStore() {
+  const tables = new Map(), files = new Map();
+  let id = 0;
+  const rows = table => { if (!tables.has(table)) tables.set(table, []); return tables.get(table); };
+  const client = {
+    storage: { from: () => ({ download: async key => ({ data: files.has(key) ? new Blob([files.get(key)]) : null, error: null }) }) },
+    from(table) {
+      let operation = 'select', value, conflicts = [], single = false;
+      const filters = [];
+      const execute = () => {
+        const source = rows(table);
+        let selected = source.filter(row => filters.every(f => f(row)));
+        if (operation === 'insert' || operation === 'upsert') {
+          const existing = operation === 'upsert' && source.find(row => conflicts.every(key => row[key] === value[key]));
+          const item = existing || { id: `id-${++id}`, created_at: '2026-10-09T00:00:00Z' };
+          Object.assign(item, value);
+          if (!existing) source.push(item);
+          selected = [item];
+        } else if (operation === 'update') selected.forEach(row => Object.assign(row, value));
+        return { data: single ? selected[0] || null : selected, count: selected.length, error: null };
+      };
+      const q = {
+        select() { return q; },
+        eq(key, value) { filters.push(row => row[key] === value); return q; },
+        in(key, values) { filters.push(row => values.includes(row[key])); return q; },
+        insert(input) { operation = 'insert'; value = input; return q; },
+        update(input) { operation = 'update'; value = input; return q; },
+        upsert(input, options) { operation = 'upsert'; value = input; conflicts = options.onConflict.split(','); return q; },
+        single() { single = true; return Promise.resolve(execute()); },
+        maybeSingle() { single = true; return Promise.resolve(execute()); },
+        then(resolve, reject) { return Promise.resolve(execute()).then(resolve, reject); },
+      };
+      return q;
+    },
+  };
+  return { client, rows, files };
+}
+
+test('cached PDFs preserve canonical identity, reupload aliases and discussion isolation', async () => {
+  const db = memoryStore();
+  const h = harness();
+  const uploads = [
+    ['discussion-a', 'user/original.pdf', pdf],
+    ['discussion-a', 'user/reuploaded.pdf', pdf],
+    ['discussion-a', 'user/changed.pdf', Buffer.concat([pdf, Buffer.from('changed')])],
+    ['discussion-b', 'user/original.pdf', pdf],
+  ];
+  for (const [discussionId, storagePath, bytes] of uploads) {
+    const url = `${origin}/storage/v1/object/sign/message-images/${storagePath}?token=fresh`;
+    h.transport.remember(url, bytes);
+    const result = await ingestDiscussionDocuments({
+      serviceSupabase: db.client, openai: {}, discussionId, deferEmbedding: true,
+      attachments: [{ url, filename: 'same-name.pdf' }],
+      fileAnnotations: [{ type: 'file', file: { hash: 'provider-specific-hash', name: 'same-name.pdf', content: [{ type: 'text', text: 'Text from this original document.' }] } }],
+      readFileBytes: async url => (await h.transport.read(url))?.bytes || null,
+    });
+    assert.equal(result.stagedCount, 1);
+    assert.deepEqual(result.errors, []);
+  }
+  const documents = db.rows('discussion_documents'), sources = db.rows('discussion_document_sources');
+  assert.equal(documents.length, 3);
+  assert.equal(sources.length, 4);
+  assert.equal(sources[0].document_id, sources[1].document_id);
+  assert.notEqual(sources[0].document_id, sources[2].document_id);
+  assert.notEqual(sources[0].document_id, sources[3].document_id);
+  assert.equal(h.downloads.length, 0);
+});
+
+test('saved image memory remains retrievable with aliases, original ordering and discussion scope', async () => {
+  const db = memoryStore();
+  db.rows('messages').push({ id: 'upload', sender: 'user', created_at: '2026-10-09T00:00:00Z' });
+  const h = harness();
+  const secondUrl = imageUrl.replace('photo.png', 'another-photo.png');
+  h.transport.remember(imageUrl, png); h.transport.remember(secondUrl, png);
+  for (const discussionId of ['discussion-a', 'discussion-b']) {
+    const result = await ingestDiscussionArtifacts({
+      serviceSupabase: db.client, discussionId, sourceUserMessageId: 'upload',
+      attachments: [{ url: pdfUrl, filename: 'source.pdf' }, { url: imageUrl, filename: 'robot.png' }, { url: secondUrl, filename: 'copy.png' }],
+      readFileBytes: async url => (await h.transport.read(url))?.bytes || null,
+    });
+    assert.equal(result.ingestedCount, 2);
+    assert.deepEqual(result.errors, []);
+  }
+  const sources = await memoryModule.exports.fetchKnownImageSources(db.client, 'discussion-a');
+  assert.equal(sources.length, 2);
+  assert.deepEqual(sources.map(source => source.attachmentIndex), [1, 2]);
+  assert.deepEqual(sources.map(source => source.filename), ['robot.png', 'copy.png']);
+  assert.equal(sources[0].artifactId, sources[1].artifactId);
+  assert.ok(sources.every(source => source.discussionId === 'discussion-a' && source.sourceMessageId === 'upload' && source.sender === 'user'));
+  assert.equal(db.rows('discussion_artifacts').length, 2);
+});
+
+test('ambiguous same-name PDFs still fail safe; unavailable cache falls back to authoritative storage', async () => {
+  const db = memoryStore();
+  db.files.set('user/original.pdf', pdf);
+  const options = {
+    serviceSupabase: db.client, openai: {}, discussionId: 'discussion-a', deferEmbedding: true,
+    attachments: [{ url: pdfUrl, filename: 'same.pdf' }],
+    fileAnnotations: [{ type: 'file', file: { hash: 'untrusted-provider-hash', name: 'same.pdf', content: [{ type: 'text', text: 'A document with durable source identity.' }] } }],
+    readFileBytes: async () => null,
+  };
+  const result = await ingestDiscussionDocuments(options);
+  assert.equal(result.stagedCount, 1);
+  assert.equal(db.rows('discussion_documents')[0].file_hash, require('node:crypto').createHash('sha256').update(pdf).digest('hex'));
+  const ambiguous = await ingestDiscussionDocuments({ ...options, attachments: [...options.attachments, { url: pdfUrl.replace('original.pdf', 'other.pdf'), filename: 'same.pdf' }] });
+  assert.equal(ambiguous.skippedCount, 1);
+  assert.equal(db.rows('discussion_documents').length, 1);
 });
 
 function loadDocumentImageResolver(brokerResult) {
