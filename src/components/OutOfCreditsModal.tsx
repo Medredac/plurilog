@@ -176,7 +176,9 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center rounded-[10px] text-[11px] font-medium text-[#6A675F] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
+            className={variant === 'promotion'
+              ? 'mt-3 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#8A867D] bg-[#F4F3F0] px-4 text-[13px] font-semibold text-[#1C1B1A] transition-colors hover:bg-[#E9E7E2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C1B1A]'
+              : 'mt-3 flex h-10 w-full cursor-pointer items-center justify-center rounded-[10px] text-[11px] font-medium text-[#6A675F] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]'}
           >
             {variant === 'promotion' ? (isRenewal ? 'Continue' : 'Continue on Free') : 'Maybe later'}
           </button>
