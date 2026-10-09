@@ -7183,6 +7183,7 @@ export async function POST(req: NextRequest) {
               seat.seatId === 'chatgpt' &&
               isGptDocumentCreationEnabled();
             const requiresCanonicalTitleRevision =
+              AGENTIC_MEMORY_EXPERIMENT &&
               isDocumentCreationEnabledForSeat &&
               isTitleOnlyDocumentRevision(prompt || '') &&
               Boolean(discussionMemory?.knownDocuments?.length);
