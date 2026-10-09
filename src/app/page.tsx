@@ -921,7 +921,7 @@ export default function LandingPage() {
                   </div>
 
                   <p className="mb-5 text-[12px] leading-5 text-[#6A675F]">
-                    For your first 3 months, then $19/month.<br />New subscribers. USD. Cancel anytime.
+                    For your first 3 months, then $19/month.
                   </p>
 
                   <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
