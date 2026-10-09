@@ -812,12 +812,31 @@ function semanticStringsFromBlock(block: any): string[] {
 
 export function missingPreservedDocumentContent(
   parentSpec: Record<string, any>,
-  nextSpec: Record<string, any>
+  nextSpec: Record<string, any>,
+  userPrompt = ''
 ): string[] {
+  // A requested rename may replace the document title and its matching visible
+  // heading. Other headings, paragraphs and table cells remain protected, even
+  // when they happen to contain the same words as the old title.
+  const oldTitle = typeof parentSpec.title === 'string' ? parentSpec.title : '';
+  const newTitle = typeof nextSpec.title === 'string' ? nextSpec.title : '';
+  const renamesTitle =
+    /\b(?:change|rename|replace|update|set|retitle)\b[\s\S]{0,100}\btitle\b|\btitle\b[\s\S]{0,60}\b(?:to|as)\b/i.test(userPrompt) &&
+    Boolean(oldTitle.trim() && newTitle.trim()) &&
+    normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
   const parentValues = [
-    typeof parentSpec.title === 'string' ? parentSpec.title : '',
+    renamesTitle ? '' : oldTitle,
     ...(Array.isArray(parentSpec.blocks)
-      ? parentSpec.blocks.flatMap(semanticStringsFromBlock)
+      ? parentSpec.blocks.flatMap((block: any, index: number) => {
+          const nextBlock = nextSpec.blocks?.[index];
+          if (
+            renamesTitle && block?.type === 'heading' &&
+            normalizeSemantic(block.text) === normalizeSemantic(oldTitle) &&
+            nextBlock?.type === 'heading' &&
+            normalizeSemantic(nextBlock.text) === normalizeSemantic(newTitle)
+          ) return [];
+          return semanticStringsFromBlock(block);
+        })
       : []),
   ]
     .map((value) => String(value || '').trim())

@@ -11487,7 +11487,8 @@ export async function POST(req: NextRequest) {
                           const missingParentContent =
                             missingPreservedDocumentContent(
                               revisionParentState.spec,
-                              fileArgs
+                              fileArgs,
+                              prompt || ''
                             );
                           if (missingParentContent.length > 0) {
                             throw new Error(

@@ -2574,7 +2574,8 @@ export async function executeGptDocumentCreation(
   ) {
     const missingParentContent = missingPreservedDocumentContent(
       revisionContext.parentSnapshot.spec,
-      finalSpecForState
+      finalSpecForState,
+      originalUserPrompt
     );
     if (missingParentContent.length > 0) {
       console.error('[Document Revision] Refusing content regression', {
