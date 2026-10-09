@@ -96,7 +96,9 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
           <div className="min-w-0">
             <div className="mb-2 flex items-center gap-2">
               <img src="/logo.svg" alt="" className="h-[22px] w-[22px] shrink-0 object-contain" />
-              <span className="text-[11px] font-medium text-[#6A675F]">
+              <span className={variant === 'promotion'
+                ? 'rounded-full bg-[#F6D3C9] px-3 py-1.5 text-[15px] font-semibold leading-5 text-[#8A3D22]'
+                : 'text-[11px] font-medium text-[#6A675F]'}>
                 {variant === 'promotion' ? 'Limited-time offer' : variant === 'low'
                   ? 'You’ve used almost all your free credit'
                   : 'You’ve used all your free credit'}
