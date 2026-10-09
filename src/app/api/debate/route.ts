@@ -99,6 +99,7 @@ import {
   listDocumentStateSnapshots,
   selectGeneratedDocumentStateByReference,
   missingPreservedDocumentContent,
+  normalizeRequestedTitleRevision,
   normalizeRevisionCompositions,
   preserveRevisionPageConstraint,
   userExplicitlyAllowsContentRemoval,
@@ -11459,6 +11460,11 @@ export async function POST(req: NextRequest) {
                           revisionParentState.spec as GptCreateFileArgs,
                           reviseArgs.patch || []
                         ) as GptCreateFileArgs;
+                        fileArgs = normalizeRequestedTitleRevision(
+                          revisionParentState.spec,
+                          fileArgs,
+                          prompt || ''
+                        );
                         fileArgs = normalizeRevisionCompositions(
                           fileArgs,
                           prompt || ''

@@ -44,6 +44,18 @@ test('title rename remains protected when not requested or blanked', () => {
   const next = renamed(); next.title = ''; next.blocks[0].text = '';
   assert.equal(revision.missingPreservedDocumentContent(parent, next, prompt).length, 2);
 });
+test('a patch to either title representation updates both without introducing a second title', () => {
+  for (const operation of patch) {
+    const patched = revision.applyDocumentJsonPatch(parent, [operation]);
+    const next = revision.normalizeRequestedTitleRevision(parent, patched, prompt);
+    assert.equal(next.title, 'Verified transfer check');
+    assert.equal(next.blocks[0].text, next.title);
+    assert.deepEqual(next.blocks.slice(1), parent.blocks.slice(1));
+    assert.deepEqual(revision.missingPreservedDocumentContent(parent, next, prompt), []);
+  }
+  const patched = revision.applyDocumentJsonPatch(parent, [patch[1]]);
+  assert.deepEqual(revision.normalizeRequestedTitleRevision(parent, patched, 'Make the title bold'), patched);
+});
 test('rename cannot silently lose body, table cells, another heading or the title heading', () => {
   const next = renamed(); next.blocks[1].text = 'Wrong'; next.blocks[2].rows[1][1] = '99';
   assert.deepEqual(revision.missingPreservedDocumentContent(parent, next, prompt), ['ORCHID-4729 LANTERN-8631', '11']);
