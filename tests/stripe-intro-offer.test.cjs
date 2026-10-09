@@ -24,7 +24,7 @@ const helpers = load('src/lib/stripeIntroOffer.ts');
 const coupon = { valid: true, amount_off: 1000, currency: 'usd', duration: 'repeating', duration_in_months: 3, applies_to: { products: ['prod_plus'] } };
 const price = { active: true, unit_amount: 1900, currency: 'usd', recurring: { interval: 'month', interval_count: 1 }, product: 'prod_plus' };
 
-function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile = {}, history = [], priceOverride = {}, couponOverride = {}, failHistory = false, nextPayment = 900 } = {}) {
+function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile = {}, history = [], invoices = [], failInvoices = false, priceOverride = {}, couponOverride = {}, failHistory = false, nextPayment = 900 } = {}) {
   const calls = [];
   const billingProfile = { plan: 'free', plan_status: null, stripe_customer_id: null, stripe_subscription_id: null, signup_source: 'facebook', ...profile };
   const stripe = {
@@ -35,7 +35,7 @@ function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile =
     prices: { async retrieve(id) { calls.push(['price', id]); return { ...price, ...priceOverride }; } },
     coupons: { async retrieve(id, args) { calls.push(['coupon', id, args]); return { ...coupon, ...couponOverride }; } },
     checkout: { sessions: { async create(params, options) { calls.push(['checkout', params, options]); return { url: 'https://checkout.stripe.com/test' }; } } },
-    invoices: { async createPreview(args) { calls.push(['invoice', args]); return { currency: 'usd', amount_due: nextPayment }; } },
+    invoices: { list(args) { calls.push(['invoices', args]); return (async function* () { if (failInvoices) throw new Error('Invoices unavailable'); yield* invoices; })(); }, async createPreview(args) { calls.push(['invoice', args]); return { currency: 'usd', amount_due: nextPayment }; } },
   };
   const supabase = {
     auth: { async getUser() { return { data: { user } }; } },
@@ -81,14 +81,40 @@ test('a customer with no subscriptions is still eligible; customer is reused', a
   assert.equal(params.customer, 'cus_existing'); assert.ok(params.discounts);
 });
 
-test('returning subscriptions never restart the offer, including retained ID without customer', async () => {
+const usedDiscount = (couponId = 'plurilog_intro_9usd_3months_v1', amount = 1000) => ({
+  total_discount_amounts: [{ amount, discount: { id: 'di_previous', source: { coupon: couponId } } }],
+});
+
+test('returning full-price subscribers receive the unused offer, even after an unused coupon was attached', async () => {
+  const f = fixture({ profile: { stripe_customer_id: 'cus_old', stripe_subscription_id: 'sub_old' },
+    history: [{ status: 'canceled', discounts: ['di_attached_but_unused'] }], invoices: [{ total_discount_amounts: [] }] });
+  assert.equal((await f.checkout(request())).status, 200);
+  assert.ok(f.calls.find(c => c[0] === 'checkout')[1].discounts);
+  assert.equal((await (await f.offer()).json()).amount, 9);
+});
+
+test('a paid invoice using this offer prevents a reset, even if it is in older paginated history', async () => {
+  const f = fixture({ profile: { stripe_customer_id: 'cus_old' }, history: [{ status: 'canceled' }],
+    invoices: [...Array.from({ length: 110 }, () => ({ total_discount_amounts: [] })), usedDiscount()] });
+  await f.checkout(request());
+  assert.equal(f.calls.find(c => c[0] === 'checkout')[1].discounts, undefined);
+  assert.equal((await (await f.offer()).json()).amount, 19);
+});
+
+test('unrelated coupons and zero-value discounts do not consume the offer', async () => {
+  const f = fixture({ profile: { stripe_customer_id: 'cus_old' }, invoices: [usedDiscount('other_coupon'), usedDiscount(undefined, 0)] });
+  assert.equal((await (await f.offer()).json()).amount, 9);
+});
+
+test('missing billing account or unreadable invoice history fails closed', async () => {
   for (const options of [
-    { profile: { stripe_customer_id: 'cus_old' }, history: [{ status: 'canceled' }] },
-    { profile: { stripe_subscription_id: 'sub_old' } },
+    { profile: { stripe_subscription_id: 'sub_orphan' } },
+    { profile: { stripe_customer_id: 'cus_old' }, failInvoices: true },
+    { profile: { stripe_customer_id: 'cus_old' }, invoices: [{ total_discount_amounts: [{ amount: 1000, discount: 'di_unexpanded' }] }] },
   ]) {
-    const f = fixture(options); await f.checkout(request());
-    const params = f.calls.find(c => c[0] === 'checkout')[1];
-    assert.equal(params.discounts, undefined); assert.equal((await (await f.offer()).json()).amount, 19);
+    const f = fixture(options);
+    assert.equal((await f.checkout(request())).status, 503);
+    assert.ok(!f.calls.some(c => c[0] === 'checkout'));
   }
 });
 
@@ -149,4 +175,83 @@ test('repeat checkout preserves stable idempotency for the same verified offer',
   const f = fixture(); await f.checkout(request()); await f.checkout(request());
   const calls = f.calls.filter(c => c[0] === 'checkout');
   assert.equal(calls[0][2].idempotencyKey, calls[1][2].idempotencyKey);
+});
+
+function resumeFixture(options = {}) {
+  const f = fixture(options);
+  const subscription = { id: 'sub_resuming', status: 'active', customer: 'cus_old', cancel_at: null,
+    cancel_at_period_end: false, discounts: [], items: { data: [{ quantity: 1, discounts: [], price: { id: 'price_unchanged_live' } }] } };
+  let current = structuredClone(subscription);
+  f.stripe.subscriptions.retrieve = async () => { f.calls.push(['retrieve']); return current; };
+  f.stripe.subscriptions.update = async (id, params, opts) => {
+    f.calls.push(['update', id, params, opts]); current = { ...current, discounts: ['di_applied'] };
+  };
+  return { ...f, subscription, setCurrent: value => { current = value; },
+    resume: (previous = { cancel_at: 1792996540 }) => helpers.applyIntroOnResumption(f.stripe, subscription, previous, 'price_unchanged_live'),
+  };
+}
+
+test('undoing either form of cancellation applies the offer once, without changing renewal, cancellation or charging', async () => {
+  for (const previous of [{ cancel_at: 1792996540 }, { cancel_at_period_end: true }]) {
+    const f = resumeFixture({ invoices: [{ total_discount_amounts: [] }] });
+    await f.resume(previous); await f.resume(previous);
+    const writes = f.calls.filter(c => c[0] === 'update');
+    assert.equal(writes.length, 1);
+    assert.deepEqual(writes[0], ['update', 'sub_resuming', {
+      discounts: [{ coupon: 'plurilog_intro_9usd_3months_v1' }], proration_behavior: 'none',
+    }, { idempotencyKey: 'resume-intro:sub_resuming:v1' }]);
+  }
+});
+
+test('scheduling cancellation and unrelated updates never apply the promotion', async () => {
+  for (const previous of [undefined, {}, { cancel_at: null }, { cancel_at_period_end: false }]) {
+    const f = resumeFixture(); await helpers.applyIntroOnResumption(f.stripe, f.subscription, previous, 'price_unchanged_live');
+    assert.equal(f.calls.length, 0);
+  }
+  const f = resumeFixture(); f.subscription.cancel_at = 1792996540; await f.resume(); assert.equal(f.calls.length, 0);
+});
+
+test('delayed resume events preserve later cancellations, other discounts and other plans', async () => {
+  for (const change of [{ cancel_at: 1792996540 }, { status: 'canceled' }, { discounts: ['di_other'] },
+    { items: { data: [{ price: { id: 'price_other' }, quantity: 1, discounts: [] }] } }]) {
+    const f = resumeFixture(); f.setCurrent({ ...f.subscription, ...change }); await f.resume();
+    assert.ok(!f.calls.some(c => c[0] === 'update'));
+  }
+});
+
+test('resuming cannot reset a used promotion; discount or history failures remain retryable', async () => {
+  const used = resumeFixture({ invoices: [usedDiscount()] }); await used.resume();
+  assert.ok(!used.calls.some(c => c[0] === 'update'));
+  for (const options of [{ failInvoices: true }, { couponOverride: { valid: false } }]) {
+    const f = resumeFixture(options); await assert.rejects(f.resume());
+    assert.ok(!f.calls.some(c => c[0] === 'update'));
+  }
+});
+
+test('subscription webhook applies the conditional offer before confirming the account update, and retries failures', async () => {
+  for (const failInvoices of [false, true]) {
+    const f = resumeFixture({ failInvoices });
+    f.stripe.webhooks = { constructEvent: () => ({ type: 'customer.subscription.updated',
+      data: { object: f.subscription, previous_attributes: { cancel_at: 1792996540 } } }) };
+    const profileUpdates = [];
+    const POST = load('src/app/api/stripe/webhook/route.ts', {
+      '@/lib/stripe': { stripe: f.stripe }, '@/lib/stripeIntroOffer': helpers,
+      '@/lib/metaConversions': {},
+      '@/utils/supabase/service': { createServiceClient: () => ({ from: () => ({ update: values => ({
+        eq: async (key, value) => { profileUpdates.push({ values, key, value }); return { count: 1, error: null }; },
+      }) }) }) },
+    }).POST;
+    const response = await POST(new Request('https://example.com/api/stripe/webhook', {
+      method: 'POST', body: '{}', headers: { 'stripe-signature': 'verified-by-fixture' },
+    }));
+    assert.equal(response.status, failInvoices ? 500 : 200);
+    if (failInvoices) {
+      assert.equal(profileUpdates.length, 0);
+    } else {
+      assert.equal(profileUpdates[0].values.plan_status, 'active');
+      assert.equal(profileUpdates[0].value, 'sub_resuming');
+      assert.equal(profileUpdates[0].values.remaining_cents, undefined);
+      assert.ok(f.calls.some(c => c[0] === 'update'));
+    }
+  }
 });
