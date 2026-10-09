@@ -351,7 +351,9 @@ export async function convertDocxToPdf(
       args: [
         '--headless',
         '--convert-to',
-        'pdf',
+        // Downloadable conversions must preserve original image pixels. The
+        // default Writer PDF filter recompresses even PNG artwork as JPEG.
+        'pdf:writer_pdf_Export:{"UseLosslessCompression":{"type":"boolean","value":"true"},"ReduceImageResolution":{"type":"boolean","value":"false"}}',
         '--outdir',
         '/vercel/sandbox',
         '/vercel/sandbox/input.docx',
