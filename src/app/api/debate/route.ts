@@ -6707,7 +6707,9 @@ export async function POST(req: NextRequest) {
               : []),
             ...docxEmbeddedImageAttachments,
             ...docxRenderedPageAttachments,
-            ...pdfEmbeddedImageAttachments,
+            // PDF-extracted images stay in currentArtifactAttachments for durable
+            // preservation, document editing and on-demand evidence retrieval.
+            // Do not send them automatically with the original PDFs to each AI seat.
           ];
 
           const effectiveAttachments: RouteAttachment[] = hadSuccessfulMixedHistoricalImageDelivery
