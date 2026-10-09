@@ -2,12 +2,16 @@
 
 import React, { useEffect, useState } from 'react';
 import { usePlusOffer } from '@/hooks/usePlusOffer';
+import type { PlusOffer } from '@/lib/plusPricing';
 import { Check, X } from 'lucide-react';
 
 interface OutOfCreditsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  variant?: 'out' | 'low';
+  variant?: 'out' | 'low' | 'promotion';
+  promotionOffer?: PlusOffer;
+  onPromotionUpgrade?: () => void;
+  isRenewal?: boolean;
 }
 
 const PLAN_FEATURES = [
@@ -33,8 +37,13 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
   isOpen,
   onClose,
   variant = 'out',
+  promotionOffer,
+  onPromotionUpgrade,
+  isRenewal = false,
 }) => {
-  const { offer, error: offerError } = usePlusOffer(isOpen);
+  const loadedOffer = usePlusOffer(isOpen && !promotionOffer);
+  const offer = promotionOffer || loadedOffer.offer;
+  const offerError = promotionOffer ? null : loadedOffer.error;
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
 
@@ -77,6 +86,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
       <button
         type="button"
         onClick={onClose}
+        tabIndex={variant === 'promotion' ? -1 : undefined}
         className="fixed inset-0 cursor-default bg-[rgba(28,27,26,0.26)] backdrop-blur-[1px]"
         aria-label="Close upgrade prompt"
       />
@@ -87,16 +97,16 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             <div className="mb-2 flex items-center gap-2">
               <img src="/logo.svg" alt="" className="h-[22px] w-[22px] shrink-0 object-contain" />
               <span className="text-[11px] font-medium text-[#6A675F]">
-                {variant === 'low'
+                {variant === 'promotion' ? 'Limited-time offer' : variant === 'low'
                   ? 'You’ve used almost all your free credit'
                   : 'You’ve used all your free credit'}
               </span>
             </div>
             <h3 className="text-[22px] font-semibold tracking-[-0.02em] text-[#1C1B1A]">
-              Keep the conversation going
+              {variant === 'promotion' ? 'Get more out of Plurilog' : 'Keep the conversation going'}
             </h3>
             <p className="mt-1 text-[12px] leading-5 text-[#6A675F]">
-              Upgrade to Plus for refreshed monthly usage and continued access to the full panel.
+              {isRenewal ? 'Keep Plus for refreshed monthly usage and continued access to the full panel.' : 'Upgrade to Plus for refreshed monthly usage and continued access to the full panel.'}
             </p>
           </div>
 
@@ -104,6 +114,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             type="button"
             onClick={onClose}
             className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-[10px] text-[#8A867D] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
+            autoFocus={variant === 'promotion'}
             title="Close"
             aria-label="Close"
           >
@@ -152,11 +163,11 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
 
             <button
               type="button"
-              onClick={handleUpgrade}
+              onClick={variant === 'promotion' ? onPromotionUpgrade : handleUpgrade}
               disabled={isRedirecting || !offer?.canSubscribe}
               className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isRedirecting ? 'Redirecting…' : 'Get Plus'}
+              {isRedirecting ? 'Redirecting…' : variant === 'promotion' ? (isRenewal ? 'Manage / Renew Plus' : 'Upgrade to Plus') : 'Get Plus'}
             </button>
           </div>
 
@@ -165,7 +176,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
             onClick={onClose}
             className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center rounded-[10px] text-[11px] font-medium text-[#6A675F] transition-colors hover:bg-[#F4F3F0] hover:text-[#1C1B1A]"
           >
-            Maybe later
+            {variant === 'promotion' ? (isRenewal ? 'Continue' : 'Continue on Free') : 'Maybe later'}
           </button>
         </div>
       </div>

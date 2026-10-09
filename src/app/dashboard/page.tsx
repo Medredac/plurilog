@@ -8,6 +8,7 @@ import { ChatFeed, FailedTurnState, TurnSummaryState } from '../../components/Ch
 import { DocumentPreviewDrawer } from '../../components/DocumentPreviewDrawer';
 import { ChatInput } from '../../components/ChatInput';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
+import { PlusPromotionPrompt } from '../../components/PlusPromotionPrompt';
 import { LowCreditModal } from '../../components/LowCreditModal';
 import { AccountSettingsModal } from '../../components/AccountSettingsModal';
 import { DeleteProfileModal } from '../../components/DeleteProfileModal';
@@ -4037,6 +4038,16 @@ export default function DashboardPage() {
           documentUrl={previewDocument?.url || null}
           filename={previewDocument?.filename || null}
         />
+
+        {userId && (
+          <PlusPromotionPrompt
+            key={userId}
+            userId={userId}
+            eligible={(userPlan === 'free' && remainingCents > 25 && !isOutOfCredits) || (userPlan === 'paid' && planStatus === 'canceling')}
+            blocked={showUpgradeModal || showLowCreditModal || isAccountSettingsOpen || isDeleteProfileModalOpen || !!previewDocument || isDebating || isLoadingMessages}
+            onUpgrade={() => setIsAccountSettingsOpen(true)}
+          />
+        )}
 
         {/* Out of Credits Upgrade Modal */}
         <OutOfCreditsModal
