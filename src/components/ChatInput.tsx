@@ -10,7 +10,7 @@ import { AiSeatsCoachmark } from './AiSeatsCoachmark';
 import { ModelId } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
-import { VIDEO_LIMIT_BYTES, VIDEO_LIMIT_SECONDS, videoMime } from '@/utils/geminiVideo';
+import { VIDEO_LIMIT_BYTES, VIDEO_LIMIT_SECONDS, videoMime } from '@/utils/videoUpload';
 
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
