@@ -147,7 +147,6 @@ import {
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs, DEBATE_ROUTE_MAX_DURATION_MS, DEBATE_FINALIZATION_RESERVE_MS } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
-import { analyzeGeminiVideo, type GeminiVideoResult } from '@/utils/geminiVideo';
 import { isVideoAttachment } from '@/utils/videoUpload';
 
 export const runtime = 'nodejs';
@@ -1605,8 +1604,8 @@ export function buildPlurilogProductContext(
     : null;
   const canAnalyzeImages =
     runtime?.imageAnalysisEnabled ?? seatCapabilities?.imageAnalysis ?? true;
-  const geminiVideoEnabled = Boolean(process.env.GEMINI_API_KEY);
-  const canAnalyzeVideoThisSeat = runtime?.videoAnalysisEnabled ?? (geminiVideoEnabled && currentModelName === 'Gemini');
+  const geminiVideoEnabled = true;
+  const canAnalyzeVideoThisSeat = runtime?.videoAnalysisEnabled ?? currentModelName === 'Gemini';
   const canGenerateImages =
     runtime?.imageGenerationEnabled ?? seatCapabilities?.imageGeneration ?? false;
   const canEditImages =
@@ -3226,11 +3225,6 @@ export async function POST(req: NextRequest) {
     if (currentVideoAttachments.length > 1) {
       return new Response(JSON.stringify({ error: 'Only one video per request is supported.' }), {
         status: 400, headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (currentVideoAttachment && !process.env.GEMINI_API_KEY) {
-      return new Response(JSON.stringify({ error: 'Gemini video analysis is not configured.' }), {
-        status: 503, headers: { 'Content-Type': 'application/json' },
       });
     }
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -7237,7 +7231,7 @@ export async function POST(req: NextRequest) {
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
-              videoAnalysisEnabled: Boolean(process.env.GEMINI_API_KEY) && seat.seatId === 'gemini',
+              videoAnalysisEnabled: seat.seatId === 'gemini',
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
@@ -7445,6 +7439,25 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            if (currentVideoAttachment && seat.seatId === 'gemini') {
+              const userMessageIndex = [...seatMessages]
+                .map((message, index) => ({ message, index }))
+                .reverse()
+                .find(({ message }) => message.role === 'user')?.index;
+              if (userMessageIndex !== undefined) {
+                const userMessage = seatMessages[userMessageIndex] as any;
+                const existingContent = Array.isArray(userMessage.content)
+                  ? userMessage.content
+                  : [{ type: 'text', text: String(userMessage.content || '') }];
+                userMessage.content = [
+                  ...existingContent,
+                  {
+                    type: 'video_url',
+                    video_url: { url: String(currentVideoAttachment.url) },
+                  },
+                ];
+              }
+            }
             if (currentVideoAttachment && seat.seatId !== 'gemini') {
               seatMessages.push({
                 role: 'system',
@@ -7599,27 +7612,8 @@ export async function POST(req: NextRequest) {
                   }), 15_000)
                 : null;
               try {
-                if (seat.seatId === 'gemini' && currentVideoAttachment) {
-                  // The Google Files API handles large private videos without the
-                  // ~667 MB inline base64 request OpenRouter would require.
-                  // Preserve the existing seat lifecycle/persistence/billing.
-                  const analysis: GeminiVideoResult = await analyzeGeminiVideo({
-                    signedUrl: String(currentVideoAttachment.url),
-                    filename: String(currentVideoAttachment.filename),
-                    prompt: `You are Gemini participating in Plurilog's AI panel. Examine the uploaded video yourself. Follow the user's request precisely and provide grounded observations, noting timestamps when useful. Do not claim that other panelists watched the video. User request: ${prompt || 'Please analyze and summarize this video.'}`,
-                    signal: seatAbortController.signal,
-                    userId: authenticatedUser.id,
-                  });
-                  initialProviderStream = (async function* () {
-                    yield {
-                      model: 'google/gemini-3.8-flash',
-                      choices: [{ delta: { content: analysis.content } }],
-                      usage: analysis.usage,
-                    };
-                  })();
-                } else {
-                  initialProviderStream =
-                    await (openai.chat.completions.create as any)({
+                initialProviderStream =
+                  await (openai.chat.completions.create as any)({
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
@@ -7676,9 +7670,16 @@ export async function POST(req: NextRequest) {
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
+                ...(currentVideoAttachment && seat.seatId === 'gemini'
+                  ? {
+                      provider: {
+                        only: ['google-vertex'],
+                        allow_fallbacks: false,
+                      },
+                    }
+                  : {}),
 
                   }, { signal: seatAbortController.signal });
-                }
               } catch (providerOpenErr: any) {
                 console.error('[Provider Stream] Open failed', {
                   turnId,
