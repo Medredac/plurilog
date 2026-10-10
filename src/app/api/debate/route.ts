@@ -7750,58 +7750,120 @@ export async function POST(req: NextRequest) {
               try {
                 await consumeInitialSeatStream(models);
               } catch (initialStreamError: any) {
-                const canRetryWithNextModel =
-                  !req.signal.aborted &&
-                  !seatAbortController.signal.aborted &&
-                  models.length > 1 &&
-                  isRetryableProviderStreamError(initialStreamError) &&
-                  (initialSeatStreamsBuffered ||
-                    (seatResponse.length === 0 &&
-                      accumulatedToolCalls.length === 0));
+                let effectiveInitialError: any = initialStreamError;
+                const initialCode = Number(
+                  initialStreamError?.code ??
+                    initialStreamError?.status ??
+                    initialStreamError?.error?.code
+                );
+                const canRetryWithoutPartialOutput =
+                  initialSeatStreamsBuffered ||
+                  (seatResponse.length === 0 &&
+                    accumulatedToolCalls.length === 0);
 
-                if (!canRetryWithNextModel) {
-                  throw initialStreamError;
+                // YouTube inspection must stay on Google AI Studio. Its shared
+                // OpenRouter pool can briefly return upstream 429s, so retry the
+                // same Gemini model in place before falling back to another
+                // Gemini model. This never changes the configured seat order.
+                if (
+                  geminiYouTubeUrl &&
+                  initialCode === 429 &&
+                  canRetryWithoutPartialOutput &&
+                  !req.signal.aborted &&
+                  !seatAbortController.signal.aborted
+                ) {
+                  for (const retryDelayMs of [2000, 5000]) {
+                    sendEvent('seat_activity', {
+                      seatId: seat.seatId,
+                      activity: 'analyzing_video',
+                      label: 'YouTube analysis busy — retrying…',
+                    });
+                    await new Promise((resolve) =>
+                      setTimeout(resolve, retryDelayMs)
+                    );
+                    if (
+                      req.signal.aborted ||
+                      seatAbortController.signal.aborted
+                    ) {
+                      break;
+                    }
+
+                    seatResponse = '';
+                    seatUsage = null;
+                    accumulatedToolCalls = [];
+                    bufferedSeatChunks.length = 0;
+                    respondingModel = models[0];
+
+                    try {
+                      await consumeInitialSeatStream(models);
+                      effectiveInitialError = null;
+                      break;
+                    } catch (youtubeRetryError: any) {
+                      effectiveInitialError = youtubeRetryError;
+                      const retryCode = Number(
+                        youtubeRetryError?.code ??
+                          youtubeRetryError?.status ??
+                          youtubeRetryError?.error?.code
+                      );
+                      if (retryCode !== 429) break;
+                    }
+                  }
                 }
 
-                const retryModels = models.slice(1);
-                const failedAttemptCostUsd =
-                  typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
+                if (effectiveInitialError) {
+                  const canRetryWithNextModel =
+                    !req.signal.aborted &&
+                    !seatAbortController.signal.aborted &&
+                    models.length > 1 &&
+                    isRetryableProviderStreamError(effectiveInitialError) &&
+                    (initialSeatStreamsBuffered ||
+                      (seatResponse.length === 0 &&
+                        accumulatedToolCalls.length === 0));
 
-                console.warn('[Seat Retry]', {
-                  turnId,
-                  discussionId: discussionId || null,
-                  seatId: seat.seatId,
-                  failedModel: respondingModel || primaryModel,
-                  retryModel: retryModels[0],
-                  code:
-                    initialStreamError?.code ??
-                    initialStreamError?.status ??
-                    initialStreamError?.error?.code ??
-                    null,
-                  errorType:
-                    initialStreamError?.error?.metadata?.error_type || null,
-                  message:
-                    initialStreamError?.message ||
-                    initialStreamError?.error?.message ||
-                    String(initialStreamError),
-                });
+                  if (!canRetryWithNextModel) {
+                    throw effectiveInitialError;
+                  }
 
-                seatResponse = '';
-                seatUsage = null;
-                accumulatedToolCalls = [];
-                bufferedSeatChunks.length = 0;
-                respondingModel = retryModels[0];
+                  const retryModels = models.slice(1);
+                  const failedAttemptCostUsd =
+                    typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
 
-                await consumeInitialSeatStream(retryModels);
+                  console.warn('[Seat Retry]', {
+                    turnId,
+                    discussionId: discussionId || null,
+                    seatId: seat.seatId,
+                    failedModel: respondingModel || primaryModel,
+                    retryModel: retryModels[0],
+                    code:
+                      effectiveInitialError?.code ??
+                      effectiveInitialError?.status ??
+                      effectiveInitialError?.error?.code ??
+                      null,
+                    errorType:
+                      effectiveInitialError?.error?.metadata?.error_type || null,
+                    message:
+                      effectiveInitialError?.message ||
+                      effectiveInitialError?.error?.message ||
+                      String(effectiveInitialError),
+                  });
 
-                if (
-                  failedAttemptCostUsd > 0 &&
-                  typeof seatUsage?.cost === 'number'
-                ) {
-                  seatUsage = {
-                    ...seatUsage,
-                    cost: seatUsage.cost + failedAttemptCostUsd,
-                  };
+                  seatResponse = '';
+                  seatUsage = null;
+                  accumulatedToolCalls = [];
+                  bufferedSeatChunks.length = 0;
+                  respondingModel = retryModels[0];
+
+                  await consumeInitialSeatStream(retryModels);
+
+                  if (
+                    failedAttemptCostUsd > 0 &&
+                    typeof seatUsage?.cost === 'number'
+                  ) {
+                    seatUsage = {
+                      ...seatUsage,
+                      cost: seatUsage.cost + failedAttemptCostUsd,
+                    };
+                  }
                 }
               }
 
