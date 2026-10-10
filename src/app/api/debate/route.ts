@@ -1588,6 +1588,7 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PlurilogRuntimeProductContext {
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
+  videoAnalysisEnabled?: boolean;
   imageGenerationEnabled?: boolean;
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
@@ -1604,6 +1605,8 @@ export function buildPlurilogProductContext(
     : null;
   const canAnalyzeImages =
     runtime?.imageAnalysisEnabled ?? seatCapabilities?.imageAnalysis ?? true;
+  const geminiVideoEnabled = Boolean(process.env.GEMINI_API_KEY);
+  const canAnalyzeVideoThisSeat = runtime?.videoAnalysisEnabled ?? (geminiVideoEnabled && currentModelName === 'Gemini');
   const canGenerateImages =
     runtime?.imageGenerationEnabled ?? seatCapabilities?.imageGeneration ?? false;
   const canEditImages =
@@ -1660,7 +1663,8 @@ FILES AND VIDEO
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video upload/analysis is not currently available. It is in development.
+- Gemini video analysis in this deployment = ${geminiVideoEnabled ? 'available for one temporary MP4/MOV/WebM video, up to 90 minutes and 500 MB, while Gemini is an active seat' : 'not configured'}. Video generation remains unavailable.
+- Your direct video inspection capability on this turn = ${canAnalyzeVideoThisSeat ? 'available' : 'unavailable'}. ChatGPT and Claude cannot inspect uploaded video directly; after Gemini responds they may discuss its textual findings. Temporary video files are not saved in long-term discussion memory.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
@@ -1691,7 +1695,7 @@ CRITICISM AND COMPETITIVE COMPARISON
 - Do not tell a user that standalone apps are categorically "the better fit" or that Plurilog has "no reason" to exist merely because they can manually copy answers between free accounts. If a user's needs are genuinely simple enough that free standalone tools satisfy them, say that narrowly and plainly; also explain what Plurilog adds so the user can decide.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, and AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video analysis availability is specified above by runtime state.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -7221,6 +7225,7 @@ export async function POST(req: NextRequest) {
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
+              videoAnalysisEnabled: Boolean(process.env.GEMINI_API_KEY) && seat.seatId === 'gemini',
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
@@ -7582,7 +7587,7 @@ export async function POST(req: NextRequest) {
                   const analysis: GeminiVideoResult = await analyzeGeminiVideo({
                     signedUrl: String(currentVideoAttachment.url),
                     filename: String(currentVideoAttachment.filename),
-                    prompt: prompt || 'Please analyze and summarize this video.',
+                    prompt: `You are Gemini participating in Plurilog's AI panel. Examine the uploaded video yourself. Follow the user's request precisely and provide grounded observations, noting timestamps when useful. Do not claim that other panelists watched the video. User request: ${prompt || 'Please analyze and summarize this video.'}`,
                     signal: seatAbortController.signal,
                     userId: authenticatedUser.id,
                   });
