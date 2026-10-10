@@ -133,6 +133,16 @@ export async function analyzeGeminiVideo({
       }));
     }
 
+    // Server-side duration enforcement from Google's parsed media metadata.
+    // Browser duration validation is helpful UX, but can be bypassed.
+    const durationValue = file.videoMetadata?.videoDuration;
+    const durationSeconds = typeof durationValue === 'string'
+      ? Number(durationValue.replace(/s$/, ''))
+      : NaN;
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 90 * 60) {
+      throw new Error('Video must be 90 minutes or shorter and have valid duration metadata.');
+    }
+
     const response = await parseJson(await fetch(`${googleBase}/v1beta/interactions`, {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
