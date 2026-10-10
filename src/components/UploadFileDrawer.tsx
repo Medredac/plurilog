@@ -57,7 +57,7 @@ export const UploadFileDrawer: React.FC<UploadFileDrawerProps> = ({
         className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-zinc-50 active:bg-zinc-100 text-zinc-600 hover:text-zinc-800 transition-colors cursor-pointer text-left text-sm target-secondary"
       >
         <Upload className="w-4 h-4 text-zinc-400 shrink-0" />
-        <span className="font-normal">Upload file, image, or video</span>
+        <span className="font-normal">Upload files/images</span>
       </button>
     </div>
   );
