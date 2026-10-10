@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
+import { ArrowUp, Plus, X, Square, FileText, Mic, Video } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -10,6 +10,7 @@ import { AiSeatsCoachmark } from './AiSeatsCoachmark';
 import { ModelId } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
+import { VIDEO_LIMIT_BYTES, VIDEO_LIMIT_SECONDS, videoMime } from '@/utils/geminiVideo';
 
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
@@ -101,7 +102,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [restoreDraft?.trigger, onRestoreDraftConsumed]);
 
-  const processFiles = (files: File[]) => {
+  const processFiles = async (files: File[]) => {
     if (files.length === 0) return;
 
     const MAX_FILES = 5;
@@ -115,6 +116,37 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     const legacyDocFiles: string[] = [];
     const invalidFiles: string[] = [];
+    const videos = files.filter((file) => videoMime(file.name));
+    if (videos.length && (files.length !== 1 || attachedFiles.length > 0)) {
+      alert('For now, please upload one video at a time, without other attachments.');
+      return;
+    }
+    if (videos.length && videos[0].size > VIDEO_LIMIT_BYTES) {
+      alert('Videos must be 500 MB or smaller.');
+      return;
+    }
+    if (videos.length) {
+      const file = videos[0];
+      const videoUrl = URL.createObjectURL(file);
+      try {
+        const duration = await new Promise<number>((resolve, reject) => {
+          const video = document.createElement('video');
+          video.preload = 'metadata';
+          video.onloadedmetadata = () => resolve(video.duration);
+          video.onerror = () => reject(new Error('Could not read video metadata.'));
+          video.src = videoUrl;
+        });
+        if (!Number.isFinite(duration) || duration <= 0 || duration > VIDEO_LIMIT_SECONDS) {
+          alert('Videos must be 90 minutes or shorter and have a readable duration.');
+          return;
+        }
+      } catch {
+        alert('Could not read the video duration. Please use a valid MP4, MOV or WebM file.');
+        return;
+      } finally {
+        URL.revokeObjectURL(videoUrl);
+      }
+    }
     const validFiles: File[] = [];
 
     for (const file of files) {
@@ -130,6 +162,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       const isTextFile = isTextFileName(file.name);
       const isValid =
+        Boolean(videoMime(file.name)) ||
         file.type.startsWith('image/') ||
         file.type === 'application/pdf' ||
         lowerName.endsWith('.pdf') ||
@@ -168,7 +201,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
     if (invalidFiles.length > 0) {
       alertMessages.push(
-        `The following file(s) are not supported images, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
+        `The following file(s) are not supported images, videos, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
       );
     }
     if (limitExceeded) {
@@ -292,7 +325,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <input
         type="file"
         ref={attachmentInputRef}
-        accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
+        accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -342,6 +375,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 item.file.type ===
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
               const isTextFile = isTextFileName(item.file.name);
+              const isVideo = Boolean(videoMime(item.file.name));
 
               return (
                 <div key={item.id} className="relative self-start group">
@@ -374,6 +408,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         </p>
                       </div>
                     </button>
+                  ) : isVideo ? (
+                    <div
+                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
+                      title={item.file.name}
+                    >
+                      <Video className="w-5 h-5 text-zinc-600" />
+                      <span className="text-[9px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.5 rounded border border-zinc-200/60">
+                        VIDEO
+                      </span>
+                    </div>
                   ) : isTextFile ? (
                     <div
                       className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
