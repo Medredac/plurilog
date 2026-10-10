@@ -31,41 +31,55 @@ export async function GET(request: NextRequest) {
       throw new Error(`signed_url: ${signedError?.message || 'missing'}`);
     }
 
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-3.8-flash',
-        provider: {
-          only: ['google-vertex'],
-          allow_fallbacks: false,
+    const run = async (url: string) => {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Describe this video in one short sentence.' },
-            { type: 'video_url', video_url: { url: signed.signedUrl } },
-          ],
-        }],
-      }),
-    });
-    const text = await response.text();
-    let payload: any = null;
-    try { payload = JSON.parse(text); } catch {}
+        body: JSON.stringify({
+          model: 'google/gemini-3.8-flash',
+          provider: {
+            only: ['google-vertex'],
+            allow_fallbacks: false,
+          },
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Describe this video in one short sentence.' },
+              { type: 'video_url', video_url: { url } },
+            ],
+          }],
+        }),
+      });
+      const text = await response.text();
+      let payload: any = null;
+      try { payload = JSON.parse(text); } catch {}
+      return {
+        ok: response.ok,
+        status: response.status,
+        model: payload?.model || null,
+        provider: payload?.provider || null,
+        content: payload?.choices?.[0]?.message?.content?.slice?.(0, 300) || null,
+        error: payload?.error ? {
+          message: payload.error.message || null,
+          code: payload.error.code || null,
+          metadata: payload.error.metadata || null,
+        } : (!response.ok ? { message: text.slice(0, 500) } : null),
+      };
+    };
+
+    const [publicUrl, signedSupabaseUrl] = await Promise.all([
+      run(sourceUrl),
+      run(signed.signedUrl),
+    ]);
 
     return NextResponse.json({
-      ok: response.ok,
-      status: response.status,
-      model: payload?.model || null,
-      provider: payload?.provider || null,
-      content: payload?.choices?.[0]?.message?.content?.slice?.(0, 300) || null,
-      error: payload?.error?.message || (!response.ok ? text.slice(0, 300) : null),
       sampleBytes: bytes.byteLength,
-      usedSignedSupabaseUrl: true,
-    }, { status: response.ok ? 200 : 502 });
+      publicUrl,
+      signedSupabaseUrl,
+    }, { status: publicUrl.ok || signedSupabaseUrl.ok ? 200 : 502 });
   } catch (error) {
     return NextResponse.json({
       ok: false,
