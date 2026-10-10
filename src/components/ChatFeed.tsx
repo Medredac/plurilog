@@ -1668,7 +1668,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               : summary.status === 'ready'
                 ? isOpen
                   ? 'Close panel summary'
-                  : 'Read the panel summary'
+                  : 'Open panel summary'
                 : 'Panel summary unavailable'
           }
           aria-label={
@@ -1677,7 +1677,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               : summary.status === 'ready'
                 ? isOpen
                   ? 'Close panel summary'
-                  : 'Read the panel summary'
+                  : 'Open panel summary'
                 : 'Panel summary unavailable'
           }
           aria-expanded={summary.status === 'ready' ? isOpen : undefined}
@@ -1704,7 +1704,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 className="invisible col-start-1 row-start-1 whitespace-nowrap"
                 aria-hidden="true"
               >
-                Read the panel summary
+                Open panel summary
               </span>
             )}
             <AnimatePresence initial={false} mode="wait">
@@ -1723,7 +1723,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                   : summary.status === 'ready'
                     ? isOpen
                       ? 'Close panel summary'
-                      : 'Read the panel summary'
+                      : 'Open panel summary'
                     : 'Panel summary unavailable'}
               </motion.span>
             </AnimatePresence>
