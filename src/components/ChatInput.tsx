@@ -60,9 +60,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [voiceError, setVoiceError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Automatically focus textarea on mount, empty state, or when switching discussions
@@ -102,37 +100,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       onRestoreDraftConsumed?.();
     }
   }, [restoreDraft?.trigger, onRestoreDraftConsumed]);
-
-  const getCameraFilename = (file: File): string => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    const millis = String(now.getMilliseconds()).padStart(3, '0');
-
-    let ext = 'jpg';
-    const dotIndex = file.name.lastIndexOf('.');
-    if (dotIndex !== -1) {
-      const rawExt = file.name.slice(dotIndex + 1).toLowerCase().trim();
-      const cleanExt = rawExt.replace(/[^a-z0-9]/g, '').slice(0, 10);
-      if (cleanExt && cleanExt !== 'bin') {
-        ext = cleanExt;
-      }
-    } else if (file.type === 'image/jpeg' || file.type === 'image/jpg') {
-      ext = 'jpg';
-    } else if (file.type === 'image/png') {
-      ext = 'png';
-    } else if (file.type === 'image/webp') {
-      ext = 'webp';
-    } else if (file.type === 'image/gif') {
-      ext = 'gif';
-    }
-
-    return `Photo_${year}${month}${day}_${hours}${minutes}${seconds}_${millis}.${ext}`;
-  };
 
   const processFiles = (files: File[]) => {
     if (files.length === 0) return;
@@ -217,19 +184,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     processFiles(files);
-    e.target.value = '';
-  };
-
-  const handleCameraFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFile = e.target.files?.[0];
-    if (rawFile) {
-      const generatedName = getCameraFilename(rawFile);
-      const renamedFile = new File([rawFile], generatedName, {
-        type: rawFile.type || 'image/jpeg',
-        lastModified: rawFile.lastModified || Date.now(),
-      });
-      processFiles([renamedFile]);
-    }
     e.target.value = '';
   };
 
@@ -334,27 +288,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className={containerClasses}>
-      {/* Hidden File Inputs */}
+      {/* Hidden Attachment Input */}
       <input
         type="file"
-        ref={cameraInputRef}
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleCameraFileSelect}
-      />
-      <input
-        type="file"
-        ref={fileInputRef}
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleFileSelect}
-      />
-      <input
-        type="file"
-        ref={docInputRef}
-        accept=".pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
+        ref={attachmentInputRef}
+        accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -510,14 +448,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 isOpen={isUploadDrawerOpen}
                 onClose={() => setIsUploadDrawerOpen(false)}
                 triggerRef={triggerRef}
-                onTakePhotoClick={() => {
-                  cameraInputRef.current?.click();
-                }}
-                onUploadImageClick={() => {
-                  fileInputRef.current?.click();
-                }}
                 onUploadFileClick={() => {
-                  docInputRef.current?.click();
+                  attachmentInputRef.current?.click();
                 }}
               />
             </div>
