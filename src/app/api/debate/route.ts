@@ -4513,19 +4513,6 @@ export async function POST(req: NextRequest) {
           ];
         }
 
-        // When Gemini is active and this turn explicitly asks to inspect a
-        // current or earlier YouTube video, let Gemini inspect the source first.
-        // Later seats can then react to Gemini's grounded observations.
-        if (
-          youtubeVideoForTurn &&
-          configuredSeats.some((seat) => seat.seatId === 'gemini')
-        ) {
-          configuredSeats = [
-            ...configuredSeats.filter((seat) => seat.seatId === 'gemini'),
-            ...configuredSeats.filter((seat) => seat.seatId !== 'gemini'),
-          ];
-        }
-
         console.log('[Turn Start]', {
           turnId,
           discussionId: discussionId || null,
