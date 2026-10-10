@@ -7037,11 +7037,23 @@ export async function POST(req: NextRequest) {
             // fast provider responses still complete immediately.
             const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
             const seatsRemaining = configuredSeats.length - seatIndex;
-            const seatTimeoutMs = calculateDebateSeatTimeoutMs({
-              elapsedTurnMs: elapsedBeforeSeatMs,
-              seatsRemaining,
-              configuredSeatCount: configuredSeats.length,
-            });
+            const regularSeatTimeoutMs = calculateDebateSeatTimeoutMs({
+                elapsedTurnMs: elapsedBeforeSeatMs,
+                seatsRemaining,
+                configuredSeatCount: configuredSeats.length,
+              });
+              // Reserve ample time for Gemini's long-video upload and parsing
+              // while protecting later panel seats and finalization.
+              const seatTimeoutMs =
+                currentVideoAttachment && seat.seatId === 'gemini'
+                  ? Math.max(regularSeatTimeoutMs, Math.min(
+                      20 * 60 * 1000,
+                      DEBATE_ROUTE_MAX_DURATION_MS -
+                        DEBATE_FINALIZATION_RESERVE_MS -
+                        elapsedBeforeSeatMs -
+                        (seatsRemaining - 1) * 120_000
+                    ))
+                  : regularSeatTimeoutMs;
 
             if (seatTimeoutMs <= 0) {
               throw new Error(
@@ -7579,6 +7591,13 @@ export async function POST(req: NextRequest) {
               });
 
               let initialProviderStream: any;
+              const videoHeartbeat = seat.seatId === 'gemini' && currentVideoAttachment
+                ? setInterval(() => sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'analyzing_video',
+                    label: 'Analyzing video…',
+                  }), 15_000)
+                : null;
               try {
                 if (seat.seatId === 'gemini' && currentVideoAttachment) {
                   // The Google Files API handles large private videos without the
@@ -7676,6 +7695,8 @@ export async function POST(req: NextRequest) {
                     providerOpenErr?.message || String(providerOpenErr),
                 });
                 throw providerOpenErr;
+              } finally {
+                if (videoHeartbeat) clearInterval(videoHeartbeat);
               }
 
               console.log('[Provider Stream] Opened', {
