@@ -145,8 +145,9 @@ import {
   isSourcePreservingDocumentState,
   type SourceDocumentEditArgs,
 } from '@/utils/sourceDocumentEditor';
-import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
+import { calculateDebateSeatTimeoutMs, DEBATE_ROUTE_MAX_DURATION_MS, DEBATE_FINALIZATION_RESERVE_MS } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
+import { isVideoAttachment } from '@/utils/videoUpload';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -1586,6 +1587,7 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PlurilogRuntimeProductContext {
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
+  videoAnalysisEnabled?: boolean;
   imageGenerationEnabled?: boolean;
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
@@ -1602,6 +1604,8 @@ export function buildPlurilogProductContext(
     : null;
   const canAnalyzeImages =
     runtime?.imageAnalysisEnabled ?? seatCapabilities?.imageAnalysis ?? true;
+  const geminiVideoEnabled = true;
+  const canAnalyzeVideoThisSeat = runtime?.videoAnalysisEnabled ?? currentModelName === 'Gemini';
   const canGenerateImages =
     runtime?.imageGenerationEnabled ?? seatCapabilities?.imageGeneration ?? false;
   const canEditImages =
@@ -1658,7 +1662,8 @@ FILES AND VIDEO
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video upload/analysis is not currently available. It is in development.
+- Gemini video analysis in this deployment = ${geminiVideoEnabled ? 'available for one temporary MP4/MOV/WebM video, up to 90 minutes and 500 MB, while Gemini is an active seat' : 'not configured'}. Video generation remains unavailable.
+- Your direct video inspection capability on this turn = ${canAnalyzeVideoThisSeat ? 'available' : 'unavailable'}. ChatGPT and Claude cannot inspect uploaded video directly; after Gemini responds they may discuss its textual findings. Temporary video files are not saved in long-term discussion memory.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
@@ -1689,7 +1694,7 @@ CRITICISM AND COMPETITIVE COMPARISON
 - Do not tell a user that standalone apps are categorically "the better fit" or that Plurilog has "no reason" to exist merely because they can manually copy answers between free accounts. If a user's needs are genuinely simple enough that free standalone tools satisfy them, say that narrowly and plainly; also explain what Plurilog adds so the user can decide.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, and AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video analysis availability is specified above by runtime state.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -3210,6 +3215,18 @@ export async function POST(req: NextRequest) {
       }
     };
 
+    const currentVideoAttachments = Array.isArray(attachments)
+      ? attachments.filter((attachment: { filename?: string; url?: string }) =>
+          isVideoAttachment(attachment))
+      : [];
+    const currentVideoAttachment = currentVideoAttachments.length === 1
+      ? currentVideoAttachments[0]
+      : null;
+    if (currentVideoAttachments.length > 1) {
+      return new Response(JSON.stringify({ error: 'Only one video per request is supported.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
       return new Response(
@@ -7014,11 +7031,23 @@ export async function POST(req: NextRequest) {
             // fast provider responses still complete immediately.
             const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
             const seatsRemaining = configuredSeats.length - seatIndex;
-            const seatTimeoutMs = calculateDebateSeatTimeoutMs({
-              elapsedTurnMs: elapsedBeforeSeatMs,
-              seatsRemaining,
-              configuredSeatCount: configuredSeats.length,
-            });
+            const regularSeatTimeoutMs = calculateDebateSeatTimeoutMs({
+                elapsedTurnMs: elapsedBeforeSeatMs,
+                seatsRemaining,
+                configuredSeatCount: configuredSeats.length,
+              });
+              // Reserve ample time for Gemini's long-video upload and parsing
+              // while protecting later panel seats and finalization.
+              const seatTimeoutMs =
+                currentVideoAttachment && seat.seatId === 'gemini'
+                  ? Math.max(regularSeatTimeoutMs, Math.min(
+                      20 * 60 * 1000,
+                      DEBATE_ROUTE_MAX_DURATION_MS -
+                        DEBATE_FINALIZATION_RESERVE_MS -
+                        elapsedBeforeSeatMs -
+                        (seatsRemaining - 1) * 120_000
+                    ))
+                  : regularSeatTimeoutMs;
 
             if (seatTimeoutMs <= 0) {
               throw new Error(
@@ -7202,6 +7231,7 @@ export async function POST(req: NextRequest) {
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
+              videoAnalysisEnabled: seat.seatId === 'gemini',
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
@@ -7229,9 +7259,9 @@ export async function POST(req: NextRequest) {
               documentCreatedThisTurn &&
               sameRoundRenderedDocumentPages.length > 0;
             const modelInputAttachments =
-              reviewScopedToGeneratedDocument
+              (reviewScopedToGeneratedDocument
                 ? sameRoundDocumentReviewPages
-                : currentRoundAttachments;
+                : currentRoundAttachments).filter(attachment => !isVideoAttachment(attachment));
 
             const pdfAttachments = modelInputAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
@@ -7409,6 +7439,31 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            if (currentVideoAttachment && seat.seatId === 'gemini') {
+              const userMessageIndex = [...seatMessages]
+                .map((message, index) => ({ message, index }))
+                .reverse()
+                .find(({ message }) => message.role === 'user')?.index;
+              if (userMessageIndex !== undefined) {
+                const userMessage = seatMessages[userMessageIndex] as any;
+                const existingContent = Array.isArray(userMessage.content)
+                  ? userMessage.content
+                  : [{ type: 'text', text: String(userMessage.content || '') }];
+                userMessage.content = [
+                  ...existingContent,
+                  {
+                    type: 'video_url',
+                    video_url: { url: String(currentVideoAttachment.url) },
+                  },
+                ];
+              }
+            }
+            if (currentVideoAttachment && seat.seatId !== 'gemini') {
+              seatMessages.push({
+                role: 'system',
+                content: 'VIDEO EVIDENCE BOUNDARY: The original video was sent only to Gemini this round. You did not inspect it. Gemini\'s reply is secondhand video analysis. You may discuss and critique Gemini\'s findings, but do not claim direct visual verification or invent timestamps absent from Gemini\'s actual reply.',
+              });
+            }
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7549,6 +7604,13 @@ export async function POST(req: NextRequest) {
               });
 
               let initialProviderStream: any;
+              const videoHeartbeat = seat.seatId === 'gemini' && currentVideoAttachment
+                ? setInterval(() => sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    activity: 'analyzing_video',
+                    label: 'Analyzing video…',
+                  }), 15_000)
+                : null;
               try {
                 initialProviderStream =
                   await (openai.chat.completions.create as any)({
@@ -7608,6 +7670,14 @@ export async function POST(req: NextRequest) {
                 ...(discussionId
                   ? { session_id: `${discussionId}:${seat.seatId}` }
                   : {}),
+                ...(currentVideoAttachment && seat.seatId === 'gemini'
+                  ? {
+                      provider: {
+                        only: ['google-vertex'],
+                        allow_fallbacks: false,
+                      },
+                    }
+                  : {}),
 
                   }, { signal: seatAbortController.signal });
               } catch (providerOpenErr: any) {
@@ -7626,6 +7696,8 @@ export async function POST(req: NextRequest) {
                     providerOpenErr?.message || String(providerOpenErr),
                 });
                 throw providerOpenErr;
+              } finally {
+                if (videoHeartbeat) clearInterval(videoHeartbeat);
               }
 
               console.log('[Provider Stream] Opened', {

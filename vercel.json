@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [],
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-temp-videos",
+      "schedule": "15 * * * *"
+    }
+  ],
   "env": {
     "DOCX_RENDERER_SNAPSHOT_ID": "snap_YRObHfbtZA1gevxzKe4GPNtTyRwf"
   }
