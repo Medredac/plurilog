@@ -63,11 +63,10 @@ export function isYouTubeInspectionRequest(
   const text = prompt.toLowerCase();
 
   if (hasCurrentYouTubeUrl) {
-    // A bare YouTube URL in chat is naturally treated as media supplied for
-    // the panel; explicit discussion/analysis wording makes the intent even clearer.
-    const stripped = text.replace(URL_RE, '').trim();
-    if (!stripped) return true;
-    return /\b(video|youtube|lecture|clip|watch|analy[sz]|summari[sz]|transcri|timestamp|chapter|key points?|what happens?|what .* say|explain|review|notes?|study|takeaways?)\b/i.test(stripped);
+    // A YouTube URL pasted in the current message is explicit media supplied
+    // for this turn. Gemini should receive it even for natural prompts such as
+    // "what do you think?" rather than requiring magic analysis keywords.
+    return true;
   }
 
   // Historical reinspection should be explicit enough that we do not silently
