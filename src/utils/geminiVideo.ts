@@ -6,25 +6,7 @@
  * object to Google's resumable Files API, analyzes it with Gemini 3.8 Flash,
  * and deletes the Google Files copy in finally.
  */
-export const VIDEO_LIMIT_BYTES = 500 * 1024 * 1024;
-export const VIDEO_LIMIT_SECONDS = 90 * 60;
-
-export const VIDEO_MIME: Record<string, string> = {
-  mp4: 'video/mp4',
-  mov: 'video/mov',
-  webm: 'video/webm',
-};
-
-export function videoMime(filename: string): string | null {
-  const ext = filename.toLowerCase().split('.').pop() || '';
-  return VIDEO_MIME[ext] || null;
-}
-
-export function isVideoAttachment(attachment: { filename?: string; url?: string }): boolean {
-  if (attachment.filename && videoMime(attachment.filename)) return true;
-  const pathname = (attachment.url || '').split('?')[0].split('#')[0];
-  return Boolean(videoMime(pathname));
-}
+import { VIDEO_LIMIT_BYTES, videoMime } from './videoUpload';
 
 function jsonError(status: number, detail: unknown): Error {
   const safe = typeof detail === 'string' ? detail.slice(0, 400) : JSON.stringify(detail).slice(0, 400);
