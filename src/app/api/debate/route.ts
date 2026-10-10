@@ -145,7 +145,7 @@ import {
   isSourcePreservingDocumentState,
   type SourceDocumentEditArgs,
 } from '@/utils/sourceDocumentEditor';
-import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
+import { calculateDebateSeatTimeoutMs, DEBATE_ROUTE_MAX_DURATION_MS, DEBATE_FINALIZATION_RESERVE_MS } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
 import { analyzeGeminiVideo, type GeminiVideoResult } from '@/utils/geminiVideo';
 import { isVideoAttachment } from '@/utils/videoUpload';
