@@ -3017,16 +3017,6 @@ export default function DashboardPage() {
         setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
         return;
       }
-      // A direct Google Files API credential is required for full-size private videos.
-      try {
-        const capability = await fetch('/api/video/capability', { cache: 'no-store' });
-        const status = await capability.json();
-        if (!capability.ok || !status.enabled) throw new Error('Video analysis needs a Gemini API key configured for this preview.');
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Video analysis is not configured.');
-        setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
-        return;
-      }
       if (!content.trim()) content = 'Please analyze and summarize the uploaded video.';
     }
     setPreservedStopScrollTop(null);
