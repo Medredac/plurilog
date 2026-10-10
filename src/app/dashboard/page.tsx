@@ -3817,7 +3817,6 @@ export default function DashboardPage() {
           userPlan={userPlan}
           onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
           onSignOut={handleSignOut}
-          onDeleteProfileClick={() => setIsDeleteProfileModalOpen(true)}
         />
 
         {/* Main Chamber */}
@@ -4065,6 +4064,10 @@ export default function DashboardPage() {
         <AccountSettingsModal
           isOpen={isAccountSettingsOpen}
           onClose={() => setIsAccountSettingsOpen(false)}
+          onDeleteAccountClick={() => {
+            setIsAccountSettingsOpen(false);
+            setIsDeleteProfileModalOpen(true);
+          }}
           displayName={userDisplayName || userEmail || 'User'}
           userEmail={userEmail}
           userAvatarUrl={userAvatarUrl}

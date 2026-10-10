@@ -9,6 +9,7 @@ import { ResetPasswordModal } from './ResetPasswordModal';
 interface AccountSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onDeleteAccountClick: () => void;
   displayName: string;
   userEmail?: string;
   userAvatarUrl?: string;
@@ -50,6 +51,7 @@ const FeatureList = () => (
 export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   isOpen,
   onClose,
+  onDeleteAccountClick,
   displayName,
   userEmail,
   userAvatarUrl,
@@ -326,6 +328,16 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onDeleteAccountClick}
+              className="rounded-md px-1 py-1.5 text-[11px] font-normal text-[#8A867D] transition-colors hover:text-[#B5432E] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B5432E]"
+            >
+              Delete account
+            </button>
+          </div>
         </div>
       </div>
 
