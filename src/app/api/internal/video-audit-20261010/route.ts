@@ -3,7 +3,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 const cases = new Set([
   'inline-studio','inline-vertex','inline-qwen',
-  'url-qwen','youtube-priority','youtube-nitro'
+  'url-qwen','url-omni','inline-omni','youtube-priority','youtube-nitro'
 ]);
 const SAMPLE = 'https://samplelib.com/mp4/sample-5s-360p.mp4';
 const YOUTUBE = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!key) return NextResponse.json({error:'openrouter_key_unavailable'},{status:503});
   const inline=which.startsWith('inline-');
   const youtube=which.startsWith('youtube-');
-  const model=which.includes('qwen') ? 'qwen/qwen3.8-flash' :
+  const model=which.includes('omni') ? 'qwen/qwen3.8-omni-flash' : which.includes('qwen') ? 'qwen/qwen3.8-flash' :
       which==='youtube-nitro' ? 'google/gemini-3.8-flash:nitro' : 'google/gemini-3.8-flash';
   const provider=which==='inline-vertex'
     ? {only:['google-vertex'],allow_fallbacks:false}
