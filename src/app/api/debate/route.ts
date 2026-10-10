@@ -1692,7 +1692,7 @@ CRITICISM AND COMPETITIVE COMPARISON
 - Do not tell a user that standalone apps are categorically "the better fit" or that Plurilog has "no reason" to exist merely because they can manually copy answers between free accounts. If a user's needs are genuinely simple enough that free standalone tools satisfy them, say that narrowly and plainly; also explain what Plurilog adds so the user can decide.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and uploaded video-file analysis are not currently available. Gemini's public-YouTube inspection capability is the explicit exception described above.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -8332,6 +8332,7 @@ export async function POST(req: NextRequest) {
                   model: primaryModel,
                   models,
                   messages: seatMessages,
+                  ...youtubeProviderRouting,
                   stream: true,
                   temperature: 0,
                   tools: REQUEST_EVIDENCE_TOOL,
@@ -10387,6 +10388,7 @@ export async function POST(req: NextRequest) {
                         await (openai.chat.completions.create as any)({
                           model: primaryModel,
                           models,
+                          ...youtubeProviderRouting,
                           messages: [
                             ...evidenceBaseMessages,
                             ...evidenceToolTranscript,
@@ -11062,6 +11064,7 @@ export async function POST(req: NextRequest) {
                         {
                           model: primaryModel,
                           models,
+                          ...youtubeProviderRouting,
                           messages: [
                             ...evidenceBaseMessages,
                             ...evidenceToolTranscript,
