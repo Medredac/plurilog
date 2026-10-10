@@ -24,6 +24,7 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
+import { videoMime, VIDEO_LIMIT_BYTES } from '../../utils/videoUpload';
 import { LayoutGroup, motion } from 'motion/react';
 import { GOOGLE_ENGAGEMENT_EVENT } from '../../components/GoogleAdsProvider';
 
@@ -3007,6 +3008,27 @@ export default function DashboardPage() {
 
   // Triggered when user submits a new prompt
   const handleSendMessage = async (content: string, imageFiles?: File[]) => {
+    const videoFiles = (imageFiles || []).filter(file => videoMime(file.name));
+    const hasVideo = videoFiles.length > 0;
+    const videoStoragePaths: string[] = [];
+    if (hasVideo) {
+      if (videoFiles.length !== 1 || (imageFiles || []).length !== 1 || videoFiles[0].size > VIDEO_LIMIT_BYTES) {
+        setErrorMessage('Upload one video per message, up to 500 MB.');
+        setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+        return;
+      }
+      // A direct Google Files API credential is required for full-size private videos.
+      try {
+        const capability = await fetch('/api/video/capability', { cache: 'no-store' });
+        const status = await capability.json();
+        if (!capability.ok || !status.enabled) throw new Error('Video analysis needs a Gemini API key configured for this preview.');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Video analysis is not configured.');
+        setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+        return;
+      }
+      if (!content.trim()) content = 'Please analyze and summarize the uploaded video.';
+    }
     setPreservedStopScrollTop(null);
     const isFirstConversationTurn = messages.length === 0;
     if (isFirstConversationTurn) {
@@ -3016,7 +3038,17 @@ export default function DashboardPage() {
       }
     }
 
-    const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
+    const selectedSeats = seatOrder.filter((id) => activeModels.includes(id));
+    if (hasVideo && !selectedSeats.includes('gemini')) {
+      setErrorMessage('Enable Gemini in the panel to analyze a video.');
+      setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+      return;
+    }
+    // Video-only turn: Gemini inspects the video first so the later seats can
+    // discuss its textual findings without claiming direct video access.
+    const activeSeatOrder = hasVideo
+      ? ['gemini' as ModelId, ...selectedSeats.filter(id => id !== 'gemini')]
+      : selectedSeats;
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
     if (isOutOfCredits) {
@@ -3122,9 +3154,9 @@ export default function DashboardPage() {
 
     // Temporary local blob URLs for instant optimistic display without waiting for storage upload
     // Preserve filename in hash fragment so optimistic URLs immediately render correct document or image cards
-    const tempObjectUrls = (imageFiles || []).map(
-      (f) => `${URL.createObjectURL(f)}#filename=${encodeURIComponent(f.name)}`
-    );
+    const tempObjectUrls = (imageFiles || [])
+      .filter(f => !videoMime(f.name))
+      .map(f => `${URL.createObjectURL(f)}#filename=${encodeURIComponent(f.name)}`);
     const tempUserMsgId = `msg-user-${Date.now()}`;
     const userMsg: ChatMessage = {
       id: tempUserMsgId,
@@ -3296,10 +3328,16 @@ export default function DashboardPage() {
             }
           }
 
-          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
+          const filePath = videoMime(file.name)
+            ? `${userId}/video-temp/${Date.now()}-${i}-${randomSuffix}.${safeExt}`
+            : `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
           const { error: uploadError } = await supabase.storage
             .from('message-images')
-            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
+            .upload(filePath, body, isPdf
+              ? { contentType: 'application/pdf' }
+              : videoMime(file.name)
+                ? { contentType: file.type || 'video/mp4' }
+                : undefined);
 
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError, {
@@ -3338,7 +3376,12 @@ export default function DashboardPage() {
           // Preserve the original display filename in the URL hash fragment
           const signedUrlWithFilename = `${signedData.signedUrl}#filename=${encodeURIComponent(file.name)}`;
           realSignedUrls.push(signedUrlWithFilename);
-          durableAttachmentUrls.push(buildDurableAttachmentUrl(filePath, file.name));
+          if (videoMime(file.name)) {
+            videoStoragePaths.push(filePath);
+          } else {
+            // Videos are temporary processing inputs, not durable discussion memory.
+            durableAttachmentUrls.push(buildDurableAttachmentUrl(filePath, file.name));
+          }
         }
 
         // Keep optimistic image previews visible until their durable browser
@@ -3487,19 +3530,28 @@ export default function DashboardPage() {
           ? { firstSeatId, msgId: optimisticFirstModelMsgId }
           : null;
 
-      await runRelay(
-        content,
-        currentDiscussionId,
-        activeSeatOrder,
-        false,
-        relayAttachments,
-        insertedUserMessageId,
-        retrySnapshot,
-        optimisticPlaceholder,
-        controller,
-        null,
-        tempUserMsgId
-      );
+      try {
+        await runRelay(
+          content,
+          currentDiscussionId,
+          activeSeatOrder,
+          false,
+          relayAttachments,
+          insertedUserMessageId,
+          retrySnapshot,
+          optimisticPlaceholder,
+          controller,
+          null,
+          tempUserMsgId
+        );
+      } finally {
+        // Remove the MP4 as soon as its analysis turn finishes. The preview
+        // cleanup endpoint also handles abandoned objects older than one hour.
+        if (videoStoragePaths.length > 0) {
+          const { error } = await supabase.storage.from('message-images').remove(videoStoragePaths);
+          if (error) console.warn('[Video] Temporary file cleanup failed:', error);
+        }
+      }
     }
   };
 
