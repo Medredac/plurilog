@@ -33,7 +33,6 @@ export async function GET() {
           { type: 'video_url', video_url: { url: youtubeUrl } },
         ],
       }],
-      max_tokens: 120,
     }),
   });
 
