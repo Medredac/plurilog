@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { ArrowUp, Plus, X, Square, FileText, Mic, Video } from 'lucide-react';
+import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -129,15 +129,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         file.type ===
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
       const isTextFile = isTextFileName(file.name);
-      const isVideo =
-        file.type.startsWith('video/') ||
-        lowerName.endsWith('.mp4') ||
-        lowerName.endsWith('.mov') ||
-        lowerName.endsWith('.webm') ||
-        lowerName.endsWith('.m4v');
       const isValid =
         file.type.startsWith('image/') ||
-        isVideo ||
         file.type === 'application/pdf' ||
         lowerName.endsWith('.pdf') ||
         isDocx ||
@@ -175,7 +168,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
     if (invalidFiles.length > 0) {
       alertMessages.push(
-        `The following file(s) are not supported images, videos, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
+        `The following file(s) are not supported images, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
       );
     }
     if (limitExceeded) {
@@ -299,7 +292,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       <input
         type="file"
         ref={attachmentInputRef}
-        accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.m4v,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
+        accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -349,12 +342,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 item.file.type ===
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
               const isTextFile = isTextFileName(item.file.name);
-              const isVideo =
-                item.file.type.startsWith('video/') ||
-                lowerName.endsWith('.mp4') ||
-                lowerName.endsWith('.mov') ||
-                lowerName.endsWith('.webm') ||
-                lowerName.endsWith('.m4v');
 
               return (
                 <div key={item.id} className="relative self-start group">
@@ -387,16 +374,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                         </p>
                       </div>
                     </button>
-                  ) : isVideo ? (
-                    <div
-                      className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
-                      title={item.file.name}
-                    >
-                      <Video className="w-5 h-5 text-zinc-600" />
-                      <span className="text-[9px] font-semibold text-zinc-600 uppercase tracking-wider bg-white/80 px-1 py-0.5 rounded border border-zinc-200/60">
-                        VIDEO
-                      </span>
-                    </div>
                   ) : isTextFile ? (
                     <div
                       className="w-16 h-16 rounded-[24px] border border-zinc-200/90 overflow-hidden bg-zinc-100 flex flex-col items-center justify-center gap-1 p-1 select-none"
