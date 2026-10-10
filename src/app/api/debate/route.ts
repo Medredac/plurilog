@@ -147,6 +147,7 @@ import {
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
+import { attachYouTubeVideo, resolveYouTubeUrlForTurn } from '@/utils/youtubeVideo';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -1658,7 +1659,9 @@ FILES AND VIDEO
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video upload/analysis is not currently available. It is in development.
+- Uploaded video-file analysis is not currently available.
+- Gemini can directly inspect public YouTube videos when a YouTube URL is supplied for video analysis. ChatGPT and Claude do not directly inspect the YouTube video in this workflow; if Gemini has already analyzed it earlier in the same round, they may discuss Gemini's textual findings.
+- A YouTube URL remains ordinary discussion text/history. When the user later explicitly asks to re-watch/reinspect that earlier video, Plurilog may supply the historical YouTube URL to Gemini again for direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
@@ -3524,6 +3527,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const youtubeVideoForTurn = resolveYouTubeUrlForTurn(
+      typeof prompt === 'string' ? prompt : '',
+      discussionMemory
+    );
+
     let workingConversationContext = '';
     let workingContextMetrics: {
       refreshed: boolean;
@@ -4505,6 +4513,19 @@ export async function POST(req: NextRequest) {
           ];
         }
 
+        // When Gemini is active and this turn explicitly asks to inspect a
+        // current or earlier YouTube video, let Gemini inspect the source first.
+        // Later seats can then react to Gemini's grounded observations.
+        if (
+          youtubeVideoForTurn &&
+          configuredSeats.some((seat) => seat.seatId === 'gemini')
+        ) {
+          configuredSeats = [
+            ...configuredSeats.filter((seat) => seat.seatId === 'gemini'),
+            ...configuredSeats.filter((seat) => seat.seatId !== 'gemini'),
+          ];
+        }
+
         console.log('[Turn Start]', {
           turnId,
           discussionId: discussionId || null,
@@ -4512,6 +4533,9 @@ export async function POST(req: NextRequest) {
           requestedSeatOrder: Array.isArray(seatOrder) ? seatOrder : null,
           configuredSeats: configuredSeats.map((seat) => seat.seatId),
           attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
+          youtubeVideo: youtubeVideoForTurn
+            ? { source: youtubeVideoForTurn.source, url: youtubeVideoForTurn.url }
+            : null,
           pdfCount: Array.isArray(attachments)
             ? attachments.filter((att: any) =>
                 String(att?.url || '').split('?')[0].split('#')[0].toLowerCase().endsWith('.pdf')
@@ -7102,6 +7126,16 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            const geminiYouTubeUrl =
+              seat.seatId === 'gemini' ? youtubeVideoForTurn?.url || null : null;
+            const youtubeProviderRouting = geminiYouTubeUrl
+              ? {
+                  provider: {
+                    only: ['google-ai-studio'],
+                    allow_fallbacks: false,
+                  },
+                }
+              : {};
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7409,6 +7443,20 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            if (geminiYouTubeUrl) {
+              seatMessages = attachYouTubeVideo(
+                seatMessages,
+                geminiYouTubeUrl
+              );
+              sendEvent('seat_activity', {
+                seatId: seat.seatId,
+                activity: 'analyzing_video',
+                label:
+                  youtubeVideoForTurn?.source === 'history'
+                    ? 'Reinspecting YouTube video…'
+                    : 'Analyzing YouTube video…',
+              });
+            }
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7555,6 +7603,7 @@ export async function POST(req: NextRequest) {
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
+                ...youtubeProviderRouting,
                 stream: true,
                 temperature: 0.7,
                 tools: [
@@ -7870,6 +7919,7 @@ export async function POST(req: NextRequest) {
                     await (openai.chat.completions.create as any)({
                       model: primaryModel,
                       models,
+                      ...youtubeProviderRouting,
                       messages: [
                         ...seatMessages,
                         {
@@ -8167,6 +8217,7 @@ export async function POST(req: NextRequest) {
                     model: primaryModel,
                     models,
                     messages: seatMessages,
+                    ...youtubeProviderRouting,
                     stream: true,
                     temperature: 0.7,
                     tools: continuationTools,
@@ -10173,6 +10224,7 @@ export async function POST(req: NextRequest) {
                     model: primaryModel,
                     models,
                     messages: evidenceMessages,
+                    ...youtubeProviderRouting,
                     stream: true,
                     temperature: 0.7,
                     tools: [
@@ -14114,6 +14166,7 @@ export async function POST(req: NextRequest) {
                     model: primaryModel,
                     models,
                     messages: fallbackMessages,
+                    ...youtubeProviderRouting,
                     stream: true,
                     temperature: 0.7,
                     ...(discussionId
