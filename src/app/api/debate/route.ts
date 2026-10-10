@@ -147,6 +147,8 @@ import {
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
+import { analyzeGeminiVideo, type GeminiVideoResult } from '@/utils/geminiVideo';
+import { isVideoAttachment } from '@/utils/videoUpload';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -3210,6 +3212,23 @@ export async function POST(req: NextRequest) {
       }
     };
 
+    const currentVideoAttachments = Array.isArray(attachments)
+      ? attachments.filter((attachment: { filename?: string; url?: string }) =>
+          isVideoAttachment(attachment))
+      : [];
+    const currentVideoAttachment = currentVideoAttachments.length === 1
+      ? currentVideoAttachments[0]
+      : null;
+    if (currentVideoAttachments.length > 1) {
+      return new Response(JSON.stringify({ error: 'Only one video per request is supported.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (currentVideoAttachment && !process.env.GEMINI_API_KEY) {
+      return new Response(JSON.stringify({ error: 'Gemini video analysis is not configured.' }), {
+        status: 503, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (typeof prompt !== 'string' || (!isContinueRound && !prompt.trim() && !hasAttachments)) {
       return new Response(
@@ -7229,9 +7248,9 @@ export async function POST(req: NextRequest) {
               documentCreatedThisTurn &&
               sameRoundRenderedDocumentPages.length > 0;
             const modelInputAttachments =
-              reviewScopedToGeneratedDocument
+              (reviewScopedToGeneratedDocument
                 ? sameRoundDocumentReviewPages
-                : currentRoundAttachments;
+                : currentRoundAttachments).filter(attachment => !isVideoAttachment(attachment));
 
             const pdfAttachments = modelInputAttachments.filter((att: any) =>
               att.url?.split('?')[0].toLowerCase().endsWith('.pdf')
@@ -7409,6 +7428,12 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            if (currentVideoAttachment && seat.seatId !== 'gemini') {
+              seatMessages.push({
+                role: 'system',
+                content: 'VIDEO EVIDENCE BOUNDARY: The original video was sent only to Gemini this round. You did not inspect it. Gemini\'s reply is secondhand video analysis. You may discuss and critique Gemini\'s findings, but do not claim direct visual verification or invent timestamps absent from Gemini\'s actual reply.',
+              });
+            }
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7550,8 +7575,27 @@ export async function POST(req: NextRequest) {
 
               let initialProviderStream: any;
               try {
-                initialProviderStream =
-                  await (openai.chat.completions.create as any)({
+                if (seat.seatId === 'gemini' && currentVideoAttachment) {
+                  // The Google Files API handles large private videos without the
+                  // ~667 MB inline base64 request OpenRouter would require.
+                  // Preserve the existing seat lifecycle/persistence/billing.
+                  const analysis: GeminiVideoResult = await analyzeGeminiVideo({
+                    signedUrl: String(currentVideoAttachment.url),
+                    filename: String(currentVideoAttachment.filename),
+                    prompt: prompt || 'Please analyze and summarize this video.',
+                    signal: seatAbortController.signal,
+                    userId: authenticatedUser.id,
+                  });
+                  initialProviderStream = (async function* () {
+                    yield {
+                      model: 'google/gemini-3.8-flash',
+                      choices: [{ delta: { content: analysis.content } }],
+                      usage: analysis.usage,
+                    };
+                  })();
+                } else {
+                  initialProviderStream =
+                    await (openai.chat.completions.create as any)({
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
@@ -7610,6 +7654,7 @@ export async function POST(req: NextRequest) {
                   : {}),
 
                   }, { signal: seatAbortController.signal });
+                }
               } catch (providerOpenErr: any) {
                 console.error('[Provider Stream] Open failed', {
                   turnId,
