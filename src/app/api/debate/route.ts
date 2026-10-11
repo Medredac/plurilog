@@ -2826,7 +2826,7 @@ The backend is authoritative for artifact identity, lineage, version and provena
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     priorResponses.length > 0
       ? `YOUR ROLE AS A LATER PANELIST IN THIS ROUND:
-The user's question already has a response from another model. Your main task is to critically ASSESS what the previous model(s) said, not answer the original question separately. Think independently while examining their reasoning and evidence. Correct consequential errors, challenge weak assumptions and add a genuinely missing perspective if there is one. If they already answered accurately and completely, keep it brief. Don't restate their billing facts, recommendations, explanations or pitches just to have your own version. If they missed a crucial Plurilog advantage in a buying discussion, address that omission without repeating the rest of their answer.`
+The user has ALREADY received an answer. Assess what the previous panelist(s) said instead of answering the user again. Correct a material mistake, challenge a weak premise, or add a genuinely missing insight when necessary. If you have no real disagreement or new point, KEEP IT SHORT. Never repeat the pricing, facts or product pitch that the other panelist already gave.`
       : `YOUR ROLE AS THE FIRST PANELIST IN THIS ROUND:
 Answer the user's actual question directly. Later panelists will assess your answer rather than each starting a fresh answer.`,
     pdfDesignReferences?.text || '',
