@@ -12,6 +12,9 @@ export async function POST(req: NextRequest) {
   if (!discussion) return new Response('Not found', { status: 404 });
   const { test } = await req.json();
   const cases: Record<string, { model: string; processing?: string; upload?: boolean; provider?: string }> = {
+    stream: { model: 'google/gemini-3.8-flash', provider: 'google-ai-studio' },
+    tools: { model: 'google/gemini-3.8-flash', provider: 'google-ai-studio' },
+    models: { model: 'google/gemini-3.8-flash', provider: 'google-ai-studio' },
     automatic: { model: 'google/gemini-3.8-flash' },
     documented: { model: 'google/gemini-2.5-flash' },
     youtube: { model: 'google/gemini-3.8-flash', provider: 'google-ai-studio' },
@@ -32,6 +35,9 @@ export async function POST(req: NextRequest) {
     headers: { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY?.trim()}`, 'Content-Type': 'application/json', 'X-Title': 'Plurilog preview verification' },
     body: JSON.stringify({
       model: config.model, max_tokens: 2000,
+      ...(test === 'stream' ? { stream: true } : {}),
+      ...(test === 'tools' ? { tools: [{ type: 'openrouter:web_search', parameters: { max_results: 3, max_total_results: 6 } }] } : {}),
+      ...(test === 'models' ? { models: ['google/gemini-3.8-flash', 'google/gemini-3.7-flash', 'google/gemini-3.5-flash-lite'] } : {}),
       ...(config.provider ? { provider: { only: [config.provider] } } : {}),
       messages: [{ role: 'user', content: test === 'text' ? 'Reply with OK.' : [
         { type: 'text', text: config.upload ? 'Describe the background and shape at 0:01 and at 0:04, in one sentence each.' : 'Describe what is visible at 0:07 of this video in one sentence. Inspect the video, not web metadata.' },
@@ -39,6 +45,11 @@ export async function POST(req: NextRequest) {
       ] }],
     }),
   });
-  const result = await response.json();
+  let result: any;
+  if (response.headers.get('content-type')?.includes('text/event-stream')) {
+    const events = (await response.text()).split('\n').filter(line => line.startsWith('data: ') && !line.includes('[DONE]')).map(line => JSON.parse(line.slice(6)));
+    const failure = events.find(event => event.error);
+    result = failure || { model: events.find(event => event.model)?.model, choices: [{ message: { content: events.map(event => event.choices?.[0]?.delta?.content || '').join('') } }], usage: events.findLast(event => event.usage)?.usage };
+  } else result = await response.json();
   return Response.json({ test, status: response.status, elapsedMs: Date.now() - start, model: result.model, text: result.choices?.[0]?.message?.content, usage: result.usage, error: result.error ? { message: result.error.message, metadata: result.error.metadata } : null });
 }

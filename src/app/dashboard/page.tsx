@@ -3977,7 +3977,6 @@ export default function DashboardPage() {
                   seatOrder={seatOrder}
                   activeModels={activeModels}
                   isDebating={isDebating}
-                  errorMessage={errorMessage}
                   canContinue={canContinue}
                   onContinue={handleContinue}
                   activeDebateId={activeDebateId}
@@ -4023,6 +4022,12 @@ export default function DashboardPage() {
 
           {/* Sticky Input (Only shown once conversation has messages) */}
           {messages.length > 0 && (
+            <>
+            {errorMessage && (
+              <div role="alert" className="shrink-0 mx-auto w-full max-w-[760px] px-6 py-2 text-xs text-[#B5432E]">
+                {errorMessage}
+              </div>
+            )}
             <ChatInput
               onSendMessage={handleSendMessage}
               isLoading={isDebating && !isStopRequested}
@@ -4038,6 +4043,7 @@ export default function DashboardPage() {
               onDismissAiSeatsHint={handleDismissAiSeatsHint}
               onRestoreDraftConsumed={() => setRestoreDraft(null)}
             />
+            </>
           )}
           </LayoutGroup>
         </main>
