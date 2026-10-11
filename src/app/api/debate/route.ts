@@ -14470,6 +14470,7 @@ export async function POST(req: NextRequest) {
               });
               sendEvent('seat_error', {
                 seatId: seat.seatId,
+                videoInspection: err?.videoInspectionFailure === true,
                 message: seatTimedOut
                   ? `${seat.name}: this response took too long, so the panel moved on to the next model.`
                   : `${seat.name}: ${err?.message || 'Model request failed'}`,

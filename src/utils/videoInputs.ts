@@ -1,10 +1,10 @@
 /** Shared, browser-safe video input rules. This is an app limit, not a model limit. */
 export const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
-export const VIDEO_ACCEPT = '.mp4,.mov,.webm,video/mp4,video/quicktime,video/webm';
+export const VIDEO_ACCEPT = '.mp4,.mov,.webm,video/mp4,video/mov,video/quicktime,video/webm';
 
 export function videoMime(filename: string): string | null {
   const extension = filename.split(/[?#]/)[0].split('.').pop()?.toLowerCase();
-  return ({ mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' } as Record<string, string>)[extension || ''] || null;
+  return ({ mp4: 'video/mp4', mov: 'video/mov', webm: 'video/webm' } as Record<string, string>)[extension || ''] || null;
 }
 
 export function isVideoAttachment(attachment: { filename?: string; url?: string }): boolean {

@@ -35,7 +35,7 @@ test('a retrieved historical link can be opened and pinned to AI Studio', async 
   assert.equal((await session.inspect({ youtube_url: yt, question: 'What happens at 0:07?' })).result.ok, true);
   const prepared = session.prepareRequest(request);
   assert.equal(prepared.messages.at(-1).content[1].video_url.url, yt);
-  assert.deepEqual(prepared.provider, { only: ['google-ai-studio'], allow_fallbacks: false });
+  assert.deepEqual(prepared.provider, { only: ['google-ai-studio'] });
   assert.equal(request.messages.length, 1);
 });
 test('an invented or unrelated link cannot be silently inspected', async () => {
@@ -108,4 +108,16 @@ test('video evidence survives later memory and artifact continuation request ass
     assert.equal(body.messages.at(-1).content[1].type, 'video_url');
     assert.equal(body.messages.at(-2).name, tool);
   }
+});
+
+test('provider rejection becomes an explicit video failure, never a successful inspection', async () => {
+  const session = createVideoInspectionSession({ ...base, prompt: yt });
+  await session.inspect({ youtube_url: yt, question: 'Inspect' });
+  await assert.rejects(session.createCompletion(async () => { throw { status: 429 }; }, request, {}), error => error.videoInspectionFailure === true && /temporarily unavailable/.test(error.message));
+});
+
+test('MOV uploads use the provider-documented MIME type', async () => {
+  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mov', url: '/api/attachments/message-images/owner/clip.mov' }] });
+  await session.inspect({ filename: 'clip.mov', question: 'Inspect' });
+  assert.match(session.prepareRequest(request).messages.at(-1).content[1].video_url.url, /^data:video\/mov;base64,/);
 });

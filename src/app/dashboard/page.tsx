@@ -2782,6 +2782,9 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'seat_error') {
               const seatId = data.seatId as ModelId;
+              if (isCurrentDiscussionActive && data.videoInspection === true) {
+                setErrorMessage(data.message || 'Video inspection failed. Please try again.');
+              }
 
               inProgressModelId = null;
               inProgressContent = '';
