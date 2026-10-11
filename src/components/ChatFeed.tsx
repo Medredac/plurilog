@@ -1523,9 +1523,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const toggleAiCollapse = (id: string) => {
     setCollapsedAiMsgIds((prev) => ({
       ...prev,
-      // Settled AI responses default to collapsed. An undefined entry therefore
-      // means "collapsed" until the user explicitly expands that response.
-      [id]: !(prev[id] ?? true),
+      // AI responses start expanded; a manual click switches that response
+      // between collapsed and expanded without affecting other responses.
+      [id]: !(prev[id] ?? false),
     }));
   };
 
@@ -2680,13 +2680,12 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           const filename = getAttachmentDisplayFilename(url);
           return !isImageUrl(url, filename);
         });
-        // Individual panel replies are collapsed from the moment visible
-        // content begins. The answer streams/reveals inside this fixed viewport,
-        // so there is never a later "full answer -> sudden collapse" transition.
+        // AI replies are fully expanded from the first visible content.
+        // Users may still collapse or re-expand any individual response.
         const isAiCollapsible =
           Boolean(message.content.trim()) || attachments.length > 0;
         const isAiCollapsed =
-          isAiCollapsible && (collapsedAiMsgIds[message.id] ?? true);
+          isAiCollapsible && (collapsedAiMsgIds[message.id] ?? false);
         const readByModels = orderedActiveModels.filter((id) => id !== modelKey);
         const readByLabel = readByModels
           .map((id) => COUNCIL_MEMBERS[id]?.name || id)
@@ -2851,8 +2850,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
               </div>
 
-              {/* The response is collapsed from first visible content, so the
-                  expand control belongs to the live reply from the start. */}
+              {/* Allow collapsing or expanding each AI reply without changing
+                  the expanded-by-default behavior of other replies. */}
               <AnimatePresence initial={false}>
                 {!isThinking && isAiCollapsible && (
                   <motion.div
