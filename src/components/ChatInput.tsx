@@ -10,12 +10,13 @@ import { AiSeatsCoachmark } from './AiSeatsCoachmark';
 import { ModelId } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
-import { videoMime, VIDEO_MAX_BYTES, VIDEO_ACCEPT } from '@/utils/videoInputs';
+import { videoMime, validateVideoSelection, VIDEO_ACCEPT } from '@/utils/videoInputs';
 
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
   isLoading?: boolean;
   isLocked?: boolean;
+  uploadProgress?: string | null;
   onStop?: () => void;
   isCentered?: boolean;
   autoFocus?: boolean;
@@ -40,6 +41,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
   isLocked = false,
+  uploadProgress,
   onStop,
   isCentered = false,
   autoFocus = false,
@@ -118,15 +120,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const invalidFiles: string[] = [];
     const validFiles: File[] = [];
     const videoErrors: string[] = [];
-    let videoCount = attachedFiles.filter(item => videoMime(item.file.name)).length;
+
 
     for (const file of files) {
       const lowerName = file.name.toLowerCase();
       if (videoMime(file.name)) {
         if (!activeModels.includes('gemini')) videoErrors.push('Enable Gemini to analyze a video.');
-        else if (!file.size || file.size > VIDEO_MAX_BYTES) videoErrors.push('Videos must be nonempty and no larger than 25 MB.');
-        else if (videoCount >= 1) videoErrors.push('Attach one video at a time.');
-        else { validFiles.push(file); videoCount++; }
+        else {
+          const error = validateVideoSelection([...attachedFiles.map(item => item.file), ...validFiles, file]);
+          if (error) videoErrors.push(error);
+          else validFiles.push(file);
+        }
         continue;
       }
       if (lowerName.endsWith('.doc') || file.type === 'application/msword') {
@@ -302,6 +306,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className={containerClasses}>
+      {uploadProgress && <p role="status" aria-live="polite" className="mb-2 px-1 text-xs text-zinc-500">{uploadProgress}</p>}
       {/* Hidden Attachment Input */}
       <input
         type="file"
@@ -362,7 +367,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   {videoMime(item.file.name) ? (
                     <div className="flex min-h-[52px] w-[228px] max-w-[calc(100vw-5rem)] items-center gap-2.5 rounded-xl border border-[#E2E0DB] bg-[#F7F6F3] px-3 py-2" title={item.file.name}>
                       <Video className="h-6 w-6 shrink-0 text-zinc-500" aria-hidden="true" />
-                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 25 MB max</p></div>
+                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 500 MB total</p></div>
                     </div>
                   ) : isPdf || isDocx ? (
                     <button

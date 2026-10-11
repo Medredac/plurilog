@@ -24,7 +24,8 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
-import { videoMime, VIDEO_MAX_BYTES } from '@/utils/videoInputs';
+import { videoMime, validateVideoSelection } from '@/utils/videoInputs';
+import { uploadVideoResumable } from '@/utils/videoUpload';
 import { LayoutGroup, motion } from 'motion/react';
 import { GOOGLE_ENGAGEMENT_EVENT } from '../../components/GoogleAdsProvider';
 
@@ -381,6 +382,7 @@ export default function DashboardPage() {
   const [seatSearchSources, setSeatSearchSources] = useState<
     Record<ModelId, SeatSearchSource[]>
   >(EMPTY_SEAT_SEARCH_SOURCES);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
   const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
@@ -3024,8 +3026,9 @@ export default function DashboardPage() {
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
     const videoFiles = (imageFiles || []).filter(file => videoMime(file.name));
-    if (videoFiles.length && (!activeSeatOrder.includes('gemini') || videoFiles.length > 1 || videoFiles.some(file => !file.size || file.size > VIDEO_MAX_BYTES))) {
-      setErrorMessage('Enable Gemini and attach one MP4, MOV, or WebM video up to 25 MB.');
+    const videoSelectionError = validateVideoSelection(videoFiles);
+    if (videoFiles.length && (!activeSeatOrder.includes('gemini') || videoSelectionError)) {
+      setErrorMessage(videoSelectionError || 'Enable Gemini to analyze videos.');
       setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
       return;
     }
@@ -3308,9 +3311,19 @@ export default function DashboardPage() {
           }
 
           const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
-          const { error: uploadError } = await supabase.storage
-            .from('message-images')
-            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : videoMime(file.name) ? { contentType: videoMime(file.name)! } : undefined);
+          let uploadError: Error | null = null;
+          if (videoMime(file.name)) {
+            try {
+              await uploadVideoResumable(supabase, filePath, file, controller.signal, percent => {
+                setUploadProgress(`Uploading video ${i + 1} of ${preparedUploadBodies.length} · ${percent}%`);
+              });
+            } catch (error) { uploadError = error instanceof Error ? error : new Error('Video upload failed.'); }
+            finally { setUploadProgress(null); }
+          } else {
+            const result = await supabase.storage.from('message-images')
+              .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
+            uploadError = result.error;
+          }
 
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError, {
@@ -3922,6 +3935,7 @@ export default function DashboardPage() {
                     )}
 
                     <ChatInput
+                      uploadProgress={uploadProgress}
                       onSendMessage={handleSendMessage}
                       isLoading={isDebating && !isStopRequested}
                       isLocked={isDebating}
@@ -4029,6 +4043,7 @@ export default function DashboardPage() {
               </div>
             )}
             <ChatInput
+                      uploadProgress={uploadProgress}
               onSendMessage={handleSendMessage}
               isLoading={isDebating && !isStopRequested}
               isLocked={isDebating}

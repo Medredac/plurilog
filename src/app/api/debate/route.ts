@@ -149,6 +149,7 @@ import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
 import { isVideoAttachment, VIDEO_INSPECTION_TOOL } from '@/utils/videoInputs';
 import { createVideoInspectionSession, inspectVideoWithModel, readVideoResponse } from '@/utils/videoInspection';
+import { inspectStoredVideo, validateStoredVideoBudget } from '@/utils/storedVideoInspection';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -1674,7 +1675,7 @@ FILES AND VIDEO
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video understanding is available through Gemini for public YouTube links and uploaded MP4/MOV/WebM files (up to 25 MB per upload). Video generation is unavailable. Uploaded videos remain attached to this discussion and can be reopened while stored; no automatic deletion policy is enabled in this preview.
+- Video understanding is available through Gemini for public YouTube links and uploaded MP4/MOV/WebM files (up to 500 MB total across uploaded videos per message). Large uploaded videos may use temporary analysis copies; original files remain unchanged. For a timestamp question, inspect the relevant uploaded-video time window with surrounding context. Do not claim details outside the inspected range or fine details lost in compression. Video generation is unavailable. Uploaded videos remain attached to this discussion and can be reopened while stored; no automatic deletion policy is enabled in this preview.
 - Your direct video inspection capability on this turn = ${runtime?.videoAnalysisEnabled ? 'available via inspect_video' : 'unavailable'}. Only Gemini can directly inspect video/audio. Claude and ChatGPT may discuss Gemini’s actual findings, but must not claim to have watched or independently verified the video. Preserve the chosen panel order and apply the capability-handoff rule above; do not repeat an already established video-access distinction.
 - Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier videos, retrieve the correct source through normal conversation-memory tools, then inspect it; do not default to the latest video. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
@@ -3315,8 +3316,12 @@ export async function POST(req: NextRequest) {
     }
 
     const uploadedVideos = (Array.isArray(attachments) ? attachments : []).filter(isVideoAttachment);
-    if (uploadedVideos.length > 1 || (uploadedVideos.length && Array.isArray(seatOrder) && !seatOrder.includes('gemini'))) {
-      return Response.json({ error: 'Enable Gemini and attach one video at a time.' }, { status: 400 });
+    if (uploadedVideos.length && Array.isArray(seatOrder) && !seatOrder.includes('gemini')) {
+      return Response.json({ error: 'Enable Gemini to analyze videos.' }, { status: 400 });
+    }
+    if (uploadedVideos.length) {
+      try { await validateStoredVideoBudget(uploadedVideos, authenticatedUser.id); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : 'Invalid video attachments.' }, { status: 400 }); }
     }
 
     let runStateServiceClient: ReturnType<typeof createServiceClient> | null = null;
@@ -7133,6 +7138,14 @@ export async function POST(req: NextRequest) {
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
             let incurredVideoCostUsd = 0;
+            const analyzeVideo = async (source: import('@/utils/videoInspection').VideoSource, signal: AbortSignal) => {
+              const result = await inspectVideoWithModel(
+                (body, opts) => (openai.chat.completions.create as any)(body, opts), models, source, signal,
+              );
+              incurredVideoCostUsd += result.costUsd;
+              console.log('[Video Inspection Completed]', { seatId: seat.seatId, model: result.model, costUsd: result.costUsd, findingsChars: result.findings.length });
+              return result;
+            };
             const videoSession = seat.seatId === 'gemini'
               ? createVideoInspectionSession({
                   userId: authenticatedUser.id,
@@ -7141,15 +7154,8 @@ export async function POST(req: NextRequest) {
                   currentAttachments: Array.isArray(attachments) ? attachments : [],
                   sourceUserMessageId,
                   signal: seatAbortController.signal,
-                  analyze: async (source, signal) => {
-                    const result = await inspectVideoWithModel(
-                      (body, opts) => (openai.chat.completions.create as any)(body, opts),
-                      models, source, signal,
-                    );
-                    incurredVideoCostUsd += result.costUsd;
-                    console.log('[Video Inspection Completed]', { seatId: seat.seatId, model: result.model, costUsd: result.costUsd, findingsChars: result.findings.length });
-                    return result;
-                  },
+                  analyze: analyzeVideo,
+                  inspectUpload: (path, filename, question, range, signal) => inspectStoredVideo({ path, filename, question, range, signal, userId: authenticatedUser.id, analyze: analyzeVideo }),
                   readUpload: async (storagePath, signal) => {
                     // Session ownership and the user folder are checked before this
                     // callback. Sign only our own storage object, never a model URL.

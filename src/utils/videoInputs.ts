@@ -1,5 +1,22 @@
 /** Shared, browser-safe video input rules. This is an app limit, not a model limit. */
-export const VIDEO_MAX_BYTES = 25 * 1024 * 1024;
+export const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+// Keep each inline provider request small; originals have a separate upload budget.
+export const VIDEO_INLINE_MAX_BYTES = 12 * 1024 * 1024;
+export const VIDEO_BUDGET_MESSAGE = 'Videos can total up to 500 MB per message.';
+
+export function validateVideoSelection(files: Array<{ name: string; size: number }>): string | null {
+  const videos = files.filter(file => videoMime(file.name));
+  if (videos.some(file => !Number.isSafeInteger(file.size) || file.size <= 0)) return 'Videos must not be empty.';
+  return videos.reduce((total, file) => total + file.size, 0) > VIDEO_MAX_BYTES ? VIDEO_BUDGET_MESSAGE : null;
+}
+
+export type VideoRange = { startSeconds?: number; endSeconds?: number };
+export function validateVideoRange(range: VideoRange): void {
+  for (const value of [range.startSeconds, range.endSeconds]) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) throw new Error('Video timestamps must be nonnegative seconds.');
+  }
+  if (range.endSeconds !== undefined && range.endSeconds <= (range.startSeconds ?? 0)) throw new Error('The end timestamp must follow the start timestamp.');
+}
 export const VIDEO_ACCEPT = '.mp4,.mov,.webm,video/mp4,video/mov,video/quicktime,video/webm';
 
 export function videoMime(filename: string): string | null {
@@ -43,6 +60,8 @@ export const VIDEO_INSPECTION_TOOL = {
         filename: { type: 'string', description: 'Exact uploaded video filename.' },
         source_user_message_id: { type: 'string', description: 'Message identity returned by memory retrieval, to distinguish duplicate filenames.' },
         question: { type: 'string', description: 'What you need to inspect; include any requested timestamps and transcription language.' },
+        start_seconds: { type: 'number', minimum: 0, description: 'For an uploaded-video question about a particular moment, inspect a relevant time window instead of the entire video. Seconds from the original start. Omit for a whole-video request.' },
+        end_seconds: { type: 'number', minimum: 0, description: 'End of that uploaded-video time window in seconds. Include enough surrounding context. Omit for a whole-video request.' },
       },
       required: ['question'],
       additionalProperties: false,

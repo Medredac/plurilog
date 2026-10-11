@@ -16,7 +16,7 @@ function load(file) {
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, filename);
   return mod.exports;
 }
-const { normalizeYouTubeUrl, extractYouTubeUrls, VIDEO_MAX_BYTES } = load('src/utils/videoInputs.ts');
+const { normalizeYouTubeUrl, extractYouTubeUrls, VIDEO_INLINE_MAX_BYTES, VIDEO_MAX_BYTES, validateVideoSelection, validateVideoRange } = load('src/utils/videoInputs.ts');
 const { createVideoInspectionSession, inspectVideoWithModel, readVideoResponse, validateVideoBytes } = load('src/utils/videoInspection.ts');
 const yt = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 const movie = Buffer.from('0000ftypisomtest');
@@ -72,14 +72,14 @@ test('failure to open a second video does not leave the previous video attached'
   assert.equal((await session.inspect({ filename: 'missing.mp4', question: 'Describe' })).result.ok, false);
 });
 test('oversize, corrupt and missing uploads produce explicit failures', async () => {
-  assert.throws(() => validateVideoBytes(Buffer.alloc(VIDEO_MAX_BYTES + 1), 'clip.mp4'), /25 MB/);
+  assert.throws(() => validateVideoBytes(Buffer.alloc(VIDEO_INLINE_MAX_BYTES + 1), 'clip.mp4'), /12 MB/);
   assert.throws(() => validateVideoBytes(Buffer.from('not a video'), 'clip.mp4'), /not a supported/);
   await assert.rejects(readVideoResponse(new Response('missing', { status: 404 })), /unavailable/);
-  await assert.rejects(readVideoResponse(new Response('x', { headers: { 'content-length': String(VIDEO_MAX_BYTES + 1) } })), /25 MB/);
+  await assert.rejects(readVideoResponse(new Response('x', { headers: { 'content-length': String(VIDEO_INLINE_MAX_BYTES + 1) } })), /12 MB/);
 });
 test('streamed oversized data is stopped even without a content-length header', async () => {
-  const data = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(VIDEO_MAX_BYTES)); c.enqueue(new Uint8Array(1)); c.close(); } });
-  await assert.rejects(readVideoResponse(new Response(data)), /25 MB/);
+  const data = new ReadableStream({ start(c) { c.enqueue(new Uint8Array(VIDEO_INLINE_MAX_BYTES)); c.enqueue(new Uint8Array(1)); c.close(); } });
+  await assert.rejects(readVideoResponse(new Response(data)), /12 MB/);
 });
 test('cancellation propagates instead of becoming a successful inspection', async () => {
   const controller = new AbortController(); controller.abort(new Error('cancelled'));
@@ -116,4 +116,27 @@ test('MOV uploads use the provider-documented MIME type', async () => {
   const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mov', url: '/api/attachments/message-images/owner/clip.mov' }], analyze: async video => { source = video; return base.analyze(); } });
   await session.inspect({ filename: 'clip.mov', question: 'Describe' });
   assert.match(source.url, /^data:video\/mov;base64,/);
+});
+
+// Upload limits are independent of the size of the provider's temporary copy.
+test('multiple videos share one 500 MB budget, including already attached files', () => {
+  assert.equal(validateVideoSelection([{ name: 'a.mp4', size: 300 * 1024 * 1024 }, { name: 'b.mov', size: 200 * 1024 * 1024 }]), null);
+  assert.match(validateVideoSelection([{ name: 'a.mp4', size: VIDEO_MAX_BYTES }, { name: 'b.webm', size: 1 }]), /500 MB/);
+  assert.equal(validateVideoSelection([{ name: 'a.mp4', size: VIDEO_MAX_BYTES }, { name: 'notes.pdf', size: 1000 }]), null);
+  assert.match(validateVideoSelection([{ name: 'empty.mp4', size: 0 }]), /empty/);
+});
+test('timestamp ranges reject invalid and inverted boundaries', () => {
+  for (const range of [{startSeconds: -1}, {startSeconds: NaN}, {startSeconds: '7'}, {startSeconds: 8, endSeconds: 4}]) assert.throws(() => validateVideoRange(range));
+  validateVideoRange({startSeconds: 0, endSeconds: 10});
+});
+test('large upload inspection preserves ownership and requested time window', async () => {
+  const calls = [];
+  const session = createVideoInspectionSession({ ...base,
+    currentAttachments: [{filename: 'a.mp4', url: '/api/attachments/message-images/owner/a.mp4'}, {filename: 'b.mov', url: '/api/attachments/message-images/owner/b.mov'}],
+    inspectUpload: async (...args) => { calls.push(args); return {findings: 'Verified content.', model: request.model}; },
+    readUpload: async () => { throw new Error('Original must not be buffered'); },
+  });
+  for (const filename of ['a.mp4', 'b.mov']) assert.equal((await session.inspect({filename, question: 'At 2:00?', start_seconds: 115, end_seconds: 125})).result.ok, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].slice(0,4), ['owner/a.mp4', 'a.mp4', 'At 2:00?', {startSeconds: 115, endSeconds: 125}]);
 });
