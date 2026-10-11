@@ -1655,7 +1655,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               });
             }
           }}
-          className={`relative z-30 inline-flex min-h-9 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-2.5 py-1.5 text-[12px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
+          className={`relative z-30 inline-flex min-h-10 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-3 py-2 text-[13px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
             summary.status === 'ready'
               ? 'border-[#D9D6CF] bg-white/95 text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white hover:shadow-[0_6px_20px_rgba(28,27,26,0.10)] cursor-pointer'
               : summary.status === 'loading'
@@ -1802,7 +1802,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 duration: shouldReduceMotion ? 0 : 0.2,
                 ease: [0.16, 1, 0.3, 1],
               }}
-              className="absolute left-1/2 top-9 z-40 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_50px_rgba(28,27,26,0.16)]"
+              className="absolute left-1/2 top-10 z-40 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_50px_rgba(28,27,26,0.16)]"
             >
               <div className="flex items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
                 <div className="flex min-w-0 items-center gap-2">
