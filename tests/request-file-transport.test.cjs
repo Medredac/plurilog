@@ -28,6 +28,7 @@ textModule._compile(ts.transpileModule(fs.readFileSync(textPath, 'utf8'), {
 }).outputText, textPath);
 memoryModule.require = (name) => name === '@/utils/supabase/service'
   ? { createServiceClient() { throw new Error('Test must use injected client'); } }
+  : name === './videoInputs' ? { videoMime: name => /\.(mp4|mov|webm)$/i.test(name) ? 'video/mp4' : null }
   : name === './textFileParser' ? textModule.exports
   : require(name);
 memoryModule._compile(ts.transpileModule(fs.readFileSync(memoryPath, 'utf8'), {

@@ -1,3 +1,4 @@
+import { videoMime } from './videoInputs';
 import OpenAI from 'openai';
 import crypto from 'node:crypto';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -355,7 +356,7 @@ export function extractAttachmentMetadata(
 
   return {
     filename,
-    storagePath: storagePath || null,
+    storagePath: videoMime(filename) || videoMime(storagePath || '') ? null : storagePath || null,
     documentId: documentId || null,
   };
 }
@@ -376,7 +377,7 @@ export function formatRoundForContext(round: Round): string {
   if (round.attachments && round.attachments.length > 0) {
     for (const att of round.attachments) {
       const docLabel = att.documentId ? `[doc_${att.documentId}] ` : '';
-      attachmentLines.push(`- ${docLabel}${att.filename}`);
+      attachmentLines.push(`- ${docLabel}${att.filename}${videoMime(att.filename) ? ' (past video upload: saved findings only; fresh upload required for new inspection)' : ''}`);
     }
   }
 
@@ -2275,7 +2276,7 @@ export async function getScopedDiscussionMemory(
                 docMap.set(key, {
                   id: null,
                   filename,
-                  storagePath: storagePath || null,
+                  storagePath: videoMime(filename) || videoMime(storagePath || '') ? null : storagePath || null,
                   sourcePaths: storagePath ? [storagePath] : [],
                   createdAt: msg.created_at,
                 });
@@ -3480,7 +3481,7 @@ export async function ingestParsedDocument(
       stableFileHash = crypto.createHash('sha256').update(buffer).digest('hex');
       console.log('[Doc Ingest] Computed authoritative SHA-256 from provided document bytes:', {
         filename,
-        storagePath: storagePath || null,
+        storagePath: videoMime(filename) || videoMime(storagePath || '') ? null : storagePath || null,
         sha256: stableFileHash,
         byteSize: buffer.length,
       });

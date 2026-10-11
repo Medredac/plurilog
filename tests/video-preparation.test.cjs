@@ -51,9 +51,32 @@ test('the aggregate server budget uses authoritative storage sizes and rejects f
  const api=load('src/utils/storedVideoInspection.ts',{
   './videoInputs':inputs, './videoInspection':{}, './videoPreparation':{},
   './durableAttachments':{extractAttachmentStoragePath:url=>url},
-  './supabase/service':{createServiceClient:()=>({storage:{from:()=>({info:async path=>{read.push(path);return{data:{size:sizes[path]},error:null};}})}})},
+  './supabase/service':{createServiceClient:()=>({storage:{from:()=>({info:async path=>{read.push(path);return{data:{size:sizes[path],createdAt:new Date().toISOString()},error:null};}})}})},
  });
  await api.validateStoredVideoBudget([{url:'owner/a.mp4'},{url:'owner/b.mp4'}],'owner');
  await assert.rejects(api.validateStoredVideoBudget([{url:'owner/a.mp4'},{url:'owner/b.mp4'},{url:'owner/c.mp4'}],'owner'),/500 MB/);
  const before=read.length;await assert.rejects(api.validateStoredVideoBudget([{url:'other/a.mp4'}],'owner'),/not available/);assert.equal(read.length,before);
+});
+
+test('originals are deleted after completed, failed, and cancelled analysis, never foreign or document paths', async () => {
+ for (const fails of [false, true]) {
+  const removed=[];
+  const api=load('src/utils/storedVideoInspection.ts',{
+   './videoInputs':inputs, './videoInspection':{},
+   './videoPreparation':{inspectPreparedVideo:async()=>{if(fails)throw new Error('cancelled');return{findings:'saved result',model:'gemini'};}},
+   './durableAttachments':{},
+   './supabase/service':{createServiceClient:()=>({storage:{from:()=>({
+    info:async()=>({data:{size:20*1024*1024,createdAt:new Date().toISOString()}}),
+    createSignedUrl:async()=>({data:{signedUrl:'https://storage.example/video'}}),
+    remove:async paths=>{removed.push(...paths);return{error:null};},
+   })}})},
+  });
+  const opts={path:'owner/video-ephemeral-v1/test.mp4',userId:'owner',filename:'test.mp4',question:'Describe',range:{},signal:new AbortController().signal,analyze:async()=>({findings:'',model:''})};
+  if(fails)await assert.rejects(api.inspectStoredVideo(opts),/cancelled/);
+  else assert.equal((await api.inspectStoredVideo(opts)).findings,'saved result');
+  assert.deepEqual(removed,[opts.path]);
+  await assert.rejects(api.inspectStoredVideo({...opts,path:'other/test.mp4'}),/not available/);
+  await assert.rejects(api.inspectStoredVideo({...opts,path:'owner/test.pdf'}),/Not a supported/);
+  assert.equal(removed.length,1);
+ }
 });

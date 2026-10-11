@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
 import { ATTACHMENT_STORAGE_BUCKET } from '@/utils/durableAttachments';
-import { videoMime } from '@/utils/videoInputs';
+import { videoMime, videoRemainingSeconds } from '@/utils/videoInputs';
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   mp4: 'video/mp4',
@@ -85,12 +85,14 @@ export async function GET(
   }
 
   const serviceSupabase = createServiceClient();
-  // Let Storage serve video bytes/range requests directly; buffering a 25 MB
-  // video here exceeds the platform's function response limit.
+  // Let Storage serve video ranges directly, only while the temporary original exists.
   if (videoMime(storagePath)) {
+    const { data: info } = await serviceSupabase.storage.from(ATTACHMENT_STORAGE_BUCKET).info(storagePath);
+    const remaining = videoRemainingSeconds(info?.createdAt);
+    if (!remaining) return new Response('This video is no longer available. Upload it again for a new analysis; previous findings remain in the conversation.', { status: 410, headers: { 'Cache-Control': 'private, no-store' } });
     const { data, error } = await serviceSupabase.storage
       .from(ATTACHMENT_STORAGE_BUCKET)
-      .createSignedUrl(storagePath, 300);
+      .createSignedUrl(storagePath, Math.min(300, remaining));
     if (error || !data?.signedUrl) return new Response('Not found', { status: 404 });
     return new Response(null, {
       status: 307,

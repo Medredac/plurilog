@@ -71,9 +71,9 @@ test('video attachments stay out of image/PDF input and are identified for Gemin
  assert.match(text,/available via inspect_video/);
  assert.doesNotMatch(text,/image_url|video_url/);
 });
-test('other seats know findings are secondhand and uploads can be reopened',()=>{
+test('other seats know findings are secondhand and uploads require a fresh source for new inspection',()=>{
  const m=build({name:'Claude',runtime:{videoAnalysisEnabled:false}});
  assert.match(m[0].content,/direct video inspection capability on this turn = unavailable/);
- assert.match(m[0].content,/can be reopened while stored/);
+ assert.match(m[0].content,/one inspection during their upload turn only/);
  assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });

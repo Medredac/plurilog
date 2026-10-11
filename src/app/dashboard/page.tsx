@@ -3310,7 +3310,7 @@ export default function DashboardPage() {
             }
           }
 
-          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
+          const filePath = `${userId}/${videoMime(file.name) ? 'video-ephemeral-v1/' : ''}${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
           let uploadError: Error | null = null;
           if (videoMime(file.name)) {
             try {
@@ -3354,7 +3354,7 @@ export default function DashboardPage() {
 
           const { data: signedData, error: signError } = await supabase.storage
             .from('message-images')
-            .createSignedUrl(filePath, 259200); // 72h transport window; never the durable attachment identity
+            .createSignedUrl(filePath, videoMime(file.name) ? 3600 : 259200); // Videos expire after one hour; documents keep their existing transport window.
 
           if (signError || !signedData?.signedUrl) {
             console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);

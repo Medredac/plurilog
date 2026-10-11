@@ -1,6 +1,6 @@
 import { createServiceClient } from './supabase/service';
 import { extractAttachmentStoragePath } from './durableAttachments';
-import { VIDEO_MAX_BYTES, VIDEO_INLINE_MAX_BYTES, VIDEO_BUDGET_MESSAGE, videoMime, type VideoRange } from './videoInputs';
+import { VIDEO_MAX_BYTES, VIDEO_INLINE_MAX_BYTES, VIDEO_BUDGET_MESSAGE, videoRemainingSeconds, videoMime, type VideoRange } from './videoInputs';
 import { readVideoResponse, validateVideoBytes, type VideoSource } from './videoInspection';
 import { inspectPreparedVideo } from './videoPreparation';
 
@@ -12,6 +12,7 @@ export function ownedVideoPath(path: string | null, userId: string): string {
 export async function storedVideoSize(path: string): Promise<number> {
   const { data, error } = await createServiceClient().storage.from('message-images').info(path);
   if (error || !data || !Number.isSafeInteger(data.size) || (data.size ?? 0) <= 0) throw new Error('The stored video is unavailable or empty. Please upload it again.');
+  if (!videoRemainingSeconds(data.createdAt)) throw new Error('This video upload has expired. Please upload it again for a new analysis.');
   return data.size!;
 }
 
@@ -31,15 +32,25 @@ export async function inspectStoredVideo(options: {
   analyze: (source: VideoSource, signal: AbortSignal) => Promise<{ findings: string; model: string }>;
 }) {
   ownedVideoPath(options.path, options.userId);
-  const size = await storedVideoSize(options.path);
-  if (size > VIDEO_MAX_BYTES) throw new Error(VIDEO_BUDGET_MESSAGE);
-  const { data, error } = await createServiceClient().storage.from('message-images').createSignedUrl(options.path, 600);
-  if (error || !data?.signedUrl) throw new Error('The stored video is unavailable. Please upload it again.');
-  if (size <= VIDEO_INLINE_MAX_BYTES) {
-    const response = await fetch(data.signedUrl, { signal: AbortSignal.any([options.signal, AbortSignal.timeout(60_000)]), redirect: 'error' });
-    const bytes = await readVideoResponse(response);
-    validateVideoBytes(bytes, options.filename);
-    return options.analyze({ url: `data:${videoMime(options.filename)};base64,${bytes.toString('base64')}`, label: options.filename, question: options.question, youtube: false }, options.signal);
+  if (!videoMime(options.path)) throw new Error('Not a supported video upload.');
+  try {
+    const size = await storedVideoSize(options.path);
+    if (size > VIDEO_MAX_BYTES) throw new Error(VIDEO_BUDGET_MESSAGE);
+    const { data, error } = await createServiceClient().storage.from('message-images').createSignedUrl(options.path, 600);
+    if (error || !data?.signedUrl) throw new Error('The stored video is unavailable. Please upload it again.');
+    if (size <= VIDEO_INLINE_MAX_BYTES) {
+      const response = await fetch(data.signedUrl, { signal: AbortSignal.any([options.signal, AbortSignal.timeout(60_000)]), redirect: 'error' });
+      const bytes = await readVideoResponse(response);
+      validateVideoBytes(bytes, options.filename);
+      return await options.analyze({ url: `data:${videoMime(options.filename)};base64,${bytes.toString('base64')}`, label: options.filename, question: options.question, youtube: false }, options.signal);
+    }
+    return await inspectPreparedVideo({ ...options, signedUrl: data.signedUrl });
+  } finally {
+    // Only the owner-checked video reaches this function. Delete the original
+    // after success, failure, or cancellation; scheduled expiry retries failures.
+    try {
+      const { error } = await createServiceClient().storage.from('message-images').remove([options.path]);
+      if (error) throw error;
+    } catch { console.error('[Video Cleanup] Immediate removal failed; scheduled expiry will retry.'); }
   }
-  return inspectPreparedVideo({ ...options, signedUrl: data.signedUrl });
 }

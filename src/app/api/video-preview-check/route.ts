@@ -1,7 +1,7 @@
 import { Sandbox } from '@vercel/sandbox';
 import { createClient } from '@/utils/supabase/server';
 import { inspectStoredVideo, validateStoredVideoBudget } from '@/utils/storedVideoInspection';
-import { inspectVideoWithModel } from '@/utils/videoInspection';
+import { createVideoInspectionSession, inspectVideoWithModel } from '@/utils/videoInspection';
 import { PROVIDER_MODELS } from '@/utils/openrouter';
 import OpenAI from 'openai';
 
@@ -27,17 +27,26 @@ export async function POST(request: Request) {
     const urls = attachments.map(file => ({ filename: file.filename, url: `/api/attachments/message-images/${file.path}#filename=${encodeURIComponent(file.filename)}` }));
     await validateStoredVideoBudget(urls, user.id);
     const ai = new OpenAI({ baseURL: 'https://openrouter.ai/api/v1', apiKey: process.env.OPENROUTER_API_KEY });
+    let analysisCalls = 0;
+    const session = createVideoInspectionSession({ userId: user.id, prompt: '', rounds: [], currentAttachments: urls, signal: request.signal,
+      readUpload: async () => { throw new Error('Unexpected legacy reader'); },
+      analyze: async () => { throw new Error('Unexpected standalone call'); },
+      inspectUpload: (path, filename, question, range, signal) => inspectStoredVideo({ path, filename, question, range, signal, userId: user.id,
+        analyze: (source, signal) => { analysisCalls++; return inspectVideoWithModel((data, opts) => ai.chat.completions.create(data, opts), PROVIDER_MODELS['google/'], source, signal); },
+      }),
+    });
     const results = [];
     for (const file of attachments) {
-      results.push(await inspectStoredVideo({ path: file.path, filename: file.filename, userId: user.id,
-        question: 'Describe the visible colors and shapes at the start and end. Do not infer content from the filename.', range: {}, signal: request.signal,
-        analyze: (source, signal) => inspectVideoWithModel((data, opts) => ai.chat.completions.create(data, opts), PROVIDER_MODELS['google/'], source, signal),
-      }));
+      const first = await session.inspect({ filename: file.filename, question: 'Describe the visible colors and shapes at the start and end. Do not infer content from the filename.' });
+      const repeated = await session.inspect({ filename: file.filename, question: 'Inspect it again.' });
+      results.push({ first: first.result, repeated: repeated.result.status });
+      if (!first.result.ok) throw new Error(String(first.result.error));
     }
     const { data: discussion, error } = await client.from('discussions').insert({ user_id: user.id, title: 'Large video upload verification', updated_at: new Date().toISOString() }).select('id').single();
     if (error) throw error;
-    const { error: messageError } = await client.from('messages').insert({ discussion_id: discussion.id, sender: 'user', content: 'These two videos were uploaded for verification. Keep them available for later inspection.', attachment_urls: urls.map(file => file.url) });
+    const { error: messageError } = await client.from('messages').insert({ discussion_id: discussion.id, sender: 'user', content: 'These two videos were uploaded for one-time analysis verification.', attachment_urls: urls.map(file => file.url) });
     if (messageError) throw messageError;
-    return Response.json({ ok: true, results, discussionId: discussion.id });
+    await client.from('messages').insert({ discussion_id: discussion.id, sender: 'gemini', content: results.map(result => result.first.findings).join('\n\n') });
+    return Response.json({ ok: true, results, analysisCalls, discussionId: discussion.id });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : 'Verification failed' }, { status: 400 }); }
 }

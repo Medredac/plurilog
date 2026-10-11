@@ -47,21 +47,36 @@ test('first-turn upload sends actual video bytes to inspection', async () => {
   assert.equal((await session.inspect({ filename: 'clip.mp4', question: 'Transcribe' })).result.ok, true);
   assert.match(source.url, /^data:video\/mp4;base64,/);
 });
-test('stored historical upload can be reopened, bytes reused within a seat', async () => {
+test('historical uploads cannot be reopened or downloaded', async () => {
   let reads = 0;
   const session = createVideoInspectionSession({ ...base, readUpload: async () => { reads++; return movie; }, rounds: [{ userMessageId: 'old', userPrompt: 'Video', modelResponses: [], attachments: [{ sender: 'user', filename: 'old.mp4', storagePath: 'owner/old.mp4' }] }] });
-  for (const question of ['Describe', 'What happens at 0:04?']) assert.equal((await session.inspect({ filename: 'old.mp4', question })).result.ok, true);
+  const result = (await session.inspect({ filename: 'old.mp4', question: 'What happens at 0:04?' })).result;
+  assert.equal(result.ok, false); assert.match(result.error, /fresh upload/); assert.equal(reads, 0);
+});
+test('concurrent and repeated calls inspect a current upload once and return original findings', async () => {
+  let reads = 0, analyses = 0;
+  const session = createVideoInspectionSession({ ...base,
+    currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }],
+    readUpload: async () => { reads++; return movie; },
+    analyze: async () => { analyses++; return base.analyze(); },
+  });
+  const results = await Promise.all(['Describe', 'At 0:04?', 'At 0:07?'].map(question => session.inspect({ filename: 'clip.mp4', question })));
+  assert.equal(reads, 1); assert.equal(analyses, 1);
+  assert.equal(results[0].result.status, 'inspected'); assert.equal(results[1].result.status, 'already_inspected');
+  assert.equal(results[2].result.question, 'Describe');
+});
+test('failed inspections do not start a repeated download loop', async () => {
+  let reads = 0;
+  const session = createVideoInspectionSession({ ...base,
+    currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }],
+    inspectUpload: async () => { reads++; throw new Error('Provider unavailable'); },
+  });
+  for (let i = 0; i < 3; i++) assert.equal((await session.inspect({ filename: 'clip.mp4', question: 'Describe' })).result.ok, false);
   assert.equal(reads, 1);
 });
-test('duplicate filenames require a grounded message identity', async () => {
-  const rounds = ['one', 'two'].map(id => ({ userMessageId: id, userPrompt: '', modelResponses: [], attachments: [{ filename: 'clip.mp4', storagePath: `owner/${id}.mp4` }] }));
-  const session = createVideoInspectionSession({ ...base, rounds });
-  assert.equal((await session.inspect({ filename: 'clip.mp4', question: 'Describe' })).result.ok, false);
-  assert.equal((await session.inspect({ filename: 'clip.mp4', source_user_message_id: 'one', question: 'Describe' })).result.ok, true);
-});
 test('foreign and traversal storage paths are rejected before any read', async () => {
-  for (const storagePath of ['other/clip.mp4', 'owner/../other.mp4', 'owner/a%2fb.mp4']) {
-    const session = createVideoInspectionSession({ ...base, readUpload: async () => { throw new Error('SHOULD NOT READ'); }, rounds: [{ userPrompt: '', modelResponses: [], attachments: [{ filename: 'clip.mp4', storagePath }] }] });
+  for (const storagePath of ['other/clip.mp4', 'owner/../other.mp4', 'owner/a%252fb.mp4']) {
+    const session = createVideoInspectionSession({ ...base, readUpload: async () => { throw new Error('SHOULD NOT READ'); }, currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/' + storagePath }] });
     const result = (await session.inspect({ filename: 'clip.mp4', question: 'Describe' })).result;
     assert.equal(result.ok, false); assert.match(result.error, /not available to this account/);
   }
@@ -139,4 +154,13 @@ test('large upload inspection preserves ownership and requested time window', as
   for (const filename of ['a.mp4', 'b.mov']) assert.equal((await session.inspect({filename, question: 'At 2:00?', start_seconds: 115, end_seconds: 125})).result.ok, true);
   assert.equal(calls.length, 2);
   assert.deepEqual(calls[0].slice(0,4), ['owner/a.mp4', 'a.mp4', 'At 2:00?', {startSeconds: 115, endSeconds: 125}]);
+});
+
+test('video expiry fails closed and caps signed access to the remaining hour', () => {
+  const { videoRemainingSeconds } = load('src/utils/videoInputs.ts');
+  const now = Date.now();
+  assert.equal(videoRemainingSeconds(new Date(now).toISOString(), now), 3600);
+  assert.equal(videoRemainingSeconds(new Date(now - 3_600_000).toISOString(), now), 0);
+  assert.equal(videoRemainingSeconds(new Date(now - 3_590_000).toISOString(), now), 10);
+  assert.equal(videoRemainingSeconds(undefined, now), 0);
 });

@@ -2473,9 +2473,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         return (
                           <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
                             {videoMime(filename) ? (
-                              <a href={url} target="_blank" rel="noopener noreferrer" className="flex h-20 w-28 flex-col items-center justify-center rounded-2xl border border-[#D9D6CF] bg-stone-100 p-2 text-xs text-zinc-700" title={`Open ${filename}`}>
-                                <span className="font-semibold">VIDEO</span><span className="mt-1 w-full truncate text-center">{filename}</span><span className="mt-1 text-[10px] text-zinc-500">Gemini can inspect</span>
-                              </a>
+                              <div className="flex h-20 w-28 flex-col items-center justify-center rounded-2xl border border-[#D9D6CF] bg-stone-100 p-2 text-xs text-zinc-700" title={`${filename} · Deleted after analysis, or after about one hour if unused. Findings stay in the conversation.`}>
+                                <span className="font-semibold">VIDEO</span><span className="mt-1 w-full truncate text-center">{filename}</span><span className="mt-1 text-[10px] text-zinc-500">Re-upload for new analysis</span>
+                              </div>
                             ) : isText ? (
                               <button
                                 type="button"

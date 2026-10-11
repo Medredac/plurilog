@@ -16,7 +16,7 @@ export default function VideoCheck() {
  for(const [index,mb] of sizes.entries()) {
    const size=mb*1024*1024; const freeSize=size-original.length; const header=new Uint8Array(8); new DataView(header.buffer).setUint32(0,freeSize); header.set([102,114,101,101],4);
    const zero=new Uint8Array(1024*1024); const parts:BlobPart[]=[original,header]; let left=freeSize-8; while(left>0){const n=Math.min(left,zero.length); parts.push(zero.subarray(0,n));left-=n;}
-   const name=`fixture-${index+1}.mp4`; const file=new File(parts,name,{type:'video/mp4'}); const path=`${user.id}/video-check-${Date.now()}-${index}.mp4`;
+   const name=`fixture-${index+1}.mp4`; const file=new File(parts,name,{type:'video/mp4'}); const path=`${user.id}/video-ephemeral-v1/video-check-${Date.now()}-${index}.mp4`;
    await uploadVideoResumable(client,path,file,new AbortController().signal,percent=>setStatus(`Uploading ${mb} MB video: ${percent}%`)); files.push({filename:name,path});
  }
  setStatus(`${sizes.reduce((a,b)=>a+b,0)} MB uploaded. Inspecting both originals through production video helpers…`);

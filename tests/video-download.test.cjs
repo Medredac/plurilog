@@ -5,20 +5,20 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const source = ts.transpileModule(fs.readFileSync('src/app/api/attachments/[...path]/route.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 
-function route(userId) {
+function route(userId, remaining = 3600) {
   const signed = [];
   const exports = {};
   vm.runInNewContext(source, { exports, Response, require(name) {
     if (name.endsWith('supabase/server')) return { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: userId ? { id: userId } : null } }) } }) };
-    if (name.endsWith('supabase/service')) return { createServiceClient: () => ({ storage: { from: bucket => ({ createSignedUrl: async (path, ttl) => { signed.push({ bucket, path, ttl }); return { data: { signedUrl: 'https://storage.example/signed-video' } }; }, download() { throw new Error('Video must not be buffered in a function response'); } }) } }) };
+    if (name.endsWith('supabase/service')) return { createServiceClient: () => ({ storage: { from: bucket => ({ info: async () => ({ data: { createdAt: new Date().toISOString() } }), createSignedUrl: async (path, ttl) => { signed.push({ bucket, path, ttl }); return { data: { signedUrl: 'https://storage.example/signed-video' } }; }, download() { throw new Error('Video must not be buffered in a function response'); } }) } }) };
     if (name.endsWith('durableAttachments')) return { ATTACHMENT_STORAGE_BUCKET: 'message-images' };
-    if (name.endsWith('videoInputs')) return { videoMime: path => /\.(mp4|mov|webm)$/i.test(path) ? 'video/mp4' : null };
+    if (name.endsWith('videoInputs')) return { videoRemainingSeconds: () => remaining, videoMime: path => /\.(mp4|mov|webm)$/i.test(path) ? 'video/mp4' : null };
     throw new Error(name);
   } });
   return { get: path => exports.GET({ nextUrl: new URL('https://preview.example/api/attachments') }, { params: Promise.resolve({ path }) }), signed };
 }
 
-test('retained video opens via a short-lived private storage redirect, without function response-size limit', async () => {
+test('temporary video opens via a short-lived private storage redirect, without function response-size limit', async () => {
   const handler = route('owner');
   const response = await handler.get(['message-images', 'owner', 'clip.mp4']);
   assert.equal(response.status, 307);
@@ -34,4 +34,11 @@ test('video playback requires login and ownership before signing', async () => {
     assert.equal((await handler.get(path)).status, status);
     assert.equal(handler.signed.length, 0);
   }
+});
+
+test('expired or deleted uploads cannot get another signed download URL', async () => {
+  const handler = route('owner', 0);
+  const response = await handler.get(['message-images', 'owner', 'clip.mp4']);
+  assert.equal(response.status, 410); assert.equal(handler.signed.length, 0);
+  assert.match(await response.text(), /Upload it again/);
 });

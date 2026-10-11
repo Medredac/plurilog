@@ -19,27 +19,34 @@ export function videoWindows(duration: number, range: VideoRange): Array<{ start
 // Python streams the original straight to the isolated VM's disk. The Next
 // process never buffers a 500 MB original or a base64 version of it.
 const DOWNLOAD = String.raw`
-import json, urllib.request, os
-c=json.load(open('/vercel/sandbox/input.json'))
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args): raise ValueError('Unexpected storage redirect')
-with urllib.request.build_opener(NoRedirect).open(c['url'], timeout=120) as r, open('/vercel/sandbox/original','wb') as f:
-    if int(r.headers.get('Content-Length','0')) > c['maxBytes']: raise ValueError('Video exceeds upload limit')
-    n=0
-    while True:
-        b=r.read(1024*1024)
-        if not b: break
-        n+=len(b)
-        if n > c['maxBytes']: raise ValueError('Video exceeds upload limit')
-        f.write(b)
-if not n: raise ValueError('Empty video')
-os.remove('/vercel/sandbox/input.json')
+import json, urllib.request, os, sys
+try:
+    c=json.load(open('/vercel/sandbox/input.json'))
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args): raise ValueError('Unexpected storage redirect')
+    with urllib.request.build_opener(NoRedirect).open(c['url'], timeout=120) as r, open('/vercel/sandbox/original','wb') as f:
+        if int(r.headers.get('Content-Length','0')) > c['maxBytes']: raise ValueError('Video exceeds upload limit')
+        n=0
+        while True:
+            b=r.read(1024*1024)
+            if not b: break
+            n+=len(b)
+            if n > c['maxBytes']: raise ValueError('Video exceeds upload limit')
+            f.write(b)
+    if not n: raise ValueError('Empty video')
+    os.remove('/vercel/sandbox/input.json')
+except Exception as e:
+    print(type(e).__name__ + ':' + str(getattr(e, 'code', '')), flush=True)
+    sys.exit(1)
 `;
 
 async function checked(sandbox: Sandbox, cmd: string, args: string[], label: string, sudo = false) {
   const result = await sandbox.runCommand({ cmd, args, sudo });
   // Do not propagate command stderr: it may contain the private storage URL.
-  if (result.exitCode !== 0) throw new Error(label);
+  if (result.exitCode !== 0) {
+    if (cmd === 'python3') console.error('[Video Download Failure]', { exitCode: result.exitCode, category: (await result.stdout()).trim().slice(0, 80) });
+    throw new Error(label);
+  }
   return result;
 }
 
