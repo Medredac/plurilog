@@ -24,6 +24,8 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
+import { videoMime, validateVideoSelection } from '@/utils/videoInputs';
+import { uploadVideoResumable } from '@/utils/videoUpload';
 import { LayoutGroup, motion } from 'motion/react';
 import { GOOGLE_ENGAGEMENT_EVENT } from '../../components/GoogleAdsProvider';
 
@@ -380,6 +382,7 @@ export default function DashboardPage() {
   const [seatSearchSources, setSeatSearchSources] = useState<
     Record<ModelId, SeatSearchSource[]>
   >(EMPTY_SEAT_SEARCH_SOURCES);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
   const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
@@ -2781,6 +2784,9 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'seat_error') {
               const seatId = data.seatId as ModelId;
+              if (isCurrentDiscussionActive && data.videoInspection === true) {
+                setErrorMessage(data.message || 'Video inspection failed. Please try again.');
+              }
 
               inProgressModelId = null;
               inProgressContent = '';
@@ -3019,6 +3025,14 @@ export default function DashboardPage() {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
+    const videoFiles = (imageFiles || []).filter(file => videoMime(file.name));
+    const videoSelectionError = validateVideoSelection(videoFiles);
+    if (videoFiles.length && (!activeSeatOrder.includes('gemini') || videoSelectionError)) {
+      setErrorMessage(videoSelectionError || 'Enable Gemini to analyze videos.');
+      setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+      return;
+    }
+
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
       setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
@@ -3084,6 +3098,8 @@ export default function DashboardPage() {
       }
     }
 
+    const pendingVideoPaths: string[] = [];
+    try {
     let currentDiscussionId = activeDebateId;
     let newlyCreatedDiscussionId: string | null = null;
     const nowForSend = new Date();
@@ -3296,11 +3312,31 @@ export default function DashboardPage() {
             }
           }
 
-          const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
-          const { error: uploadError } = await supabase.storage
-            .from('message-images')
-            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
+          const filePath = `${userId}/${videoMime(file.name) ? 'video-ephemeral-v1/' : ''}${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
+          let uploadError: Error | null = null;
+          if (videoMime(file.name)) {
+            pendingVideoPaths.push(filePath);
+            try {
+              await uploadVideoResumable(supabase, filePath, file, controller.signal, percent => {
+                setUploadProgress(`Uploading ${file.name} · ${percent}%`);
+              });
+            } catch (error) { uploadError = error instanceof Error ? error : new Error('Video upload failed.'); }
+            finally { setUploadProgress(null); }
+          } else {
+            const result = await supabase.storage.from('message-images')
+              .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
+            uploadError = result.error;
+          }
 
+          if (uploadError && controller.signal.aborted) {
+            rollbackOptimistic();
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
+            setIsDebating(false);
+            setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+            await cleanupNewlyCreatedDiscussion();
+            return;
+          }
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError, {
               fileName: file.name,
@@ -3321,7 +3357,7 @@ export default function DashboardPage() {
 
           const { data: signedData, error: signError } = await supabase.storage
             .from('message-images')
-            .createSignedUrl(filePath, 259200); // 72h transport window; never the durable attachment identity
+            .createSignedUrl(filePath, videoMime(file.name) ? 3600 : 259200); // Videos expire after one hour; documents keep their existing transport window.
 
           if (signError || !signedData?.signedUrl) {
             console.error('[Supabase Storage Error] Failed to generate signed URL:', signError);
@@ -3501,6 +3537,17 @@ export default function DashboardPage() {
         tempUserMsgId
       );
     }
+    } finally {
+      // Covers failed uploads, cancelled sends, API rejection and unused videos.
+      // Successfully inspected sources are already gone; removal is idempotent.
+      if (pendingVideoPaths.length) {
+        try {
+          const { error } = await supabase.storage.from('message-images').remove(pendingVideoPaths);
+          if (error) throw error;
+        } catch { console.warn('[Video Cleanup] Send cleanup failed; scheduled expiry will retry.'); }
+      }
+    }
+
   };
 
   // Triggered when user clicks "Try again" on an inline failed turn
@@ -3911,6 +3958,7 @@ export default function DashboardPage() {
                     )}
 
                     <ChatInput
+              uploadProgress={uploadProgress}
                       onSendMessage={handleSendMessage}
                       isLoading={isDebating && !isStopRequested}
                       isLocked={isDebating}
@@ -3966,7 +4014,6 @@ export default function DashboardPage() {
                   seatOrder={seatOrder}
                   activeModels={activeModels}
                   isDebating={isDebating}
-                  errorMessage={errorMessage}
                   canContinue={canContinue}
                   onContinue={handleContinue}
                   activeDebateId={activeDebateId}
@@ -4012,7 +4059,14 @@ export default function DashboardPage() {
 
           {/* Sticky Input (Only shown once conversation has messages) */}
           {messages.length > 0 && (
+            <>
+            {errorMessage && (
+              <div role="alert" className="shrink-0 mx-auto w-full max-w-[760px] px-6 py-2 text-xs text-[#B5432E]">
+                {errorMessage}
+              </div>
+            )}
             <ChatInput
+              uploadProgress={uploadProgress}
               onSendMessage={handleSendMessage}
               isLoading={isDebating && !isStopRequested}
               isLocked={isDebating}
@@ -4027,6 +4081,7 @@ export default function DashboardPage() {
               onDismissAiSeatsHint={handleDismissAiSeatsHint}
               onRestoreDraftConsumed={() => setRestoreDraft(null)}
             />
+            </>
           )}
           </LayoutGroup>
         </main>

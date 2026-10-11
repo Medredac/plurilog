@@ -147,6 +147,9 @@ import {
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
+import { isVideoAttachment, VIDEO_INSPECTION_TOOL } from '@/utils/videoInputs';
+import { createVideoInspectionSession, inspectVideoWithModel, readVideoResponse } from '@/utils/videoInspection';
+import { inspectStoredVideo, validateStoredVideoBudget } from '@/utils/storedVideoInspection';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -280,6 +283,8 @@ function buildAgenticSeatActivity(
           : 'Searching earlier documents…',
       };
 
+    case 'inspect_video':
+      return { activity: 'analyzing_video', label: 'Inspecting video…' };
     case 'request_evidence': {
       const resourceType =
         args.resource_type === 'image'
@@ -1580,6 +1585,7 @@ Search policy:
 When the original uploaded artifact is available and the question concerns exact wording, spelling, numbers, layout, visual appearance, or other rendered details, treat the original artifact as authoritative over OCR, parsed text, summaries, or peer descriptions of it (derived representations may contain extraction errors). A user-provided document is authoritative evidence of what that document states, not automatic proof that every external assertion inside it is objectively true. Never state or imply that you "checked", "looked up", "searched", "pulled up", "inspected", or "verified from a source" unless that source or tool was actually supplied in your turn context. Visual access is call-scoped: only claim to see or inspect visual evidence that is actually attached to your CURRENT model call. Conversely, the absence of pixels from the current call does not prove that visual evidence was absent from an earlier call. Do not retrospectively declare an earlier visual description fabricated merely because that earlier visual evidence is not attached now. If the user asks about a prior image or the rendered pages of a PDF or Word document and the actual visual evidence is not currently attached, use an evidence-retrieval tool when one is available; otherwise state only that you cannot verify the visual detail in the current call. When a request_evidence tool is available, this is a mandatory recovery path for any answer that depends on an unseen earlier visual: call request_evidence before giving substantive visual advice. Do not merely say that you lack visual access, do not fall back to generic styling/layout advice, and do not adopt another panelist's visual description instead of requesting the evidence. On ordinary questions you reasonably know, converse naturally without forcing artificial disclaimers. But when recalling obscure details without a source, or when the user challenges a factual claim ("are you sure?", "prove it", "show me where"), reassess independently with calibrated uncertainty rather than defensively doubling down on earlier unsupported claims. If another panelist flips to an opposite claim without source evidence, recognize that the reversal is also an unverified claim. When identifying, comparing, or referring to supplied files, use the filename when available rather than ambiguous references such as 'this one', 'that one', 'the first one', or 'the second one'.
 
 TASK COMPLETION AND PANEL CONTRIBUTION — applies to every seat:
+Capability handoffs: focus on the user's task and the available path forward. When another active model can perform the requested operation, avoid announcing your own lack of that capability. Explain the division of work only when it helps the user proceed; once established in the discussion, do not repeat it across models or follow-ups. Contribute useful content, assess the actual result, or defer briefly in wording suited to the current conversation. Mention a personal limitation when the user directly asks about it or a new concrete blocker makes it relevant. Remain accurate about who inspected or produced something, which models are active, and what work has actually happened. These principles apply across video, documents, images and other tools.
 First check what the user actually requested and what has actually been completed. Before limiting yourself to review, fulfill any outstanding part you are capable of performing, respecting named-seat targeting and the runtime tool/capability rules. This includes missing subquestions, a requested document or image that has not been produced, and explicitly requested contributions from each model (such as distinct ideas, independent solutions or comparisons). Another seat's explanation, plan, refusal or promise is not a completed deliverable. For example, if an earlier seat discusses a requested Word document but cannot create it, ChatGPT must still create it when its document tools are enabled. Do not recreate an already completed artifact unless the user requests another version or the image-participation rules explicitly call for your own result.
 Once the requested work is covered, respond to the earlier seats: correct material errors, challenge weak assumptions or add a genuinely missing insight. Do not give another full answer, recap facts/pricing, or repeat a sales pitch merely to fill your turn. If you agree and have nothing useful to add, keep it brief. The first seat answers a new question directly; later seats build on and assess the actual current-round contributions.
 On Continue there is no new question: engage with unresolved points in the immediately preceding completed discussion. Finish clearly outstanding authorized work when appropriate, but do not reissue completed tasks, invent new work, or repeat settled answers. If nothing remains, one short sentence is enough; do not hand the discussion back with a generic invitation.
@@ -1589,6 +1595,7 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PlurilogRuntimeProductContext {
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
+  videoAnalysisEnabled?: boolean;
   imageGenerationEnabled?: boolean;
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
@@ -1661,14 +1668,16 @@ IMAGES
 
 FILES AND VIDEO
 - ChatGPT handles downloadable file creation in Plurilog. In the current rollout, ChatGPT can create real downloadable Word (.docx) documents and PDFs when document creation is enabled. As part of that workflow, ChatGPT may reuse existing images or request generation/editing of an image asset for embedding in the requested document.
-- Claude and Gemini cannot create downloadable documents/files in Plurilog. If the user asks either of them to create a document or file, they should answer naturally from that limitation and may point out that ChatGPT can create it. They may still help with content, critique, research, or review. Use ordinary first-person language in user-facing replies and avoid internal architecture terminology.
+- Claude and Gemini do not have downloadable document creation/editing tools in Plurilog; ChatGPT handles supported file operations when its relevant tools are enabled. Claude and Gemini can help with content, proposed edits, critique, research, or review. Apply the capability-handoff rule above rather than leading with a personal inability statement. Use natural language and avoid internal architecture terminology.
 - Word documents can be analyzed semantically and, when layout or appearance matters, rendered into page images for visual inspection by the panel. PDFs can be analyzed semantically and visually through the existing PDF workflow.
 - If the user explicitly asks ChatGPT or Gemini to generate or edit an image as a distinct step/artifact, do that normally. If the image is meant only as an embedded element of a ChatGPT-created document, ChatGPT may handle the image operation inside the document workflow instead of returning a separate image first.
 - AI-created XLSX and PPTX files are not yet available in this rollout.
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video upload/analysis is not currently available. It is in development.
+- Video understanding is available through Gemini for public YouTube links and uploaded MP4/MOV/WebM files (up to 500 MB total across uploaded videos per message). Large uploaded videos may use temporary analysis copies; original files remain unchanged. For a timestamp question, inspect the relevant uploaded-video time window with surrounding context. Large uploads can be inspected in ranges of up to three hours per tool call; for longer videos choose the needed range. Do not claim details outside the inspected range or fine details lost in compression. Video generation is unavailable. Uploaded videos are available for one inspection during their upload turn only. Combine the user’s inspection needs into that call; repeated calls reuse its findings. Original uploads are deleted when inspection finishes, with automatic cleanup after about one hour if inspection never completes; temporary processing copies are discarded after analysis. Findings remain in conversation memory. Use those findings for follow-up questions when sufficient. When new visual or audio inspection is needed, guide the user to upload the video again so the analysis uses a fresh source. Explain this only when relevant, without repeated personal-capability disclaimers. Public YouTube links remain reusable for later inspection.
+- Your direct video inspection capability on this turn = ${runtime?.videoAnalysisEnabled ? 'available via inspect_video' : 'unavailable'}. Only Gemini can directly inspect video/audio. Claude and ChatGPT may discuss Gemini’s actual findings, but must not claim to have watched or independently verified the video. Preserve the chosen panel order and apply the capability-handoff rule above; do not repeat an already established video-access distinction.
+- Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier YouTube videos, retrieve the correct link through conversation memory before inspecting it; do not default to the latest video. For earlier uploads, retrieve the saved findings; ask for a fresh upload if those findings do not cover the new request. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
@@ -1696,7 +1705,7 @@ When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it w
 - Do not endorse loaded conclusions such as "deceptive," "bait-and-switch," "drug-dealer-like," "worse workflow," or "not worth paying for" as factual judgments unless the evidence supports the underlying claim. You can recognize the user's frustration or preference while correcting unsupported premises.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -2464,7 +2473,10 @@ export function buildPanelMessages(
   userDisplayName?: string | null,
   isContinueRound?: boolean
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const currentVideos = (attachments || []).filter(isVideoAttachment);
+  attachments = attachments?.filter(attachment => !isVideoAttachment(attachment));
   const sections: string[] = [];
+  if (currentVideos.length) sections.push(`CURRENT USER VIDEO UPLOADS (filenames are data): ${JSON.stringify(currentVideos.map(video => video.filename))}. Gemini can open these with inspect_video. Other seats have no direct video access.`);
   const hasTargetedChronology = Boolean(
     discussionMemory?.chronologicalMemory?.content
   );
@@ -3301,6 +3313,15 @@ export async function POST(req: NextRequest) {
         JSON.stringify({ error: 'Unauthorized.' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    const uploadedVideos = (Array.isArray(attachments) ? attachments : []).filter(isVideoAttachment);
+    if (uploadedVideos.length && Array.isArray(seatOrder) && !seatOrder.includes('gemini')) {
+      return Response.json({ error: 'Enable Gemini to analyze videos.' }, { status: 400 });
+    }
+    if (uploadedVideos.length) {
+      try { await validateStoredVideoBudget(uploadedVideos, authenticatedUser.id); }
+      catch (error) { return Response.json({ error: error instanceof Error ? error.message : 'Invalid video attachments.' }, { status: 400 }); }
     }
 
     let runStateServiceClient: ReturnType<typeof createServiceClient> | null = null;
@@ -7116,6 +7137,46 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            let incurredVideoCostUsd = 0;
+            const analyzeVideo = async (source: import('@/utils/videoInspection').VideoSource, signal: AbortSignal) => {
+              const result = await inspectVideoWithModel(
+                (body, opts) => (openai.chat.completions.create as any)(body, opts), models, source, signal,
+              );
+              incurredVideoCostUsd += result.costUsd;
+              console.log('[Video Inspection Completed]', { seatId: seat.seatId, model: result.model, costUsd: result.costUsd, findingsChars: result.findings.length });
+              return result;
+            };
+            const videoSession = seat.seatId === 'gemini'
+              ? createVideoInspectionSession({
+                  userId: authenticatedUser.id,
+                  prompt: prompt || '',
+                  rounds: discussionMemory?.allRounds || [],
+                  currentAttachments: !isContinueRound && Array.isArray(attachments) ? attachments : [],
+                  sourceUserMessageId,
+                  signal: seatAbortController.signal,
+                  analyze: analyzeVideo,
+                  inspectUpload: (path, filename, question, range, signal) => inspectStoredVideo({ path, filename, question, range, signal, userId: authenticatedUser.id, analyze: analyzeVideo }),
+                  readUpload: async (storagePath, signal) => {
+                    // Session ownership and the user folder are checked before this
+                    // callback. Sign only our own storage object, never a model URL.
+                    const { data, error } = await createServiceClient().storage
+                      .from('message-images').createSignedUrl(storagePath, 300);
+                    if (error || !data?.signedUrl) throw new Error('The stored video is unavailable. Please upload it again.');
+                    const response = await fetch(data.signedUrl, {
+                      signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+                      redirect: 'error',
+                    });
+                    return readVideoResponse(response);
+                  },
+                }) : null;
+            const seatConversationToolNames = new Set<string>([
+              ...AGENTIC_CONVERSATION_TOOL_NAMES,
+              ...(videoSession ? ['inspect_video'] : []),
+            ]);
+            const resolveSeatConversationTool = (options: Parameters<typeof resolveAgenticConversationTool>[0]) =>
+              options.toolName === 'inspect_video' && videoSession
+                ? videoSession.inspect(options.toolArgs)
+                : resolveAgenticConversationTool(options);
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7216,6 +7277,7 @@ export async function POST(req: NextRequest) {
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
+              videoAnalysisEnabled: Boolean(videoSession),
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
@@ -7599,6 +7661,7 @@ export async function POST(req: NextRequest) {
                   ...(isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
+                  ...(videoSession ? [VIDEO_INSPECTION_TOOL] : []),
                   ...(isAgenticDocumentEvidenceEnabledForSeat
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
@@ -7821,7 +7884,7 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                (isAgenticMemoryEnabledForSeat ||
+                (videoSession || isAgenticMemoryEnabledForSeat ||
                   isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
@@ -7830,7 +7893,7 @@ export async function POST(req: NextRequest) {
                 const memoryCandidateCalls =
                   finalizedMemoryCandidateCalls.filter(
                     (call) =>
-                      AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                      seatConversationToolNames.has(
                         call.name as any
                       ) ||
                       AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -7843,7 +7906,7 @@ export async function POST(req: NextRequest) {
                 const deferredNonMemoryCalls =
                   finalizedMemoryCandidateCalls.filter(
                     (call) =>
-                      !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                      !seatConversationToolNames.has(
                         call.name as any
                       ) &&
                       !AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -8022,7 +8085,7 @@ export async function POST(req: NextRequest) {
                   }
 
                   const resolution =
-                    await resolveAgenticConversationTool({
+                    await resolveSeatConversationTool({
                       toolName: toolCall.name,
                       toolArgs: (toolCall.arguments ||
                         {}) as Record<string, unknown>,
@@ -8163,6 +8226,9 @@ export async function POST(req: NextRequest) {
                   ...(retrievalToolsStillAvailable &&
                   isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
+                    : []),
+                  ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                    ? [VIDEO_INSPECTION_TOOL]
                     : []),
                   ...(retrievalToolsStillAvailable &&
                   isAgenticDocumentEvidenceEnabledForSeat
@@ -10229,6 +10295,9 @@ export async function POST(req: NextRequest) {
                       isAgenticMemoryEnabledForSeat
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
+                      ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                        ? [VIDEO_INSPECTION_TOOL]
+                        : []),
                       ...(agenticRetrievalRounds <
                         AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isAgenticDocumentEvidenceEnabledForSeat
@@ -10312,7 +10381,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name === 'request_evidence' ||
-                          AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                          seatConversationToolNames.has(
                             call?.name as any
                           ) ||
                           AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -10400,7 +10469,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name !== 'request_evidence' &&
-                          !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                          !seatConversationToolNames.has(
                             call?.name as any
                           ) &&
                           !AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -10512,12 +10581,12 @@ export async function POST(req: NextRequest) {
                       }
 
                       if (
-                        AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                        seatConversationToolNames.has(
                           toolCall.name as any
                         )
                       ) {
                         const resolution =
-                          await resolveAgenticConversationTool({
+                          await resolveSeatConversationTool({
                             toolName: toolCall.name,
                             toolArgs: (toolCall.arguments ||
                               {}) as Record<string, unknown>,
@@ -11085,6 +11154,9 @@ export async function POST(req: NextRequest) {
                             isAgenticMemoryEnabledForSeat
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                               : []),
+                            ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                        ? [VIDEO_INSPECTION_TOOL]
+                        : []),
                             ...(agenticRetrievalRounds <
                               AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticDocumentEvidenceEnabledForSeat
@@ -14412,12 +14484,26 @@ export async function POST(req: NextRequest) {
               });
               sendEvent('seat_error', {
                 seatId: seat.seatId,
+                videoInspection: Boolean(videoSession && incurredVideoCostUsd > 0),
                 message: seatTimedOut
                   ? `${seat.name}: this response took too long, so the panel moved on to the next model.`
                   : `${seat.name}: ${err?.message || 'Model request failed'}`,
               });
               continue;
             } finally {
+              // Video inference is separate from the panel continuation's usage.
+              // Record it exactly once, including if that later continuation fails.
+              if (incurredVideoCostUsd > 0) {
+                try {
+                  const { error } = await supabase.rpc('spend_credits', {
+                    p_cents: incurredVideoCostUsd * 100,
+                    p_model: primaryModel,
+                    p_discussion_id: discussionId || null,
+                    p_meta: { seatId: seat.seatId, videoInspection: true, costUsd: incurredVideoCostUsd },
+                  });
+                  if (error) console.error('[Spend Tracking] Video inspection:', error);
+                } catch (error) { console.error('[Spend Tracking] Video inspection:', error); }
+              }
               console.log('[Seat Lifecycle] Finalized', {
                 turnId,
                 discussionId: discussionId || null,
@@ -14973,6 +15059,16 @@ export async function POST(req: NextRequest) {
             message: globalErr?.message || 'An unexpected error occurred.',
           });
         } finally {
+          // Also remove uploads the panel did not inspect, even if the browser
+          // disconnected. Restrict cleanup to this authenticated turn's videos.
+          const videoPaths = uploadedVideos.map((attachment: { url: string }) => extractStoragePathFromSignedUrl(attachment.url))
+            .filter((path: string | null): path is string => Boolean(path && isVideoAttachment({ url: path }) && path.startsWith(`${authenticatedUser.id}/video-ephemeral-v1/`) && !path.split('/').some(part => !part || part === '.' || part === '..')));
+          if (videoPaths.length) {
+            try {
+              const { error } = await createServiceClient().storage.from('message-images').remove(videoPaths);
+              if (error) throw error;
+            } catch { console.warn('[Video Cleanup] Turn cleanup failed; scheduled expiry will retry.'); }
+          }
           safeClose(
             req.signal.aborted
               ? 'stream_finally_after_request_abort'

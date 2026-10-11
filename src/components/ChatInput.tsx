@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
+import { ArrowUp, Plus, X, Square, FileText, Mic, Video } from 'lucide-react';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -10,11 +10,13 @@ import { AiSeatsCoachmark } from './AiSeatsCoachmark';
 import { ModelId } from '../types/chat';
 import { COUNCIL_MEMBERS } from '../data/mockDebates';
 import { isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
+import { videoMime, validateVideoSelection, VIDEO_ACCEPT } from '@/utils/videoInputs';
 
 interface ChatInputProps {
   onSendMessage: (content: string, files?: File[]) => void;
   isLoading?: boolean;
   isLocked?: boolean;
+  uploadProgress?: string | null;
   onStop?: () => void;
   isCentered?: boolean;
   autoFocus?: boolean;
@@ -39,6 +41,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onSendMessage,
   isLoading = false,
   isLocked = false,
+  uploadProgress,
   onStop,
   isCentered = false,
   autoFocus = false,
@@ -116,9 +119,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const legacyDocFiles: string[] = [];
     const invalidFiles: string[] = [];
     const validFiles: File[] = [];
+    const videoErrors: string[] = [];
+
 
     for (const file of files) {
       const lowerName = file.name.toLowerCase();
+      if (videoMime(file.name)) {
+        if (!activeModels.includes('gemini')) videoErrors.push('Enable Gemini to analyze a video.');
+        else {
+          const error = validateVideoSelection([...attachedFiles.map(item => item.file), ...validFiles, file]);
+          if (error) videoErrors.push(error);
+          else validFiles.push(file);
+        }
+        continue;
+      }
       if (lowerName.endsWith('.doc') || file.type === 'application/msword') {
         legacyDocFiles.push(file.name);
         continue;
@@ -160,7 +174,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setAttachedFiles((prev) => [...prev, ...newItems]);
 
     // Construct combined alert message if needed
-    const alertMessages: string[] = [];
+    const alertMessages: string[] = [...new Set(videoErrors)];
     if (legacyDocFiles.length > 0) {
       alertMessages.push(
         `Legacy .doc files aren't supported. Please save the file as .docx and try again: ${legacyDocFiles.join(', ')}`
@@ -168,7 +182,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
     if (invalidFiles.length > 0) {
       alertMessages.push(
-        `The following file(s) are not supported images, PDFs, DOCX, or text documents and were skipped: ${invalidFiles.join(', ')}`
+        `The following file(s) are not supported images, PDFs, DOCX, text documents, or MP4/MOV/WebM videos and were skipped: ${invalidFiles.join(', ')}`
       );
     }
     if (limitExceeded) {
@@ -246,6 +260,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSend = () => {
     if ((!inputVal.trim() && attachedFiles.length === 0) || isLoading || isLocked) return;
+    if (attachedFiles.some(item => videoMime(item.file.name)) && !activeModels.includes('gemini')) {
+      alert('Enable Gemini to analyze the attached video.');
+      return;
+    }
     onSendMessage(inputVal.trim(), attachedFiles.length > 0 ? attachedFiles.map(item => item.file) : undefined);
     
     setInputVal('');
@@ -288,11 +306,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className={containerClasses}>
+      {uploadProgress && <p role="status" aria-live="polite" className="mb-2 px-1 text-xs text-zinc-500">{uploadProgress}</p>}
+      {attachedFiles.some(item => videoMime(item.file.name)) && (
+        <p className="mb-2 px-1 text-xs text-zinc-500">Videos are deleted after analysis. Upload again for a new inspection.</p>
+      )}
       {/* Hidden Attachment Input */}
       <input
         type="file"
         ref={attachmentInputRef}
-        accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml"
+        accept={`${VIDEO_ACCEPT},image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,text/plain,text/markdown,text/csv,text/tab-separated-values,application/json,text/html,text/xml,application/xml,application/x-yaml,text/yaml`}
         multiple
         className="hidden"
         onChange={handleFileSelect}
@@ -345,7 +367,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
               return (
                 <div key={item.id} className="relative self-start group">
-                  {isPdf || isDocx ? (
+                  {videoMime(item.file.name) ? (
+                    <div className="flex min-h-[52px] w-[228px] max-w-[calc(100vw-5rem)] items-center gap-2.5 rounded-xl border border-[#E2E0DB] bg-[#F7F6F3] px-3 py-2" title={item.file.name}>
+                      <Video className="h-6 w-6 shrink-0 text-zinc-500" aria-hidden="true" />
+                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 500 MB total</p></div>
+                    </div>
+                  ) : isPdf || isDocx ? (
                     <button
                       type="button"
                       onClick={() => {

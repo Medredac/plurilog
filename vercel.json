@@ -2,6 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [],
   "env": {
-    "DOCX_RENDERER_SNAPSHOT_ID": "snap_YRObHfbtZA1gevxzKe4GPNtTyRwf"
+    "DOCX_RENDERER_SNAPSHOT_ID": "snap_YRObHfbtZA1gevxzKe4GPNtTyRwf",
+    "VIDEO_PROCESSOR_SNAPSHOT_ID": "snap_bYC9SXrdq1MycxrvvkVMcC83b9gW"
   }
 }
