@@ -1,5 +1,6 @@
 'use client';
 
+import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
@@ -2470,13 +2471,13 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                           );
                         }
 
+                        if (videoMime(filename)) {
+                          return <VideoAttachment key={`${message.id}-attachment-${i}`} filename={filename} />;
+                        }
+
                         return (
                           <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            {videoMime(filename) ? (
-                              <div className="flex h-20 w-28 flex-col items-center justify-center rounded-2xl border border-[#D9D6CF] bg-stone-100 p-2 text-xs text-zinc-700" title={`${filename} · Deleted after analysis, or after about one hour if unused. Findings stay in the conversation.`}>
-                                <span className="font-semibold">VIDEO</span><span className="mt-1 w-full truncate text-center">{filename}</span><span className="mt-1 text-[10px] text-zinc-500">Re-upload for new analysis</span>
-                              </div>
-                            ) : isText ? (
+                            {isText ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}

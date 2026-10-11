@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
-import { ArrowUp, Plus, X, Square, FileText, Mic, Video } from 'lucide-react';
+import { ArrowUp, Plus, X, Square, FileText, Mic } from 'lucide-react';
+import { VideoAttachment } from './VideoAttachment';
 import { UploadFileDrawer } from './UploadFileDrawer';
 import { ImageLightbox } from './ImageLightbox';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -366,12 +367,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               const isTextFile = isTextFileName(item.file.name);
 
               return (
-                <div key={item.id} className="relative self-start group">
+                <div key={item.id} className="relative max-w-full min-w-0 self-start group">
                   {videoMime(item.file.name) ? (
-                    <div className="flex min-h-[52px] w-[228px] max-w-[calc(100vw-5rem)] items-center gap-2.5 rounded-xl border border-[#E2E0DB] bg-[#F7F6F3] px-3 py-2" title={item.file.name}>
-                      <Video className="h-6 w-6 shrink-0 text-zinc-500" aria-hidden="true" />
-                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 500 MB total</p></div>
-                    </div>
+                    <VideoAttachment filename={item.file.name} previewUrl={item.previewUrl} />
                   ) : isPdf || isDocx ? (
                     <button
                       type="button"
