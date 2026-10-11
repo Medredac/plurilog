@@ -134,36 +134,48 @@ export function createVideoInspectionSession(options: Options) {
     return { ...request, messages, ...(tools ? { tools } : {}), ...(active.youtube ? { provider: { only: ['google-ai-studio'] } } : {}) };
   }
 
+  function inspectionFailure(error: unknown): never {
+    if (!active || options.signal.aborted) throw error;
+    const providerError = error as { status?: number; error?: { metadata?: { raw?: string; provider_name?: string } } };
+    console.error('[Video Provider Error]', JSON.stringify({
+      status: providerError.status,
+      provider: providerError.error?.metadata?.provider_name,
+      detail: providerError.error?.metadata?.raw?.slice(0, 1500),
+    }));
+    const status = (error as { status?: number })?.status;
+    const message = status === 429 || (status && status >= 500)
+      ? 'Video inspection is temporarily unavailable because the video service is busy. Please try again shortly.'
+      : 'The video could not be inspected. Check that the YouTube video is public, or try uploading the video again.';
+    throw Object.assign(new Error(message, { cause: error }), { videoInspectionFailure: true });
+  }
+
   async function createCompletion(create: (request: any, config: any) => Promise<any>, request: any, config: any) {
     let stream;
     try {
       stream = await create(prepareRequest(request), config);
     } catch (error) {
-      if (!active || options.signal.aborted) throw error;
-      const status = (error as { status?: number })?.status;
-      const message = status === 429 || (status && status >= 500)
-        ? 'Video inspection is temporarily unavailable because the video service is busy. Please try again shortly.'
-        : 'The video could not be inspected. Check that the YouTube video is public, or try uploading the video again.';
-      throw Object.assign(new Error(message, { cause: error }), { videoInspectionFailure: true });
+      inspectionFailure(error);
     }
     if (!stream?.[Symbol.asyncIterator]) return stream;
     return (async function* () {
       const details = new Map<number, any>();
       const ids = new Set<string>();
-      for await (const chunk of stream) {
-        const delta = chunk.choices?.[0]?.delta;
-        for (const call of delta?.tool_calls || []) if (call.id) ids.add(call.id);
-        for (const item of delta?.reasoning_details || []) {
-          const index = item.index ?? 0;
-          const previous = details.get(index);
-          const next = { ...previous, ...item };
-          for (const field of ['text', 'data', 'summary']) {
-            if (typeof previous?.[field] === 'string' && typeof item[field] === 'string') next[field] = previous[field] + item[field];
+      try {
+        for await (const chunk of stream) {
+          const delta = chunk.choices?.[0]?.delta;
+          for (const call of delta?.tool_calls || []) if (call.id) ids.add(call.id);
+          for (const item of delta?.reasoning_details || []) {
+            const index = item.index ?? 0;
+            const previous = details.get(index);
+            const next = { ...previous, ...item };
+            for (const field of ['text', 'data', 'summary']) {
+              if (typeof previous?.[field] === 'string' && typeof item[field] === 'string') next[field] = previous[field] + item[field];
+            }
+            details.set(index, next);
           }
-          details.set(index, next);
+          yield chunk;
         }
-        yield chunk;
-      }
+      } catch (error) { inspectionFailure(error); }
       if (details.size) {
         const blocks = [...details.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
         for (const id of ids) reasoningByToolId.set(id, blocks);

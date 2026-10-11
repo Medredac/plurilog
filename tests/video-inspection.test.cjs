@@ -129,3 +129,12 @@ test('MOV uploads use the provider-documented MIME type', async () => {
   await session.inspect({ filename: 'clip.mov', question: 'Inspect' });
   assert.match(session.prepareRequest(request).messages.at(-1).content[1].video_url.url, /^data:video\/mov;base64,/);
 });
+
+test('a provider failure during streaming is visible as a failed video inspection', async () => {
+  const session = createVideoInspectionSession({ ...base, prompt: yt });
+  await session.inspect({ youtube_url: yt, question: 'Inspect' });
+  const stream = await session.createCompletion(async () => (async function* () {
+    throw Object.assign(new Error('Unavailable'), { status: 503 });
+  })(), request, {});
+  await assert.rejects(async () => { for await (const _ of stream) {} }, error => error.videoInspectionFailure === true);
+});
