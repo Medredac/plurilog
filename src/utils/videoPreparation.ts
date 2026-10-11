@@ -10,6 +10,7 @@ export function videoWindows(duration: number, range: VideoRange): Array<{ start
   const start = range.startSeconds ?? 0;
   const end = Math.min(range.endSeconds ?? duration, duration);
   if (start >= end) throw new Error('The requested timestamp is outside this video.');
+  if (end - start > 3 * 60 * 60) throw new Error('Inspect up to three hours at a time. Choose a time range for this longer video.');
   const windows = [];
   for (let offset = start; offset < end; offset += SEGMENT_SECONDS) windows.push({ start: offset, end: Math.min(offset + SEGMENT_SECONDS, end) });
   return windows;
@@ -51,14 +52,22 @@ export async function inspectPreparedVideo(options: {
   options.signal.throwIfAborted();
   const snapshotId = process.env.VIDEO_PROCESSOR_SNAPSHOT_ID;
   const settings = { persistent: false, timeout: 900_000, resources: { vcpus: 2 }, networkPolicy: 'allow-all' as const };
-  const sandbox = snapshotId
-    ? await Sandbox.create({ ...settings, source: { type: 'snapshot', snapshotId } })
-    : await Sandbox.create({ ...settings, image: 'vercel/sandbox/universal' });
+  let sandbox: Sandbox;
+  let readyProcessor = false;
+  if (snapshotId) {
+    try {
+      sandbox = await Sandbox.create({ ...settings, source: { type: 'snapshot', snapshotId } });
+      readyProcessor = true;
+    } catch {
+      options.signal.throwIfAborted();
+      sandbox = await Sandbox.create({ ...settings, image: 'vercel/sandbox/universal' });
+    }
+  } else sandbox = await Sandbox.create({ ...settings, image: 'vercel/sandbox/universal' });
   const abort = () => { void sandbox.stop().catch(() => undefined); };
   options.signal.addEventListener('abort', abort, { once: true });
   try {
     options.signal.throwIfAborted();
-    if (!snapshotId) await checked(sandbox, 'bash', ['-c', 'apt-get update -qq && apt-get install -y -qq ffmpeg'], 'Video preparation is temporarily unavailable.', true);
+    if (!readyProcessor) await checked(sandbox, 'bash', ['-c', 'apt-get update -qq && apt-get install -y -qq ffmpeg'], 'Video preparation is temporarily unavailable.', true);
     await sandbox.writeFiles([
       { path: 'input.json', content: Buffer.from(JSON.stringify({ url: options.signedUrl, maxBytes: VIDEO_MAX_BYTES })) },
       { path: 'download.py', content: Buffer.from(DOWNLOAD) },

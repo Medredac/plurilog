@@ -11,8 +11,8 @@ export function ownedVideoPath(path: string | null, userId: string): string {
 
 export async function storedVideoSize(path: string): Promise<number> {
   const { data, error } = await createServiceClient().storage.from('message-images').info(path);
-  if (error || !data || !Number.isSafeInteger(data.size) || !data.size) throw new Error('The stored video is unavailable or empty. Please upload it again.');
-  return data.size;
+  if (error || !data || !Number.isSafeInteger(data.size) || (data.size ?? 0) <= 0) throw new Error('The stored video is unavailable or empty. Please upload it again.');
+  return data.size!;
 }
 
 /** Trust Storage's byte counts, not attachment metadata supplied by the browser. */

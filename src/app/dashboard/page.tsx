@@ -3315,7 +3315,7 @@ export default function DashboardPage() {
           if (videoMime(file.name)) {
             try {
               await uploadVideoResumable(supabase, filePath, file, controller.signal, percent => {
-                setUploadProgress(`Uploading video ${i + 1} of ${preparedUploadBodies.length} · ${percent}%`);
+                setUploadProgress(`Uploading ${file.name} · ${percent}%`);
               });
             } catch (error) { uploadError = error instanceof Error ? error : new Error('Video upload failed.'); }
             finally { setUploadProgress(null); }
@@ -3325,6 +3325,15 @@ export default function DashboardPage() {
             uploadError = result.error;
           }
 
+          if (uploadError && controller.signal.aborted) {
+            rollbackOptimistic();
+            setSeatStatuses(INITIAL_SEAT_STATUSES);
+            setActiveSpeaker(null);
+            setIsDebating(false);
+            setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+            await cleanupNewlyCreatedDiscussion();
+            return;
+          }
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError, {
               fileName: file.name,
@@ -3935,7 +3944,7 @@ export default function DashboardPage() {
                     )}
 
                     <ChatInput
-                      uploadProgress={uploadProgress}
+              uploadProgress={uploadProgress}
                       onSendMessage={handleSendMessage}
                       isLoading={isDebating && !isStopRequested}
                       isLocked={isDebating}
@@ -4043,7 +4052,7 @@ export default function DashboardPage() {
               </div>
             )}
             <ChatInput
-                      uploadProgress={uploadProgress}
+              uploadProgress={uploadProgress}
               onSendMessage={handleSendMessage}
               isLoading={isDebating && !isStopRequested}
               isLocked={isDebating}
