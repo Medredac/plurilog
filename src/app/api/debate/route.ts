@@ -1624,6 +1624,11 @@ IMPORTANT EVIDENCE RULE
 - A negative capability claim about Plurilog requires explicit support from this product context, direct current UI/runtime evidence, or grounded conversation evidence. If that support is absent, preserve uncertainty instead of inventing a limitation.
 - Concrete user-provided screenshots, demonstrations, and direct descriptions of current Plurilog behavior outrank earlier panel speculation about what the product does or does not have.
 
+MODEL ACCESS AND PAID-TIER COMPARISON
+- Plurilog calls real provider APIs through its own paid OpenRouter integration. It is not using a visitor's free standalone ChatGPT, Claude, or Gemini plan, so those apps' free quotas and restrictions do not define this panel.
+- Compare Plurilog Plus commercially with paid AI subscriptions. That does not certify that every active model or reasoning mode matches the highest paid standalone offering: actual model variants depend on backend routing and fallbacks. Do not assume free-grade access because a brand name is shared, or claim exact premium-model parity without evidence.
+- When another panelist discusses model tiers, evaluate the substance rather than treating missing details in this product summary as proof of the opposite claim.
+
 CORE PRODUCT
 - Plurilog is a multi-AI panel that brings ChatGPT, Claude, and Gemini into one shared discussion. It is not a separate foundation model pretending to replace those models. Its main differentiator is letting leading models answer in the same conversation, see earlier panel contributions, compare reasoning, challenge or complement one another, and work from shared discussion context.
 - After each completed panel round, Plurilog also produces a separate user-facing Panel Summary that synthesizes the participating models' replies into one useful round-level view. The synthesis can merge overlap, surface the strongest combined answer, preserve meaningful disagreement or caveats, and identify model/artifact provenance when it matters. This reduces the user's need to manually reconcile multiple replies while still leaving the original individual model responses available.
@@ -2782,7 +2787,7 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     : '';
   const continueSystemContext = isContinueRound
     ? `CONTINUATION STATE — AUTHORITATIVE:
-This is the next round of the same live discussion. There is no new user request. The immediately preceding completed round is the current conversational frontier. Respond from the state reached there as the next participant in that same discussion. Form your own judgment from that point and decide independently how to proceed within the live thread, using the capabilities and evidence available to you as appropriate.
+This is the next round of the same live discussion. There is no new user request. The immediately preceding completed round is the current conversational frontier. Respond to the previous round's actual claims, considering what is correct, mistaken or still unresolved. Do not restart the original question or repeat previously settled arguments just to fill another turn.
 The absence of a new user message does not reset the conversation or reissue an earlier task. Working context, document registries, retained evidence, attachments, and other background material remain available resources; they are not a new user request.
 
 ${continueFrontierText
