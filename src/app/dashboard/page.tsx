@@ -3098,6 +3098,8 @@ export default function DashboardPage() {
       }
     }
 
+    const pendingVideoPaths: string[] = [];
+    try {
     let currentDiscussionId = activeDebateId;
     let newlyCreatedDiscussionId: string | null = null;
     const nowForSend = new Date();
@@ -3313,6 +3315,7 @@ export default function DashboardPage() {
           const filePath = `${userId}/${videoMime(file.name) ? 'video-ephemeral-v1/' : ''}${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
           let uploadError: Error | null = null;
           if (videoMime(file.name)) {
+            pendingVideoPaths.push(filePath);
             try {
               await uploadVideoResumable(supabase, filePath, file, controller.signal, percent => {
                 setUploadProgress(`Uploading ${file.name} · ${percent}%`);
@@ -3534,6 +3537,17 @@ export default function DashboardPage() {
         tempUserMsgId
       );
     }
+    } finally {
+      // Covers failed uploads, cancelled sends, API rejection and unused videos.
+      // Successfully inspected sources are already gone; removal is idempotent.
+      if (pendingVideoPaths.length) {
+        try {
+          const { error } = await supabase.storage.from('message-images').remove(pendingVideoPaths);
+          if (error) throw error;
+        } catch { console.warn('[Video Cleanup] Send cleanup failed; scheduled expiry will retry.'); }
+      }
+    }
+
   };
 
   // Triggered when user clicks "Try again" on an inline failed turn

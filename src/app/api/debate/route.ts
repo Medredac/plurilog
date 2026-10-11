@@ -15059,6 +15059,16 @@ export async function POST(req: NextRequest) {
             message: globalErr?.message || 'An unexpected error occurred.',
           });
         } finally {
+          // Also remove uploads the panel did not inspect, even if the browser
+          // disconnected. Restrict cleanup to this authenticated turn's videos.
+          const videoPaths = uploadedVideos.map((attachment: { url: string }) => extractStoragePathFromSignedUrl(attachment.url))
+            .filter((path: string | null): path is string => Boolean(path && isVideoAttachment({ url: path }) && path.startsWith(`${authenticatedUser.id}/video-ephemeral-v1/`) && !path.split('/').some(part => !part || part === '.' || part === '..')));
+          if (videoPaths.length) {
+            try {
+              const { error } = await createServiceClient().storage.from('message-images').remove(videoPaths);
+              if (error) throw error;
+            } catch { console.warn('[Video Cleanup] Turn cleanup failed; scheduled expiry will retry.'); }
+          }
           safeClose(
             req.signal.aborted
               ? 'stream_finally_after_request_abort'

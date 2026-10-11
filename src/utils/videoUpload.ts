@@ -27,12 +27,12 @@ export async function uploadVideoResumable(
       storeFingerprintForResuming: false,
       metadata: { bucketName: 'message-images', objectName: path, contentType: videoMime(file.name)! },
       onProgress: (sent, total) => onProgress(Math.round(sent / total * 100)),
-      onError: error => { cleanup(); reject(error); },
+      onError: error => { cleanup(); void upload.abort(true).catch(() => undefined); reject(error); },
       onSuccess: () => { cleanup(); resolve(); },
     });
     const abort = () => {
       cleanup();
-      void upload.abort().catch(() => undefined);
+      void upload.abort(true).catch(() => undefined);
       reject(signal.reason || new DOMException('Upload cancelled.', 'AbortError'));
     };
     signal.addEventListener('abort', abort, { once: true });
