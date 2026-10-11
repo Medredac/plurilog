@@ -10289,8 +10289,8 @@ export async function POST(req: NextRequest) {
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
                       ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
-                    ? [VIDEO_INSPECTION_TOOL]
-                    : []),
+                        ? [VIDEO_INSPECTION_TOOL]
+                        : []),
                       ...(agenticRetrievalRounds <
                         AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isAgenticDocumentEvidenceEnabledForSeat
@@ -11148,8 +11148,8 @@ export async function POST(req: NextRequest) {
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                               : []),
                             ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
-                    ? [VIDEO_INSPECTION_TOOL]
-                    : []),
+                        ? [VIDEO_INSPECTION_TOOL]
+                        : []),
                             ...(agenticRetrievalRounds <
                               AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticDocumentEvidenceEnabledForSeat
@@ -14477,7 +14477,7 @@ export async function POST(req: NextRequest) {
               });
               sendEvent('seat_error', {
                 seatId: seat.seatId,
-                videoInspection: err?.videoInspectionFailure === true,
+                videoInspection: Boolean(videoSession && incurredVideoCostUsd > 0),
                 message: seatTimedOut
                   ? `${seat.name}: this response took too long, so the panel moved on to the next model.`
                   : `${seat.name}: ${err?.message || 'Model request failed'}`,
