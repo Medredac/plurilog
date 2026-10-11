@@ -41,6 +41,7 @@ import { ImageLightbox } from './ImageLightbox';
 import { ProviderBadge } from './ProviderBadge';
 import { isTextFileUrl, isTextFileName, getTextFileDisplayBadge } from '@/utils/textFileParser';
 import { isImageUrl } from '@/utils/discussionMemory';
+import { videoMime } from '@/utils/videoInputs';
 import { useTopTurnAnchor } from '@/hooks/useTopTurnAnchor';
 import {
   PresentationPhase,
@@ -2471,7 +2472,11 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
 
                         return (
                           <div key={`${message.id}-attachment-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-                            {isText ? (
+                            {videoMime(filename) ? (
+                              <a href={url} target="_blank" rel="noopener noreferrer" className="flex h-20 w-28 flex-col items-center justify-center rounded-2xl border border-[#D9D6CF] bg-stone-100 p-2 text-xs text-zinc-700" title={`Open ${filename}`}>
+                                <span className="font-semibold">VIDEO</span><span className="mt-1 w-full truncate text-center">{filename}</span><span className="mt-1 text-[10px] text-zinc-500">Gemini can inspect</span>
+                              </a>
+                            ) : isText ? (
                               <button
                                 type="button"
                                 onClick={() => onPreviewDocument?.({ url, filename })}

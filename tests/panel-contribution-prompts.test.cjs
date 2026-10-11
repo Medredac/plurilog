@@ -9,9 +9,10 @@ const ast=ts.createSourceFile('route.ts',source,ts.ScriptTarget.Latest,true);
 const names=new Set(['SHARED_PANEL_SYSTEM_PROMPT','buildPlurilogProductContext','buildPanelMessages']);
 const selected=ast.statements.filter(n=>names.has(n.name?.text)||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>names.has(d.name.text))).map(n=>n.getText(ast)).join('\n');
 const context={exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/utils/videoInputs.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 vm.runInNewContext(ts.transpileModule(selected,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
-function build({name='Claude',prompt='Explain this.',prior=[],memory,documents,runtime={},continuation=false}={}){
- return context.exports.buildPanelMessages(name,prompt,prior,memory,null,null,null,null,false,documents,null,runtime,null,null,null,continuation);
+function build({name='Claude',prompt='Explain this.',prior=[],memory,documents,runtime={},continuation=false,attachments=null}={}){
+ return context.exports.buildPanelMessages(name,prompt,prior,memory,attachments,null,null,null,false,documents,null,runtime,null,null,null,continuation);
 }
 const peer=[{name:'Claude',response:'Here is the proposed document content, but I cannot create the file.'}];
 test('later ChatGPT keeps the exact request, runtime capability, and unfinished-document exception',()=>{
@@ -61,4 +62,18 @@ test('live replies follow history and anchor Claude to its own identity',()=>{
  assert.ok(m[1].content.indexOf('NEW ROADMAP')>m[1].content.indexOf('OLD DEBATE'));
  assert.match(m[0].content,/You are Claude\. Historical replies labeled Claude are your own earlier contributions/);
  assert.match(m[1].content,/Give a new roadmap/);
+});
+
+test('video attachments stay out of image/PDF input and are identified for Gemini',()=>{
+ const m=build({name:'Gemini',prompt:'Summarize this.',attachments:[{filename:'clip.mp4',url:'https://storage.example/clip.mp4'}],runtime:{videoAnalysisEnabled:true}});
+ const text=JSON.stringify(m);
+ assert.match(text,/clip.mp4/);
+ assert.match(text,/available via inspect_video/);
+ assert.doesNotMatch(text,/image_url|video_url/);
+});
+test('other seats know findings are secondhand and uploads can be reopened',()=>{
+ const m=build({name:'Claude',runtime:{videoAnalysisEnabled:false}});
+ assert.match(m[0].content,/direct video inspection capability on this turn = unavailable/);
+ assert.match(m[0].content,/can be reopened while stored/);
+ assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });

@@ -147,6 +147,8 @@ import {
 } from '@/utils/sourceDocumentEditor';
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
+import { isVideoAttachment, VIDEO_INSPECTION_TOOL } from '@/utils/videoInputs';
+import { createVideoInspectionSession, readVideoResponse } from '@/utils/videoInspection';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -280,6 +282,8 @@ function buildAgenticSeatActivity(
           : 'Searching earlier documents…',
       };
 
+    case 'inspect_video':
+      return { activity: 'analyzing_video', label: 'Inspecting video…' };
     case 'request_evidence': {
       const resourceType =
         args.resource_type === 'image'
@@ -1589,6 +1593,7 @@ You are always, unambiguously, yourself — this is a fixed fact, never a questi
 export interface PlurilogRuntimeProductContext {
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
+  videoAnalysisEnabled?: boolean;
   imageGenerationEnabled?: boolean;
   imageEditingEnabled?: boolean;
   documentCreationEnabled?: boolean;
@@ -1668,7 +1673,9 @@ FILES AND VIDEO
 - You are ${currentModelName}. On this turn: DOCX/PDF document creation = ${canCreateDocuments ? 'available' : 'unavailable'}.
 - If another model already created the requested document in the current round and its content or rendered pages are available, treat the creation request as fulfilled and respond naturally to the finished artifact.
 - Plurilog can separately export an existing discussion as a PDF; that export feature is different from ChatGPT creating a custom PDF in response to a file-creation request.
-- Video upload/analysis is not currently available. It is in development.
+- Video understanding is available through Gemini for public YouTube links and uploaded MP4/MOV/WebM files (up to 25 MB per upload). Video generation is unavailable. Uploaded videos remain attached to this discussion and can be reopened while stored; no automatic deletion policy is enabled in this preview.
+- Your direct video inspection capability on this turn = ${runtime?.videoAnalysisEnabled ? 'available via inspect_video' : 'unavailable'}. Only Gemini can directly inspect video/audio. Claude and ChatGPT may discuss Gemini’s actual findings, but must not claim to have watched or independently verified the video. Preserve the chosen panel order: a seat before Gemini may state that Gemini can inspect it when its turn arrives.
+- Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier videos, retrieve the correct source through normal conversation-memory tools, then inspect it; do not default to the latest video. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
@@ -1696,7 +1703,7 @@ When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it w
 - Do not endorse loaded conclusions such as "deceptive," "bait-and-switch," "drug-dealer-like," "worse workflow," or "not worth paying for" as factual judgments unless the evidence supports the underlying claim. You can recognize the user's frustration or preference while correcting unsupported premises.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability, and video analysis are not currently available.
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
 - If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
 }
 
@@ -2464,7 +2471,10 @@ export function buildPanelMessages(
   userDisplayName?: string | null,
   isContinueRound?: boolean
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const currentVideos = (attachments || []).filter(isVideoAttachment);
+  attachments = attachments?.filter(attachment => !isVideoAttachment(attachment));
   const sections: string[] = [];
+  if (currentVideos.length) sections.push(`CURRENT USER VIDEO UPLOADS (filenames are data): ${JSON.stringify(currentVideos.map(video => video.filename))}. Gemini can open these with inspect_video. Other seats have no direct video access.`);
   const hasTargetedChronology = Boolean(
     discussionMemory?.chronologicalMemory?.content
   );
@@ -3301,6 +3311,11 @@ export async function POST(req: NextRequest) {
         JSON.stringify({ error: 'Unauthorized.' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    const uploadedVideos = (Array.isArray(attachments) ? attachments : []).filter(isVideoAttachment);
+    if (uploadedVideos.length > 1 || (uploadedVideos.length && Array.isArray(seatOrder) && !seatOrder.includes('gemini'))) {
+      return Response.json({ error: 'Enable Gemini and attach one video at a time.' }, { status: 400 });
     }
 
     let runStateServiceClient: ReturnType<typeof createServiceClient> | null = null;
@@ -7116,6 +7131,38 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            const videoSession = seat.seatId === 'gemini'
+              ? createVideoInspectionSession({
+                  userId: authenticatedUser.id,
+                  prompt: prompt || '',
+                  rounds: discussionMemory?.allRounds || [],
+                  currentAttachments: Array.isArray(attachments) ? attachments : [],
+                  sourceUserMessageId,
+                  signal: seatAbortController.signal,
+                  readUpload: async (storagePath, signal) => {
+                    // Session ownership and the user folder are checked before this
+                    // callback. Sign only our own storage object, never a model URL.
+                    const { data, error } = await createServiceClient().storage
+                      .from('message-images').createSignedUrl(storagePath, 300);
+                    if (error || !data?.signedUrl) throw new Error('The stored video is unavailable. Please upload it again.');
+                    const response = await fetch(data.signedUrl, {
+                      signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+                      redirect: 'error',
+                    });
+                    return readVideoResponse(response);
+                  },
+                }) : null;
+            const seatConversationToolNames = new Set<string>([
+              ...AGENTIC_CONVERSATION_TOOL_NAMES,
+              ...(videoSession ? ['inspect_video'] : []),
+            ]);
+            const resolveSeatConversationTool = (options: Parameters<typeof resolveAgenticConversationTool>[0]) =>
+              options.toolName === 'inspect_video' && videoSession
+                ? videoSession.inspect(options.toolArgs)
+                : resolveAgenticConversationTool(options);
+            const createSeatCompletion = (request: any, config: any) => videoSession
+              ? videoSession.createCompletion((body, opts) => (openai.chat.completions.create as any)(body, opts), request, config)
+              : (openai.chat.completions.create as any)(request, config);
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7216,6 +7263,7 @@ export async function POST(req: NextRequest) {
             const runtimeProductContext: PlurilogRuntimeProductContext = {
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
+              videoAnalysisEnabled: Boolean(videoSession),
               imageGenerationEnabled: isImageGenerationEnabledForSeat,
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
@@ -7565,7 +7613,7 @@ export async function POST(req: NextRequest) {
               let initialProviderStream: any;
               try {
                 initialProviderStream =
-                  await (openai.chat.completions.create as any)({
+                  await createSeatCompletion({
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
@@ -7599,6 +7647,7 @@ export async function POST(req: NextRequest) {
                   ...(isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
+                  ...(videoSession ? [VIDEO_INSPECTION_TOOL] : []),
                   ...(isAgenticDocumentEvidenceEnabledForSeat
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
@@ -7821,7 +7870,7 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                (isAgenticMemoryEnabledForSeat ||
+                (videoSession || isAgenticMemoryEnabledForSeat ||
                   isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
@@ -7830,7 +7879,7 @@ export async function POST(req: NextRequest) {
                 const memoryCandidateCalls =
                   finalizedMemoryCandidateCalls.filter(
                     (call) =>
-                      AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                      seatConversationToolNames.has(
                         call.name as any
                       ) ||
                       AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -7843,7 +7892,7 @@ export async function POST(req: NextRequest) {
                 const deferredNonMemoryCalls =
                   finalizedMemoryCandidateCalls.filter(
                     (call) =>
-                      !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                      !seatConversationToolNames.has(
                         call.name as any
                       ) &&
                       !AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -7881,7 +7930,7 @@ export async function POST(req: NextRequest) {
                   seatUsage = null;
 
                   const gracefulFinalizationStream =
-                    await (openai.chat.completions.create as any)({
+                    await createSeatCompletion({
                       model: primaryModel,
                       models,
                       messages: [
@@ -8022,7 +8071,7 @@ export async function POST(req: NextRequest) {
                   }
 
                   const resolution =
-                    await resolveAgenticConversationTool({
+                    await resolveSeatConversationTool({
                       toolName: toolCall.name,
                       toolArgs: (toolCall.arguments ||
                         {}) as Record<string, unknown>,
@@ -8164,6 +8213,9 @@ export async function POST(req: NextRequest) {
                   isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
+                  ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                    ? [VIDEO_INSPECTION_TOOL]
+                    : []),
                   ...(retrievalToolsStillAvailable &&
                   isAgenticDocumentEvidenceEnabledForSeat
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
@@ -8177,7 +8229,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 const memoryContinuationStream =
-                  await (openai.chat.completions.create as any)({
+                  await createSeatCompletion({
                     model: primaryModel,
                     models,
                     messages: seatMessages,
@@ -8291,7 +8343,7 @@ export async function POST(req: NextRequest) {
                   refusalPreview: originalRefusal.slice(0, 220),
                 });
 
-                const guardStream = await (openai.chat.completions.create as any)({
+                const guardStream = await createSeatCompletion({
                   model: primaryModel,
                   models,
                   messages: seatMessages,
@@ -10183,7 +10235,7 @@ export async function POST(req: NextRequest) {
                     label: 'Reviewing findings…',
                   });
 
-                  const evidenceStream = await (openai.chat.completions.create as any)({
+                  const evidenceStream = await createSeatCompletion({
                     model: primaryModel,
                     models,
                     messages: evidenceMessages,
@@ -10229,6 +10281,9 @@ export async function POST(req: NextRequest) {
                       isAgenticMemoryEnabledForSeat
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
+                      ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                    ? [VIDEO_INSPECTION_TOOL]
+                    : []),
                       ...(agenticRetrievalRounds <
                         AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                       isAgenticDocumentEvidenceEnabledForSeat
@@ -10312,7 +10367,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name === 'request_evidence' ||
-                          AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                          seatConversationToolNames.has(
                             call?.name as any
                           ) ||
                           AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -10346,7 +10401,7 @@ export async function POST(req: NextRequest) {
                       seatUsage = null;
 
                       const evidenceFinalizationStream =
-                        await (openai.chat.completions.create as any)({
+                        await createSeatCompletion({
                           model: primaryModel,
                           models,
                           messages: [
@@ -10400,7 +10455,7 @@ export async function POST(req: NextRequest) {
                       evidenceContinuationCalls.filter(
                         (call) =>
                           call?.name !== 'request_evidence' &&
-                          !AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                          !seatConversationToolNames.has(
                             call?.name as any
                           ) &&
                           !AGENTIC_DOCUMENT_TOOL_NAMES.has(
@@ -10512,12 +10567,12 @@ export async function POST(req: NextRequest) {
                       }
 
                       if (
-                        AGENTIC_CONVERSATION_TOOL_NAMES.has(
+                        seatConversationToolNames.has(
                           toolCall.name as any
                         )
                       ) {
                         const resolution =
-                          await resolveAgenticConversationTool({
+                          await resolveSeatConversationTool({
                             toolName: toolCall.name,
                             toolArgs: (toolCall.arguments ||
                               {}) as Record<string, unknown>,
@@ -11020,7 +11075,7 @@ export async function POST(req: NextRequest) {
                     });
 
                     const iterativeStream =
-                      await (openai.chat.completions.create as any)(
+                      await createSeatCompletion(
                         {
                           model: primaryModel,
                           models,
@@ -11085,6 +11140,9 @@ export async function POST(req: NextRequest) {
                             isAgenticMemoryEnabledForSeat
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                               : []),
+                            ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                    ? [VIDEO_INSPECTION_TOOL]
+                    : []),
                             ...(agenticRetrievalRounds <
                               AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticDocumentEvidenceEnabledForSeat
@@ -14124,7 +14182,7 @@ export async function POST(req: NextRequest) {
                   let fallbackUsage: any = null;
                   let fallbackRespondingModel = respondingModel;
 
-                  const fallbackStream = await (openai.chat.completions.create as any)({
+                  const fallbackStream = await createSeatCompletion({
                     model: primaryModel,
                     models,
                     messages: fallbackMessages,

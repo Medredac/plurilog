@@ -24,6 +24,7 @@ import {
 import { ArrowRight, Loader2, ChevronDown, Download, AlertCircle, Image as ImageIcon, FilePlus2, BadgeCheck } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { buildDurableAttachmentUrl, normalizeAttachmentUrlForUi } from '../../utils/durableAttachments';
+import { videoMime, VIDEO_MAX_BYTES } from '@/utils/videoInputs';
 import { LayoutGroup, motion } from 'motion/react';
 import { GOOGLE_ENGAGEMENT_EVENT } from '../../components/GoogleAdsProvider';
 
@@ -3019,6 +3020,13 @@ export default function DashboardPage() {
     const activeSeatOrder = seatOrder.filter((id) => activeModels.includes(id));
     if (isDebating || (!content.trim() && (!imageFiles || imageFiles.length === 0)) || !userId || activeSeatOrder.length === 0) return;
 
+    const videoFiles = (imageFiles || []).filter(file => videoMime(file.name));
+    if (videoFiles.length && (!activeSeatOrder.includes('gemini') || videoFiles.length > 1 || videoFiles.some(file => !file.size || file.size > VIDEO_MAX_BYTES))) {
+      setErrorMessage('Enable Gemini and attach one MP4, MOV, or WebM video up to 25 MB.');
+      setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
+      return;
+    }
+
     if (isOutOfCredits) {
       setShowUpgradeModal(true);
       setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
@@ -3299,7 +3307,7 @@ export default function DashboardPage() {
           const filePath = `${userId}/${Date.now()}-${i}-${randomSuffix}.${safeExt}`;
           const { error: uploadError } = await supabase.storage
             .from('message-images')
-            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : undefined);
+            .upload(filePath, body, isPdf ? { contentType: 'application/pdf' } : videoMime(file.name) ? { contentType: videoMime(file.name)! } : undefined);
 
           if (uploadError) {
             console.error('[Supabase Storage Error] Upload failed:', uploadError, {
