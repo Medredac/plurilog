@@ -148,7 +148,7 @@ import {
 import { calculateDebateSeatTimeoutMs } from '@/utils/debateRuntimeBudget';
 import { createRequestFileTransport } from '@/utils/requestFileTransport';
 import { isVideoAttachment, VIDEO_INSPECTION_TOOL } from '@/utils/videoInputs';
-import { createVideoInspectionSession, readVideoResponse } from '@/utils/videoInspection';
+import { createVideoInspectionSession, inspectVideoWithModel, readVideoResponse } from '@/utils/videoInspection';
 
 export const runtime = 'nodejs';
 // Keep this literal in sync with DEBATE_ROUTE_MAX_DURATION_SECONDS so Next/Vercel
@@ -7131,6 +7131,7 @@ export async function POST(req: NextRequest) {
 
             const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
             const primaryModel = models[0];
+            let incurredVideoCostUsd = 0;
             const videoSession = seat.seatId === 'gemini'
               ? createVideoInspectionSession({
                   userId: authenticatedUser.id,
@@ -7139,6 +7140,15 @@ export async function POST(req: NextRequest) {
                   currentAttachments: Array.isArray(attachments) ? attachments : [],
                   sourceUserMessageId,
                   signal: seatAbortController.signal,
+                  analyze: async (source, signal) => {
+                    const result = await inspectVideoWithModel(
+                      (body, opts) => (openai.chat.completions.create as any)(body, opts),
+                      models, source, signal,
+                    );
+                    incurredVideoCostUsd += result.costUsd;
+                    console.log('[Video Inspection Completed]', { seatId: seat.seatId, model: result.model, costUsd: result.costUsd, findingsChars: result.findings.length });
+                    return result;
+                  },
                   readUpload: async (storagePath, signal) => {
                     // Session ownership and the user folder are checked before this
                     // callback. Sign only our own storage object, never a model URL.
@@ -7160,9 +7170,6 @@ export async function POST(req: NextRequest) {
               options.toolName === 'inspect_video' && videoSession
                 ? videoSession.inspect(options.toolArgs)
                 : resolveAgenticConversationTool(options);
-            const createSeatCompletion = (request: any, config: any) => videoSession
-              ? videoSession.createCompletion((body, opts) => (openai.chat.completions.create as any)(body, opts), request, config)
-              : (openai.chat.completions.create as any)(request, config);
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7613,7 +7620,7 @@ export async function POST(req: NextRequest) {
               let initialProviderStream: any;
               try {
                 initialProviderStream =
-                  await createSeatCompletion({
+                  await (openai.chat.completions.create as any)({
                 model: attemptModels[0],
                 models: attemptModels,
                 messages: seatMessages,
@@ -7930,7 +7937,7 @@ export async function POST(req: NextRequest) {
                   seatUsage = null;
 
                   const gracefulFinalizationStream =
-                    await createSeatCompletion({
+                    await (openai.chat.completions.create as any)({
                       model: primaryModel,
                       models,
                       messages: [
@@ -8229,7 +8236,7 @@ export async function POST(req: NextRequest) {
                 });
 
                 const memoryContinuationStream =
-                  await createSeatCompletion({
+                  await (openai.chat.completions.create as any)({
                     model: primaryModel,
                     models,
                     messages: seatMessages,
@@ -8343,7 +8350,7 @@ export async function POST(req: NextRequest) {
                   refusalPreview: originalRefusal.slice(0, 220),
                 });
 
-                const guardStream = await createSeatCompletion({
+                const guardStream = await (openai.chat.completions.create as any)({
                   model: primaryModel,
                   models,
                   messages: seatMessages,
@@ -10235,7 +10242,7 @@ export async function POST(req: NextRequest) {
                     label: 'Reviewing findings…',
                   });
 
-                  const evidenceStream = await createSeatCompletion({
+                  const evidenceStream = await (openai.chat.completions.create as any)({
                     model: primaryModel,
                     models,
                     messages: evidenceMessages,
@@ -10401,7 +10408,7 @@ export async function POST(req: NextRequest) {
                       seatUsage = null;
 
                       const evidenceFinalizationStream =
-                        await createSeatCompletion({
+                        await (openai.chat.completions.create as any)({
                           model: primaryModel,
                           models,
                           messages: [
@@ -11075,7 +11082,7 @@ export async function POST(req: NextRequest) {
                     });
 
                     const iterativeStream =
-                      await createSeatCompletion(
+                      await (openai.chat.completions.create as any)(
                         {
                           model: primaryModel,
                           models,
@@ -14182,7 +14189,7 @@ export async function POST(req: NextRequest) {
                   let fallbackUsage: any = null;
                   let fallbackRespondingModel = respondingModel;
 
-                  const fallbackStream = await createSeatCompletion({
+                  const fallbackStream = await (openai.chat.completions.create as any)({
                     model: primaryModel,
                     models,
                     messages: fallbackMessages,
@@ -14477,6 +14484,19 @@ export async function POST(req: NextRequest) {
               });
               continue;
             } finally {
+              // Video inference is separate from the panel continuation's usage.
+              // Record it exactly once, including if that later continuation fails.
+              if (incurredVideoCostUsd > 0) {
+                try {
+                  const { error } = await supabase.rpc('spend_credits', {
+                    p_cents: incurredVideoCostUsd * 100,
+                    p_model: primaryModel,
+                    p_discussion_id: discussionId || null,
+                    p_meta: { seatId: seat.seatId, videoInspection: true, costUsd: incurredVideoCostUsd },
+                  });
+                  if (error) console.error('[Spend Tracking] Video inspection:', error);
+                } catch (error) { console.error('[Spend Tracking] Video inspection:', error); }
+              }
               console.log('[Seat Lifecycle] Finalized', {
                 turnId,
                 discussionId: discussionId || null,

@@ -17,10 +17,10 @@ function load(file) {
   return mod.exports;
 }
 const { normalizeYouTubeUrl, extractYouTubeUrls, VIDEO_MAX_BYTES } = load('src/utils/videoInputs.ts');
-const { createVideoInspectionSession, readVideoResponse, validateVideoBytes } = load('src/utils/videoInspection.ts');
+const { createVideoInspectionSession, inspectVideoWithModel, readVideoResponse, validateVideoBytes } = load('src/utils/videoInspection.ts');
 const yt = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
 const movie = Buffer.from('0000ftypisomtest');
-const base = { userId: 'owner', prompt: '', rounds: [], currentAttachments: [], signal: new AbortController().signal, readUpload: async () => movie };
+const base = { userId: 'owner', prompt: '', rounds: [], currentAttachments: [], signal: new AbortController().signal, readUpload: async () => movie, analyze: async () => ({ findings: 'A person stands near elephants.', model: request.model }) };
 const request = { model: 'google/gemini-3.8-flash', messages: [{ role: 'user', content: 'What happened at 0:07?' }] };
 
 test('normalizes watch/short/share/embed links without tracking or timestamp confusion', () => {
@@ -30,31 +30,22 @@ test('normalizes watch/short/share/embed links without tracking or timestamp con
 test('rejects lookalike domains, credentials, arbitrary URLs and incomplete video IDs', () => {
   for (const link of ['https://youtube.com.evil.test/watch?v=jNQXAC9IVRw', 'https://evil@youtube.com/watch?v=jNQXAC9IVRw', 'http://127.0.0.1/video.mp4', 'https://youtube.com/watch', 'https://youtu.be/short']) assert.equal(normalizeYouTubeUrl(link), null);
 });
-test('a retrieved historical link can be opened and pinned to AI Studio', async () => {
-  const session = createVideoInspectionSession({ ...base, rounds: [{ userMessageId: 'old', userPrompt: yt, modelResponses: [] }] });
-  assert.equal((await session.inspect({ youtube_url: yt, question: 'What happens at 0:07?' })).result.ok, true);
-  const prepared = session.prepareRequest(request);
-  assert.equal(prepared.messages.at(-1).content[1].video_url.url, yt);
-  assert.deepEqual(prepared.provider, { only: ['google-ai-studio'] });
-  assert.equal(request.messages.length, 1);
+test('a historical YouTube link is actually analyzed before success is returned', async () => {
+  let source;
+  const session = createVideoInspectionSession({ ...base, rounds: [{ userMessageId: 'old', userPrompt: yt, modelResponses: [] }], analyze: async video => { source = video; return base.analyze(); } });
+  const result = (await session.inspect({ youtube_url: yt, question: 'What happens at 0:07?' })).result;
+  assert.equal(source.url, yt); assert.equal(result.status, 'inspected');
+  assert.match(result.findings, /elephants/);
 });
 test('an invented or unrelated link cannot be silently inspected', async () => {
-  const session = createVideoInspectionSession(base);
+  const session = createVideoInspectionSession({ ...base, analyze: async () => { throw new Error('SHOULD NOT CALL'); } });
   assert.equal((await session.inspect({ youtube_url: yt, question: 'Describe' })).result.ok, false);
-  assert.equal(session.prepareRequest(request).messages.length, 1);
 });
-test('video continuations omit incompatible native search but retain memory and video tools', async () => {
-  const session = createVideoInspectionSession({ ...base, prompt: yt });
-  const tools = [{ type: 'openrouter:web_search' }, { type: 'function', function: { name: 'search_conversation_memory' } }, { type: 'function', function: { name: 'inspect_video' } }];
-  assert.deepEqual(session.prepareRequest({ ...request, tools }).tools, tools);
-  await session.inspect({ youtube_url: yt, question: 'Describe' });
-  assert.deepEqual(session.prepareRequest({ ...request, tools }).tools, tools.slice(1));
-  assert.equal(tools.length, 3);
-});
-test('first-turn upload is encoded as actual video data, never sent as a hosted URL', async () => {
-  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }] });
+test('first-turn upload sends actual video bytes to inspection', async () => {
+  let source;
+  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }], analyze: async video => { source = video; return base.analyze(); } });
   assert.equal((await session.inspect({ filename: 'clip.mp4', question: 'Transcribe' })).result.ok, true);
-  assert.match(session.prepareRequest(request).messages.at(-1).content[1].video_url.url, /^data:video\/mp4;base64,/);
+  assert.match(source.url, /^data:video\/mp4;base64,/);
 });
 test('stored historical upload can be reopened, bytes reused within a seat', async () => {
   let reads = 0;
@@ -79,7 +70,6 @@ test('failure to open a second video does not leave the previous video attached'
   const session = createVideoInspectionSession({ ...base, prompt: yt });
   await session.inspect({ youtube_url: yt, question: 'Describe' });
   assert.equal((await session.inspect({ filename: 'missing.mp4', question: 'Describe' })).result.ok, false);
-  assert.equal(session.prepareRequest(request).messages.length, 1);
 });
 test('oversize, corrupt and missing uploads produce explicit failures', async () => {
   assert.throws(() => validateVideoBytes(Buffer.alloc(VIDEO_MAX_BYTES + 1), 'clip.mp4'), /25 MB/);
@@ -96,45 +86,34 @@ test('cancellation propagates instead of becoming a successful inspection', asyn
   const session = createVideoInspectionSession({ ...base, signal: controller.signal, prompt: yt });
   await assert.rejects(session.inspect({ youtube_url: yt, question: 'Describe' }), /cancelled/);
 });
-test('opaque reasoning blocks survive tool continuation and stay seat-local', async () => {
-  const session = createVideoInspectionSession(base);
-  const create = async () => (async function* () {
-    yield { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.encrypted', index: 0, data: 'abc' }], tool_calls: [{ index: 0, id: 'call-1' }] } }] };
-    yield { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.encrypted', index: 0, data: 'def' }] } }] };
-  })();
-  const stream = await session.createCompletion(create, request, {});
-  for await (const _ of stream) {}
-  const followup = { ...request, messages: [{ role: 'assistant', tool_calls: [{ id: 'call-1' }] }] };
-  assert.equal(session.prepareRequest(followup).messages[0].reasoning_details[0].data, 'abcdef');
-  assert.equal(createVideoInspectionSession(base).prepareRequest(followup).messages[0].reasoning_details, undefined);
+test('focused inspection uses AI Studio for YouTube without incompatible search or foreign tool signatures', async () => {
+  let sent;
+  const result = await inspectVideoWithModel(async body => {
+    sent = body;
+    return { model: request.model, choices: [{ message: { content: 'Two elephants.' } }], usage: { cost: 0.002 } };
+  }, [request.model], { url: yt, label: yt, question: 'At 0:07?', youtube: true }, base.signal);
+  assert.deepEqual(sent.provider, { only: ['google-ai-studio'] });
+  assert.equal(sent.tools, undefined); assert.equal(sent.messages.length, 1);
+  assert.equal(sent.messages[0].content[1].video_url.url, yt);
+  assert.match(sent.messages[0].content[0].text, /0:07/);
+  assert.equal(result.costUsd, 0.002); assert.equal(result.findings, 'Two elephants.');
 });
-test('video evidence survives later memory and artifact continuation request assembly', async () => {
-  const session = createVideoInspectionSession({ ...base, prompt: yt });
-  await session.inspect({ youtube_url: yt, question: 'Inspect 0:07' });
-  for (const tool of ['search_conversation_memory', 'request_evidence']) {
-    const body = session.prepareRequest({ ...request, messages: [...request.messages, { role: 'tool', name: tool, content: 'new evidence' }] });
-    assert.equal(body.messages.at(-1).content[1].type, 'video_url');
-    assert.equal(body.messages.at(-2).name, tool);
+test('provider failure and empty output are never reported as a successful inspection', async () => {
+  for (const analyze of [async () => { throw new Error('Provider unavailable'); }, async () => ({ findings: '', model: request.model })]) {
+    const session = createVideoInspectionSession({ ...base, prompt: yt, analyze });
+    const result = (await session.inspect({ youtube_url: yt, question: 'Describe' })).result;
+    assert.equal(result.ok, false); assert.equal(result.findings, undefined);
   }
 });
-
-test('provider rejection becomes an explicit video failure, never a successful inspection', async () => {
-  const session = createVideoInspectionSession({ ...base, prompt: yt });
-  await session.inspect({ youtube_url: yt, question: 'Inspect' });
-  await assert.rejects(session.createCompletion(async () => { throw { status: 429 }; }, request, {}), error => error.videoInspectionFailure === true && /temporarily unavailable/.test(error.message));
+test('follow-up inspection uses the new question and does not reuse old findings', async () => {
+  const questions = [];
+  const session = createVideoInspectionSession({ ...base, prompt: yt, analyze: async source => { questions.push(source.question); return base.analyze(); } });
+  for (const question of ['At 0:07?', 'At 0:14?']) await session.inspect({ youtube_url: yt, question });
+  assert.deepEqual(questions, ['At 0:07?', 'At 0:14?']);
 });
-
 test('MOV uploads use the provider-documented MIME type', async () => {
-  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mov', url: '/api/attachments/message-images/owner/clip.mov' }] });
-  await session.inspect({ filename: 'clip.mov', question: 'Inspect' });
-  assert.match(session.prepareRequest(request).messages.at(-1).content[1].video_url.url, /^data:video\/mov;base64,/);
-});
-
-test('a provider failure during streaming is visible as a failed video inspection', async () => {
-  const session = createVideoInspectionSession({ ...base, prompt: yt });
-  await session.inspect({ youtube_url: yt, question: 'Inspect' });
-  const stream = await session.createCompletion(async () => (async function* () {
-    throw Object.assign(new Error('Unavailable'), { status: 503 });
-  })(), request, {});
-  await assert.rejects(async () => { for await (const _ of stream) {} }, error => error.videoInspectionFailure === true);
+  let source;
+  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mov', url: '/api/attachments/message-images/owner/clip.mov' }], analyze: async video => { source = video; return base.analyze(); } });
+  await session.inspect({ filename: 'clip.mov', question: 'Describe' });
+  assert.match(source.url, /^data:video\/mov;base64,/);
 });
