@@ -2550,26 +2550,6 @@ Layout/style/template changes must not silently delete names, contact details, d
     sections.push(sharedAgenticEvidenceContext.trim());
   }
 
-  // 4. [current round's prior seat responses — live conversational frontier]
-  if (priorResponses.length > 0) {
-    const priorFormatted = priorResponses
-      .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
-      .join('');
-
-    sections.push(
-      `CURRENT-ROUND LIVE PANEL TURNS — THESE HAPPENED BEFORE YOUR REPLY:
-${isContinueRound
-  ? 'The user chose Continue, with no new substantive question.'
-  : `The user originally asked:\n"${prompt.trim()}"`}
-These are replies from earlier seats in THIS live round, not messages from older rounds. They are material for the task-completion and panel-contribution rule, not proof that every requested deliverable is complete.
-
-EVIDENCE DISCIPLINE:
-Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present when appropriate, and independently use available capabilities when the live thread warrants it.
-
-${priorFormatted.trimEnd()}`
-    );
-  }
-
   if (
     runtimeProductContext?.documentCreatedThisTurn &&
     currentTurnDocuments &&
@@ -2722,6 +2702,26 @@ ${rawRoundsFormatted}`
     );
   }
 
+  // Keep the live round after stored history so the immediate response target is last.
+  if (priorResponses.length > 0) {
+    const priorFormatted = priorResponses
+      .map((p) => `${p.name} said:\n"""\n${p.response}\n"""\n\n`)
+      .join('');
+
+    sections.push(
+      `CURRENT-ROUND LIVE PANEL TURNS — THESE HAPPENED BEFORE YOUR REPLY:
+${isContinueRound
+  ? 'The user chose Continue, with no new substantive question.'
+  : `The user originally asked:\n"${prompt.trim()}"`}
+These are replies from earlier seats in THIS live round, not messages from older rounds. They are material for the task-completion and panel-contribution rule, not proof that every requested deliverable is complete.
+
+EVIDENCE DISCIPLINE:
+Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present when appropriate, and independently use available capabilities when the live thread warrants it.
+
+${priorFormatted.trimEnd()}`
+    );
+  }
+
   const trimmedPrompt = prompt.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
   const effectivePrompt =
@@ -2825,7 +2825,7 @@ Start with compact retrieval. Expand only evidence that needs more context. Use 
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
-    `CURRENT SEAT STATE: ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. Follow TASK COMPLETION AND PANEL CONTRIBUTION above.`,
+    `CURRENT SEAT STATE: You are ${currentModelName}. Historical replies labeled ${currentModelName} are your own earlier contributions; refer to them as your earlier points, not as another panelist. ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. Follow TASK COMPLETION AND PANEL CONTRIBUTION above.`,
     pdfDesignReferences?.text || '',
   ]
     .filter(Boolean)

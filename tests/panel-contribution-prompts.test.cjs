@@ -55,3 +55,10 @@ test('strong superior-access positioning and named-seat targeting remain',()=>{
  assert.match(m[0].content,/respecting named-seat targeting/);
  assert.match(m[0].content,/every capable image model remains eligible to produce its own result/);
 });
+
+test('live replies follow history and anchor Claude to its own identity',()=>{
+ const m=build({name:'Claude',prompt:'Give a new roadmap.',prior:[{name:'ChatGPT',response:'NEW ROADMAP'}],memory:{recentRounds:[{content:'Gemini: OLD DEBATE; Claude: MY EARLIER POINT'}]}});
+ assert.ok(m[1].content.indexOf('NEW ROADMAP')>m[1].content.indexOf('OLD DEBATE'));
+ assert.match(m[0].content,/You are Claude\. Historical replies labeled Claude are your own earlier contributions/);
+ assert.match(m[1].content,/Give a new roadmap/);
+});
