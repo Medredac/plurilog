@@ -127,7 +127,11 @@ export function createVideoInspectionSession(options: Options) {
     ] });
     // Keep YouTube on AI Studio, but allow recovery between that provider's
     // endpoints (for example when its discounted/flex endpoint is busy).
-    return { ...request, messages, ...(active.youtube ? { provider: { only: ['google-ai-studio'] } } : {}) };
+    // OpenRouter currently rejects video combined with its native web-search
+    // tool on AI Studio (reported as an upstream 429). Keep client-side tools,
+    // including memory retrieval and further video inspection, available.
+    const tools = request.tools?.filter((tool: any) => tool.type !== 'openrouter:web_search');
+    return { ...request, messages, ...(tools ? { tools } : {}), ...(active.youtube ? { provider: { only: ['google-ai-studio'] } } : {}) };
   }
 
   async function createCompletion(create: (request: any, config: any) => Promise<any>, request: any, config: any) {

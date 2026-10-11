@@ -43,6 +43,14 @@ test('an invented or unrelated link cannot be silently inspected', async () => {
   assert.equal((await session.inspect({ youtube_url: yt, question: 'Describe' })).result.ok, false);
   assert.equal(session.prepareRequest(request).messages.length, 1);
 });
+test('video continuations omit incompatible native search but retain memory and video tools', async () => {
+  const session = createVideoInspectionSession({ ...base, prompt: yt });
+  const tools = [{ type: 'openrouter:web_search' }, { type: 'function', function: { name: 'search_conversation_memory' } }, { type: 'function', function: { name: 'inspect_video' } }];
+  assert.deepEqual(session.prepareRequest({ ...request, tools }).tools, tools);
+  await session.inspect({ youtube_url: yt, question: 'Describe' });
+  assert.deepEqual(session.prepareRequest({ ...request, tools }).tools, tools.slice(1));
+  assert.equal(tools.length, 3);
+});
 test('first-turn upload is encoded as actual video data, never sent as a hosted URL', async () => {
   const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }] });
   assert.equal((await session.inspect({ filename: 'clip.mp4', question: 'Transcribe' })).result.ok, true);
