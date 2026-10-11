@@ -76,8 +76,8 @@ export async function inspectPreparedVideo(options: {
     options.signal.throwIfAborted();
     if (!readyProcessor) await checked(sandbox, 'bash', ['-c', 'apt-get update -qq && apt-get install -y -qq ffmpeg'], 'Video preparation is temporarily unavailable.', true);
     await sandbox.writeFiles([
-      { path: 'input.json', content: Buffer.from(JSON.stringify({ url: options.signedUrl, maxBytes: VIDEO_MAX_BYTES })) },
-      { path: 'download.py', content: Buffer.from(DOWNLOAD) },
+      { path: '/vercel/sandbox/input.json', content: Buffer.from(JSON.stringify({ url: options.signedUrl, maxBytes: VIDEO_MAX_BYTES })) },
+      { path: '/vercel/sandbox/download.py', content: Buffer.from(DOWNLOAD) },
     ]);
     await checked(sandbox, 'python3', ['/vercel/sandbox/download.py'], 'Could not download this video for analysis. Please retry.');
     // Media parsers cannot access the network, even if a crafted file references URLs.
@@ -100,7 +100,7 @@ export async function inspectPreparedVideo(options: {
         '-r', '30', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-maxrate', '900k', '-bufsize', '1800k',
         '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ac', '1', '-b:a', '64k', '-movflags', '+faststart', '/vercel/sandbox/analysis.mp4',
       ], 'Could not prepare this video for analysis. Try exporting it as an MP4.');
-      const bytes = await sandbox.readFileToBuffer({ path: 'analysis.mp4' });
+      const bytes = await sandbox.readFileToBuffer({ path: '/vercel/sandbox/analysis.mp4' });
       if (!bytes?.length || bytes.length > VIDEO_INLINE_MAX_BYTES) throw new Error('The analysis copy was too large. Try asking about a shorter time range.');
       const result = await options.analyze({
         url: `data:video/mp4;base64,${bytes.toString('base64')}`, label: options.filename, youtube: false,
@@ -110,7 +110,7 @@ export async function inspectPreparedVideo(options: {
       findings.push(`[Original seconds ${window.start}–${window.end}]\n${result.findings}`);
       models.add(result.model);
     }
-    return { findings: `Inspected original seconds ${windows[0].start}–${windows[windows.length - 1].end} of ${duration}. The original remains unchanged.\n\n${findings.join('\n\n')}`, model: [...models].join(', ') };
+    return { findings: `Inspected original seconds ${windows[0].start}–${windows[windows.length - 1].end} of ${duration}. Analysis used temporary compressed copies.\n\n${findings.join('\n\n')}`, model: [...models].join(', ') };
   } finally {
     options.signal.removeEventListener('abort', abort);
     // Ephemeral disk, including original and analysis copies, is discarded.

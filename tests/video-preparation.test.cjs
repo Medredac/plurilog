@@ -14,7 +14,7 @@ function harness({failCommand,abortDuringCreate}={}) {
  const calls=[];let stops=0;const controller=new AbortController();
  const sandbox={
   runCommand:async options=>{calls.push(options);return{exitCode: options.cmd===failCommand?1:0,stdout:async()=>JSON.stringify({format:{duration:'200'},streams:[{codec_type:'video'}]})};},
-  writeFiles:async()=>{}, update:async options=>calls.push(options),
+  writeFiles:async files=>{for(const file of files)assert.match(file.path,/^\/vercel\/sandbox\//);}, update:async options=>calls.push(options),
   readFileToBuffer:async()=>Buffer.from('0000ftypisomtest'), stop:async()=>{stops++;},
  };
  const api=load('src/utils/videoPreparation.ts',{'./videoInputs':inputs,'@vercel/sandbox':{Sandbox:{create:async()=>{if(abortDuringCreate)controller.abort(new Error('cancel'));return sandbox;}}}});

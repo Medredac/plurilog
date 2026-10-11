@@ -307,6 +307,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   return (
     <div className={containerClasses}>
       {uploadProgress && <p role="status" aria-live="polite" className="mb-2 px-1 text-xs text-zinc-500">{uploadProgress}</p>}
+      {attachedFiles.some(item => videoMime(item.file.name)) && (
+        <p className="mb-2 px-1 text-xs text-zinc-500">Videos are deleted after analysis. Upload again for a new inspection.</p>
+      )}
       {/* Hidden Attachment Input */}
       <input
         type="file"
@@ -367,7 +370,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   {videoMime(item.file.name) ? (
                     <div className="flex min-h-[52px] w-[228px] max-w-[calc(100vw-5rem)] items-center gap-2.5 rounded-xl border border-[#E2E0DB] bg-[#F7F6F3] px-3 py-2" title={item.file.name}>
                       <Video className="h-6 w-6 shrink-0 text-zinc-500" aria-hidden="true" />
-                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 500 MB total · Temporary upload</p></div>
+                      <div className="min-w-0"><p className="truncate text-xs font-medium">{item.file.name}</p><p className="text-[10px] text-zinc-500">Gemini video · 500 MB total</p></div>
                     </div>
                   ) : isPdf || isDocx ? (
                     <button

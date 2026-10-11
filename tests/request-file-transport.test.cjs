@@ -613,3 +613,13 @@ test('visual review cannot strip documentary-photo identity, caption or full-fra
   assert.equal(result[0].mode,'existing');
   assert.equal(preserveImageSourceDirectives(originals,[]),null);
 });
+
+
+test('conversation memory retains a video filename and findings without a retrievable storage path', () => {
+  const { extractAttachmentMetadata, formatRoundForContext } = memoryModule.exports;
+  const attachment = extractAttachmentMetadata('/api/attachments/message-images/user/video-ephemeral-v1/test.mp4#filename=clip.mp4');
+  assert.equal(attachment.filename, 'clip.mp4');
+  assert.equal(attachment.storagePath, null);
+  const text = formatRoundForContext({userPrompt:'Describe', attachments:[attachment],modelResponses:[{name:'Gemini',content:'At 0:04, a blue square appears.'}]});
+  assert.match(text, /fresh upload required/); assert.match(text, /blue square/); assert.doesNotMatch(text, /video-ephemeral/);
+});
