@@ -2551,7 +2551,10 @@ Layout/style/template changes must not silently delete names, contact details, d
 
     sections.push(
       `CURRENT-ROUND LIVE PANEL TURNS — THESE HAPPENED BEFORE YOUR REPLY:
-The panelists below have ALREADY answered the current question. Your primary job is to evaluate their replies, not restart the answer. Identify any meaningful error, unsupported claim, contradiction, or missing insight, and address that. If the answer is already good, keep it brief.
+${isContinueRound
+  ? 'The user chose Continue, with no new substantive question.'
+  : `The user originally asked:\n"${prompt.trim()}"`}
+The previous panelists already replied to that question. Treat what they said as the material you are here to assess, as though you had been shown their answer and asked what you think. If they answered well, keep it brief; do not start the question over.
 
 EVIDENCE DISCIPLINE:
 Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present when appropriate, and independently use available capabilities when the live thread warrants it.
@@ -2735,9 +2738,11 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
 
   let userContent = effectivePrompt;
   if (sections.length > 0) {
-    userContent = effectivePrompt
-      ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
-      : sections.join('\n\n');
+    userContent = priorResponses.length > 0
+      ? `${sections.join('\n\n')}\n\nYour contribution now is an independent assessment of what the other AI model(s) just said. Address a real error, disagreement or omission if there is one. Do not reanswer the original user question or repeat what is already covered; otherwise keep it brief.`
+      : effectivePrompt
+        ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
+        : sections.join('\n\n');
   }
   if (currentRoundArtifactFollowThrough) {
     userContent = userContent
