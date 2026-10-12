@@ -127,3 +127,14 @@ test('independent preservation rejection returns repair feedback before publishi
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'Reformat only',source:{buffer:Buffer.from('source'),format:'pdf'},onCost:c=>cost+=c});
  assert.equal(reviews,2);assert.equal(result.calls,8);assert.equal(sawFeedback,true);assert.equal(result.costUsd,cost);assert.equal(f.stopped(),1);
 });
+
+test('missing preservation-review accounting stops without another model call',async()=>{
+ const f=fixture([['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]]);
+ const worker=f.openai.chat.completions.create;let reviews=0;
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format)return worker(req);
+  reviews++;return {usage:{},choices:[{message:{content:'{"approved":true,"issues":[]}'}}]};
+ };
+ await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'edit',source:{buffer:Buffer.from('source'),format:'pdf'}}),/accounting unavailable/);
+ assert.equal(reviews,1);assert.equal(f.stopped(),1);
+});
