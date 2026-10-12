@@ -1,3 +1,4 @@
+import { FILE_WORKSPACE_ENABLED } from '@/utils/fileWorkspace';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -466,6 +467,9 @@ export const GPT_FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
+          ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
+            type: 'string', description: 'Use the private code workspace for complex Word/PDF creation: tables, charts, custom layouts, headers/footers, sections, or requirements beyond structured blocks. Provide a complete task with the requested content and design. The worker executes code, renders, inspects, and repairs the draft before returning one finished file. blocks may be empty when this field contains the complete content. For existing documents retrieve the exact source and use edit_source_document with workspace_task instead. Use the normal blocks path when generated/existing discussion images are needed; the workspace has no external image access.'
+          }} : {}),
           format: { type: 'string', enum: ['docx', 'pdf'] },
           filename: {
             type: 'string',
@@ -807,6 +811,9 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
       parameters: {
         type: 'object',
         properties: {
+          ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
+            type: 'string', description: 'Use the private code workspace for structural or complex edits beyond the listed operations: table changes, headers/footers, sections, images already embedded in the file, layout and pagination. Provide the complete requested changes and preservation requirements. The worker opens the actual source, executes code, renders and inspects the final result. For this mode pass edits: []. Prefer ordinary edits for simple precise text/format changes.'
+          }} : {}),
           source_filename: {
             type: 'string',
             description:
@@ -819,7 +826,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
           },
           edits: {
             type: 'array',
-            minItems: 1,
+            minItems: FILE_WORKSPACE_ENABLED ? 0 : 1,
             maxItems: 24,
             items: {
               type: 'object',
@@ -8614,6 +8621,9 @@ export async function POST(req: NextRequest) {
                     )
                       ? currentParentState
                       : null,
+                    workspaceModel: primaryModel,
+                    originalUserPrompt: prompt,
+                    onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
                     args: editArgs,
                     signal: seatAbortController.signal,
                   });
@@ -8826,6 +8836,7 @@ export async function POST(req: NextRequest) {
                             : null,
                         currentUserPrompt: prompt,
                       },
+                      onWorkspaceCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
                       onImageCost: (event) => {
                         incurredDocumentAssetCostUsd += event.costUsd;
                         documentImageModels.add(event.model);
@@ -11361,7 +11372,10 @@ export async function POST(req: NextRequest) {
                           resolvedEditableDocumentEvidence.documentId ||
                           null,
                         parentSnapshot: sourceParentState,
-                        args: editArgs,
+                        workspaceModel: primaryModel,
+                    originalUserPrompt: prompt,
+                    onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
+                    args: editArgs,
                         signal: seatAbortController.signal,
                       });
 
@@ -11725,7 +11739,8 @@ export async function POST(req: NextRequest) {
                           visualContext: visualContextState,
                           currentUserPrompt: prompt,
                         },
-                        onImageCost: (event) => {
+                        onWorkspaceCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
+                      onImageCost: (event) => {
                           incurredDocumentAssetCostUsd += event.costUsd;
                           documentImageModels.add(event.model);
                         },

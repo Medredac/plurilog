@@ -1,3 +1,5 @@
+import { FILE_WORKSPACE_ENABLED, runFileWorkspace } from './fileWorkspace';
+import { publishWorkspaceDocument } from './sourceDocumentEditor';
 import crypto from 'node:crypto';
 import { preparePdfPhotoRebuild, selectPhotoRebuildSource, photoNumber, MAX_REBUILT_PHOTOS } from './pdfPhotoRebuild';
 import { ModelId } from '@/types/chat';
@@ -50,6 +52,7 @@ import {
 
 export interface GptCreateFileArgs extends Omit<StructuredDocxInput, 'blocks'> {
   format: 'docx' | 'pdf';
+  workspace_task?: string;
   design?: PdfDesign;
   design_reference_ids?: string[];
   source_docx_filename?: string;
@@ -100,6 +103,7 @@ export interface ExecuteGptDocumentCreationOptions {
   availableImages?: DocumentImageSource[];
   resourceContext?: ResourceBrokerContext;
   onImageCost?: (event: DocumentImageCostEvent) => void;
+  onWorkspaceCost?: (usd: number) => void;
   onActivity?: (activity: DocumentCreationActivity) => void;
   reviewModel?: string;
   reviewModels?: string[];
@@ -1813,6 +1817,24 @@ export async function executeGptDocumentCreation(
     reviewSessionId,
     revisionContext = null,
   } = options;
+
+  if (FILE_WORKSPACE_ENABLED && args.workspace_task && !sourceDocx && !revisionContext?.parentSnapshot) {
+    onActivity?.(args.format === 'pdf' ? 'generating_pdf' : 'generating_word');
+    const workspace = await runFileWorkspace({
+      openai, model: reviewModel || 'openai/gpt-5.6-luna', format: args.format,
+      task: JSON.stringify({userRequest: originalUserPrompt, task: args.workspace_task, content: args.blocks, design: args.design}),
+      signal: durableSignal,
+      onCost: options.onWorkspaceCost,
+    });
+    const result = await publishWorkspaceDocument({
+      supabase, openai, discussionId, messageId, seatId, signal: durableSignal,
+      sourceStoragePath: '', sourceFilename: args.filename, isCreation: true,
+      args: {filename: args.filename, edits: [], workspace_task: args.workspace_task},
+    }, workspace, args.format, Buffer.alloc(0), workspace);
+    // Workspace model usage has already been accounted through the per-call callback.
+    return {...result, visualReviewCostUsd: 0, documentId: result.documentId || null,
+      documentStateId: result.documentStateId || null, imageCostUsd: 0};
+  }
 
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
