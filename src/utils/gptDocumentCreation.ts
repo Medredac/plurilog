@@ -96,6 +96,7 @@ export interface ExecuteGptDocumentCreationOptions {
   args: GptCreateFileArgs;
   signal?: AbortSignal;
   durableSignal?: AbortSignal;
+  workspaceSource?: { storagePath: string; filename: string } | null;
   sourceDocx?: {
     storagePath: string;
     filename: string;
@@ -1853,20 +1854,30 @@ export async function executeGptDocumentCreation(
     revisionContext = null,
   } = options;
 
-  if (FILE_WORKSPACE_ENABLED && args.workspace_task && !sourceDocx && !revisionContext?.parentSnapshot) {
+  if (FILE_WORKSPACE_ENABLED && args.workspace_task) {
+    const workspaceSource = options.workspaceSource || sourceDocx || revisionContext?.parentSnapshot || null;
+    let source: {buffer:Buffer;format:'pdf'|'docx'} | undefined;
+    if(workspaceSource) {
+      const sourceFormat=workspaceSource.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : workspaceSource.filename.toLowerCase().endsWith('.docx') ? 'docx' : null;
+      if(!sourceFormat || !workspaceSource.storagePath) throw new Error('The resolved workspace source must be an actual PDF or Word document.');
+      const downloaded=await supabase.storage.from('message-images').download(workspaceSource.storagePath);
+      if(downloaded.error || !downloaded.data) throw new Error('Could not load the original workspace source document.');
+      source={buffer:Buffer.from(await downloaded.data.arrayBuffer()),format:sourceFormat};
+    }
     onActivity?.(args.format === 'pdf' ? 'generating_pdf' : 'generating_word');
     const workspace = await runFileWorkspace({
       openai, model: reviewModel || 'openai/gpt-5.6-luna', format: args.format,
       task: JSON.stringify({userRequest: originalUserPrompt, task: args.workspace_task, content: args.blocks, design: args.design}),
-      signal: durableSignal,
+      signal: durableSignal, source,
       onCost: options.onWorkspaceCost,
       images:createWorkspaceImageBridge({supabase,availableImages,resourceContext,signal:durableSignal,onImageCost,onActivity,seatId}),
     });
     const result = await publishWorkspaceDocument({
       supabase, openai, discussionId, messageId, seatId, signal: durableSignal,
-      sourceStoragePath: '', sourceFilename: args.filename, isCreation: true,
+      sourceStoragePath: workspaceSource?.storagePath || '', sourceFilename: workspaceSource?.filename || args.filename, isCreation: !source,
+      parentSnapshot: revisionContext?.parentSnapshot || null,
       args: {filename: args.filename, edits: [], workspace_task: args.workspace_task},
-    }, workspace, args.format, Buffer.alloc(0), workspace);
+    }, workspace, args.format, source?.buffer || Buffer.alloc(0), workspace);
     // Workspace model usage has already been accounted through the per-call callback.
     return {...result, visualReviewCostUsd: 0, documentId: result.documentId || null,
       documentStateId: result.documentStateId || null, imageCostUsd: 0};

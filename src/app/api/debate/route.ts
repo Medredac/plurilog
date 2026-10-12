@@ -7301,7 +7301,7 @@ export async function POST(req: NextRequest) {
               isTitleOnlyDocumentRevision(prompt || '') &&
               Boolean(discussionMemory?.knownDocuments?.length);
             const workspaceInstruction = FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat
-              ? [{ role: 'system' as const, content: 'A private executable file workspace is available through workspace_task on create_file and edit_source_document. Use it when Word/PDF requirements exceed the structured renderer or narrow edit operations, including charts, complex tables, sections, headers/footers, or structural changes. Supply the complete requested content and constraints. The workspace opens source bytes, executes code, renders pages and inspects them before publishing. It currently supports one DOCX/PDF per task, up to 12 pages and 25 MB. Retrieve the exact existing artifact before revisions; never rebuild an existing file from memory. The workspace has access to original current-round and historical images plus the existing image generation/editing pipeline. Include exact asset references and placement requirements in workspace_task; never omit requested images or substitute drawn logos. Ordinary narrow edits retain their existing tools. Do not describe the execution mechanism unless the user asks.' }]
+              ? [{ role: 'system' as const, content: 'A private executable file workspace is available through workspace_task on create_file and edit_source_document. Use it when Word/PDF requirements exceed the structured renderer or narrow edit operations, including charts, complex tables, sections, headers/footers, or structural changes. Supply the complete requested content and constraints. The workspace opens source bytes, executes code, renders pages and inspects them before publishing. It currently supports one DOCX/PDF per task, up to 12 pages and 25 MB. Retrieve the exact existing artifact before revisions; never rebuild an existing file from memory. The workspace has access to original current-round and historical images plus the existing image generation/editing pipeline. For images that belong inside a document, delegate generation or editing in workspace_task so the document worker imports the resulting asset and publishes the completed document; standalone image tools are for standalone image outputs. Include exact asset references and placement requirements in workspace_task; never omit requested images or substitute drawn logos. Ordinary narrow edits retain their existing tools. Do not describe the execution mechanism unless the user asks.' }]
               : [];
             const titleRevisionInstruction = requiresCanonicalTitleRevision
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
@@ -7665,6 +7665,7 @@ export async function POST(req: NextRequest) {
                 messages: seatMessages,
                 stream: true,
                 temperature: 0.7,
+                ...(FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat ? {parallel_tool_calls:false} : {}),
                 tools: [
                   {
                     type: 'openrouter:web_search',
@@ -8281,6 +8282,7 @@ export async function POST(req: NextRequest) {
                     messages: seatMessages,
                     stream: true,
                     temperature: 0.7,
+                    ...(FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat ? {parallel_tool_calls:false} : {}),
                     tools: continuationTools,
                     ...(discussionId
                       ? {
@@ -8828,6 +8830,8 @@ export async function POST(req: NextRequest) {
                       });
                     }
 
+                    const workspaceSourceDocument = fileArgs.workspace_task && fileArgs.source_pdf_filename
+                      ? (discussionMemory?.knownDocuments || []).find(doc=>doc.filename===fileArgs.source_pdf_filename && doc.storagePath) : null;
                     const documentResult = await executeGptDocumentCreation({
                       supabase,
                       openai,
@@ -8838,6 +8842,8 @@ export async function POST(req: NextRequest) {
                       signal: req.signal,
                       durableSignal: req.signal,
                       sourceDocx,
+                      workspaceSource: workspaceSourceDocument?.storagePath
+                        ? {storagePath:workspaceSourceDocument.storagePath,filename:workspaceSourceDocument.filename} : null,
                       availableImages: availableDocumentImages,
                       resourceContext: {
                         knownDocuments: jevAllowsDocumentSearch
@@ -10293,6 +10299,7 @@ export async function POST(req: NextRequest) {
                     messages: evidenceMessages,
                     stream: true,
                     temperature: 0.7,
+                    ...(FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat ? {parallel_tool_calls:false} : {}),
                     tools: [
                       {
                         type: 'openrouter:web_search',
@@ -11146,6 +11153,7 @@ export async function POST(req: NextRequest) {
                           ],
                           stream: true,
                           temperature: 0.7,
+                          ...(FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat ? {parallel_tool_calls:false} : {}),
                           tools: [
                             ...(agenticRetrievalRounds <
                             AGENTIC_HARD_RETRIEVAL_ROUNDS
@@ -11757,6 +11765,8 @@ export async function POST(req: NextRequest) {
                         signal: req.signal,
                         durableSignal: req.signal,
                         sourceDocx: resolvedSourceDocx,
+                        workspaceSource: fileArgs.workspace_task && resolvedEditableDocumentEvidence?.storagePath && resolvedEditableDocumentEvidence.filename
+                          ? {storagePath:resolvedEditableDocumentEvidence.storagePath,filename:resolvedEditableDocumentEvidence.filename} : null,
                         availableImages: availableDocumentImages,
                         resourceContext: {
                           knownDocuments: brokerKnownDocuments,

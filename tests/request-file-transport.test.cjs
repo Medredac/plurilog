@@ -484,14 +484,14 @@ test('ambiguous same-name PDFs still fail safe; unavailable cache falls back to 
   assert.equal(db.rows('discussion_documents').length, 1);
 });
 
-function loadDocumentImageResolver(brokerResult) {
+function loadDocumentImageResolver(brokerResult, overrides = {}) {
   const filename = path.resolve('src/utils/gptDocumentCreation.ts');
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => overrides[name] || (name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
-    : name.startsWith('@/') ? {} : require(name);
+    : name.startsWith('@/') ? {} : require(name));
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
     '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -640,4 +640,27 @@ test('workspace image bridge retrieves exact current and historical images even 
   assert.equal(current.data.toString(),'user/current.png');
   await assert.rejects(bridge.resolve({mode:'existing',asset_id:'image-999'}),/Unknown image/);
   assert.deepEqual(seen,['user/history.png','user/current.png']);
+});
+
+test('workspace creation with retrieved source passes actual source bytes and publishes as an edit',async()=>{
+ let published=0;
+ const original=Buffer.from('original pdf bytes');
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.deepEqual(options.source,{buffer:original,format:'pdf'});
+   assert.match(options.task,/preserve original/);
+   return {buffer:Buffer.from('finished'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published++;assert.equal(options.isCreation,false);assert.equal(options.sourceStoragePath,'user/source.pdf');
+   assert.deepEqual(sourceBytes,original);return {filename:'edited.pdf'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{
+  assert.equal(path,'user/source.pdf');return {data:new Blob([original])};
+ }})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',
+  args:{format:'pdf',filename:'edited.pdf',blocks:[],workspace_task:'Repaginate and preserve original'},
+  workspaceSource:{storagePath:'user/source.pdf',filename:'source.pdf'}});
+ assert.equal(published,1);
 });
