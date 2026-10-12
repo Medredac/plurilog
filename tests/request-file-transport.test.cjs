@@ -664,3 +664,21 @@ test('workspace creation with retrieved source passes actual source bytes and pu
   workspaceSource:{storagePath:'user/source.pdf',filename:'source.pdf'}});
  assert.equal(published,1);
 });
+
+test('source imported inside creation workspace retains authenticated access and revision lineage',async()=>{
+ const original=Buffer.from('original pdf');let published=0;
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.equal(options.source,undefined);
+   await assert.rejects(options.documents.resolve('other-user.pdf'),/exact available/);
+   assert.deepEqual(await options.documents.resolve('latest.pdf'),{buffer:original,format:'pdf'});
+   return {buffer:Buffer.from('word result'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published++;assert.equal(options.isCreation,false);assert.equal(format,'docx');assert.equal(options.sourceStoragePath,'user/latest.pdf');assert.deepEqual(sourceBytes,original);return {filename:'converted.docx'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{assert.equal(path,'user/latest.pdf');return {data:new Blob([original])};}})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',args:{format:'docx',filename:'converted.docx',blocks:[],workspace_task:'Convert latest PDF'},resourceContext:{knownDocuments:[{filename:'latest.pdf',storagePath:'user/latest.pdf'}]}});
+ assert.equal(published,1);
+});

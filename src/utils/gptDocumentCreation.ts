@@ -1855,7 +1855,7 @@ export async function executeGptDocumentCreation(
   } = options;
 
   if (FILE_WORKSPACE_ENABLED && args.workspace_task) {
-    const workspaceSource = options.workspaceSource || sourceDocx || revisionContext?.parentSnapshot || null;
+    let workspaceSource = options.workspaceSource || sourceDocx || revisionContext?.parentSnapshot || null;
     let source: {buffer:Buffer;format:'pdf'|'docx'} | undefined;
     if(workspaceSource) {
       const sourceFormat=workspaceSource.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : workspaceSource.filename.toLowerCase().endsWith('.docx') ? 'docx' : null;
@@ -1869,6 +1869,20 @@ export async function executeGptDocumentCreation(
       openai, model: reviewModel || 'openai/gpt-5.6-luna', format: args.format,
       task: JSON.stringify({userRequest: originalUserPrompt, task: args.workspace_task, content: args.blocks, design: args.design}),
       signal: durableSignal, source,
+      documents:{
+        catalog:(resourceContext?.knownDocuments || []).filter(doc=>doc.storagePath && ['pdf','docx'].some(ext=>doc.filename.toLowerCase().endsWith('.'+ext))).map(doc=>({filename:doc.filename,createdAt:doc.createdAt})),
+        resolve:async filename=>{
+          const doc=(resourceContext?.knownDocuments || []).find(doc=>doc.filename===filename && doc.storagePath);
+          if(!doc?.storagePath) throw new Error('Choose an exact available document filename.');
+          const format=doc.filename.toLowerCase().endsWith('.pdf')?'pdf':doc.filename.toLowerCase().endsWith('.docx')?'docx':null;
+          if(!format) throw new Error('Only PDF and DOCX sources are supported.');
+          const downloaded=await supabase.storage.from('message-images').download(doc.storagePath);
+          if(downloaded.error || !downloaded.data) throw new Error('Could not retrieve the authorized source document.');
+          workspaceSource={storagePath:doc.storagePath,filename:doc.filename};
+          source={buffer:Buffer.from(await downloaded.data.arrayBuffer()),format};
+          return source;
+        }
+      },
       onCost: options.onWorkspaceCost,
       images:createWorkspaceImageBridge({supabase,availableImages,resourceContext,signal:durableSignal,onImageCost,onActivity,seatId}),
     });

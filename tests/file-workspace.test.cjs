@@ -201,3 +201,12 @@ test('source-edit tool schema exposes conversion target format',()=>{
  const visit=node=>{if(ts.isVariableDeclaration(node) && node.name.getText(source)==='GPT_SOURCE_DOCUMENT_EDIT_TOOL')declaration=node;ts.forEachChild(node,visit);};visit(source);
  assert.ok(declaration);assert.match(declaration.initializer.getText(source),/output_format:/);
 });
+
+test('creation-route worker can retrieve a real source and must inspect it before editing',async()=>{
+ const fullText='Original content '.repeat(30);
+ const f=fixture([['import_document',{filename:'latest.pdf'}],['run_python',{code:'change()'}],['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.docx'}],['finish_file',{filename:'result.docx'}]],false,fullText,()=>({editableText:fullText,hiddenTextChars:0}));
+ let imports=0;const bytes=Buffer.from('original PDF');
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'Convert latest PDF',documents:{catalog:[{filename:'latest.pdf'}],resolve:async filename=>{assert.equal(filename,'latest.pdf');imports++;return {buffer:bytes,format:'pdf'};}}});
+ assert.equal(imports,1);assert.equal(result.sourcePageCount,1);assert.equal(result.calls,7);
+ assert.equal(f.events.some(e=>typeof e==='string' && e.endsWith('/task.py')),false);
+});
