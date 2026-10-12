@@ -44,10 +44,10 @@ export async function runFileWorkspace(options: {
   const abort = () => {void sandbox.stop().catch(()=>undefined);};
   signal.addEventListener('abort', abort, {once:true});
   let costUsd = 0;
-  const command = async (cmd:string,args:string[], cwd=ROOT) => {
+  const command = async (cmd:string,args:string[], cwd=ROOT, maxOutput=16000) => {
     signal.throwIfAborted();
     const r=await sandbox.runCommand({cmd,args,cwd});
-    const stdout=(await r.stdout()).slice(-16000), stderr=(await r.stderr()).slice(-6000);
+    const stdout=(await r.stdout()).slice(-maxOutput), stderr=(await r.stderr()).slice(-6000);
     if(r.exitCode!==0) throw new Error(`Command failed (${r.exitCode}): ${stderr || stdout}`);
     return stdout;
   };
@@ -83,7 +83,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
         parallel_tool_calls:false,max_tokens:WORKSPACE_LIMITS.outputTokens,stream:false}, {signal});
       const reported=completion.usage?.cost;
       if(typeof reported==='number' && Number.isFinite(reported) && reported>=0) {costUsd+=reported;options.onCost?.(reported);}
-      if (typeof reported !== 'number') throw new Error('Workspace usage accounting unavailable; stopping rather than running unmetered calls.');
+      if (typeof reported !== 'number' || !Number.isFinite(reported) || reported < 0) throw new Error('Workspace usage accounting unavailable; stopping rather than running unmetered calls.');
       const answer=completion.choices?.[0]?.message;
       if(!answer) throw new Error('Workspace model returned no response.');
       if (answer.tool_calls?.length > 1) throw new Error('Workspace requires sequential tool calls so each inspection is reviewed before publishing.');
@@ -130,7 +130,7 @@ for i,p in enumerate(doc):
  p.get_pixmap(matrix=fitz.Matrix(scale,scale),alpha=False).save(os.path.join(out,str(i+1)+'.png'))
 print(json.dumps({'pageCount':len(doc),'imageCount':len({image[0] for page in doc for image in page.get_images()}),'fullText':'\n'.join(texts)[:100000]}))`;
             await sandbox.writeFiles([{path:`${ROOT}/validate.py`,content:Buffer.from(script)}]);
-            const meta=JSON.parse(await command('timeout',['60','python3',`${ROOT}/validate.py`,`${ROOT}/${name}`,reviewDir]));
+            const meta=JSON.parse(await command('timeout',['60','python3',`${ROOT}/validate.py`,`${ROOT}/${name}`,reviewDir], ROOT, 700000));
             const pages:WorkspacePage[]=[];
             for(let p=1;p<=meta.pageCount;p++) {
               const data=await sandbox.readFileToBuffer({path:`${reviewDir}/${p}.png`});

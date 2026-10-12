@@ -5,14 +5,14 @@ function load(Sandbox) {
  const m=new Module(__filename,module);m.paths=module.paths;m.require=n=>n==='@vercel/sandbox'?{Sandbox}:require(n);
  m._compile(ts.transpileModule(fs.readFileSync('src/utils/fileWorkspace.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,__filename);return m.exports;
 }
-function fixture(calls,failSetup=false) {
+function fixture(calls,failSetup=false,fullText='Preserved text') {
  const events=[];let stopped=0;let n=0;
  const sandbox={mkDir:async()=>{},writeFiles:async()=>{},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
  readFileToBuffer:async()=>Buffer.from('fixture'),runCommand:async ({args})=>{
   events.push(args.join(' '));let out='';let exitCode=0;
   if(args.includes('pip')&&failSetup)exitCode=1;
   if(args.includes('-c'))out=JSON.stringify({size:7});
-  if(args.some(a=>a.endsWith('validate.py')))out=JSON.stringify({pageCount:1,fullText:'Preserved text'});
+  if(args.some(a=>a.endsWith('validate.py')))out=JSON.stringify({pageCount:1,fullText});
   return {exitCode,stdout:async()=>out,stderr:async()=>exitCode?'setup failed':''};
  }};
  const api=load({create:async options=>{events.push(options);return sandbox}});
@@ -57,4 +57,18 @@ test('multiple tool calls cannot inspect and publish without a model review betw
 test('missing accounting stops further model usage',async()=>{
  const f=fixture([]);f.openai.chat.completions.create=async()=>({usage:{},choices:[{message:{content:'done'}}]});
  await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/accounting unavailable/);assert.equal(f.stopped(),1);
+});
+
+test('long document text is retained without truncating validation JSON',async()=>{
+ const fullText='Long document text. '.repeat(4000);
+ const f=fixture([['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf',summary:'done'}]],false,fullText);
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
+ assert.equal(result.fullText,fullText);
+});
+test('invalid numeric accounting stops further model usage',async()=>{
+ for(const cost of [NaN,Infinity,-1]) {
+  const f=fixture([]);f.openai.chat.completions.create=async()=>({usage:{cost},choices:[{message:{content:'done'}}]});
+  await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/accounting unavailable/);
+  assert.equal(f.stopped(),1);
+ }
 });
