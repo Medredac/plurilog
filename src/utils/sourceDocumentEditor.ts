@@ -788,7 +788,7 @@ export async function executeSourcePreservingDocumentEdit(
 
   const serviceClient = createServiceClient();
   // Use the authenticated client for workspace source access, preserving storage RLS.
-  const downloaded = await options.supabase.storage
+  const downloaded = await (useWorkspace ? options.supabase : serviceClient).storage
     .from('message-images')
     .download(options.sourceStoragePath);
 

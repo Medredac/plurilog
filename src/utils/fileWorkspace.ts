@@ -86,6 +86,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
       if (typeof reported !== 'number') throw new Error('Workspace usage accounting unavailable; stopping rather than running unmetered calls.');
       const answer=completion.choices?.[0]?.message;
       if(!answer) throw new Error('Workspace model returned no response.');
+      if (answer.tool_calls?.length > 1) throw new Error('Workspace requires sequential tool calls so each inspection is reviewed before publishing.');
       messages.push(answer);
       if(!answer.tool_calls?.length) throw new Error(answer.content || 'Workspace did not finish the document.');
       for(const call of answer.tool_calls) {

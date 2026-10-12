@@ -544,7 +544,7 @@ export const GPT_FILE_TOOLS = [
           },
           blocks: {
             type: 'array',
-            minItems: 1,
+            minItems: FILE_WORKSPACE_ENABLED ? 0 : 1,
             maxItems: 200,
             items: {
               type: 'object',
@@ -11373,9 +11373,9 @@ export async function POST(req: NextRequest) {
                           null,
                         parentSnapshot: sourceParentState,
                         workspaceModel: primaryModel,
-                    originalUserPrompt: prompt,
-                    onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
-                    args: editArgs,
+                        originalUserPrompt: prompt,
+                        onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
+                        args: editArgs,
                         signal: seatAbortController.signal,
                       });
 
