@@ -392,9 +392,9 @@ interface EditedBytesResult {
   }>;
 }
 
-function cleanOutputFilename(sourceFilename: string, requested?: string): string {
+function cleanOutputFilename(sourceFilename: string, requested?: string, outputFormat?: 'pdf' | 'docx'): string {
   const source = (sourceFilename || 'document').split(/[\\/]/).pop() || 'document';
-  const ext = source.toLowerCase().endsWith('.pdf') ? '.pdf' : '.docx';
+  const ext = outputFormat ? `.${outputFormat}` : source.toLowerCase().endsWith('.pdf') ? '.pdf' : '.docx';
   if (requested && requested.trim()) {
     const clean = requested
       .split(/[\\/]/)
@@ -851,7 +851,8 @@ export async function publishWorkspaceDocument(
 
   const filename = cleanOutputFilename(
     options.sourceFilename,
-    options.args.filename
+    options.args.filename,
+    format
   );
   const finalContent = (options.isCreation ? 'Created **' : 'Edited **') + filename + '**.';
   const persistedMsg = await persistAssistantMessage({
