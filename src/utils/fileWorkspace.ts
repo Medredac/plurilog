@@ -88,7 +88,8 @@ export async function runFileWorkspace(options: {
     await command('mkdir', ['-p', ROOT], '/');
     // Trusted dependency setup happens before any user file or generated code enters the VM.
     await command('python3',['-m','pip','install','--quiet','--disable-pip-version-check',
-      'python-docx==1.2.0','PyMuPDF==1.26.4','reportlab==4.4.3','Pillow==11.3.0','matplotlib==3.10.6']);
+      'python-docx==1.2.0','PyMuPDF==1.26.4','reportlab==4.4.3','Pillow==11.3.0','matplotlib==3.10.6',
+      ...(options.format==='docx'?['pdf2docx==0.5.13']:[])]);
     await sandbox.updateNetworkPolicy('deny-all');
     if(source) {
       if(source.buffer.length>WORKSPACE_LIMITS.maxBytes) throw new Error('Source file exceeds 25 MB workspace limit.');
@@ -108,6 +109,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
     };
     let inspected: {name:string; hash:string; result:WorkspaceResult}|null=null;
     let sourceReview: WorkspaceResult | null = null;
+    let conversionDraftAttempted=false;
     let previousPreservationIssues:string[]=[];
     const rejectedDrafts=new Map<string,string[]>();
     const importedImages = new Map<string, {path:string; filename:string; width:number; height:number; preview:Buffer}>();
@@ -236,6 +238,17 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
             inspected={name,hash:crypto.createHash('sha256').update(buffer).digest('hex'),result:{buffer,fullText:meta.fullText,pageCount:meta.pageCount,imageCount:meta.imageCount,sourcePageCount:null,pages,sourcePages:[],costUsd,calls:modelCalls}};
             if(source && name===`input.${source.format}`) sourceReview=inspected.result;
             feedback={pageCount:meta.pageCount,text:meta.fullText.slice(0,16000),instruction:'Inspect the page images before deciding whether to fix or finish.'};
+            if(source?.format==='pdf' && options.format==='docx' && name==='input.pdf' && !conversionDraftAttempted) {
+              conversionDraftAttempted=true;
+              try {
+                await command('timeout',['60','python3','-c',"from pdf2docx import Converter; c=Converter('input.pdf'); c.convert('editable-draft.docx'); c.close()"]);
+                feedback.conversionDraft='editable-draft.docx';
+                feedback.instruction+=' A native editable Word starting draft has been converted from the actual PDF with pdf2docx. Inspect editable-draft.docx and repair its paragraphs, tables, artwork and layout using python-docx. This is an unverified starting point: remove inherited duplicates, fix overflow and contrast, and preserve meaningful content. Prefer repairing this native draft over reinventing PDF-to-Word with page screenshots or custom floating text boxes. Save the final document under a suitable filename.';
+              } catch(error:any) {
+                feedback.conversionDraftError=String(error?.message || error).slice(-1000);
+                feedback.instruction+=' Automatic editable conversion was unavailable. Build native Word paragraphs and tables from the inspected source instead.';
+              }
+            }
           } else if(call.function.name==='finish_file') {
             const name=workspaceFilename(args.filename);
             if(name===`input.${source?.format}`) throw new Error('Write the final output to a different filename.');

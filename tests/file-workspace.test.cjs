@@ -223,3 +223,18 @@ test('unchanged rejected drafts reuse feedback without paying for another review
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
  assert.equal(reviews,2);assert.equal(cachedFeedback,true);assert.equal(result.calls,9);
 });
+
+test('PDF-to-Word gives the worker a native conversion draft after source inspection',async()=>{
+ const f=fixture([['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.docx'}],['finish_file',{filename:'result.docx'}]],false,'Source content',()=>({editableText:'Source content'}));
+ const worker=f.openai.chat.completions.create;let sawDraft=false;
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format)sawDraft ||= req.messages.some(m=>m.role==='tool' && m.content.includes('editable-draft.docx'));
+  return worker(req);
+ };
+ await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'convert',source:{buffer:Buffer.from('source'),format:'pdf'}});
+ assert.equal(sawDraft,true);
+ const conversion=f.events.findIndex(e=>typeof e==='string' && e.includes('from pdf2docx import Converter'));
+ const inspection=f.events.findIndex(e=>typeof e==='string' && e.includes('validate.py'));
+ assert.ok(conversion>inspection);
+ assert.ok(f.events.some(e=>typeof e==='string' && e.includes('pdf2docx==0.5.13')));
+});
