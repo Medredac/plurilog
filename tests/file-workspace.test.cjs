@@ -24,8 +24,9 @@ function fixture(calls,failSetup=false,fullText='Preserved text') {
 }
 test('workspace blocks path traversal and unsupported formats',()=>{
  const {workspaceFilename}=load({});
- for(const bad of ['../../private.pdf','/tmp/file.pdf','x..pdf','doc.exe','x.pdf/secret',''])assert.throws(()=>workspaceFilename(bad));
+ for(const bad of ['../../private.pdf','/tmp/file.pdf','x..pdf','doc.exe','x.pdf/secret','/vercel/sandbox/workspace/../secret.pdf','/vercel/sandbox/workspace/sub/file.pdf',''])assert.throws(()=>workspaceFilename(bad));
  assert.equal(workspaceFilename('report-final.docx'),'report-final.docx');
+ assert.equal(workspaceFilename('/vercel/sandbox/workspace/report-final.docx'),'report-final.docx');
 });
 test('worker cannot finish without final render; successful result stays in memory, sandbox closes',async()=>{
  const f=fixture([['finish_file',{filename:'result.docx',summary:'done'}],['inspect_document',{filename:'result.docx'}],['finish_file',{filename:'result.docx',summary:'done'}]]);
