@@ -489,7 +489,7 @@ function loadDocumentImageResolver(brokerResult) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
