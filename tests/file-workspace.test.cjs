@@ -5,10 +5,10 @@ function load(Sandbox) {
  const m=new Module(__filename,module);m.paths=module.paths;m.require=n=>n==='@vercel/sandbox'?{Sandbox}:require(n);
  m._compile(ts.transpileModule(fs.readFileSync('src/utils/fileWorkspace.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,__filename);return m.exports;
 }
-function fixture(calls,failSetup=false,fullText='Preserved text',validation=()=>({})) {
+function fixture(calls,failSetup=false,fullText='Preserved text',validation=()=>({}),artifact=(path,version)=>'fixture'+version) {
  const events=[];const programs=new Map();let stopped=0;let n=0;let version=0;let code='';
  const sandbox={mkDir:async()=>{},writeFiles:async files=>{const task=files.find(f=>/\/run-\d+\.py$/.test(f.path));if(task){code=task.content.toString();programs.set(task.path,code)}},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
- readFileToBuffer:async()=>Buffer.from('fixture'+version),runCommand:async ({args})=>{
+ readFileToBuffer:async({path})=>Buffer.from(artifact(path,version)),runCommand:async ({args})=>{
   events.push(args.join(' '));let out='';let exitCode=0;
   if(args.some(a=>/\/run-\d+\.py$/.test(a)) && code==='change()')version++;
   if(args.includes('pip')&&failSetup)exitCode=1;
@@ -50,7 +50,7 @@ test('cost threshold stops additional usage and releases the sandbox',async()=>{
  const original=f.openai.chat.completions.create;
  f.openai.chat.completions.create=async req=>{const result=await original(req);result.usage.cost=0.125;return result};
  await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',onCost:c=>total+=c}),/continuation threshold/);
- assert.equal(f.stopped(),1);assert.equal(total,0.25);
+ assert.equal(f.stopped(),1);assert.equal(total,0.50);
 });
 test('a valid task can complete beyond ten steps',async()=>{
  const calls=Array.from({length:12},()=>['run_python',{code:'print(1)'}]);
@@ -267,4 +267,31 @@ test('repair runs retain the original program instead of overwriting it',async()
  assert.equal(f.programs.get('/vercel/sandbox/workspace/run-1.py'),original);
  assert.equal(f.programs.get('/vercel/sandbox/workspace/run-2.py'),repair);
  assert.equal(sawPath,true);
+});
+
+
+test('repair reviews retain approved content and reuse unchanged page verdicts',async()=>{
+ const f=fixture([
+  ['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}],
+  ['run_python',{code:'change()'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]
+ ],false,'original',(version,args)=>({pageCount:2,fullText:args.some(a=>a.endsWith('/input.pdf'))?'original':`approved draft ${version}`}),
+ (path,version)=>path.endsWith('/1.png')?'unchanged first page':`fixture${version}`);
+ const worker=f.openai.chat.completions.create;let contentReviews=0;const pageReviews=[];
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format)return worker(req);
+  const evidence=JSON.parse(req.messages[1].content[0].text);
+  if(req.max_tokens===3000){
+   contentReviews++;
+   assert.equal(evidence.referenceAlreadyApproved,contentReviews>1);
+   assert.equal(evidence.sourceText,contentReviews===1?'original':'approved draft 0');
+   assert.equal(req.temperature,0);
+   return {usage:{cost:0.002},choices:[{message:{content:JSON.stringify({approved:true,issues:[]})}}]};
+  }
+  pageReviews.push(evidence.page);
+  const rejected=evidence.page===2&&pageReviews.length===2;
+  return {usage:{cost:0.002},choices:[{message:{content:JSON.stringify({approved:!rejected,issues:rejected?['Repair overlapping title']:[]})}}]};
+ };
+ await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'convert',source:{buffer:Buffer.from('source'),format:'pdf'}});
+ assert.equal(contentReviews,2);
+ assert.deepEqual(pageReviews,[1,2,2]);
 });
