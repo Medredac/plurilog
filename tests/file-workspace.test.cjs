@@ -6,11 +6,11 @@ function load(Sandbox) {
  m._compile(ts.transpileModule(fs.readFileSync('src/utils/fileWorkspace.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,__filename);return m.exports;
 }
 function fixture(calls,failSetup=false,fullText='Preserved text',validation=()=>({})) {
- const events=[];let stopped=0;let n=0;let version=0;let code='';
- const sandbox={mkDir:async()=>{},writeFiles:async files=>{const task=files.find(f=>f.path.endsWith('/task.py'));if(task)code=task.content.toString()},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
+ const events=[];const programs=new Map();let stopped=0;let n=0;let version=0;let code='';
+ const sandbox={mkDir:async()=>{},writeFiles:async files=>{const task=files.find(f=>/\/run-\d+\.py$/.test(f.path));if(task){code=task.content.toString();programs.set(task.path,code)}},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
  readFileToBuffer:async()=>Buffer.from('fixture'+version),runCommand:async ({args})=>{
   events.push(args.join(' '));let out='';let exitCode=0;
-  if(args.some(a=>a.endsWith('/task.py')) && code==='change()')version++;
+  if(args.some(a=>/\/run-\d+\.py$/.test(a)) && code==='change()')version++;
   if(args.includes('pip')&&failSetup)exitCode=1;
   if(args.includes('-c'))out=JSON.stringify({size:7});
   if(args.some(a=>a.endsWith('validate.py'))) {const data=validation(version,args);out=typeof data==='string'?data:JSON.stringify({pageCount:1,fullText,...data});}
@@ -22,7 +22,7 @@ function fixture(calls,failSetup=false,fullText='Preserved text',validation=()=>
   const item=calls[n++] || ['run_python',{code:'print(1)'}];
   return {usage:{cost:0.001},choices:[{message:{role:'assistant',tool_calls:[{id:`t${n}`,type:'function',function:{name:item[0],arguments:JSON.stringify(item[1])}}]}}]};
  }}}};
- return {api,openai,events,stopped:()=>stopped};
+ return {api,openai,events,programs,stopped:()=>stopped};
 }
 test('workspace blocks path traversal and unsupported formats',()=>{
  const {workspaceFilename}=load({});
@@ -113,7 +113,7 @@ test('edits must inspect the actual source before generated code can run',async(
  };
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'Add logo and preserve content',source:{buffer:Buffer.from('source'),format:'pdf'}});
  assert.equal(result.calls,6);assert.equal(reviewRequests,1);assert.equal(result.sourcePageCount,1);
- assert.equal(f.events.some(e=>typeof e==='string' && e.endsWith('/task.py')),false);
+ assert.equal(f.events.some(e=>typeof e==='string' && /\/run-\d+\.py$/.test(e)),false);
 });
 
 test('independent preservation rejection returns repair feedback before publishing one final file',async()=>{
@@ -208,7 +208,7 @@ test('creation-route worker can retrieve a real source and must inspect it befor
  let imports=0;const bytes=Buffer.from('original PDF');
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'Convert latest PDF',documents:{catalog:[{filename:'latest.pdf'}],resolve:async filename=>{assert.equal(filename,'latest.pdf');imports++;return {buffer:bytes,format:'pdf'};}}});
  assert.equal(imports,1);assert.equal(result.sourcePageCount,1);assert.equal(result.calls,7);
- assert.equal(f.events.some(e=>typeof e==='string' && e.endsWith('/task.py')),false);
+ assert.equal(f.events.some(e=>typeof e==='string' && /\/run-\d+\.py$/.test(e)),false);
 });
 
 test('unchanged rejected drafts reuse feedback without paying for another review',async()=>{
@@ -250,4 +250,20 @@ test('invalid host renderer output stops without a paid repair loop',async()=>{
  await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/invalid verification data/);
  assert.equal(f.stopped(),1);
  assert.equal(f.events.filter(e=>typeof e==='string' && e.includes('validate.py')).length,1);
+});
+
+
+test('repair runs retain the original program instead of overwriting it',async()=>{
+ const original="print('create document')";
+ const repair="print(open('/vercel/sandbox/workspace/run-1.py').read())";
+ const f=fixture([['run_python',{code:original}],['run_python',{code:repair}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]]);
+ const worker=f.openai.chat.completions.create;let sawPath=false;
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format)sawPath ||= req.messages.some(m=>m.role==='tool' && m.content.includes('run-1.py'));
+  return worker(req);
+ };
+ await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create and repair'});
+ assert.equal(f.programs.get('/vercel/sandbox/workspace/run-1.py'),original);
+ assert.equal(f.programs.get('/vercel/sandbox/workspace/run-2.py'),repair);
+ assert.equal(sawPath,true);
 });

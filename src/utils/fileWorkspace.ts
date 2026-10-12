@@ -177,8 +177,11 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
             if(typeof args.code!=='string' || args.code.length>60000) throw new Error('Invalid or oversized Python program.');
             // finish_file compares current bytes with the inspected hash. Read-only checks
             // preserve the review; actual changes still require another inspection.
-            await sandbox.writeFiles([{path:`${ROOT}/task.py`,content:Buffer.from(args.code)}]);
-            feedback={stdout:await command('timeout',['60','python3',`${ROOT}/task.py`]), remainingSeconds:Math.max(0,Math.floor((WORKSPACE_LIMITS.lifetimeMs-(Date.now()-started))/1000)), instruction:'If document bytes changed, inspect the updated document before finishing. Read-only checks do not require another render.'};
+            // Keep earlier programs available for iterative edits; overwriting task.py
+            // made a repair that read its predecessor accidentally read itself.
+            const scriptPath=`${ROOT}/run-${step+1}.py`;
+            await sandbox.writeFiles([{path:scriptPath,content:Buffer.from(args.code)}]);
+            feedback={scriptPath,stdout:await command('timeout',['60','python3',scriptPath]), remainingSeconds:Math.max(0,Math.floor((WORKSPACE_LIMITS.lifetimeMs-(Date.now()-started))/1000)), instruction:'This program is saved at scriptPath; earlier programs remain available at their returned paths. You can read, patch and execute an earlier program for targeted repairs. If document bytes changed, inspect the updated document before finishing. Read-only checks do not require another render.'};
           } else if(call.function.name==='inspect_document') {
             const name=workspaceFilename(args.filename);
             if(source && name===`input.${source.format}`) await sandbox.writeFiles([{path:`${ROOT}/${name}`,content:source.buffer}]);
