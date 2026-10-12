@@ -151,6 +151,7 @@ print(json.dumps({'pageCount':len(doc),'imageCount':len({image[0] for page in do
           } else throw new Error('Unknown workspace tool.');
         } catch(error:any) {
           signal.throwIfAborted();
+          console.warn('[File Workspace] Tool failed', {step:step+1, tool:call.function.name, error:String(error?.message || error).slice(-500)});
           feedback={error:String(error?.message || error).slice(0,6000)};
         }
         messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(feedback)});
