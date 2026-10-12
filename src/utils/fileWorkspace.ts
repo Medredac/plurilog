@@ -88,7 +88,7 @@ export async function runFileWorkspace(options: {
     await command('mkdir', ['-p', ROOT], '/');
     // Trusted dependency setup happens before any user file or generated code enters the VM.
     await command('python3',['-m','pip','install','--quiet','--disable-pip-version-check',
-      'python-docx==1.2.0','PyMuPDF==1.26.4','reportlab==4.4.3','Pillow==11.3.0','matplotlib==3.10.6',
+      'python-docx==1.2.0','PyMuPDF==1.28.2','reportlab==4.4.3','Pillow==11.3.0','matplotlib==3.10.6',
       ...(options.format==='docx'?['pdf2docx==0.5.13']:[])]);
     await sandbox.updateNetworkPolicy('deny-all');
     if(source) {
