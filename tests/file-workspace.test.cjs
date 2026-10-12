@@ -99,3 +99,31 @@ test('imports authorized image bytes after network lockdown and caches repeated 
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'insert logo',images:{catalog:[{id:'image-1',filename:'original.png',current:true}],resolve:async()=>{assert.ok(f.events.includes('deny-all'));resolves++;return {data:png,contentType:'image/png',filename:'original.png'}}}});
  assert.equal(result.calls,4);assert.equal(resolves,1);assert.equal(f.stopped(),1);
 });
+
+test('edits must inspect the actual source before generated code can run',async()=>{
+ const f=fixture([['run_python',{code:'change()'}],['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]]);
+ const worker=f.openai.chat.completions.create;
+ let reviewRequests=0;
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format)return worker(req);
+  reviewRequests++;assert.equal(req.messages.length,2);
+  assert.match(req.messages[1].content[0].text,/sourceText/);
+  return {usage:{cost:0.002},choices:[{message:{content:JSON.stringify({approved:true,issues:[]})}}]};
+ };
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'Add logo and preserve content',source:{buffer:Buffer.from('source'),format:'pdf'}});
+ assert.equal(result.calls,5);assert.equal(reviewRequests,1);assert.equal(result.sourcePageCount,1);
+ assert.equal(f.events.some(e=>typeof e==='string' && e.endsWith('/task.py')),false);
+});
+
+test('independent preservation rejection returns repair feedback before publishing one final file',async()=>{
+ const f=fixture([['inspect_document',{filename:'input.pdf'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}],['run_python',{code:'change()'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]]);
+ const worker=f.openai.chat.completions.create;let reviews=0;let sawFeedback=false;
+ f.openai.chat.completions.create=async req=>{
+  if(!req.response_format){sawFeedback ||= req.messages.some(m=>m.role==='tool' && m.content.includes('Restore the omitted pricing paragraph'));return worker(req)}
+  reviews++;
+  return {usage:{cost:0.002},choices:[{message:{content:JSON.stringify({approved:reviews>1,issues:reviews>1?[]:['Restore the omitted pricing paragraph']})}}]};
+ };
+ let cost=0;
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'Reformat only',source:{buffer:Buffer.from('source'),format:'pdf'},onCost:c=>cost+=c});
+ assert.equal(reviews,2);assert.equal(result.calls,8);assert.equal(sawFeedback,true);assert.equal(result.costUsd,cost);assert.equal(f.stopped(),1);
+});
