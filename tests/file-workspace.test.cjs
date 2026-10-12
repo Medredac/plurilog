@@ -193,3 +193,11 @@ test('source edit dispatch passes original PDF bytes with DOCX output to the wor
  await assert.rejects(m.exports.executeSourcePreservingDocumentEdit({supabase,openai:{},discussionId:'discussion',sourceFilename:'source.pdf',sourceStoragePath:'user/source.pdf',args:{workspace_task:'make it Word',output_format:'docx',edits:[]}}),/verified handoff/);
  assert.equal(received.format,'docx');assert.equal(received.source.format,'pdf');assert.deepEqual(received.source.buffer,bytes);
 });
+
+
+test('source-edit tool schema exposes conversion target format',()=>{
+ const source=ts.createSourceFile('route.ts',fs.readFileSync('src/app/api/debate/route.ts','utf8'),ts.ScriptTarget.Latest,true);
+ let declaration;
+ const visit=node=>{if(ts.isVariableDeclaration(node) && node.name.getText(source)==='GPT_SOURCE_DOCUMENT_EDIT_TOOL')declaration=node;ts.forEachChild(node,visit);};visit(source);
+ assert.ok(declaration);assert.match(declaration.initializer.getText(source),/output_format:/);
+});
