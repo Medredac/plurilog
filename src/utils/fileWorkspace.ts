@@ -293,7 +293,7 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
         } catch(error:any) {
           signal.throwIfAborted();
           if(error instanceof WorkspaceAccountingError) throw error;
-          console.warn('[File Workspace] Tool failed', {step:step+1, tool:call.function.name, errorType:error?.name || 'Error'});
+          console.warn('[File Workspace] Tool failed', {step:step+1, tool:call.function.name, errorType:error?.name || 'Error', diagnostic:String(error?.message || error).slice(-1200)});
           feedback={error:String(error?.message || error).slice(0,6000)};
         }
         messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(feedback)});
