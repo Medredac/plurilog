@@ -53,7 +53,7 @@ export async function runFileWorkspace(options: {
   };
   try {
     signal.throwIfAborted();
-    await sandbox.mkDir(ROOT);
+    await command('mkdir', ['-p', ROOT], '/');
     // Trusted dependency setup happens before any user file or generated code enters the VM.
     await command('python3',['-m','pip','install','--quiet','--disable-pip-version-check',
       'python-docx==1.2.0','PyMuPDF==1.26.4','reportlab==4.4.3','Pillow==11.3.0','matplotlib==3.10.6']);
@@ -104,7 +104,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
             const buffer=await readBounded(name);
             const reviewId=crypto.randomBytes(6).toString('hex');
             const reviewDir=`${ROOT}/review-${reviewId}`;
-            await sandbox.mkDir(reviewDir);
+            await command('mkdir', ['-p', reviewDir]);
             // This validator is rewritten by the host each time; generated code cannot replace it.
             const script=String.raw`import os,sys,json,subprocess,shutil,zipfile
 import fitz

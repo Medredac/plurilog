@@ -47,3 +47,14 @@ test('attempt limit terminates, charges incurred model calls and releases sandbo
  await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',onCost:c=>total+=c}),/attempt limit/);
  assert.equal(f.stopped(),1);assert.ok(Math.abs(total-0.01)<1e-8);
 });
+test('already cancelled tasks never create a sandbox',async()=>{
+ const f=fixture([]);await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',signal:AbortSignal.abort()}));assert.equal(f.events.length,0);
+});
+test('multiple tool calls cannot inspect and publish without a model review between them',async()=>{
+ const f=fixture([]);f.openai.chat.completions.create=async()=>({usage:{cost:0.001},choices:[{message:{tool_calls:[{},{}]}}]});
+ await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/sequential/);assert.equal(f.stopped(),1);
+});
+test('missing accounting stops further model usage',async()=>{
+ const f=fixture([]);f.openai.chat.completions.create=async()=>({usage:{},choices:[{message:{content:'done'}}]});
+ await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/accounting unavailable/);assert.equal(f.stopped(),1);
+});
