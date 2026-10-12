@@ -1,3 +1,4 @@
+import { FILE_WORKSPACE_ENABLED, runFileWorkspace, workspaceOutputFormat, type WorkspaceResult, type WorkspaceImageBridge } from './fileWorkspace';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 import { ModelId } from '@/types/chat';
@@ -332,6 +333,8 @@ export interface SourceDocumentEditArgs {
   source_filename?: string;
   filename?: string;
   edits: SourceDocumentEditOperation[];
+  workspace_task?: string;
+  output_format?: 'pdf' | 'docx';
 }
 
 export interface ExecuteSourceDocumentEditOptions {
@@ -345,6 +348,10 @@ export interface ExecuteSourceDocumentEditOptions {
   sourceDocumentId?: string | null;
   parentSnapshot?: DocumentStateSnapshot | null;
   args: SourceDocumentEditArgs;
+  workspaceModel?: string;
+  workspaceImages?: WorkspaceImageBridge;
+  originalUserPrompt?: string;
+  onWorkspaceCost?: (usd: number) => void;
   signal?: AbortSignal;
 }
 
@@ -386,9 +393,9 @@ interface EditedBytesResult {
   }>;
 }
 
-function cleanOutputFilename(sourceFilename: string, requested?: string): string {
+function cleanOutputFilename(sourceFilename: string, requested?: string, outputFormat?: 'pdf' | 'docx'): string {
   const source = (sourceFilename || 'document').split(/[\\/]/).pop() || 'document';
-  const ext = source.toLowerCase().endsWith('.pdf') ? '.pdf' : '.docx';
+  const ext = outputFormat ? `.${outputFormat}` : source.toLowerCase().endsWith('.pdf') ? '.pdf' : '.docx';
   if (requested && requested.trim()) {
     const clean = requested
       .split(/[\\/]/)
@@ -759,13 +766,14 @@ export async function executeSourcePreservingDocumentEdit(
     throw new Error('A concrete source document is required for editing.');
   }
 
-  validateEdits(options.args.edits);
+  const useWorkspace = FILE_WORKSPACE_ENABLED && Boolean(options.args.workspace_task);
+  if (!useWorkspace) validateEdits(options.args.edits);
 
   console.log('[Source Document Edit] Starting', {
     discussionId: options.discussionId,
     sourceFilename: options.sourceFilename,
     sourceStoragePath: options.sourceStoragePath,
-    editCount: options.args.edits.length,
+    editCount: options.args.edits?.length || 0,
     hasParentSnapshot: Boolean(options.parentSnapshot),
   });
 
@@ -781,7 +789,8 @@ export async function executeSourcePreservingDocumentEdit(
           })();
 
   const serviceClient = createServiceClient();
-  const downloaded = await serviceClient.storage
+  // Use the authenticated client for workspace source access, preserving storage RLS.
+  const downloaded = await (useWorkspace ? options.supabase : serviceClient).storage
     .from('message-images')
     .download(options.sourceStoragePath);
 
@@ -802,14 +811,33 @@ export async function executeSourcePreservingDocumentEdit(
     );
   }
 
-  const edited =
-    format === 'docx'
-      ? await editDocxBytes(sourceBytes, options.args.edits, options.signal)
-      : await editPdfBytes(sourceBytes, options.args.edits, options.signal);
+  const outputFormat = useWorkspace ? workspaceOutputFormat(format, options.args) : format;
+  const workspace = useWorkspace ? await runFileWorkspace({
+    openai: options.openai, model: options.workspaceModel || 'openai/gpt-5.6-luna',
+    task: JSON.stringify({userRequest: options.originalUserPrompt, task: options.args.workspace_task}),
+    format: outputFormat, source: {buffer: sourceBytes, format}, signal: options.signal,
+    onCost: options.onWorkspaceCost,
+    images: options.workspaceImages,
+  }) : null;
+  const edited = workspace || (format === 'docx'
+    ? await editDocxBytes(sourceBytes, options.args.edits, options.signal)
+    : await editPdfBytes(sourceBytes, options.args.edits, options.signal));
+  return publishWorkspaceDocument(options, edited, outputFormat, sourceBytes, workspace);
+}
 
+/** Shared publication path: temporary drafts never reach storage or messages. */
+export async function publishWorkspaceDocument(
+  options: ExecuteSourceDocumentEditOptions & { isCreation?: boolean },
+  edited: EditedBytesResult,
+  format: 'docx' | 'pdf',
+  sourceBytes: Buffer,
+  workspace: WorkspaceResult | null,
+): Promise<ExecuteSourceDocumentEditResult> {
+  const serviceClient = createServiceClient();
   const baselinePageCount =
     options.parentSnapshot?.pageCount || edited.sourcePageCount || null;
   if (
+    !workspace &&
     baselinePageCount &&
     edited.pageCount &&
     baselinePageCount !== edited.pageCount
@@ -825,9 +853,10 @@ export async function executeSourcePreservingDocumentEdit(
 
   const filename = cleanOutputFilename(
     options.sourceFilename,
-    options.args.filename
+    options.args.filename,
+    format
   );
-  const finalContent = 'Edited **' + filename + '**.';
+  const finalContent = (options.isCreation ? 'Created **' : 'Edited **') + filename + '**.';
   const persistedMsg = await persistAssistantMessage({
     supabase: options.supabase,
     discussionId: options.discussionId,
@@ -966,6 +995,7 @@ export async function executeSourcePreservingDocumentEdit(
             {
               source_storage_path: options.sourceStoragePath,
               edits: options.args.edits,
+              workspace: Boolean(workspace),
             },
           ].slice(-20),
         },
@@ -985,7 +1015,7 @@ export async function executeSourcePreservingDocumentEdit(
           ].filter((value): value is string => Boolean(value))
         )
       ),
-      generationKind: 'revision',
+      generationKind: options.isCreation ? 'create' : 'revision',
     });
 
     documentStateId = state?.id || null;
@@ -1022,9 +1052,9 @@ export async function executeSourcePreservingDocumentEdit(
     documentId,
     documentStateId,
     pageCount: edited.pageCount,
-    visualReviewCostUsd: 0,
-    visualReviewApplied: false,
-    imageAssetCount: 0,
+    visualReviewCostUsd: workspace?.costUsd || 0,
+    visualReviewApplied: Boolean(workspace),
+    imageAssetCount: workspace?.imageCount || 0,
     imageCostUsd: 0,
   };
 }

@@ -484,14 +484,16 @@ test('ambiguous same-name PDFs still fail safe; unavailable cache falls back to 
   assert.equal(db.rows('discussion_documents').length, 1);
 });
 
-function loadDocumentImageResolver(brokerResult) {
+function loadDocumentImageResolver(brokerResult, overrides = {}) {
   const filename = path.resolve('src/utils/gptDocumentCreation.ts');
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  const referenceModule=new Module(filename,module);referenceModule.paths=module.paths;
+  referenceModule._compile(ts.transpileModule(fs.readFileSync('src/utils/workspaceDocumentReference.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
+  loaded.require = name => overrides[name] || (name === './workspaceDocumentReference' ? referenceModule.exports : name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
-    : name.startsWith('@/') ? {} : require(name);
+    : name.startsWith('@/') ? {} : require(name));
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
     '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -622,4 +624,80 @@ test('conversation memory retains a video filename and findings without a retrie
   assert.equal(attachment.storagePath, null);
   const text = formatRoundForContext({userPrompt:'Describe', attachments:[attachment],modelResponses:[{name:'Gemini',content:'At 0:04, a blue square appears.'}]});
   assert.match(text, /fresh upload required/); assert.match(text, /blue square/); assert.doesNotMatch(text, /video-ephemeral/);
+});
+
+
+test('workspace image bridge retrieves exact current and historical images even with duplicate names',async()=>{
+  const {createWorkspaceImageBridge}=loadDocumentImageResolver({status:'not_found'});
+  const seen=[];
+  const client={storage:{from:()=>({download:async path=>{seen.push(path);return {data:new Blob([path],{type:'image/png'})};}})}};
+  const bridge=createWorkspaceImageBridge({supabase:client,currentSourceMessageId:'current-message',availableImages:[
+    {filename:'logo.png',storagePath:'user/history.png',sourceMessageId:'old-message',sender:'gemini'},
+    {filename:'logo.png',storagePath:'user/current.png',sourceMessageId:'current-message',sender:'user'},
+  ]});
+  assert.equal(bridge.catalog[0].current,false);assert.equal(bridge.catalog[1].current,true);
+  const historical=await bridge.resolve({mode:'existing',asset_id:'image-1'});
+  const current=await bridge.resolve({mode:'existing',asset_id:'image-2'});
+  assert.equal(historical.data.toString(),'user/history.png');
+  assert.equal(current.data.toString(),'user/current.png');
+  await assert.rejects(bridge.resolve({mode:'existing',asset_id:'image-999'}),/Unknown image/);
+  assert.deepEqual(seen,['user/history.png','user/current.png']);
+});
+
+test('workspace creation with retrieved source passes actual source bytes and publishes as an edit',async()=>{
+ let published=0;
+ const original=Buffer.from('original pdf bytes');
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.deepEqual(options.source,{buffer:original,format:'pdf'});
+   assert.match(options.task,/preserve original/);
+   return {buffer:Buffer.from('finished'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published++;assert.equal(options.isCreation,false);assert.equal(options.sourceStoragePath,'user/source.pdf');
+   assert.deepEqual(sourceBytes,original);return {filename:'edited.pdf'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{
+  assert.equal(path,'user/source.pdf');return {data:new Blob([original])};
+ }})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',
+  args:{format:'pdf',filename:'edited.pdf',blocks:[],workspace_task:'Repaginate and preserve original'},
+  workspaceSource:{storagePath:'user/source.pdf',filename:'source.pdf'}});
+ assert.equal(published,1);
+});
+
+test('source imported inside creation workspace retains authenticated access and revision lineage',async()=>{
+ const original=Buffer.from('original pdf');let published=0;
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.equal(options.source,undefined);
+   await assert.rejects(options.documents.resolve('other-user.pdf'),/exact available/);
+   assert.deepEqual(await options.documents.resolve('latest.pdf'),{buffer:original,format:'pdf'});
+   return {buffer:Buffer.from('word result'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published++;assert.equal(options.isCreation,false);assert.equal(format,'docx');assert.equal(options.sourceStoragePath,'user/latest.pdf');assert.deepEqual(sourceBytes,original);return {filename:'converted.docx'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{assert.equal(path,'user/latest.pdf');return {data:new Blob([original])};}})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',args:{format:'docx',filename:'converted.docx',blocks:[],workspace_task:'Convert latest PDF'},resourceContext:{knownDocuments:[{filename:'latest.pdf',storagePath:'user/latest.pdf'}]}});
+ assert.equal(published,1);
+});
+
+
+test('explicit PDF source overrides a stale Word parent before workspace execution',async()=>{
+ const original=Buffer.from('six page pdf');let published=false;
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.deepEqual(options.source,{buffer:original,format:'pdf'});
+   return {buffer:Buffer.from('word result'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published=true;assert.equal(options.sourceStoragePath,'user/six.pdf');assert.equal(options.sourceFilename,'six.pdf');assert.deepEqual(sourceBytes,original);return {filename:'converted.docx'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{assert.equal(path,'user/six.pdf');return {data:new Blob([original])};}})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',originalUserPrompt:'Convert six.pdf to Word',args:{format:'docx',filename:'converted.docx',blocks:[],workspace_task:'Convert'},workspaceSource:{filename:'stale.docx',storagePath:'user/stale.docx'},resourceContext:{knownDocuments:[{filename:'six.pdf',storagePath:'user/six.pdf'}]}});
+ assert.equal(published,true);
 });
