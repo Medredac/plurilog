@@ -13,7 +13,7 @@ function fixture(calls,failSetup=false,fullText='Preserved text',validation=()=>
   if(args.some(a=>a.endsWith('/task.py')) && code==='change()')version++;
   if(args.includes('pip')&&failSetup)exitCode=1;
   if(args.includes('-c'))out=JSON.stringify({size:7});
-  if(args.some(a=>a.endsWith('validate.py')))out=JSON.stringify({pageCount:1,fullText,...validation(version,args)});
+  if(args.some(a=>a.endsWith('validate.py'))) {const data=validation(version,args);out=typeof data==='string'?data:JSON.stringify({pageCount:1,fullText,...data});}
   return {exitCode,stdout:async()=>out,stderr:async()=>exitCode?'setup failed':''};
  }};
  const api=load({create:async options=>{events.push(options);return sandbox}});
@@ -242,4 +242,12 @@ test('PDF-to-Word gives the worker a native conversion draft after source inspec
  const inspection=f.events.findIndex(e=>typeof e==='string' && e.includes('validate.py'));
  assert.ok(conversion>inspection);
  assert.ok(f.events.some(e=>typeof e==='string' && e.includes('pdf2docx==0.5.13')));
+});
+
+
+test('invalid host renderer output stops without a paid repair loop',async()=>{
+ const f=fixture([['inspect_document',{filename:'result.pdf'}]],false,'text',()=>"library warning\n{}");
+ await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/invalid verification data/);
+ assert.equal(f.stopped(),1);
+ assert.equal(f.events.filter(e=>typeof e==='string' && e.includes('validate.py')).length,1);
 });

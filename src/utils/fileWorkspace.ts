@@ -8,6 +8,7 @@ export const WORKSPACE_LIMITS = { lifetimeMs: 480_000, outputTokens: 12000, maxB
 const SNAPSHOT = 'snap_vwQhLmdtlIxq4OliWzLOjVlHEzuD';
 const ROOT = '/vercel/sandbox/workspace';
 class WorkspaceAccountingError extends Error {}
+class WorkspaceInfrastructureError extends Error {}
 export interface WorkspaceImageRequest {
   mode: 'existing' | 'generate' | 'edit';
   asset_id?: string; filename?: string; need?: string; prompt?: string;
@@ -187,7 +188,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
             await command('mkdir', ['-p', reviewDir]);
             // This validator is rewritten by the host each time; generated code cannot replace it.
             const script=String.raw`import os,sys,json,subprocess,shutil,zipfile
-import fitz
+import pymupdf as fitz
 src,out=sys.argv[1:]
 editableText=''; hiddenTextChars=0
 if src.endswith('.docx'):
@@ -221,7 +222,10 @@ for i,p in enumerate(doc):
  p.get_pixmap(matrix=fitz.Matrix(scale,scale),alpha=False).save(os.path.join(out,str(i+1)+'.png'))
 print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenTextChars,'pageCount':len(doc),'imageCount':len({image[0] for page in doc for image in page.get_images()}),'fullText':'\n'.join(texts)[:100000]}))`;
             await sandbox.writeFiles([{path:`${ROOT}/validate.py`,content:Buffer.from(script)}]);
-            const meta=JSON.parse(await command('timeout',['60','python3',`${ROOT}/validate.py`,`${ROOT}/${name}`,reviewDir], ROOT, 700000));
+            const validationOutput=await command('timeout',['60','python3',`${ROOT}/validate.py`,`${ROOT}/${name}`,reviewDir], ROOT, 700000);
+            let meta:any;
+            try { meta=JSON.parse(validationOutput); }
+            catch { throw new WorkspaceInfrastructureError('Document renderer returned invalid verification data.'); }
             if(name.endsWith('.docx') && name!==`input.${source?.format}` && source?.format==='pdf') {
               const sourceChars=(sourceReview?.fullText || '').replace(/\s/g,'').length;
               const visibleChars=(meta.editableText || '').replace(/\s/g,'').length;
@@ -313,7 +317,7 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
           } else throw new Error('Unknown workspace tool.');
         } catch(error:any) {
           signal.throwIfAborted();
-          if(error instanceof WorkspaceAccountingError) throw error;
+          if(error instanceof WorkspaceAccountingError || error instanceof WorkspaceInfrastructureError) throw error;
           console.warn('[File Workspace] Tool failed', {step:step+1, tool:call.function.name, errorType:error?.name || 'Error', diagnostic:String(error?.message || error).slice(-1200)});
           feedback={error:String(error?.message || error).slice(0,6000)};
         }
