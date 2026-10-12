@@ -210,3 +210,16 @@ test('creation-route worker can retrieve a real source and must inspect it befor
  assert.equal(imports,1);assert.equal(result.sourcePageCount,1);assert.equal(result.calls,7);
  assert.equal(f.events.some(e=>typeof e==='string' && e.endsWith('/task.py')),false);
 });
+
+test('unchanged rejected drafts reuse feedback without paying for another review',async()=>{
+ const f=fixture([['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}],['run_python',{code:'change()'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]]);
+ const worker=f.openai.chat.completions.create;let reviews=0;let cachedFeedback=false;
+ f.openai.chat.completions.create=async req=>{
+  if(req.response_format){reviews++;return {usage:{cost:0.002},choices:[{message:{content:JSON.stringify({approved:reviews>1,issues:reviews>1?[]:['Fix clipped heading']})}}]}}
+  assert.equal(req.reasoning.effort,'high');
+  cachedFeedback ||= req.messages.some(m=>m.role==='tool' && m.content.includes('already rejected'));
+  return worker(req);
+ };
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
+ assert.equal(reviews,2);assert.equal(cachedFeedback,true);assert.equal(result.calls,9);
+});

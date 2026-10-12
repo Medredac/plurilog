@@ -109,6 +109,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
     let inspected: {name:string; hash:string; result:WorkspaceResult}|null=null;
     let sourceReview: WorkspaceResult | null = null;
     let previousPreservationIssues:string[]=[];
+    const rejectedDrafts=new Map<string,string[]>();
     const importedImages = new Map<string, {path:string; filename:string; width:number; height:number; preview:Buffer}>();
     let importedBytes = 0;
     const messages:any[]=[{role:'system',content:INSTRUCTIONS},{role:'user',content:JSON.stringify({request:options.task,outputFormat:options.format,source:source?`input.${source.format}`:null,availableImages:options.images?.catalog.slice(0,40) || [],totalAvailableImages:options.images?.catalog.length || 0,availableDocuments:options.documents?.catalog || []})}];
@@ -116,7 +117,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
       signal.throwIfAborted();
       if (costUsd >= 0.25) throw new Error('Workspace model usage reached its $0.25 continuation threshold.');
       const completion=await options.openai.chat.completions.create({model:options.model,messages,tools:[...TOOLS,...(options.images?IMAGE_TOOLS:[]),...(options.documents?DOCUMENT_TOOLS:[])],
-        parallel_tool_calls:false,tool_choice:'required',max_tokens:WORKSPACE_LIMITS.outputTokens,stream:false}, {signal});
+        parallel_tool_calls:false,tool_choice:'required',reasoning:{effort:'high'},max_tokens:WORKSPACE_LIMITS.outputTokens,stream:false}, {signal});
       modelCalls++;
       const reported=completion.usage?.cost;
       if(typeof reported==='number' && Number.isFinite(reported) && reported>=0) {costUsd+=reported;options.onCost?.(reported);}
@@ -241,6 +242,11 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
             if(!name.endsWith(`.${options.format}`)) throw new Error('Output format does not match request.');
             const bytes=await readBounded(name);
             if(!inspected || inspected.name!==name || inspected.hash!==crypto.createHash('sha256').update(bytes).digest('hex')) throw new Error('Inspect this exact final file before finishing.');
+            const priorRejection=rejectedDrafts.get(inspected.hash);
+            if(priorRejection) {
+              messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify({reviewPassed:false,issues:priorRejection,instruction:'This exact draft was already rejected. Change the document to repair these issues, then inspect the new version. Re-inspection alone does not repair the file.'})});
+              continue;
+            }
             if(sourceReview) {
               if(costUsd>=0.25) throw new Error('Workspace model usage reached its $0.25 continuation threshold.');
               const reviewContent:any[]=[{type:'text',text:JSON.stringify({userRequest:options.task,sourceText:sourceReview.fullText,resultText:inspected.result.fullText,previousIssues:previousPreservationIssues})}];
@@ -260,6 +266,7 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
               console.log('[File Workspace] Preservation review',{approved:verdict.approved,issues:verdict.issues.length,findings:verdict.issues.slice(0,8).map((issue:unknown)=>String(issue).slice(0,700)),costUsd});
               previousPreservationIssues=verdict.issues;
               if(!verdict.approved || verdict.issues.length) {
+                rejectedDrafts.set(inspected.hash,verdict.issues);
                 feedback={reviewPassed:false,issues:verdict.issues,instruction:'Repair these discrepancies using the original source. Do not summarize or recreate unrequested content. Inspect the repaired file before finishing.'};
                 messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify(feedback)});
                 continue;
@@ -284,6 +291,7 @@ print(json.dumps({'editableText':editableText[:100000],'hiddenTextChars':hiddenT
               visualIssues.push(...verdict.issues.map((issue:string)=>`Page ${page.pageNumber}: ${issue}`));
             }
             if(visualIssues.length) {
+              rejectedDrafts.set(inspected.hash,visualIssues);
               messages.push({role:'tool',tool_call_id:call.id,content:JSON.stringify({reviewPassed:false,issues:visualIssues,instruction:'Repair these visual defects without losing source content. Inspect the repaired document before finishing again.'})});
               continue;
             }
