@@ -6,6 +6,13 @@ const Module = require('node:module');
 const path = require('node:path');
 const OpenAI = require('openai');
 
+const svgPath = path.resolve('src/utils/svgImage.ts');
+const svgModule = new Module(svgPath, module);
+svgModule.filename = svgPath;
+svgModule.paths = module.paths;
+svgModule._compile(ts.transpileModule(fs.readFileSync(svgPath, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+}).outputText, svgPath);
 const filename = path.resolve('src/utils/requestFileTransport.ts');
 const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -13,6 +20,7 @@ const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
 const mod = new Module(filename, module);
 mod.filename = filename;
 mod.paths = module.paths;
+mod.require = name => name === './svgImage' ? svgModule.exports : require(name);
 mod._compile(compiled, filename);
 const { createRequestFileTransport } = mod.exports;
 const memoryPath = path.resolve('src/utils/discussionMemory.ts');
@@ -489,7 +497,7 @@ function loadDocumentImageResolver(brokerResult) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
@@ -622,4 +630,66 @@ test('conversation memory retains a video filename and findings without a retrie
   assert.equal(attachment.storagePath, null);
   const text = formatRoundForContext({userPrompt:'Describe', attachments:[attachment],modelResponses:[{name:'Gemini',content:'At 0:04, a blue square appears.'}]});
   assert.match(text, /fresh upload required/); assert.match(text, /blue square/); assert.doesNotMatch(text, /video-ephemeral/);
+});
+
+
+const svgLogo = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="20" height="20" fill="#d97757"/></svg>');
+const svgUrl = `${origin}/storage/v1/object/sign/message-images/user/Claude_AI_symbol.svg?token=private`;
+test('SVG uploads and refreshed historical references become one cached transparent PNG, preserving canonical source bytes', async () => {
+  const sent = []; let downloads = 0;
+  const h = harness({ fetchImpl: async (url, init) => {
+    if (url === apiUrl) { sent.push(JSON.parse(init.body)); return response(); }
+    downloads++; return new Response(svgLogo, { headers: { 'content-type': 'image/svg+xml' } });
+  } });
+  const original = body([imagePart(svgUrl)]);
+  await Promise.all([h.send(original), h.send(body([imagePart(svgUrl.replace('private', 'refreshed'))]))]);
+  assert.equal(downloads, 1);
+  const encoded = sent[0].messages[0].content[1].image_url.url;
+  assert.match(encoded, /^data:image\/png;base64,/);
+  assert.equal(encoded, sent[1].messages[0].content[1].image_url.url);
+  assert.equal(original.messages[0].content[1].image_url.url, svgUrl);
+  assert.deepEqual((await h.transport.read(svgUrl)).bytes, svgLogo);
+  const sharp = require('sharp');
+  const meta = await sharp(Buffer.from(encoded.split(',')[1], 'base64')).metadata();
+  assert.equal(meta.format, 'png'); assert.equal(meta.hasAlpha, true);
+  assert.equal(meta.width / meta.height, 2);
+});
+
+test('SVG is an image in historical memory and resolves by filename for document embedding', async () => {
+  assert.equal(memoryModule.exports.isImageUrl(svgUrl), true);
+  assert.equal(memoryModule.exports.isImageUrl('file.pdf'), false);
+  const { resolveDocumentBlocks } = loadDocumentImageResolver({status: 'not_found'});
+  const source = {filename: 'Claude_AI_symbol.svg', storagePath: 'user/logo.svg', sender: 'user'};
+  const client = {storage: {from: () => ({download: async () => ({data: new Blob([svgLogo], {type: 'image/svg+xml'}), error: null})})}};
+  const result = await resolveDocumentBlocks([{type: 'image', mode: 'existing', need: source.filename, filename: source.filename}], client, [source], {}, undefined);
+  assert.equal(result.blocks[0].imageContentType, 'image/png');
+  assert.equal((await require('sharp')(result.blocks[0].imageData).metadata()).format, 'png');
+  assert.equal(result.imageBindings[0].source.filename, source.filename);
+});
+
+test('SVG provider rejection never retries the unsupported original vector URL', async () => {
+  let attempts = 0;
+  const h = harness({fetchImpl: async (url, init) => {
+    if (url === apiUrl) { attempts++; assert.match(JSON.parse(init.body).messages[0].content[1].image_url.url, /^data:image\/png;/); return new Response('base64 unsupported', {status: 400}); }
+    return new Response(svgLogo, {headers: {'content-type':'image/svg+xml'}});
+  }});
+  assert.equal((await h.send(body([imagePart(svgUrl)]))).status, 400);
+  assert.equal(attempts, 1);
+});
+
+
+test('historical SVG uploads skipped by production are registered once with their original message and position', async () => {
+  const db = memoryStore();
+  db.files.set('user/Claude_AI_symbol.svg', svgLogo);
+  db.rows('messages').push({id:'old-upload', discussion_id:'svg-discussion', sender:'user', created_at:'2026-10-11T00:00:00Z', attachment_urls:[pdfUrl, svgUrl + '#filename=Claude_AI_symbol.svg']});
+  db.rows('messages').push({id:'unrelated', discussion_id:'other-discussion', sender:'user', attachment_urls:[svgUrl]});
+  const first = await memoryModule.exports.fetchKnownImageSources(db.client, 'svg-discussion');
+  const second = await memoryModule.exports.fetchKnownImageSources(db.client, 'svg-discussion');
+  assert.equal(first.length, 1); assert.equal(second.length, 1);
+  assert.equal(first[0].filename, 'Claude_AI_symbol.svg');
+  assert.equal(first[0].attachmentIndex, 1);
+  assert.equal(first[0].sourceMessageId, 'old-upload');
+  assert.equal(first[0].sourceId, second[0].sourceId);
+  assert.equal(db.rows('discussion_artifact_sources').length, 1);
+  assert.deepEqual(db.files.get('user/Claude_AI_symbol.svg'), svgLogo);
 });

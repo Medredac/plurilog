@@ -1,3 +1,4 @@
+import { rasterizeSvg } from './svgImage';
 /**
  * Lossless, request-local transport for private document inputs. Canonical URLs
  * remain in messages/artifact state; only the outgoing OpenRouter body changes.
@@ -31,6 +32,7 @@ export function createRequestFileTransport(options: TransportOptions) {
   const maxCacheBytes = options.maxCacheBytes ?? 64 * MIB;
   const maxBodyBytes = options.maxBodyBytes ?? 64 * MIB;
   const cache = new Map<string, Promise<CachedFile | null>>();
+  const renderedSvgs = new Map<string, Promise<CachedFile>>();
   let retainedBytes = 0;
   let reservedBytes = 0;
   let downloads = 0;
@@ -53,7 +55,7 @@ export function createRequestFileTransport(options: TransportOptions) {
       // transformations or object versions with the original bytes.
       if ([...parsed.searchParams.keys()].some((key) => key !== 'token' && key !== 'download')) return null;
       const extension = match[1].split('.').pop()?.toLowerCase();
-      const mime = ({ pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' } as Record<string, string>)[extension || ''];
+      const mime = ({ pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' } as Record<string, string>)[extension || ''];
       return mime ? { key: match[1], mime } : null;
     } catch { return null; }
   }
@@ -162,7 +164,7 @@ export function createRequestFileTransport(options: TransportOptions) {
         : options.requestSignal };
     }
     if (target !== 'https://openrouter.ai/api/v1/chat/completions' ||
-        init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string' || providerUrlOnly) {
+        init?.method?.toUpperCase() !== 'POST' || typeof init.body !== 'string') {
       return upstreamFetch(input, init);
     }
     throwIfCancelled(init.signal);
@@ -172,10 +174,11 @@ export function createRequestFileTransport(options: TransportOptions) {
     if (!Array.isArray(payload.messages)) return upstreamFetch(input, init);
     // Image-generation providers can have much smaller upload limits. This
     // transport is for document/vision input; their existing transport is kept.
-    if (payload.modalities?.includes('image')) return upstreamFetch(input, init);
+    const imageGeneration = payload.modalities?.includes('image');
 
     let estimatedBodyBytes = Buffer.byteLength(init.body);
     let inlined = 0;
+    let convertedSvgs = 0;
     let inlineBytes = 0;
     for (const message of payload.messages) {
       if (!Array.isArray(message?.content)) continue;
@@ -184,10 +187,31 @@ export function createRequestFileTransport(options: TransportOptions) {
         const field = part?.type === 'file' ? 'file_data' : 'url';
         const url = holder?.[field];
         if (!holder || typeof url !== 'string' || !source(url)) continue;
-        const file = await read(url, init.signal);
+        const entry = source(url)!;
+        const isSvg = entry.mime === 'image/svg+xml';
+        if ((providerUrlOnly || imageGeneration) && !isSvg) continue;
+        let file = await read(url, init.signal);
+        if (isSvg) {
+          if (!file) throw new Error('Could not load the SVG attachment for image conversion.');
+          let rendered = renderedSvgs.get(entry.key);
+          if (!rendered) {
+            const original = file.bytes;
+            rendered = rasterizeSvg(original).then(bytes => {
+              if (retainedBytes + reservedBytes + bytes.length > maxCacheBytes) throw new Error('SVG conversion exceeds the request image capacity.');
+              retainedBytes += bytes.length;
+              return { bytes, mime: 'image/png' };
+            });
+            renderedSvgs.set(entry.key, rendered);
+          }
+          file = await waitForFile(rendered, init.signal);
+          convertedSvgs++;
+        }
         if (!file) { urlFallbacks++; continue; }
         const encodedSize = 4 * Math.ceil(file.bytes.length / 3) + file.mime.length + 13;
-        if (estimatedBodyBytes + encodedSize > maxBodyBytes) { urlFallbacks++; continue; }
+        if (estimatedBodyBytes + encodedSize > maxBodyBytes) {
+          if (isSvg) throw new Error('Converted SVG exceeds the model request size limit.');
+          urlFallbacks++; continue;
+        }
         holder[field] = `data:${file.mime};base64,${file.bytes.toString('base64')}`;
         estimatedBodyBytes += encodedSize;
         inlined++;
@@ -202,7 +226,7 @@ export function createRequestFileTransport(options: TransportOptions) {
     const response = await upstreamFetch(input, { ...init, headers, body: JSON.stringify(payload) });
     // Only replay a rejected, non-streaming input request. Never replay a
     // successful stream, timeout, rate limit or provider/tool error.
-    if ([400, 413, 422].includes(response.status) && !response.headers.get('content-type')?.includes('text/event-stream')) {
+    if (!convertedSvgs && [400, 413, 422].includes(response.status) && !response.headers.get('content-type')?.includes('text/event-stream')) {
       const errorText = (await response.clone().text()).slice(0, 8_192);
       if (response.status === 413 || /(?:base64|data[ -]?uri|data[ -]?url).{0,100}(?:unsupported|not supported|invalid|too large)|(?:request|payload|body).{0,50}(?:too large|size limit)/i.test(errorText)) {
         await response.body?.cancel();

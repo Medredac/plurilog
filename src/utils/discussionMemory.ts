@@ -252,6 +252,7 @@ export const SUPPORTED_IMAGE_EXTENSIONS = [
   '.jpeg',
   '.webp',
   '.gif',
+  '.svg', // Rasterized to PNG at model/document consumer boundaries.
 ] as const;
 
 /**
@@ -5916,14 +5917,39 @@ export async function fetchKnownImageSources(
   if (!serviceSupabase || !discussionId) return [];
 
   try {
-    const { data: sourceRows, error: srcErr } = await serviceSupabase
+    let { data: sourceRows, error: srcErr } = await serviceSupabase
       .from('discussion_artifact_sources')
       .select('id, discussion_id, artifact_id, storage_path, filename, source_message_id, attachment_index, created_at')
       .eq('discussion_id', discussionId);
 
-    if (srcErr || !Array.isArray(sourceRows) || sourceRows.length === 0) {
-      return [];
+    if (srcErr || !Array.isArray(sourceRows)) return [];
+
+    // Earlier versions accepted SVG uploads but never registered them as images.
+    // Repair missing aliases from this discussion's original user messages once;
+    // retain their full attachment positions and never replace stored SVG bytes.
+    const { data: legacyMessages } = await serviceSupabase.from('messages')
+      .select('id, attachment_urls').eq('discussion_id', discussionId).eq('sender', 'user');
+    const registered = new Set(sourceRows.map((row: any) => `${row.source_message_id}:${row.storage_path}`));
+    let repaired = false;
+    for (const message of legacyMessages || []) {
+      const urls = Array.isArray(message.attachment_urls) ? message.attachment_urls : [];
+      const attachments = urls.map((url: unknown) => {
+        if (typeof url !== 'string') return { url: '' };
+        const storagePath = extractStoragePathFromSignedUrl(url);
+        if (!storagePath?.toLowerCase().endsWith('.svg') || registered.has(`${message.id}:${storagePath}`)) return { url: '' };
+        return { url, filename: attachmentDisplayFilename(url) || storagePath.split('/').pop() };
+      });
+      if (!attachments.some((attachment: {url: string}) => attachment.url)) continue;
+      const result = await ingestDiscussionArtifacts({ serviceSupabase, discussionId, attachments, sourceUserMessageId: message.id });
+      repaired ||= result.ingestedCount > 0;
     }
+    if (repaired) {
+      const refreshed = await serviceSupabase.from('discussion_artifact_sources')
+        .select('id, discussion_id, artifact_id, storage_path, filename, source_message_id, attachment_index, created_at')
+        .eq('discussion_id', discussionId);
+      if (!refreshed.error && Array.isArray(refreshed.data)) sourceRows = refreshed.data;
+    }
+    if (sourceRows.length === 0) return [];
 
     // 1. Fetch canonical artifact types to strictly filter artifact_type = 'image'
     const artifactIds = Array.from(new Set(sourceRows.map((s: any) => s.artifact_id).filter(Boolean)));

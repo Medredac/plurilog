@@ -1,3 +1,4 @@
+import { rasterizeSvg } from './svgImage';
 import crypto from 'node:crypto';
 import { preparePdfPhotoRebuild, selectPhotoRebuildSource, photoNumber, MAX_REBUILT_PHOTOS } from './pdfPhotoRebuild';
 import { ModelId } from '@/types/chat';
@@ -652,7 +653,7 @@ function applyDocxDocumentConventions(
 function isImageFilename(value?: string | null): boolean {
   if (!value) return false;
   const clean = value.split('?')[0].split('#')[0].toLowerCase();
-  return /\.(png|jpe?g|webp|gif|bmp)$/.test(clean);
+  return /\.(png|jpe?g|webp|gif|bmp|svg)$/.test(clean);
 }
 
 function mediaTypeFromFilename(filename?: string | null): string {
@@ -660,6 +661,7 @@ function mediaTypeFromFilename(filename?: string | null): string {
   if (clean.endsWith('.jpg') || clean.endsWith('.jpeg')) return 'image/jpeg';
   if (clean.endsWith('.webp')) return 'image/webp';
   if (clean.endsWith('.gif')) return 'image/gif';
+  if (clean.endsWith('.svg')) return 'image/svg+xml';
   if (clean.endsWith('.bmp')) return 'image/bmp';
   return 'image/png';
 }
@@ -825,6 +827,10 @@ async function downloadImageBytes(
     throw new Error('Resolved document image is a PDF; use its extracted image asset instead.');
   }
   if (data.length > MAX_DOCUMENT_IMAGE_BYTES) throw new Error('Document image exceeds the 15 MB image limit.');
+  if (contentType === 'image/svg+xml' || /\.svg(?:[?#]|$)/i.test(source.filename || source.storagePath || source.url || '')) {
+    data = await rasterizeSvg(data);
+    contentType = 'image/png';
+  }
   return { data, contentType, filename: source.filename || 'image.png' };
 }
 
