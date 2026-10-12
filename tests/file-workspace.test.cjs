@@ -231,12 +231,13 @@ test('PDF-to-Word gives the worker a native conversion draft after source inspec
   if(!req.response_format)sawDraft ||= req.messages.some(m=>m.role==='tool' && m.content.includes('editable-draft.docx'));
   if(req.response_format && req.max_tokens!==1600) {
    const evidence=JSON.parse(req.messages[1].content[0].text);
+   assert.equal(evidence.userRequest,'convert');
    assert.equal(evidence.hostValidatedStructure.format,'docx');
    assert.equal(evidence.hostValidatedStructure.nativeWordText,'Source content');
   }
   return worker(req);
  };
- await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'convert',source:{buffer:Buffer.from('source'),format:'pdf'}});
+ await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:JSON.stringify({userRequest:'convert',task:'internal routing notes'}),source:{buffer:Buffer.from('source'),format:'pdf'}});
  assert.equal(sawDraft,true);
  const conversion=f.events.findIndex(e=>typeof e==='string' && e.includes('from pdf2docx import Converter'));
  const inspection=f.events.findIndex(e=>typeof e==='string' && e.includes('validate.py'));
