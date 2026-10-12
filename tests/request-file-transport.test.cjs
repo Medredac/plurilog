@@ -489,7 +489,9 @@ function loadDocumentImageResolver(brokerResult, overrides = {}) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => overrides[name] || (name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  const referenceModule=new Module(filename,module);referenceModule.paths=module.paths;
+  referenceModule._compile(ts.transpileModule(fs.readFileSync('src/utils/workspaceDocumentReference.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
+  loaded.require = name => overrides[name] || (name === './workspaceDocumentReference' ? referenceModule.exports : name === './fileWorkspace' ? { FILE_WORKSPACE_ENABLED: false } : name === './sourceDocumentEditor' ? {} : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name));
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
@@ -681,4 +683,21 @@ test('source imported inside creation workspace retains authenticated access and
  const client={storage:{from:()=>({download:async path=>{assert.equal(path,'user/latest.pdf');return {data:new Blob([original])};}})}};
  await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',args:{format:'docx',filename:'converted.docx',blocks:[],workspace_task:'Convert latest PDF'},resourceContext:{knownDocuments:[{filename:'latest.pdf',storagePath:'user/latest.pdf'}]}});
  assert.equal(published,1);
+});
+
+
+test('explicit PDF source overrides a stale Word parent before workspace execution',async()=>{
+ const original=Buffer.from('six page pdf');let published=false;
+ const {executeGptDocumentCreation}=loadDocumentImageResolver({}, {
+  './fileWorkspace':{FILE_WORKSPACE_ENABLED:true,runFileWorkspace:async options=>{
+   assert.deepEqual(options.source,{buffer:original,format:'pdf'});
+   return {buffer:Buffer.from('word result'),pages:[],sourcePages:[]};
+  }},
+  './sourceDocumentEditor':{publishWorkspaceDocument:async(options,result,format,sourceBytes)=>{
+   published=true;assert.equal(options.sourceStoragePath,'user/six.pdf');assert.equal(options.sourceFilename,'six.pdf');assert.deepEqual(sourceBytes,original);return {filename:'converted.docx'};
+  }},
+ });
+ const client={storage:{from:()=>({download:async path=>{assert.equal(path,'user/six.pdf');return {data:new Blob([original])};}})}};
+ await executeGptDocumentCreation({supabase:client,openai:{},discussionId:'discussion',messageId:'message',seatId:'chatgpt',originalUserPrompt:'Convert six.pdf to Word',args:{format:'docx',filename:'converted.docx',blocks:[],workspace_task:'Convert'},workspaceSource:{filename:'stale.docx',storagePath:'user/stale.docx'},resourceContext:{knownDocuments:[{filename:'six.pdf',storagePath:'user/six.pdf'}]}});
+ assert.equal(published,true);
 });

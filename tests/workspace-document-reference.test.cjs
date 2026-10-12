@@ -16,3 +16,13 @@ test('malformed decisions and missing accounting cannot silently choose a source
  await assert.rejects(workspaceUsesLatestDocument(options({usage:{cost:.001},choices:[{message:{content:'{}'}}]})),/invalid result/);
  await assert.rejects(workspaceUsesLatestDocument(options({usage:{},choices:[{message:{content:'{"useLatest":true}'}}]})),/accounting/);
 });
+const {explicitlyNamedWorkspaceSource}=m.exports;
+test('literal source filename wins over stale context without inferring intent from phrases',()=>{
+ const pdf={filename:'preserved.pdf',storagePath:'six-pages'};
+ const docx={filename:'preserved.docx',storagePath:'old-word'};
+ assert.equal(explicitlyNamedWorkspaceSource('Convert preserved.pdf to Word','output.docx',[pdf,docx]),pdf);
+ assert.equal(explicitlyNamedWorkspaceSource('make it Word','output.docx',[pdf,docx]),null);
+ assert.equal(explicitlyNamedWorkspaceSource('Compare preserved.pdf and preserved.docx','output.docx',[pdf,docx]),null);
+ assert.equal(explicitlyNamedWorkspaceSource('Use other-preserved.pdf','output.docx',[pdf,docx]),null);
+ assert.equal(explicitlyNamedWorkspaceSource('Return preserved.docx','preserved.docx',[pdf,docx]),null);
+});

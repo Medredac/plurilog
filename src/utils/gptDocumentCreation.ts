@@ -1,3 +1,4 @@
+import { explicitlyNamedWorkspaceSource } from './workspaceDocumentReference';
 import { FILE_WORKSPACE_ENABLED, runFileWorkspace, type WorkspaceImageBridge } from './fileWorkspace';
 import { publishWorkspaceDocument } from './sourceDocumentEditor';
 import crypto from 'node:crypto';
@@ -1855,7 +1856,8 @@ export async function executeGptDocumentCreation(
   } = options;
 
   if (FILE_WORKSPACE_ENABLED && args.workspace_task) {
-    let workspaceSource = options.workspaceSource || sourceDocx || revisionContext?.parentSnapshot || null;
+    const namedSource=explicitlyNamedWorkspaceSource(originalUserPrompt,args.filename,resourceContext?.knownDocuments || []);
+    let workspaceSource = namedSource || options.workspaceSource || sourceDocx || revisionContext?.parentSnapshot || null;
     let source: {buffer:Buffer;format:'pdf'|'docx'} | undefined;
     if(workspaceSource) {
       const sourceFormat=workspaceSource.filename.toLowerCase().endsWith('.pdf') ? 'pdf' : workspaceSource.filename.toLowerCase().endsWith('.docx') ? 'docx' : null;
@@ -1889,7 +1891,7 @@ export async function executeGptDocumentCreation(
     const result = await publishWorkspaceDocument({
       supabase, openai, discussionId, messageId, seatId, signal: durableSignal,
       sourceStoragePath: workspaceSource?.storagePath || '', sourceFilename: workspaceSource?.filename || args.filename, isCreation: !source,
-      parentSnapshot: revisionContext?.parentSnapshot || null,
+      parentSnapshot: revisionContext?.parentSnapshot?.storagePath === workspaceSource?.storagePath ? revisionContext?.parentSnapshot || null : null,
       args: {filename: args.filename, edits: [], workspace_task: args.workspace_task},
     }, workspace, args.format, source?.buffer || Buffer.alloc(0), workspace);
     // Workspace model usage has already been accounted through the per-call callback.

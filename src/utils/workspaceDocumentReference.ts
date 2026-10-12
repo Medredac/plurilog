@@ -17,3 +17,22 @@ export async function workspaceUsesLatestDocument(options: {
   if(typeof verdict.useLatest!=='boolean') throw new Error('Document referent returned an invalid result.');
   return verdict.useLatest;
 }
+
+/** Literal file identity is authoritative; this does not infer intent from keywords. */
+export function explicitlyNamedWorkspaceSource<T extends {filename:string;storagePath?:string|null}>(
+  userRequest:string, outputFilename:string, documents:T[],
+):T|null {
+  const text=userRequest.toLowerCase();
+  const matches=documents.filter(doc=>{
+    if(!doc.storagePath || doc.filename.toLowerCase()===outputFilename.toLowerCase())return false;
+    const filename=doc.filename.toLowerCase();
+    let index=text.indexOf(filename);
+    while(index>=0){
+      const before=text[index-1] || '';const after=text[index+filename.length] || '';
+      if(!/[\p{L}\p{N}_-]/u.test(before)&&!/[\p{L}\p{N}_-]/u.test(after))return true;
+      index=text.indexOf(filename,index+1);
+    }
+    return false;
+  });
+  return matches.length===1?matches[0]:null;
+}
