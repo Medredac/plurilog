@@ -98,10 +98,10 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
           console.log('[File Workspace] Step', {step:step+1, tool:call.function.name, costUsd, elapsedMs:Date.now()-started});
           if(call.function.name==='run_python') {
             if(typeof args.code!=='string' || args.code.length>60000) throw new Error('Invalid or oversized Python program.');
-            // Any execution invalidates the earlier visual review, even if the code fails midway.
-            inspected=null;
+            // finish_file compares current bytes with the inspected hash. Read-only checks
+            // preserve the review; actual changes still require another inspection.
             await sandbox.writeFiles([{path:`${ROOT}/task.py`,content:Buffer.from(args.code)}]);
-            feedback={stdout:await command('timeout',['60','python3',`${ROOT}/task.py`])};
+            feedback={stdout:await command('timeout',['60','python3',`${ROOT}/task.py`]), remainingSteps:WORKSPACE_LIMITS.modelCalls-step-1, instruction:'If document bytes changed, inspect the updated document before finishing. Read-only checks do not require another render.'};
           } else if(call.function.name==='inspect_document') {
             const name=workspaceFilename(args.filename);
             const buffer=await readBounded(name);

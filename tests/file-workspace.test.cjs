@@ -6,10 +6,11 @@ function load(Sandbox) {
  m._compile(ts.transpileModule(fs.readFileSync('src/utils/fileWorkspace.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,__filename);return m.exports;
 }
 function fixture(calls,failSetup=false,fullText='Preserved text') {
- const events=[];let stopped=0;let n=0;
- const sandbox={mkDir:async()=>{},writeFiles:async()=>{},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
- readFileToBuffer:async()=>Buffer.from('fixture'),runCommand:async ({args})=>{
+ const events=[];let stopped=0;let n=0;let version=0;let code='';
+ const sandbox={mkDir:async()=>{},writeFiles:async files=>{const task=files.find(f=>f.path.endsWith('/task.py'));if(task)code=task.content.toString()},stop:async()=>{stopped++},updateNetworkPolicy:async p=>events.push(p),
+ readFileToBuffer:async()=>Buffer.from('fixture'+version),runCommand:async ({args})=>{
   events.push(args.join(' '));let out='';let exitCode=0;
+  if(args.some(a=>a.endsWith('/task.py')) && code==='change()')version++;
   if(args.includes('pip')&&failSetup)exitCode=1;
   if(args.includes('-c'))out=JSON.stringify({size:7});
   if(args.some(a=>a.endsWith('validate.py')))out=JSON.stringify({pageCount:1,fullText});
@@ -35,7 +36,7 @@ test('worker cannot finish without final render; successful result stays in memo
  assert.ok(f.events.indexOf('deny-all')<f.events.findIndex(e=>typeof e==='string'&&e.includes('validate.py')));
  assert.equal(f.events[0].persistent,false);assert.equal(f.events[0].timeout,480000);
 });
-test('any execution invalidates previously inspected draft, requiring another inspection',async()=>{
+test('changed bytes invalidate the reviewed draft and require another inspection',async()=>{
  const f=fixture([['inspect_document',{filename:'result.pdf'}],['run_python',{code:'change()'}],['finish_file',{filename:'result.pdf',summary:'done'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf',summary:'done'}]]);
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
  assert.equal(result.calls,5);assert.equal(f.stopped(),1);
@@ -72,4 +73,10 @@ test('invalid numeric accounting stops further model usage',async()=>{
   await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/accounting unavailable/);
   assert.equal(f.stopped(),1);
  }
+});
+
+test('read-only code checks preserve the final byte-verified review',async()=>{
+ const f=fixture([['inspect_document',{filename:'result.pdf'}],['run_python',{code:'print(1)'}],['finish_file',{filename:'result.pdf',summary:'done'}]]);
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
+ assert.equal(result.calls,3);assert.equal(f.stopped(),1);
 });
