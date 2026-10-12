@@ -35,7 +35,7 @@ test('worker cannot finish without final render; successful result stays in memo
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'create'});
  assert.equal(result.calls,4);assert.equal(result.pageCount,1);assert.equal(f.stopped(),1);
  assert.ok(f.events.indexOf('deny-all')<f.events.findIndex(e=>typeof e==='string'&&e.includes('validate.py')));
- assert.equal(f.events[0].persistent,false);assert.equal(f.events[0].timeout,480000);
+ assert.equal(f.events[0].persistent,false);assert.equal(f.events[0].timeout,1200000);
 });
 test('changed bytes invalidate the reviewed draft and require another inspection',async()=>{
  const f=fixture([['inspect_document',{filename:'result.pdf'}],['run_python',{code:'change()'}],['finish_file',{filename:'result.pdf',summary:'done'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf',summary:'done'}]]);
@@ -294,4 +294,24 @@ test('repair reviews retain approved content and reuse unchanged page verdicts',
  await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'convert',source:{buffer:Buffer.from('source'),format:'pdf'}});
  assert.equal(contentReviews,2);
  assert.deepEqual(pageReviews,[1,2,2]);
+});
+
+
+test('worker can inspect actual crop pixels without invalidating document review',async()=>{
+ const sharp=require('sharp');
+ const png=await sharp({create:{width:12,height:8,channels:4,background:'#123456'}}).png().toBuffer();
+ const f=fixture([['inspect_image',{filename:'../../outside.png'}],['inspect_image',{filename:'crop.png'}],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf'}]],false,'text',()=>({}),(path)=>path.endsWith('/crop.png')?png:'fixture');
+ const worker=f.openai.chat.completions.create;let sawCrop=false;let rejectedTraversal=false;
+ f.openai.chat.completions.create=async req=>{
+  for(const message of req.messages){
+   if(message.role==='tool' && message.content.includes('basename inside'))rejectedTraversal=true;
+   if(Array.isArray(message.content)&&message.content.some(b=>b.text==='Workspace image: crop.png')){
+    const block=message.content.find(b=>b.type==='image_url');
+    if(block){assert.equal(block.image_url.detail,'high');const image=Buffer.from(block.image_url.url.split(',')[1],'base64');const meta=await sharp(image).metadata();assert.equal(meta.width,12);assert.equal(meta.height,8);sawCrop=true;}
+   }
+  }
+  return worker(req);
+ };
+ await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
+ assert.equal(sawCrop,true);assert.equal(rejectedTraversal,true);
 });
