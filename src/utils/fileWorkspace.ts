@@ -9,7 +9,7 @@ const ROOT = '/vercel/sandbox/workspace';
 export interface WorkspacePage { pageNumber: number; data: Buffer; contentType: 'image/png' }
 export interface WorkspaceResult {
   buffer: Buffer; fullText: string; pageCount: number; sourcePageCount: number | null;
-  pages: WorkspacePage[]; sourcePages: WorkspacePage[]; costUsd: number; calls: number;
+  pages: WorkspacePage[]; sourcePages: WorkspacePage[]; costUsd: number; calls: number; imageCount?: number;
 }
 export function workspaceFilename(value: string): string {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,119}\.(docx|pdf)$/.test(value) || value.includes('..'))
@@ -93,6 +93,7 @@ print(json.dumps({'size':n}))`,`${ROOT}/${name}`,ROOT]));
         let feedback:any; let pictures:any[]=[];
         try {
           const args=JSON.parse(call.function.arguments);
+          console.log('[File Workspace] Step', {step:step+1, tool:call.function.name, costUsd, elapsedMs:Date.now()-started});
           if(call.function.name==='run_python') {
             if(typeof args.code!=='string' || args.code.length>60000) throw new Error('Invalid or oversized Python program.');
             // Any execution invalidates the earlier visual review, even if the code fails midway.
@@ -127,7 +128,7 @@ for i,p in enumerate(doc):
  # Bound image resolution even for unusually large page geometry.
  scale=min(1.25,1400/max(p.rect.width,p.rect.height))
  p.get_pixmap(matrix=fitz.Matrix(scale,scale),alpha=False).save(os.path.join(out,str(i+1)+'.png'))
-print(json.dumps({'pageCount':len(doc),'fullText':'\n'.join(texts)[:100000]}))`;
+print(json.dumps({'pageCount':len(doc),'imageCount':len({image[0] for page in doc for image in page.get_images()}),'fullText':'\n'.join(texts)[:100000]}))`;
             await sandbox.writeFiles([{path:`${ROOT}/validate.py`,content:Buffer.from(script)}]);
             const meta=JSON.parse(await command('timeout',['60','python3',`${ROOT}/validate.py`,`${ROOT}/${name}`,reviewDir]));
             const pages:WorkspacePage[]=[];
@@ -137,7 +138,7 @@ print(json.dumps({'pageCount':len(doc),'fullText':'\n'.join(texts)[:100000]}))`;
               pages.push({pageNumber:p,data,contentType:'image/png'});
               pictures.push({type:'text',text:`${name} — page ${p}`},{type:'image_url',image_url:{url:`data:image/png;base64,${data.toString('base64')}`}});
             }
-            inspected={name,hash:crypto.createHash('sha256').update(buffer).digest('hex'),result:{buffer,fullText:meta.fullText,pageCount:meta.pageCount,sourcePageCount:null,pages,sourcePages:[],costUsd,calls:step+1}};
+            inspected={name,hash:crypto.createHash('sha256').update(buffer).digest('hex'),result:{buffer,fullText:meta.fullText,pageCount:meta.pageCount,imageCount:meta.imageCount,sourcePageCount:null,pages,sourcePages:[],costUsd,calls:step+1}};
             feedback={pageCount:meta.pageCount,text:meta.fullText.slice(0,16000),instruction:'Inspect the page images before deciding whether to fix or finish.'};
           } else if(call.function.name==='finish_file') {
             const name=workspaceFilename(args.filename);

@@ -7278,6 +7278,9 @@ export async function POST(req: NextRequest) {
               isDocumentCreationEnabledForSeat &&
               isTitleOnlyDocumentRevision(prompt || '') &&
               Boolean(discussionMemory?.knownDocuments?.length);
+            const workspaceInstruction = FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat
+              ? [{ role: 'system' as const, content: 'A private executable file workspace is available through workspace_task on create_file and edit_source_document. Use it when Word/PDF requirements exceed the structured renderer or narrow edit operations, including charts, complex tables, sections, headers/footers, or structural changes. Supply the complete requested content and constraints. The workspace opens source bytes, executes code, renders pages and inspects them before publishing. It currently supports one DOCX/PDF per task, up to 12 pages and 25 MB. Retrieve the exact existing artifact before revisions; never rebuild an existing file from memory. Ordinary narrow edits and documents needing separately generated image assets retain their existing tools. Do not describe the execution mechanism unless the user asks.' }]
+              : [];
             const titleRevisionInstruction = requiresCanonicalTitleRevision
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
               : [];
@@ -7491,7 +7494,7 @@ export async function POST(req: NextRequest) {
               userDisplayName,
               isContinueRound === true
             );
-            seatMessages.push(...titleRevisionInstruction);
+            seatMessages.push(...workspaceInstruction, ...titleRevisionInstruction);
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -10103,6 +10106,7 @@ export async function POST(req: NextRequest) {
 
                   const evidenceMessages = [
                     ...evidenceBaseMessages,
+                    ...workspaceInstruction,
                     ...titleRevisionInstruction,
                     {
                       role: 'assistant',

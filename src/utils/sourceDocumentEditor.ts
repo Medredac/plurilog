@@ -1049,7 +1049,7 @@ export async function publishWorkspaceDocument(
     pageCount: edited.pageCount,
     visualReviewCostUsd: workspace?.costUsd || 0,
     visualReviewApplied: Boolean(workspace),
-    imageAssetCount: 0,
+    imageAssetCount: workspace?.imageCount || 0,
     imageCostUsd: 0,
   };
 }
