@@ -229,6 +229,11 @@ test('PDF-to-Word gives the worker a native conversion draft after source inspec
  const worker=f.openai.chat.completions.create;let sawDraft=false;
  f.openai.chat.completions.create=async req=>{
   if(!req.response_format)sawDraft ||= req.messages.some(m=>m.role==='tool' && m.content.includes('editable-draft.docx'));
+  if(req.response_format && req.max_tokens!==1600) {
+   const evidence=JSON.parse(req.messages[1].content[0].text);
+   assert.equal(evidence.hostValidatedStructure.format,'docx');
+   assert.equal(evidence.hostValidatedStructure.nativeWordText,'Source content');
+  }
   return worker(req);
  };
  await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'convert',source:{buffer:Buffer.from('source'),format:'pdf'}});
