@@ -88,7 +88,7 @@ import {
   editChatGPTImage,
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
-import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
+import { executeGptDocumentCreation, createWorkspaceImageBridge } from '@/utils/gptDocumentCreation';
 import type {
   GptCreateFileArgs,
   DocumentImageSource,
@@ -468,7 +468,7 @@ export const GPT_FILE_TOOLS = [
         type: 'object',
         properties: {
           ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
-            type: 'string', description: 'Use the private code workspace for complex Word/PDF creation: tables, charts, custom layouts, headers/footers, sections, or requirements beyond structured blocks. Provide a complete task with the requested content and design. The worker executes code, renders, inspects, and repairs the draft before returning one finished file. blocks may be empty when this field contains the complete content. For existing documents retrieve the exact source and use edit_source_document with workspace_task instead. Use the normal blocks path when generated/existing discussion images are needed; the workspace has no external image access.'
+            type: 'string', description: 'Use the private code workspace for complex Word/PDF creation: tables, charts, custom layouts, headers/footers, sections, or requirements beyond structured blocks. Provide a complete task with the requested content and design. The worker executes code, renders, inspects, and repairs the draft before returning one finished file. blocks may be empty when this field contains the complete content. For existing documents retrieve the exact source and use edit_source_document with workspace_task instead. The workspace can import original current-round and historical discussion images and request generated or edited images through Plurilog. Include which exact assets to use and their intended placement.'
           }} : {}),
           format: { type: 'string', enum: ['docx', 'pdf'] },
           filename: {
@@ -812,7 +812,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
         type: 'object',
         properties: {
           ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
-            type: 'string', description: 'Use the private code workspace for structural or complex edits beyond the listed operations: table changes, headers/footers, sections, images already embedded in the file, layout and pagination. Provide the complete requested changes and preservation requirements. The worker opens the actual source, executes code, renders and inspects the final result. For this mode pass edits: []. Prefer ordinary edits for simple precise text/format changes.'
+            type: 'string', description: 'Use the private code workspace for structural or complex edits beyond the listed operations: table changes, headers/footers, sections, existing and new images, layout and pagination. It can import original images from the current message, current round, or discussion history and generate/edit image assets through Plurilog. Provide the complete requested changes and preservation requirements. The worker opens the actual source, executes code, renders and inspects the final result. For this mode pass edits: []. Prefer ordinary edits for simple precise text/format changes.'
           }} : {}),
           source_filename: {
             type: 'string',
@@ -7203,6 +7203,28 @@ export async function POST(req: NextRequest) {
             let incurredDocumentFollowUpCostUsd = 0;
             let incurredDocumentAssetCostUsd = 0;
             const documentImageModels = new Set<string>();
+            const buildWorkspaceImages = async () => {
+              const service = createServiceClient();
+              const knownImages = discussionId ? await fetchKnownImageSources(service, discussionId) : [];
+              const available: DocumentImageSource[] = [...knownImages];
+              for (const attachment of [...(Array.isArray(attachments) ? attachments : []), ...currentRoundAttachments, ...pdfEmbeddedImageAttachments]) {
+                if (!isImageUrl(attachment?.url || '')) continue;
+                if ('provenance' in attachment && (attachment.provenance === 'same_round_document_render' || attachment.provenance === 'current_document_render')) continue;
+                const storagePath = extractStoragePathFromSignedUrl(attachment.url);
+                available.push({filename:attachment.filename || 'image.png',storagePath,url:attachment.url,
+                  sourceMessageId: Array.isArray(attachments) && attachments.includes(attachment) ? sourceUserMessageId : null});
+              }
+              const currentEvidence = discussionId && sourceUserMessageId
+                ? await fetchMessageVisualEvidence(service,discussionId,sourceUserMessageId) : [];
+              return createWorkspaceImageBridge({supabase,availableImages:available,
+                resourceContext:{knownDocuments:discussionMemory?.knownDocuments || [],retrievedDocuments,
+                  recentRounds:discussionMemory?.recentRounds || [],knownImageSources:knownImages,
+                  lastRoundEvidence:currentEvidence,visualContext:visualContextState,currentUserPrompt:prompt},
+                currentSourceMessageId:sourceUserMessageId,signal:seatAbortController.signal,seatId:seat.seatId,
+                onImageCost:event=>{incurredDocumentCallCostUsd+=event.costUsd;documentImageModels.add(event.model);},
+              });
+            };
+
             const bufferedSeatChunks: string[] = [];
 
             sendEvent('seat_start', {
@@ -7279,7 +7301,7 @@ export async function POST(req: NextRequest) {
               isTitleOnlyDocumentRevision(prompt || '') &&
               Boolean(discussionMemory?.knownDocuments?.length);
             const workspaceInstruction = FILE_WORKSPACE_ENABLED && isDocumentCreationEnabledForSeat
-              ? [{ role: 'system' as const, content: 'A private executable file workspace is available through workspace_task on create_file and edit_source_document. Use it when Word/PDF requirements exceed the structured renderer or narrow edit operations, including charts, complex tables, sections, headers/footers, or structural changes. Supply the complete requested content and constraints. The workspace opens source bytes, executes code, renders pages and inspects them before publishing. It currently supports one DOCX/PDF per task, up to 12 pages and 25 MB. Retrieve the exact existing artifact before revisions; never rebuild an existing file from memory. Ordinary narrow edits and documents needing separately generated image assets retain their existing tools. Do not describe the execution mechanism unless the user asks.' }]
+              ? [{ role: 'system' as const, content: 'A private executable file workspace is available through workspace_task on create_file and edit_source_document. Use it when Word/PDF requirements exceed the structured renderer or narrow edit operations, including charts, complex tables, sections, headers/footers, or structural changes. Supply the complete requested content and constraints. The workspace opens source bytes, executes code, renders pages and inspects them before publishing. It currently supports one DOCX/PDF per task, up to 12 pages and 25 MB. Retrieve the exact existing artifact before revisions; never rebuild an existing file from memory. The workspace has access to original current-round and historical images plus the existing image generation/editing pipeline. Include exact asset references and placement requirements in workspace_task; never omit requested images or substitute drawn logos. Ordinary narrow edits retain their existing tools. Do not describe the execution mechanism unless the user asks.' }]
               : [];
             const titleRevisionInstruction = requiresCanonicalTitleRevision
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
@@ -8625,6 +8647,7 @@ export async function POST(req: NextRequest) {
                       ? currentParentState
                       : null,
                     workspaceModel: primaryModel,
+                    workspaceImages: FILE_WORKSPACE_ENABLED && editArgs.workspace_task ? await buildWorkspaceImages() : undefined,
                     originalUserPrompt: prompt,
                     onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
                     args: editArgs,
@@ -11377,6 +11400,7 @@ export async function POST(req: NextRequest) {
                           null,
                         parentSnapshot: sourceParentState,
                         workspaceModel: primaryModel,
+                        workspaceImages: FILE_WORKSPACE_ENABLED && editArgs.workspace_task ? await buildWorkspaceImages() : undefined,
                         originalUserPrompt: prompt,
                         onWorkspaceCost: usd => { incurredDocumentCallCostUsd += usd; },
                         args: editArgs,

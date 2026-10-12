@@ -44,10 +44,19 @@ test('changed bytes invalidate the reviewed draft and require another inspection
 test('failed dependency setup still stops sandbox',async()=>{
  const f=fixture([],true);await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'}),/setup failed/);assert.equal(f.stopped(),1);
 });
-test('attempt limit terminates, charges incurred model calls and releases sandbox',async()=>{
+test('cost threshold stops additional usage and releases the sandbox',async()=>{
  const f=fixture([]);let total=0;
- await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',onCost:c=>total+=c}),/attempt limit/);
- assert.equal(f.stopped(),1);assert.ok(Math.abs(total-0.01)<1e-8);
+ const original=f.openai.chat.completions.create;
+ f.openai.chat.completions.create=async req=>{const result=await original(req);result.usage.cost=0.125;return result};
+ await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',onCost:c=>total+=c}),/continuation threshold/);
+ assert.equal(f.stopped(),1);assert.equal(total,0.25);
+});
+test('a valid task can complete beyond ten steps',async()=>{
+ const calls=Array.from({length:12},()=>['run_python',{code:'print(1)'}]);
+ calls.push(['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf',summary:'done'}]);
+ const f=fixture(calls);
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
+ assert.equal(result.calls,14);assert.equal(f.stopped(),1);
 });
 test('already cancelled tasks never create a sandbox',async()=>{
  const f=fixture([]);await assert.rejects(f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create',signal:AbortSignal.abort()}));assert.equal(f.events.length,0);
@@ -79,4 +88,14 @@ test('read-only code checks preserve the final byte-verified review',async()=>{
  const f=fixture([['inspect_document',{filename:'result.pdf'}],['run_python',{code:'print(1)'}],['finish_file',{filename:'result.pdf',summary:'done'}]]);
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'create'});
  assert.equal(result.calls,3);assert.equal(f.stopped(),1);
+});
+
+test('imports authorized image bytes after network lockdown and caches repeated imports',async()=>{
+ const sharp=require('sharp');
+ const png=await sharp({create:{width:2,height:2,channels:4,background:'#00ff0080'}}).png().toBuffer();
+ const request={mode:'existing',asset_id:'image-1'};
+ const f=fixture([['import_image',request],['import_image',request],['inspect_document',{filename:'result.pdf'}],['finish_file',{filename:'result.pdf',summary:'done'}]]);
+ let resolves=0;
+ const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'pdf',task:'insert logo',images:{catalog:[{id:'image-1',filename:'original.png',current:true}],resolve:async()=>{assert.ok(f.events.includes('deny-all'));resolves++;return {data:png,contentType:'image/png',filename:'original.png'}}}});
+ assert.equal(result.calls,4);assert.equal(resolves,1);assert.equal(f.stopped(),1);
 });

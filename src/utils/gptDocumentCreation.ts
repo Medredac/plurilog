@@ -1,4 +1,4 @@
-import { FILE_WORKSPACE_ENABLED, runFileWorkspace } from './fileWorkspace';
+import { FILE_WORKSPACE_ENABLED, runFileWorkspace, type WorkspaceImageBridge } from './fileWorkspace';
 import { publishWorkspaceDocument } from './sourceDocumentEditor';
 import crypto from 'node:crypto';
 import { preparePdfPhotoRebuild, selectPhotoRebuildSource, photoNumber, MAX_REBUILT_PHOTOS } from './pdfPhotoRebuild';
@@ -1160,6 +1160,41 @@ async function resolveDocumentBlocks(
   return { blocks: resolved, imageAssetCount, imageBindings };
 }
 
+/** Reuse the existing image resolver and generation pipeline for executable documents. */
+export function createWorkspaceImageBridge(options: {
+  supabase: any; availableImages: DocumentImageSource[]; resourceContext?: ResourceBrokerContext;
+  signal?: AbortSignal; onImageCost?: (event: DocumentImageCostEvent) => void;
+  onActivity?: (activity: DocumentCreationActivity) => void; seatId?: ModelId;
+  currentSourceMessageId?: string;
+}): WorkspaceImageBridge {
+  const sources: DocumentImageSource[] = [];
+  const seen = new Set<string>();
+  for (const source of options.availableImages) {
+    const key = source.storagePath || source.url || source.artifactId || source.filename;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push(source);
+  }
+  return {
+    catalog: sources.map((source,index)=>({id:`image-${index+1}`,filename:source.filename,
+      sender:source.sender,sourceMessageId:source.sourceMessageId,createdAt:source.createdAt,
+      current:Boolean(source.sourceMessageId && source.sourceMessageId===options.currentSourceMessageId)})),
+    async resolve(request, signal) {
+      const selected=request.asset_id ? sources.find((_,index)=>`image-${index+1}`===request.asset_id) : null;
+      if(request.asset_id && !selected) throw new Error('Unknown image asset. List the available discussion images first.');
+      if(request.mode!=='generate' && !selected && !request.filename && !request.need) throw new Error('Select the original image by asset_id, filename, or a specific description.');
+      if(request.mode!=='existing' && !request.prompt?.trim()) throw new Error('Image generation/editing requires the requested visual instructions.');
+      const block={type:'image' as const,mode:request.mode,filename:selected?.filename || request.filename,
+        need:request.need || selected?.filename || request.filename,prompt:request.prompt};
+      const resolved=await resolveDocumentBlocks([block],options.supabase,sources,options.resourceContext,
+        signal && options.signal ? AbortSignal.any([signal,options.signal]) : signal || options.signal,options.onImageCost,selected?[{imageOrdinal:0,source:selected}]:[],options.onActivity,options.supabase,options.seatId);
+      const result=resolved.blocks[0];
+      if(result.type!=='image' || !Buffer.isBuffer(result.imageData)) throw new Error('Image resolver returned no original image bytes.');
+      return {data:result.imageData,contentType:result.imageContentType || 'image/png',filename:selected?.filename || request.filename || 'generated-image.png'};
+    },
+  };
+}
+
 interface PdfVisualReviewOutcome {
   args: GptCreateFileArgs;
   costUsd: number;
@@ -1825,6 +1860,7 @@ export async function executeGptDocumentCreation(
       task: JSON.stringify({userRequest: originalUserPrompt, task: args.workspace_task, content: args.blocks, design: args.design}),
       signal: durableSignal,
       onCost: options.onWorkspaceCost,
+      images:createWorkspaceImageBridge({supabase,availableImages,resourceContext,signal:durableSignal,onImageCost,onActivity,seatId}),
     });
     const result = await publishWorkspaceDocument({
       supabase, openai, discussionId, messageId, seatId, signal: durableSignal,

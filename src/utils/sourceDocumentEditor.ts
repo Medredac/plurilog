@@ -1,4 +1,4 @@
-import { FILE_WORKSPACE_ENABLED, runFileWorkspace, type WorkspaceResult } from './fileWorkspace';
+import { FILE_WORKSPACE_ENABLED, runFileWorkspace, type WorkspaceResult, type WorkspaceImageBridge } from './fileWorkspace';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 import { ModelId } from '@/types/chat';
@@ -348,6 +348,7 @@ export interface ExecuteSourceDocumentEditOptions {
   parentSnapshot?: DocumentStateSnapshot | null;
   args: SourceDocumentEditArgs;
   workspaceModel?: string;
+  workspaceImages?: WorkspaceImageBridge;
   originalUserPrompt?: string;
   onWorkspaceCost?: (usd: number) => void;
   signal?: AbortSignal;
@@ -814,6 +815,7 @@ export async function executeSourcePreservingDocumentEdit(
     task: JSON.stringify({userRequest: options.originalUserPrompt, task: options.args.workspace_task}),
     format, source: {buffer: sourceBytes, format}, signal: options.signal,
     onCost: options.onWorkspaceCost,
+    images: options.workspaceImages,
   }) : null;
   const edited = workspace || (format === 'docx'
     ? await editDocxBytes(sourceBytes, options.args.edits, options.signal)

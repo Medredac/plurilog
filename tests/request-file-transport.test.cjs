@@ -623,3 +623,21 @@ test('conversation memory retains a video filename and findings without a retrie
   const text = formatRoundForContext({userPrompt:'Describe', attachments:[attachment],modelResponses:[{name:'Gemini',content:'At 0:04, a blue square appears.'}]});
   assert.match(text, /fresh upload required/); assert.match(text, /blue square/); assert.doesNotMatch(text, /video-ephemeral/);
 });
+
+
+test('workspace image bridge retrieves exact current and historical images even with duplicate names',async()=>{
+  const {createWorkspaceImageBridge}=loadDocumentImageResolver({status:'not_found'});
+  const seen=[];
+  const client={storage:{from:()=>({download:async path=>{seen.push(path);return {data:new Blob([path],{type:'image/png'})};}})}};
+  const bridge=createWorkspaceImageBridge({supabase:client,currentSourceMessageId:'current-message',availableImages:[
+    {filename:'logo.png',storagePath:'user/history.png',sourceMessageId:'old-message',sender:'gemini'},
+    {filename:'logo.png',storagePath:'user/current.png',sourceMessageId:'current-message',sender:'user'},
+  ]});
+  assert.equal(bridge.catalog[0].current,false);assert.equal(bridge.catalog[1].current,true);
+  const historical=await bridge.resolve({mode:'existing',asset_id:'image-1'});
+  const current=await bridge.resolve({mode:'existing',asset_id:'image-2'});
+  assert.equal(historical.data.toString(),'user/history.png');
+  assert.equal(current.data.toString(),'user/current.png');
+  await assert.rejects(bridge.resolve({mode:'existing',asset_id:'image-999'}),/Unknown image/);
+  assert.deepEqual(seen,['user/history.png','user/current.png']);
+});
