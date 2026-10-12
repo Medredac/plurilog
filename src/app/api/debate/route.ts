@@ -87,6 +87,7 @@ import {
   editGeminiImage,
   editChatGPTImage,
 } from '@/utils/openrouterImages';
+import { workspaceUsesLatestDocument } from '@/utils/workspaceDocumentReference';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation, createWorkspaceImageBridge } from '@/utils/gptDocumentCreation';
 import type {
@@ -9549,6 +9550,30 @@ export async function POST(req: NextRequest) {
                           )
                         : null;
 
+                    // Resolve follow-up identity from the user's actual request before
+                    // the broker interprets a model-expanded historical retrieval query.
+                    if (FILE_WORKSPACE_ENABLED && AGENTIC_MEMORY_EXPERIMENT &&
+                        seat.seatId === 'chatgpt' && toolResourceType === 'document' &&
+                        jevWorkingState.latestDocumentRevision && serviceClientForEvidence &&
+                        !latestSameRoundGeneratedDocument) {
+                      const useLatest=await workspaceUsesLatestDocument({
+                        openai,model:primaryModel,userRequest:prompt || '',
+                        latestDocument:jevWorkingState.latestDocumentRevision,
+                        requestedFilename:toolFilename,retrievalNeed:toolNeed,
+                        signal:seatAbortController.signal,
+                        onCost:usd=>{incurredEvidenceSecondPassCostUsd+=usd;},
+                      });
+                      if(useLatest) {
+                        latestCanonicalRevisionState=await findDocumentStateSnapshot({
+                          serviceSupabase:serviceClientForEvidence,discussionId,
+                          documentId:jevWorkingState.latestDocumentRevision.documentId,
+                          filename:jevWorkingState.latestDocumentRevision.filename,
+                        });
+                        console.log('[Workspace Reference] Anchored current follow-up',{
+                          requestedFilename:toolFilename,sourceFilename:latestCanonicalRevisionState?.filename,
+                        });
+                      }
+                    }
                     const canonicalRevisionParent =
                       explicitlySelectedCanonicalRevisionState ||
                       latestCanonicalRevisionState;
