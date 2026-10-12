@@ -173,3 +173,23 @@ test('PDF conversion rejects screenshots with hidden text and accepts native Wor
  const result=await f.api.runFileWorkspace({openai:f.openai,model:'test',format:'docx',task:'make it Word',source:{buffer:Buffer.from('source'),format:'pdf'}});
  assert.equal(feedback,true);assert.equal(result.calls,7);assert.equal(f.stopped(),1);
 });
+
+
+test('source format and requested output format remain independent for conversions',()=>{
+ const {workspaceOutputFormat}=load({});
+ assert.equal(workspaceOutputFormat('pdf',{output_format:'docx'}),'docx');
+ assert.equal(workspaceOutputFormat('pdf',{filename:'converted.docx'}),'docx');
+ assert.equal(workspaceOutputFormat('docx',{output_format:'pdf',filename:'old.docx'}),'pdf');
+ assert.equal(workspaceOutputFormat('pdf',{}),'pdf');
+});
+
+test('source edit dispatch passes original PDF bytes with DOCX output to the worker',async()=>{
+ const api=load({});let received;
+ const m=new Module(__filename,module);m.paths=module.paths;
+ m.require=name=>name==='./fileWorkspace'?{FILE_WORKSPACE_ENABLED:true,workspaceOutputFormat:api.workspaceOutputFormat,runFileWorkspace:async options=>{received=options;throw new Error('verified handoff')}}:name==='@/utils/supabase/service'?{createServiceClient:()=>({})}:name.startsWith('@/')?{}:require(name);
+ m._compile(ts.transpileModule(fs.readFileSync('src/utils/sourceDocumentEditor.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,__filename);
+ const bytes=Buffer.from('original PDF bytes');
+ const supabase={storage:{from:()=>({download:async()=>({data:new Blob([bytes]),error:null})})}};
+ await assert.rejects(m.exports.executeSourcePreservingDocumentEdit({supabase,openai:{},discussionId:'discussion',sourceFilename:'source.pdf',sourceStoragePath:'user/source.pdf',args:{workspace_task:'make it Word',output_format:'docx',edits:[]}}),/verified handoff/);
+ assert.equal(received.format,'docx');assert.equal(received.source.format,'pdf');assert.deepEqual(received.source.buffer,bytes);
+});

@@ -1,4 +1,4 @@
-import { FILE_WORKSPACE_ENABLED, runFileWorkspace, type WorkspaceResult, type WorkspaceImageBridge } from './fileWorkspace';
+import { FILE_WORKSPACE_ENABLED, runFileWorkspace, workspaceOutputFormat, type WorkspaceResult, type WorkspaceImageBridge } from './fileWorkspace';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 import { ModelId } from '@/types/chat';
@@ -334,6 +334,7 @@ export interface SourceDocumentEditArgs {
   filename?: string;
   edits: SourceDocumentEditOperation[];
   workspace_task?: string;
+  output_format?: 'pdf' | 'docx';
 }
 
 export interface ExecuteSourceDocumentEditOptions {
@@ -810,17 +811,18 @@ export async function executeSourcePreservingDocumentEdit(
     );
   }
 
+  const outputFormat = useWorkspace ? workspaceOutputFormat(format, options.args) : format;
   const workspace = useWorkspace ? await runFileWorkspace({
     openai: options.openai, model: options.workspaceModel || 'openai/gpt-5.6-luna',
     task: JSON.stringify({userRequest: options.originalUserPrompt, task: options.args.workspace_task}),
-    format, source: {buffer: sourceBytes, format}, signal: options.signal,
+    format: outputFormat, source: {buffer: sourceBytes, format}, signal: options.signal,
     onCost: options.onWorkspaceCost,
     images: options.workspaceImages,
   }) : null;
   const edited = workspace || (format === 'docx'
     ? await editDocxBytes(sourceBytes, options.args.edits, options.signal)
     : await editPdfBytes(sourceBytes, options.args.edits, options.signal));
-  return publishWorkspaceDocument(options, edited, format, sourceBytes, workspace);
+  return publishWorkspaceDocument(options, edited, outputFormat, sourceBytes, workspace);
 }
 
 /** Shared publication path: temporary drafts never reach storage or messages. */

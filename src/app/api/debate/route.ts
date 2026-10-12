@@ -467,7 +467,7 @@ export const GPT_FILE_TOOLS = [
       parameters: {
         type: 'object',
         properties: {
-          ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
+          ...(FILE_WORKSPACE_ENABLED ? { output_format: {type:'string',enum:['pdf','docx'],description:'Requested output format. For PDF-to-Word conversion choose docx; the source format remains unchanged. Use workspace_task for conversions.'}, workspace_task: {
             type: 'string', description: 'Use the private code workspace for complex Word/PDF creation: tables, charts, custom layouts, headers/footers, sections, or requirements beyond structured blocks. Provide a complete task with the requested content and design. The worker executes code, renders, inspects, and repairs the draft before returning one finished file. blocks may be empty when this field contains the complete content. For existing documents retrieve the exact source and use edit_source_document with workspace_task instead. The workspace can import original current-round and historical discussion images and request generated or edited images through Plurilog. Include which exact assets to use and their intended placement.'
           }} : {}),
           format: { type: 'string', enum: ['docx', 'pdf'] },
@@ -812,7 +812,7 @@ export const GPT_SOURCE_DOCUMENT_EDIT_TOOL = [
         type: 'object',
         properties: {
           ...(FILE_WORKSPACE_ENABLED ? { workspace_task: {
-            type: 'string', description: 'Use the private code workspace for structural or complex edits beyond the listed operations: table changes, headers/footers, sections, existing and new images, layout and pagination. It can import original images from the current message, current round, or discussion history and generate/edit image assets through Plurilog. Provide the complete requested changes and preservation requirements. The worker opens the actual source, executes code, renders and inspects the final result. For this mode pass edits: []. Prefer ordinary edits for simple precise text/format changes.'
+            type: 'string', description: 'Use the private code workspace for format conversion (set output_format), structural or complex edits beyond the listed operations: table changes, headers/footers, sections, existing and new images, layout and pagination. It can import original images from the current message, current round, or discussion history and generate/edit image assets through Plurilog. Provide the complete requested changes and preservation requirements. The worker opens the actual source, executes code, renders and inspects the final result. For this mode pass edits: []. Prefer ordinary edits for simple precise text/format changes.'
           }} : {}),
           source_filename: {
             type: 'string',

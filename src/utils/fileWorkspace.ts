@@ -21,6 +21,11 @@ export interface WorkspaceResult {
   buffer: Buffer; fullText: string; pageCount: number; sourcePageCount: number | null;
   pages: WorkspacePage[]; sourcePages: WorkspacePage[]; costUsd: number; calls: number; imageCount?: number;
 }
+export function workspaceOutputFormat(sourceFormat: 'pdf'|'docx', args: {output_format?: 'pdf'|'docx'; filename?: string}): 'pdf'|'docx' {
+  if(args.output_format==='pdf' || args.output_format==='docx') return args.output_format;
+  const name=args.filename?.toLowerCase();
+  return name?.endsWith('.docx') ? 'docx' : name?.endsWith('.pdf') ? 'pdf' : sourceFormat;
+}
 export function workspaceFilename(value: string): string {
   if (typeof value !== 'string') throw new Error('A document filename is required.');
   if (value.startsWith(ROOT + '/')) value = value.slice(ROOT.length + 1);
