@@ -59,3 +59,14 @@ test('Google sign-in does not masquerade as an app connection; status stays priv
   assert.ok(body.apps.every(app => app.connected === false && app.status === 'setup_required'));
   assert.equal(JSON.stringify(body).includes('alice'), false);
 });
+
+test('connection requests use current server status instead of asking connected users again', async () => {
+  const connected = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'connected', connected: true }));
+  assert.equal(connected.status, 'connected');
+  assert.equal(connected.connection_url, undefined);
+  const disconnected = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'connection_required', connected: false }));
+  assert.equal(disconnected.status, 'open_connection_screen');
+  const unavailable = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'unavailable', connected: false }));
+  assert.equal(unavailable.status, 'unavailable');
+  assert.equal(unavailable.connection_url, undefined);
+});

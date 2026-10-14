@@ -16,6 +16,10 @@ export function connectorFor(app: ConnectedAppId): string {
   if (!connector) throw new AppAccessError('setup_required');
   return connector;
 }
+export function googleAppsAvailable(): boolean {
+  try { connectorFor('gmail'); connectorFor('google-drive'); return true; }
+  catch { return false; }
+}
 export function googleSubject(userId: string, app: ConnectedAppId) {
   if (!userId) throw new AppAccessError('connection_required');
   return { type: 'user' as const, id: `plurilog-preview:${app}:${userId}` };

@@ -194,3 +194,24 @@ test('other preview branches fail closed', async () => {
   assert.equal((await connection.connectionStatus('alice', 'gmail')).status, 'setup_required');
   process.env.VERCEL_GIT_COMMIT_REF = 'feat/google-apps-preview';
 });
+
+test('Gmail counts all pages without fetching email content or trusting estimates', async () => {
+  const urls = [];
+  const result = await session(async url => {
+    urls.push(String(url));
+    return json(urls.length === 1 ? { messages: [{ id: 'a' }, { id: 'b' }], nextPageToken: 'next', resultSizeEstimate: 999 } : { messages: [{ id: 'b' }, { id: 'c' }] });
+  }).run('gmail_count', { query: 'from:wagepoint' });
+  assert.equal(result.count, 3);
+  assert.equal(result.exact, true);
+  assert.equal(urls.length, 2);
+  assert.ok(urls[1].includes('pageToken=next'));
+  assert.ok(urls.every(url => !url.includes('format=')));
+});
+
+test('Gmail count marks capped pagination as a lower bound', async () => {
+  let calls = 0;
+  const result = await session(async () => json({ messages: [{ id: String(++calls) }], nextPageToken: 'more' })).run('gmail_count', { query: 'from:wagepoint' });
+  assert.equal(calls, 20);
+  assert.equal(result.count, 20);
+  assert.equal(result.exact, false);
+});

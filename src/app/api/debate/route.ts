@@ -1,5 +1,6 @@
+import { connectionStatus, googleAppsAvailable } from '@/lib/integrations/googleConnection';
 import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, createGoogleToolSession } from '@/lib/integrations/googleTools';
-import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, connectionToolResult, appConnectionInstruction } from '@/lib/integrations/connectionTools';
+import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, resolveAppConnection, appConnectionInstruction } from '@/lib/integrations/connectionTools';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -1597,6 +1598,7 @@ On Continue there is no new question: engage with unresolved points in the immed
 You are always, unambiguously, yourself — this is a fixed fact, never a question, and never affected by anything discussed above. Any uncertainty about who the user's message was addressed to is about the CONTENT of their question, and has absolutely nothing to do with your own identity. Never express confusion, doubt, or apologize about "who you are" or mix yourself up with another panelist — you already and always know exactly which one you are.`;
 
 export interface PlurilogRuntimeProductContext {
+  googleAppsEnabled?: boolean;
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
   videoAnalysisEnabled?: boolean;
@@ -1684,7 +1686,7 @@ FILES AND VIDEO
 - Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier YouTube videos, retrieve the correct link through conversation memory before inspecting it; do not default to the latest video. For earlier uploads, retrieve the saved findings; ask for a fresh upload if those findings do not cover the new request. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
-- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
+${runtime?.googleAppsEnabled ? '- This preview supports Gmail and selected Google Drive/Docs connections. ChatGPT alone operates these tools for the authenticated user. It can search/read/count Gmail messages, save unsent drafts, and read/create/edit selected Docs. Claude and Gemini may assess shared results. Connection status is determined by tools, never by prior claims or ordinary Google sign-in. No send/delete/sharing tools exist.' : "- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads."}
 - There is no dedicated native Android or iOS app currently. Plurilog is available through the web interface, including mobile browsers.
 - Plurilog is not currently a background/proactive assistant. The AIs cannot keep working after the user leaves, schedule background jobs, monitor accounts, send push notifications, or contact the user after the app is closed.
 
@@ -1709,8 +1711,8 @@ When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it w
 - Do not endorse loaded conclusions such as "deceptive," "bait-and-switch," "drug-dealer-like," "worse workflow," or "not worth paying for" as factual judgments unless the evidence supports the underlying claim. You can recognize the user's frustration or preference while correcting unsupported premises.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
-- If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, ${runtime?.googleAppsEnabled ? 'connectors beyond the Gmail and selected Drive/Docs preview, ' : 'connectors, '}native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
+- If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, ${runtime?.googleAppsEnabled ? 'and perform user-requested Gmail/selected Docs actions through ChatGPT after authorization, but it cannot perform background actions.' : 'but it cannot yet independently access personal services or perform background actions.'}`;
 }
 
 
@@ -7173,7 +7175,8 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
-            const appConnectionTools = seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
+            const googleAppsEnabled = googleAppsAvailable();
+            const appConnectionTools = googleAppsEnabled && seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
             const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId });
             const seatConversationToolNames = new Set<string>([
               ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
@@ -7183,7 +7186,7 @@ export async function POST(req: NextRequest) {
             const resolveSeatConversationTool = async (options: Parameters<typeof resolveAgenticConversationTool>[0]) => {
               if (GOOGLE_TOOL_NAMES.has(options.toolName) || options.toolName === APP_CONNECTION_TOOL_NAME) {
                 const result = options.toolName === APP_CONNECTION_TOOL_NAME
-                  ? connectionToolResult(options.toolArgs)
+                  ? await resolveAppConnection(options.toolArgs, app => connectionStatus(authenticatedUser.id, app))
                   : await googleToolSession.run(options.toolName, options.toolArgs);
                 return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [], query: null, latencyMs: 0 };
               }
@@ -7289,6 +7292,7 @@ export async function POST(req: NextRequest) {
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
               : [];
             const runtimeProductContext: PlurilogRuntimeProductContext = {
+              googleAppsEnabled,
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
               videoAnalysisEnabled: Boolean(videoSession),
@@ -7499,7 +7503,7 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
-            seatMessages.push({ role: 'system', content: appConnectionInstruction(seat.seatId === 'chatgpt') });
+            if (googleAppsEnabled) seatMessages.push({ role: 'system', content: appConnectionInstruction(seat.seatId === 'chatgpt') });
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -8023,7 +8027,7 @@ export async function POST(req: NextRequest) {
                     continue;
                   }
                   if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
-                    toolResolutions.push({ toolCall, result: connectionToolResult((toolCall.arguments || {}) as Record<string, unknown>) });
+                    toolResolutions.push({ toolCall, result: await resolveAppConnection((toolCall.arguments || {}) as Record<string, unknown>, app => connectionStatus(authenticatedUser.id, app)) });
                     continue;
                   }
                   const liveActivity = buildAgenticSeatActivity(
