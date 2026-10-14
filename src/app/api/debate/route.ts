@@ -7174,7 +7174,7 @@ export async function POST(req: NextRequest) {
                   },
                 }) : null;
             const appConnectionTools = seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
-            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal });
+            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId });
             const seatConversationToolNames = new Set<string>([
               ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
               ...AGENTIC_CONVERSATION_TOOL_NAMES,

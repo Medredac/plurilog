@@ -1,3 +1,4 @@
+import { reserveGoogleAction, finishGoogleAction } from './googleReceipts';
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { createServiceClient } from '@/utils/supabase/service';
@@ -93,10 +94,18 @@ export function imageStoragePath(rawUrl: string, userId: string): string {
 
 export function createGoogleToolSession(options: {
   userId: string; seatId: string; attachments: { url: string; provenance?: string }[];
-  token?: typeof googleToken; fetcher?: typeof fetch; signal?: AbortSignal;
+  token?: typeof googleToken; fetcher?: typeof fetch; signal?: AbortSignal; runId?: string;
 }) {
   const request = options.fetcher || fetch;
-  const getToken = options.token || googleToken;
+  const credentialRequests = new Map<ConnectedAppId, Promise<string>>();
+  const getToken = (userId: string, app: ConnectedAppId) => {
+    let pending = credentialRequests.get(app);
+    if (!pending) {
+      pending = (options.token || googleToken)(userId, app);
+      credentialRequests.set(app, pending);
+    }
+    return pending;
+  };
   const readMessages = new Map<string, GmailMessage>();
   const readDocs = new Map<string, GoogleDoc>();
   const writes = new Map<string, Promise<GoogleResult>>();
@@ -228,7 +237,20 @@ export function createGoogleToolSession(options: {
       if (previous) return previous;
       if (mutationUncertain || writeCount >= 5) return { status: 'error', code: 'write_limit_or_uncertain_outcome' };
       writeCount++;
-      const result = safelyExecute(name, args);
+      const result = (async () => {
+        if (options.runId) {
+          try {
+            const receipt = await reserveGoogleAction(options.userId, options.runId, fingerprint);
+            if (!receipt.reserved) return receipt.result;
+          } catch { return { status: 'error', code: 'action_storage_unavailable' }; }
+        }
+        const outcome = await safelyExecute(name, args);
+        if (options.runId) {
+          try { await finishGoogleAction(options.userId, options.runId, fingerprint, outcome); }
+          catch { mutationUncertain = true; /* Keep the pending receipt to prevent replay. The actual outcome is still reported. */ }
+        }
+        return outcome;
+      })();
       writes.set(fingerprint, result);
       return result;
     },

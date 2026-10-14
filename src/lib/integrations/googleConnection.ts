@@ -11,7 +11,7 @@ export class AppAccessError extends Error {
 }
 export function connectorFor(app: ConnectedAppId): string {
   // This release is deliberately confined to preview. A production rollout requires a separate review.
-  if (process.env.VERCEL_ENV !== 'preview' || process.env.GOOGLE_APPS_ENABLED !== 'true') throw new AppAccessError('setup_required');
+  if (process.env.VERCEL_ENV !== 'preview' || process.env.VERCEL_GIT_COMMIT_REF !== 'feat/google-apps-preview' || process.env.GOOGLE_APPS_ENABLED !== 'true') throw new AppAccessError('setup_required');
   const connector = process.env[app === 'gmail' ? 'GOOGLE_GMAIL_CONNECTOR' : 'GOOGLE_DRIVE_CONNECTOR'];
   if (!connector) throw new AppAccessError('setup_required');
   return connector;

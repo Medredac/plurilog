@@ -12,6 +12,34 @@ function load(file, mocks = {}) {
   return mod.exports;
 }
 const catalog = load('src/lib/integrations/catalog.ts');
+const crypto = load('src/lib/integrations/googleCrypto.ts');
+const records = { preview_google_connections: [], preview_google_oauth_states: [], preview_google_action_receipts: [] };
+function database() {
+  return { from(table) {
+    let operation = 'select', value, single = false; const filters = [];
+    const builder = {
+      select() { return builder; }, insert(input) { operation = 'insert'; value = input; return builder; },
+      upsert(input) { operation = 'upsert'; value = input; return builder; }, update(input) { operation = 'update'; value = input; return builder; },
+      delete() { operation = 'delete'; return builder; }, eq(key, input) { filters.push(row => row[key] === input); return builder; },
+      gt(key, input) { filters.push(row => row[key] > input); return builder; }, maybeSingle() { single = true; return builder; },
+      then(resolve, reject) {
+        try {
+          let rows = records[table].filter(row => filters.every(filter => filter(row)));
+          if (operation === 'insert') {
+            const duplicate = records[table].some(row => table === 'preview_google_action_receipts' ? row.user_id === value.user_id && row.run_id === value.run_id && row.fingerprint === value.fingerprint : row.state_hash === value.state_hash);
+            if (duplicate) return Promise.resolve({ data: null, error: { code: '23505' } }).then(resolve, reject);
+            records[table].push({ ...value }); rows = [value];
+          }
+          if (operation === 'upsert') { records[table] = records[table].filter(row => row.user_id !== value.user_id || row.app !== value.app); records[table].push({ ...value }); rows = [value]; }
+          if (operation === 'delete') records[table] = records[table].filter(row => !rows.includes(row));
+          if (operation === 'update') rows.forEach(row => Object.assign(row, value));
+          return Promise.resolve({ data: single ? rows[0] || null : rows, error: null }).then(resolve, reject);
+        } catch (error) { return Promise.reject(error).then(resolve, reject); }
+      },
+    }; return builder;
+  } };
+}
+const service = { createServiceClient: database };
 class NoValidTokenError extends Error {}
 class UserAuthorizationRequiredError extends Error {}
 let grantRequests = [];
@@ -25,13 +53,23 @@ const connection = load('src/lib/integrations/googleConnection.ts', {
     revokeToken: async () => {},
   },
 });
-const google = load('src/lib/integrations/googleTools.ts', { './googleConnection': connection, './catalog': catalog, '@/utils/supabase/service': { createServiceClient() { throw new Error('Unexpected storage access'); } } });
+const receipts = load('src/lib/integrations/googleReceipts.ts', { './googleCrypto': crypto, '@/utils/supabase/service': service });
+const google = load('src/lib/integrations/googleTools.ts', { './googleConnection': connection, './catalog': catalog, './googleReceipts': receipts, '@/utils/supabase/service': { createServiceClient() { throw new Error('Unexpected storage access'); } } });
+Object.assign(process.env, { VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'feat/google-apps-preview', GOOGLE_APPS_ENABLED: 'true', GOOGLE_GMAIL_CONNECTOR: 'oauth/test-gmail', GOOGLE_DRIVE_CONNECTOR: 'oauth/test-drive', GOOGLE_APPS_ENCRYPTION_KEY: 'a'.repeat(64), GOOGLE_APPS_ORIGIN: 'https://preview.example.com' });
 const json = body => Response.json(body);
 const doc = { documentId: 'doc1', title: 'Example', revisionId: 'revision1', tabs: [{ tabProperties: { tabId: 'tab1', title: 'Main' }, documentTab: { body: { content: [{ paragraph: { elements: [{ textRun: { content: 'Keep this. Change this.\n' } }] } }] } } }] };
 function session(fetcher, extra = {}) { return google.createGoogleToolSession({ userId: 'alice', seatId: 'chatgpt', attachments: [], token: async () => 'PRIVATE-TOKEN', fetcher, ...extra }); }
 
+test('encrypted Google records are bound to user, app, and purpose', () => {
+  const encrypted = crypto.encryptGoogle({ refreshToken: 'PRIVATE-TOKEN' }, 'tokens:alice:gmail');
+  assert.ok(!encrypted.includes('PRIVATE-TOKEN'));
+  assert.deepEqual(crypto.decryptGoogle(encrypted, 'tokens:alice:gmail'), { refreshToken: 'PRIVATE-TOKEN' });
+  assert.throws(() => crypto.decryptGoogle(encrypted, 'tokens:bob:gmail'));
+  assert.throws(() => crypto.decryptGoogle(encrypted, 'tokens:alice:google-drive'));
+  assert.throws(() => crypto.decryptGoogle('invalid', 'tokens:alice:gmail'));
+});
 test('connection subject is isolated by user and app, never a shared app credential', async () => {
-  Object.assign(process.env, { VERCEL_ENV: 'preview', GOOGLE_APPS_ENABLED: 'true', GOOGLE_GMAIL_CONNECTOR: 'oauth/test-gmail', GOOGLE_DRIVE_CONNECTOR: 'oauth/test-drive' });
+  Object.assign(process.env, { VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'feat/google-apps-preview', GOOGLE_APPS_ENABLED: 'true', GOOGLE_GMAIL_CONNECTOR: 'oauth/test-gmail', GOOGLE_DRIVE_CONNECTOR: 'oauth/test-drive' });
   grantRequests = [];
   await connection.googleToken('alice', 'gmail'); await connection.googleToken('bob', 'gmail'); await connection.googleToken('alice', 'google-drive');
   assert.deepEqual(grantRequests.map(call => call[1].subject.id), ['plurilog-preview:gmail:alice', 'plurilog-preview:gmail:bob', 'plurilog-preview:google-drive:alice']);
@@ -48,6 +86,16 @@ test('production fails closed and revoked consent is not shown as connected', as
 test('authorization response exposes only the destination, never verifier or tokens', async () => {
   process.env.GOOGLE_APPS_ORIGIN = 'https://preview.example.com';
   assert.equal(await connection.beginGoogleConnection('alice', 'gmail'), 'https://vercel.com/authorize/example');
+});
+test('durable action receipts suppress the same mutation across separate requests', async () => {
+  let writes = 0;
+  const fetcher = async () => { writes++; return json({ id: 'durable-draft' }); };
+  const args = { to: 'joe@example.com', subject: 'Durable draft', body: 'Body' };
+  const options = { runId: '11111111-1111-4111-8111-111111111111' };
+  const first = await session(fetcher, options).run('gmail_save_draft', args);
+  const second = await session(fetcher, options).run('gmail_save_draft', args);
+  assert.deepEqual(first, second); assert.equal(writes, 1);
+  assert.ok(!JSON.stringify(records.preview_google_action_receipts).includes('Durable draft'));
 });
 test('Claude and Gemini cannot execute integration tools', async () => {
   let calls = 0;
@@ -128,4 +176,21 @@ test('connection endpoints reject signed-out requests before touching providers'
 test('connection endpoints reject cross-origin requests before provider actions', async () => {
   const route = load('src/app/api/integrations/connect/route.ts', { '@/lib/integrations/catalog': catalog, '@/lib/integrations/googleConnection': connection, '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice' }), sameOrigin: () => false, PRIVATE_HEADERS: {} } });
   assert.equal((await route.POST(new Request('https://preview.example.com/api', { method: 'POST' }))).status, 403);
+});
+
+test('one tool session retrieves one credential per provider while separate sessions revalidate', async () => {
+  let calls = 0;
+  const options = { token: async () => { calls++; return 'PRIVATE-TOKEN'; }, fetcher: async () => json({ messages: [] }) };
+  const first = google.createGoogleToolSession({ userId: 'alice', seatId: 'chatgpt', attachments: [], ...options });
+  await first.run('gmail_search', { query: 'one' });
+  await first.run('gmail_search', { query: 'two' });
+  assert.equal(calls, 1);
+  const second = google.createGoogleToolSession({ userId: 'alice', seatId: 'chatgpt', attachments: [], ...options });
+  await second.run('gmail_search', { query: 'three' });
+  assert.equal(calls, 2);
+});
+test('other preview branches fail closed', async () => {
+  process.env.VERCEL_GIT_COMMIT_REF = 'another-preview';
+  assert.equal((await connection.connectionStatus('alice', 'gmail')).status, 'setup_required');
+  process.env.VERCEL_GIT_COMMIT_REF = 'feat/google-apps-preview';
 });
