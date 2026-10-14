@@ -1,5 +1,7 @@
 'use client';
 
+import { AppConnectionButton } from './apps/ConnectedApps';
+import { appFromConnectionHref } from '@/lib/integrations/catalog';
 import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -889,7 +891,10 @@ const markdownComponents: Components = {
       {children}
     </blockquote>
   ),
-  a: ({ href, children }) => (
+  a: ({ href, children }) => {
+    const app = appFromConnectionHref(href);
+    if (app) return <AppConnectionButton app={app} />;
+    return (
     <a
       href={href}
       target="_blank"
@@ -898,7 +903,8 @@ const markdownComponents: Components = {
     >
       {children}
     </a>
-  ),
+    );
+  },
   table: ({ children }) => (
     <div className="w-full max-w-full overflow-x-auto my-3 rounded-lg border border-zinc-200/80">
       <table className="min-w-full text-left text-xs sm:text-sm divide-y divide-zinc-200 border-collapse">

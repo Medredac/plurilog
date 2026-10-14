@@ -1,3 +1,4 @@
+import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, connectionToolResult, appConnectionInstruction } from '@/lib/integrations/connectionTools';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -7171,7 +7172,9 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
+            const appConnectionTools = seat.seatId === 'chatgpt' ? APP_CONNECTION_TOOLS : [];
             const seatConversationToolNames = new Set<string>([
+              ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME] : []),
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
               ...(videoSession ? ['inspect_video'] : []),
             ]);
@@ -7487,6 +7490,7 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            seatMessages.push({ role: 'system', content: appConnectionInstruction(seat.seatId === 'chatgpt') });
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7580,6 +7584,7 @@ export async function POST(req: NextRequest) {
             };
 
             const initialSeatStreamsBuffered =
+              appConnectionTools.length > 0 ||
               isEvidenceEnabledForSeat ||
               isDocumentCreationEnabledForSeat ||
               isAgenticMemoryEnabledForSeat;
@@ -7636,6 +7641,7 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 temperature: 0.7,
                 tools: [
+                  ...appConnectionTools,
                   {
                     type: 'openrouter:web_search',
                     parameters: {
@@ -7886,7 +7892,7 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                (videoSession || isAgenticMemoryEnabledForSeat ||
+                (appConnectionTools.length > 0 || videoSession || isAgenticMemoryEnabledForSeat ||
                   isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
@@ -8003,6 +8009,10 @@ export async function POST(req: NextRequest) {
                 }> = [];
 
                 for (const toolCall of memoryCandidateCalls) {
+                  if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
+                    toolResolutions.push({ toolCall, result: connectionToolResult((toolCall.arguments || {}) as Record<string, unknown>) });
+                    continue;
+                  }
                   const liveActivity = buildAgenticSeatActivity(
                     toolCall.name,
                     toolCall.arguments
@@ -8189,6 +8199,7 @@ export async function POST(req: NextRequest) {
                   agenticRetrievalRounds <
                   AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
+                  ...(retrievalToolsStillAvailable ? appConnectionTools : []),
                   ...(retrievalToolsStillAvailable
                     ? [
                         {
