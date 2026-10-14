@@ -1,6 +1,6 @@
 import { connectionStatus, googleAppsAvailable } from '@/lib/integrations/googleConnection';
 import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, createGoogleToolSession } from '@/lib/integrations/googleTools';
-import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, resolveAppConnection, appConnectionInstruction } from '@/lib/integrations/connectionTools';
+import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, resolveAppConnection, appConnectionInstruction, createAppResponseLinks } from '@/lib/integrations/connectionTools';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -7178,6 +7178,7 @@ export async function POST(req: NextRequest) {
                 }) : null;
             const googleAppsEnabled = googleAppsAvailable();
             const appConnectionTools = googleAppsEnabled && seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
+            const appResponseLinks = createAppResponseLinks();
             const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId, userPrompt: isContinueRound ? undefined : prompt, onTaskComplete: () => { appTaskComplete = true; } });
             const seatConversationToolNames = new Set<string>([
               ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
@@ -7189,6 +7190,7 @@ export async function POST(req: NextRequest) {
                 const result = options.toolName === APP_CONNECTION_TOOL_NAME
                   ? await resolveAppConnection(options.toolArgs, app => connectionStatus(authenticatedUser.id, app))
                   : await googleToolSession.run(options.toolName, options.toolArgs);
+                appResponseLinks.record(options.toolName, result);
                 return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [], query: null, latencyMs: 0 };
               }
               return options.toolName === 'inspect_video' && videoSession
@@ -8024,11 +8026,15 @@ export async function POST(req: NextRequest) {
 
                 for (const toolCall of memoryCandidateCalls) {
                   if (GOOGLE_TOOL_NAMES.has(toolCall.name)) {
-                    toolResolutions.push({ toolCall, result: await googleToolSession.run(toolCall.name, (toolCall.arguments || {}) as Record<string, unknown>) });
+                    const result = await googleToolSession.run(toolCall.name, (toolCall.arguments || {}) as Record<string, unknown>);
+                    appResponseLinks.record(toolCall.name, result);
+                    toolResolutions.push({ toolCall, result });
                     continue;
                   }
                   if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
-                    toolResolutions.push({ toolCall, result: await resolveAppConnection((toolCall.arguments || {}) as Record<string, unknown>, app => connectionStatus(authenticatedUser.id, app)) });
+                    const result = await resolveAppConnection((toolCall.arguments || {}) as Record<string, unknown>, app => connectionStatus(authenticatedUser.id, app));
+                    appResponseLinks.record(toolCall.name, result);
+                    toolResolutions.push({ toolCall, result });
                     continue;
                   }
                   const liveActivity = buildAgenticSeatActivity(
@@ -13967,6 +13973,12 @@ export async function POST(req: NextRequest) {
               }
 
               seatResponse = sanitizeInternalEvidenceHandles(seatResponse);
+              const appLinksSuffix = appResponseLinks.suffix(seatResponse);
+              if (appLinksSuffix) {
+                seatResponse += appLinksSuffix;
+                sendEvent('seat_chunk', { seatId: seat.seatId, text: appLinksSuffix });
+              }
+
 
               // Capture conversational peer response text sanitized against web-search citation URLs
               const peerResponseText = sanitizePeerResponseForWebCitations(

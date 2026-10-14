@@ -92,3 +92,23 @@ test('deployment-specific preview connect moves to the configured origin without
   assert.equal(starts, 0);
   assert.equal((await route.POST(request('https://evil.example.com'))).status, 403);
 });
+
+test('tool outcomes supply omitted connection and sent buttons without relying on model prose', () => {
+  const links = tools.createAppResponseLinks();
+  links.record('gmail_read_draft', { status: 'reconnect_required', connection_url: '/dashboard?connectApp=gmail' });
+  assert.match(links.suffix('Please connect Gmail.'), /\[Connect Gmail\]/);
+  links.record('gmail_read_draft', { status: 'ok', url: 'https://mail.google.com/mail/#drafts' });
+  links.record('gmail_send_draft', { status: 'sent', url: 'https://mail.google.com/mail/#sent/abc123' });
+  links.record('finish_app_task', { status: 'complete' });
+  const suffix = links.suffix('Sent successfully.');
+  assert.equal(suffix, '\n\n[View sent email](https://mail.google.com/mail/#sent/abc123)');
+  assert.equal(links.suffix('Sent.' + suffix), '');
+});
+
+test('failed and unrecognized destinations never manufacture success buttons', () => {
+  const links = tools.createAppResponseLinks();
+  links.record('gmail_send_draft', { status: 'error', url: 'https://mail.google.com/mail/#sent/abc123' });
+  links.record('gmail_send_draft', { status: 'sent', url: 'https://evil.test/mail/#sent/abc123' });
+  links.record('request_app_connection', { status: 'open_connection_screen', connection_url: 'https://evil.test/dashboard?connectApp=gmail' });
+  assert.equal(links.suffix('No success confirmed.'), '');
+});
