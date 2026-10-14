@@ -34,8 +34,8 @@ export function AppDestinationButton({ href }: { href: string }) {
   if (!destination) return null;
   const details = CONNECTED_APPS.find(item => item.id === destination.app)!;
   return <a href={href} target="_blank" rel="noopener noreferrer" aria-label={`${destination.label} (opens in a new tab)`}
-    className="group my-2 inline-flex min-h-12 max-w-full items-center gap-3 rounded-2xl border border-[#D9D6CF] bg-[#FAF9F6] px-4 py-3 align-middle text-sm font-medium text-[#1C1B1A] no-underline shadow-[0_2px_4px_rgba(28,27,26,0.04)] transition-colors hover:border-[#B7B1A5] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C1B1A]">
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[#E8E5DF] bg-white"><Image unoptimized src={details.logo} width={21} height={21} alt="" /></span>
+    className="group inline-flex min-h-10 max-w-full items-center gap-2.5 rounded-xl border border-[#D9D6CF] bg-[#FAF9F6] px-3.5 py-2 align-middle text-sm font-medium text-[#1C1B1A] no-underline shadow-[0_2px_4px_rgba(28,27,26,0.04)] transition-colors hover:border-[#B7B1A5] hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1C1B1A]">
+    <span className="flex h-5 w-5 shrink-0 items-center justify-center"><Image unoptimized src={details.logo} width={21} height={21} alt="" /></span>
     <span className="min-w-0">{destination.label}</span>
     <ArrowUpRight className="ml-2 h-4 w-4 shrink-0 text-[#8A867D] transition-colors group-hover:text-[#1C1B1A]" aria-hidden="true" />
   </a>;

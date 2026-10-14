@@ -892,9 +892,6 @@ const markdownComponents: Components = {
     </blockquote>
   ),
   a: ({ href, children }) => {
-    const app = appFromConnectionHref(href);
-    if (app) return <AppConnectionButton app={app} />;
-    if (href && appDestination(href)) return <AppDestinationButton href={href} />;
     return (
     <a
       href={href}
@@ -1254,6 +1251,7 @@ function rehypeStreamingWordFade() {
 }
 
 interface StreamingMessageBodyProps {
+  appButtons?: boolean;
   content: string;
   isStreaming?: boolean;
   reduceMotion?: boolean;
@@ -1263,6 +1261,7 @@ interface StreamingMessageBodyProps {
 }
 
 const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
+  appButtons = false,
   content,
   isStreaming,
   reduceMotion,
@@ -1291,7 +1290,15 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
-          components={markdownComponents}
+          components={{ ...markdownComponents, p: ({ node, children }) => {
+            const nodes = node?.children.filter(child => child.type !== 'text' || child.value.trim()) || [];
+            const only = nodes.length === 1 ? nodes[0] : undefined;
+            const href = only?.type === 'element' && only.tagName === 'a' ? String(only.properties?.href || '') : undefined;
+            const app = appFromConnectionHref(href);
+            if (appButtons && app) return <div className="my-3"><AppConnectionButton app={app} /></div>;
+            if (appButtons && href && appDestination(href)) return <div className="my-3"><AppDestinationButton href={href} /></div>;
+            return <p className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">{children}</p>;
+          } }}
         >
           {displayedMainContent}
         </ReactMarkdown>
@@ -2830,6 +2837,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 >
                   <div className={isAiCollapsed ? 'pointer-events-none' : ''}>
                     <StreamingMessageBody
+                      appButtons={modelKey === 'chatgpt'}
                       content={message.content}
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}

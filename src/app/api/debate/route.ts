@@ -7191,6 +7191,7 @@ export async function POST(req: NextRequest) {
                   ? await resolveAppConnection(options.toolArgs, app => connectionStatus(authenticatedUser.id, app))
                   : await googleToolSession.run(options.toolName, options.toolArgs);
                 appResponseLinks.record(options.toolName, result);
+                console.info('[Google App Result]', { discussionId, tool: options.toolName, status: result.status, code: result.code });
                 return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [], query: null, latencyMs: 0 };
               }
               return options.toolName === 'inspect_video' && videoSession
@@ -7898,6 +7899,8 @@ export async function POST(req: NextRequest) {
               // any terminal artifact/action tool. The seat itself decides
               // whether another retrieval is needed after seeing each result.
               let agenticRetrievalRounds = 0;
+              let appToolRounds = 0;
+              const maxAppToolRounds = 20;
               let incurredAgenticRetrievalCostUsd = 0;
               const agenticModelCalls: Array<{
                 round: number;
@@ -7949,9 +7952,11 @@ export async function POST(req: NextRequest) {
                   );
                 }
 
+                const hasAppCalls = memoryCandidateCalls.some(call => GOOGLE_TOOL_NAMES.has(call.name) || call.name === APP_CONNECTION_TOOL_NAME);
+                const hasRetrievalCalls = memoryCandidateCalls.some(call => !GOOGLE_TOOL_NAMES.has(call.name) && call.name !== APP_CONNECTION_TOOL_NAME);
                 if (
-                  agenticRetrievalRounds >=
-                  AGENTIC_HARD_RETRIEVAL_ROUNDS
+                  (hasAppCalls && appToolRounds >= maxAppToolRounds) ||
+                  (hasRetrievalCalls && agenticRetrievalRounds >= AGENTIC_HARD_RETRIEVAL_ROUNDS)
                 ) {
                   console.warn('[Agentic Retrieval] Hard ceiling reached; forcing graceful finalization', {
                     discussionId,
@@ -8014,7 +8019,8 @@ export async function POST(req: NextRequest) {
                   break;
                 }
 
-                agenticRetrievalRounds += 1;
+                if (hasAppCalls) appToolRounds += 1;
+                if (hasRetrievalCalls) agenticRetrievalRounds += 1;
                 const priorPassCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 incurredAgenticRetrievalCostUsd += priorPassCostUsd;
@@ -8028,12 +8034,14 @@ export async function POST(req: NextRequest) {
                   if (GOOGLE_TOOL_NAMES.has(toolCall.name)) {
                     const result = await googleToolSession.run(toolCall.name, (toolCall.arguments || {}) as Record<string, unknown>);
                     appResponseLinks.record(toolCall.name, result);
+                    console.info('[Google App Result]', { discussionId, tool: toolCall.name, status: result.status, code: result.code });
                     toolResolutions.push({ toolCall, result });
                     continue;
                   }
                   if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
                     const result = await resolveAppConnection((toolCall.arguments || {}) as Record<string, unknown>, app => connectionStatus(authenticatedUser.id, app));
                     appResponseLinks.record(toolCall.name, result);
+                    console.info('[Google App Result]', { discussionId, tool: toolCall.name, status: result.status, code: result.code });
                     toolResolutions.push({ toolCall, result });
                     continue;
                   }
@@ -8170,7 +8178,7 @@ export async function POST(req: NextRequest) {
                       ({ toolCall }, index) => ({
                         id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds + appToolRounds}_${index + 1}`,
                         type: 'function',
                         function: {
                           name: toolCall.name,
@@ -8187,7 +8195,7 @@ export async function POST(req: NextRequest) {
                         role: 'tool',
                         tool_call_id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds + appToolRounds}_${index + 1}`,
                         name: toolCall.name,
                         content: JSON.stringify(result),
                       }) as any
@@ -8223,7 +8231,7 @@ export async function POST(req: NextRequest) {
                   agenticRetrievalRounds <
                   AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
-                  ...(retrievalToolsStillAvailable ? appConnectionTools : []),
+                  ...(appToolRounds < maxAppToolRounds ? appConnectionTools : []),
                   ...(retrievalToolsStillAvailable
                     ? [
                         {
@@ -8289,7 +8297,7 @@ export async function POST(req: NextRequest) {
                     tools: continuationTools,
                     ...(discussionId
                       ? {
-                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
+                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds + appToolRounds}`,
                         }
                       : {}),
 
@@ -8333,7 +8341,7 @@ export async function POST(req: NextRequest) {
                 const continuationCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 agenticModelCalls.push({
-                  round: agenticRetrievalRounds,
+                  round: agenticRetrievalRounds + appToolRounds,
                   model: continuationModel,
                   costUsd: continuationCostUsd,
                   latencyMs: Date.now() - continuationStartedAt,
@@ -11295,7 +11303,7 @@ export async function POST(req: NextRequest) {
                         : [];
 
                     agenticModelCalls.push({
-                      round: agenticRetrievalRounds,
+                      round: agenticRetrievalRounds + appToolRounds,
                       model: iterativeModel,
                       costUsd: iterativeCostUsd,
                       latencyMs:

@@ -176,7 +176,7 @@ test('connection endpoints reject signed-out requests before touching providers'
 });
 test('connection endpoints reject cross-origin requests before provider actions', async () => {
   const route = load('src/app/api/integrations/connect/route.ts', { '@/lib/integrations/catalog': catalog, '@/lib/integrations/googleConnection': connection, '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice' }), sameOrigin: () => false, PRIVATE_HEADERS: {} } });
-  assert.equal((await route.POST(new Request('https://preview.example.com/api', { method: 'POST' }))).status, 403);
+  assert.equal((await route.POST(new Request('https://preview.example.com/api', { method: 'POST', headers: { origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ app: 'gmail' }) }))).status, 403);
 });
 
 test('one tool session retrieves one credential per provider while separate sessions revalidate', async () => {
@@ -335,4 +335,47 @@ test('partial Trash failures report completed count without repeating earlier me
   assert.equal(result.completed_count, 1);
   assert.equal((await s.run('finish_app_task', {})).code, 'app_task_not_complete');
   assert.equal(trashCalls, 2);
+});
+
+test('34 matching messages can be searched then trashed without touching another sender', async () => {
+  const ids = Array.from({ length: 34 }, (_, i) => `timeleft${i}`);
+  const trashed = [];
+  const s = session(async (url, init) => {
+    const u = new URL(url);
+    if (u.pathname.endsWith('/messages')) {
+      assert.equal(u.searchParams.get('maxResults'), '50');
+      assert.equal(u.searchParams.get('q'), 'from:hello@timeleft.com');
+      return json({ messages: ids.map(id => ({ id })) });
+    }
+    const id = u.pathname.split('/').at(-1);
+    if (id === 'trash') {
+      const target = u.pathname.split('/').at(-2);
+      assert.ok(ids.includes(target));
+      assert.equal(init.method, 'POST');
+      trashed.push(target);
+      return json({ id: target });
+    }
+    return json({ id, payload: { headers: [{ name: 'From', value: 'hello@timeleft.com' }] } });
+  });
+  const found = await s.run('gmail_search', { query: 'from:hello@timeleft.com' });
+  assert.equal(found.messages.length, 34);
+  assert.equal(found.next_page_token, null);
+  const result = await s.run('gmail_modify_messages', { message_ids: found.messages.map(m => m.message_id), action: 'trash' });
+  assert.equal(result.status, 'updated');
+  assert.equal(result.count, 34);
+  assert.deepEqual(trashed, ids);
+  const other = await s.run('gmail_modify_messages', { message_ids: ['unrelated'], action: 'trash' });
+  assert.equal(other.code, 'search_or_read_messages_first');
+  assert.equal(trashed.length, 34);
+});
+
+test('blocked routine task can end with one truthful operator response', async () => {
+  let completed = 0;
+  const s = session(async () => new Response('', { status: 403 }), { onTaskComplete: () => completed++ });
+  assert.equal((await s.run('finish_app_task', { outcome: 'blocked' })).code, 'no_blocked_app_result');
+  await s.run('gmail_search', { query: 'from:hello@timeleft.com' });
+  const result = await s.run('finish_app_task', { outcome: 'blocked' });
+  assert.equal(result.status, 'blocked');
+  assert.match(result.message, /Never claim completion/);
+  assert.equal(completed, 1);
 });
