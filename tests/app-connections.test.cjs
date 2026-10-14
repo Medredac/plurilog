@@ -77,3 +77,18 @@ test('provider branding appears only on real HTTPS Gmail and Google Docs destina
   assert.equal(catalog.appDestination('https://docs.google.com/document/d/abc/edit').app, 'google-drive');
   for (const url of ['https://mail.google.com.evil.test/mail/#drafts', 'https://mail.google.com@evil.test/mail/', 'http://mail.google.com/mail/', 'https://evil@mail.google.com/mail/', 'javascript:alert(1)', '/mail/#drafts']) assert.equal(catalog.appDestination(url), null);
 });
+
+test('deployment-specific preview connect moves to the configured origin without starting OAuth', async () => {
+  let starts = 0;
+  const route = load('src/app/api/integrations/connect/route.ts', {
+    '@/lib/integrations/catalog': catalog,
+    '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice' }), sameOrigin: () => false, PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { AppAccessError: class extends Error {}, googleAppsAvailable: () => true, integrationOrigin: () => 'https://stable.example.com', beginGoogleConnection: async () => { starts++; } },
+  });
+  const request = origin => new Request('https://deployment.example.com/api/integrations/connect', { method: 'POST', headers: { origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ app: 'gmail' }) });
+  const response = await route.POST(request('https://deployment.example.com'));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).url, 'https://stable.example.com/dashboard?connectApp=gmail');
+  assert.equal(starts, 0);
+  assert.equal((await route.POST(request('https://evil.example.com'))).status, 403);
+});
