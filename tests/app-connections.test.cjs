@@ -30,8 +30,8 @@ test('model arguments cannot create arbitrary app destinations or claim successf
   assert.equal(tools.connectionToolResult({ app: '../../evil' }).status, 'invalid_app');
   for (const app of ['gmail', 'google-drive']) {
     const result = tools.connectionToolResult({ app, connected: true, token: 'ignored' });
-    assert.equal(result.connected, false);
-    assert.equal(result.status, 'setup_required');
+    assert.equal(result.connected, undefined);
+    assert.equal(result.status, 'open_connection_screen');
     assert.equal(catalog.appFromConnectionHref(result.connection_url), app);
     assert.equal(JSON.stringify(result).includes('ignored'), false);
   }
@@ -40,7 +40,8 @@ test('model arguments cannot create arbitrary app destinations or claim successf
 test('signed-out availability requests are rejected', async () => {
   const route = load('src/app/api/integrations/route.ts', {
     '@/lib/integrations/catalog': catalog,
-    '@/utils/supabase/server': { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: null }, error: null }) } }) },
+    '@/lib/integrations/http': { integrationUser: async () => null, PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { connectionStatus: async () => { throw new Error('Must not access provider'); } },
   });
   const response = await route.GET();
   assert.equal(response.status, 401);
@@ -49,7 +50,8 @@ test('signed-out availability requests are rejected', async () => {
 test('Google sign-in does not masquerade as an app connection; status stays private and uncached', async () => {
   const route = load('src/app/api/integrations/route.ts', {
     '@/lib/integrations/catalog': catalog,
-    '@/utils/supabase/server': { createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'alice', app_metadata: { provider: 'google' } } }, error: null }) } }) },
+    '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice', app_metadata: { provider: 'google' } }), PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { connectionStatus: async (_user, app) => ({ id: app, connected: false, status: 'setup_required' }) },
   });
   const response = await route.GET();
   assert.equal(response.headers.get('Cache-Control'), 'private, no-store');

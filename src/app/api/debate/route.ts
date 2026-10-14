@@ -1,3 +1,4 @@
+import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, createGoogleToolSession } from '@/lib/integrations/googleTools';
 import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, connectionToolResult, appConnectionInstruction } from '@/lib/integrations/connectionTools';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
@@ -7172,16 +7173,24 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
-            const appConnectionTools = seat.seatId === 'chatgpt' ? APP_CONNECTION_TOOLS : [];
+            const appConnectionTools = seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
+            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal });
             const seatConversationToolNames = new Set<string>([
-              ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME] : []),
+              ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
               ...(videoSession ? ['inspect_video'] : []),
             ]);
-            const resolveSeatConversationTool = (options: Parameters<typeof resolveAgenticConversationTool>[0]) =>
-              options.toolName === 'inspect_video' && videoSession
+            const resolveSeatConversationTool = async (options: Parameters<typeof resolveAgenticConversationTool>[0]) => {
+              if (GOOGLE_TOOL_NAMES.has(options.toolName) || options.toolName === APP_CONNECTION_TOOL_NAME) {
+                const result = options.toolName === APP_CONNECTION_TOOL_NAME
+                  ? connectionToolResult(options.toolArgs)
+                  : await googleToolSession.run(options.toolName, options.toolArgs);
+                return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [], query: null, latencyMs: 0 };
+              }
+              return options.toolName === 'inspect_video' && videoSession
                 ? videoSession.inspect(options.toolArgs)
                 : resolveAgenticConversationTool(options);
+            };
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -8009,6 +8018,10 @@ export async function POST(req: NextRequest) {
                 }> = [];
 
                 for (const toolCall of memoryCandidateCalls) {
+                  if (GOOGLE_TOOL_NAMES.has(toolCall.name)) {
+                    toolResolutions.push({ toolCall, result: await googleToolSession.run(toolCall.name, (toolCall.arguments || {}) as Record<string, unknown>) });
+                    continue;
+                  }
                   if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
                     toolResolutions.push({ toolCall, result: connectionToolResult((toolCall.arguments || {}) as Record<string, unknown>) });
                     continue;
