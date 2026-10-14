@@ -5,7 +5,7 @@ export const CONNECTED_APPS = [
     logo: '/apps/gmail.png',
     description: 'Bring the conversation from your inbox into Plurilog.',
     examples: ['Find Joe’s latest email', 'Help me draft a reply'],
-    capabilities: ['Find and read email conversations', 'Prepare replies with the context of your discussion', 'Save replies as drafts in Gmail'],
+    capabilities: ['Find and read email conversations', 'Prepare replies with the context of your discussion', 'Create, edit, and send email drafts when you ask', 'Reply and forward emails', 'Archive, label, mark read/unread, and move emails to Trash'],
   },
   {
     id: 'google-drive',
@@ -32,4 +32,18 @@ export function appFromConnectionHref(href: string | undefined): ConnectedAppId 
   if (!href) return null;
   const match = /^\/dashboard\?connectApp=(gmail|google-drive)$/.exec(href);
   return match ? match[1] as ConnectedAppId : null;
+}
+
+/** Only recognized provider destinations receive app branding. */
+export function appDestination(href: string | undefined): { app: ConnectedAppId; label: string } | null {
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+    if (url.hostname === 'mail.google.com' && /^\/mail(?:\/|$)/.test(url.pathname)) {
+      return { app: 'gmail', label: url.hash.startsWith('#drafts') ? 'Open Gmail drafts' : url.hash.startsWith('#sent') ? 'View sent email' : url.hash.startsWith('#trash') ? 'Open Gmail Trash' : 'Open in Gmail' };
+    }
+    if (url.hostname === 'docs.google.com' && /^\/document\/d\/[A-Za-z0-9_-]+(?:\/|$)/.test(url.pathname)) return { app: 'google-drive', label: 'Open Google Doc' };
+    return null;
+  } catch { return null; }
 }

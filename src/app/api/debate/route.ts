@@ -1686,7 +1686,7 @@ FILES AND VIDEO
 - Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier YouTube videos, retrieve the correct link through conversation memory before inspecting it; do not default to the latest video. For earlier uploads, retrieve the saved findings; ask for a fresh upload if those findings do not cover the new request. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
-${runtime?.googleAppsEnabled ? '- This preview supports Gmail and selected Google Drive/Docs connections. ChatGPT alone operates these tools for the authenticated user. It can search/read/count Gmail messages, save unsent drafts, and read/create/edit selected Docs. Claude and Gemini may assess shared results. Connection status is determined by tools, never by prior claims or ordinary Google sign-in. No send/delete/sharing tools exist.' : "- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads."}
+${runtime?.googleAppsEnabled ? '- This preview supports Gmail and selected Google Drive/Docs connections. ChatGPT alone operates these tools for the authenticated user. It can search/read/count Gmail messages, create/read/update/send drafts, reply/forward, archive, mark read/unread, manage labels, move messages to Trash/restore, and read/create/edit selected Docs. Sending requires an explicit user instruction and a freshly read draft. Claude and Gemini may assess shared results. Connection status is determined by tools, never by prior claims or ordinary Google sign-in. No permanent deletion, mailbox settings, or Drive sharing tools exist.' : "- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads."}
 - There is no dedicated native Android or iOS app currently. Plurilog is available through the web interface, including mobile browsers.
 - Plurilog is not currently a background/proactive assistant. The AIs cannot keep working after the user leaves, schedule background jobs, monitor accounts, send push notifications, or contact the user after the app is closed.
 
@@ -7027,6 +7027,7 @@ export async function POST(req: NextRequest) {
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
+          let appTaskComplete = false;
           seatLoop: for (
             let seatIndex = 0;
             seatIndex < configuredSeats.length;
@@ -7177,7 +7178,7 @@ export async function POST(req: NextRequest) {
                 }) : null;
             const googleAppsEnabled = googleAppsAvailable();
             const appConnectionTools = googleAppsEnabled && seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
-            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId });
+            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId, userPrompt: isContinueRound ? undefined : prompt, onTaskComplete: () => { appTaskComplete = true; } });
             const seatConversationToolNames = new Set<string>([
               ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
@@ -13996,7 +13997,7 @@ export async function POST(req: NextRequest) {
               // The visible response is now complete. Tell the client which seat
               // is next before persistence / billing so it can reserve that card
               // immediately instead of leaving a dead-looking gap.
-              const nextSeat = configuredSeats[seatIndex + 1];
+              const nextSeat = appTaskComplete ? undefined : configuredSeats[seatIndex + 1];
               if (nextSeat) {
                 sendEvent('seat_handoff', {
                   seatId: seat.seatId,
@@ -14164,6 +14165,7 @@ export async function POST(req: NextRequest) {
                 name: seat.name,
                 response: peerResponseText,
               });
+              if (appTaskComplete) break seatLoop;
             } catch (err: any) {
               if (durableRunCancelled) {
                 console.log('[Durable Stop] Provider work cancelled.', {

@@ -70,3 +70,10 @@ test('connection requests use current server status instead of asking connected 
   assert.equal(unavailable.status, 'unavailable');
   assert.equal(unavailable.connection_url, undefined);
 });
+
+test('provider branding appears only on real HTTPS Gmail and Google Docs destinations', () => {
+  assert.equal(catalog.appDestination('https://mail.google.com/mail/#drafts').label, 'Open Gmail drafts');
+  assert.equal(catalog.appDestination('https://mail.google.com/mail/#sent/abc').label, 'View sent email');
+  assert.equal(catalog.appDestination('https://docs.google.com/document/d/abc/edit').app, 'google-drive');
+  for (const url of ['https://mail.google.com.evil.test/mail/#drafts', 'https://mail.google.com@evil.test/mail/', 'http://mail.google.com/mail/', 'https://evil@mail.google.com/mail/', 'javascript:alert(1)', '/mail/#drafts']) assert.equal(catalog.appDestination(url), null);
+});

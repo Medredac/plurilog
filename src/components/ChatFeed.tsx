@@ -1,7 +1,7 @@
 'use client';
 
-import { AppConnectionButton } from './apps/ConnectedApps';
-import { appFromConnectionHref } from '@/lib/integrations/catalog';
+import { AppConnectionButton, AppDestinationButton } from './apps/ConnectedApps';
+import { appFromConnectionHref, appDestination } from '@/lib/integrations/catalog';
 import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -894,6 +894,7 @@ const markdownComponents: Components = {
   a: ({ href, children }) => {
     const app = appFromConnectionHref(href);
     if (app) return <AppConnectionButton app={app} />;
+    if (href && appDestination(href)) return <AppDestinationButton href={href} />;
     return (
     <a
       href={href}
@@ -3176,7 +3177,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             ? null
             : visibleAnsweredCount >= expectedAnswers
               ? `All ${visibleAnsweredCount} answered`
-              : `${visibleAnsweredCount} of ${expectedAnswers} answered`;
+              : `${visibleAnsweredCount} response${visibleAnsweredCount === 1 ? '' : 's'}`;
 
         return (
           <motion.div

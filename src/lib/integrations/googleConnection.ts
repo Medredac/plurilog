@@ -3,7 +3,7 @@ import { getToken, startAuthorization, revokeToken, NoValidTokenError, UserAutho
 import { ConnectedAppId } from './catalog';
 
 export const GOOGLE_SCOPES: Record<ConnectedAppId, string[]> = {
-  gmail: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose'],
+  gmail: ['https://www.googleapis.com/auth/gmail.modify'],
   'google-drive': ['https://www.googleapis.com/auth/drive.file'],
 };
 export class AppAccessError extends Error {

@@ -104,7 +104,8 @@ test('Claude and Gemini cannot execute integration tools', async () => {
     assert.equal(result.status, 'forbidden');
   }
   assert.equal(calls, 0);
-  assert.ok(!google.GOOGLE_TOOLS.some(tool => /send|delete|trash/.test(tool.function.name)));
+  assert.ok(!google.GOOGLE_TOOLS.some(tool => /delete/.test(tool.function.name)));
+  assert.ok(google.GOOGLE_TOOLS.some(tool => tool.function.name === 'gmail_send_draft'));
 });
 test('draft encoding handles Unicode and rejects recipient/subject header injection', () => {
   const raw = google.draftMime('joe@example.com', 'Bonjour café ☕', 'Hello\nJoe');
@@ -214,4 +215,124 @@ test('Gmail count marks capped pagination as a lower bound', async () => {
   assert.equal(calls, 20);
   assert.equal(result.count, 20);
   assert.equal(result.exact, false);
+});
+
+const draftMessage = () => ({ id: 'm1', threadId: 'thread1', payload: { mimeType: 'text/plain', headers: [{ name: 'To', value: 'joe@example.com' }, { name: 'Subject', value: 'Hello' }], body: { data: Buffer.from('Hello Joe').toString('base64url') } } });
+async function readDraft(s) { return s.run('gmail_read_draft', { draft_id: 'draft1' }); }
+
+test('send requires current explicit intent and a freshly read, unchanged draft', async () => {
+  let sends = 0;
+  let changed = false;
+  const fetcher = async (url, init) => {
+    if (url.endsWith('drafts/send')) { sends++; assert.deepEqual(JSON.parse(init.body), { id: 'draft1' }); return json({ id: 'sent1', threadId: 'thread1' }); }
+    const message = draftMessage();
+    if (changed) message.payload.body.data = Buffer.from('Changed').toString('base64url');
+    return json({ message });
+  };
+  const noIntent = session(fetcher, { userPrompt: 'Draft an email' });
+  let read = await readDraft(noIntent);
+  assert.equal((await noIntent.run('gmail_send_draft', { draft_id: 'draft1', revision: read.revision })).code, 'explicit_send_request_required');
+  const send = session(fetcher, { userPrompt: 'Send it' });
+  assert.equal((await send.run('gmail_send_draft', { draft_id: 'draft1', revision: 'guess' })).code, 'read_draft_before_action');
+  read = await readDraft(send);
+  changed = true;
+  assert.equal((await send.run('gmail_send_draft', { draft_id: 'draft1', revision: read.revision })).code, 'draft_changed_read_again');
+  assert.equal(sends, 0);
+  changed = false;
+  const sent = await send.run('gmail_send_draft', { draft_id: 'draft1', revision: read.revision });
+  assert.equal(sent.status, 'sent');
+  assert.equal(sends, 1);
+});
+
+test('send deduplicates across turns and does not retry an uncertain delivery', async () => {
+  records.preview_google_action_receipts = [];
+  let sends = 0;
+  const fetcher = async url => {
+    if (url.endsWith('drafts/send')) { sends++; throw new Error('Network lost after delivery'); }
+    return json({ message: draftMessage() });
+  };
+  for (const runId of ['first', 'second']) {
+    const s = session(fetcher, { userPrompt: 'Send the draft', runId });
+    const read = await readDraft(s);
+    const result = await s.run('gmail_send_draft', { draft_id: 'draft1', revision: read.revision });
+    assert.equal(result.code, 'outcome_unknown');
+  }
+  assert.equal(sends, 1);
+});
+
+test('mailbox mutations require observed targets and use recoverable Trash endpoints', async () => {
+  const requests = [];
+  const s = session(async (url, init) => {
+    requests.push({ url, init });
+    if (url.includes('messages?')) return json({ messages: [{ id: 'm1' }] });
+    if (url.includes('format=metadata')) return json(draftMessage());
+    return json({});
+  });
+  assert.equal((await s.run('gmail_modify_messages', { message_ids: ['invented'], action: 'trash' })).code, 'search_or_read_messages_first');
+  await s.run('gmail_search', { query: 'from:joe@example.com' });
+  const result = await s.run('gmail_modify_messages', { message_ids: ['m1'], action: 'trash' });
+  assert.equal(result.status, 'updated');
+  assert.ok(requests.some(r => r.url.endsWith('messages/m1/trash') && r.init.method === 'POST'));
+  assert.ok(requests.every(r => r.init.method !== 'DELETE'));
+});
+
+test('draft update uses PUT and refuses rich content instead of deleting formatting or attachments', async () => {
+  let rich = false;
+  let updates = 0;
+  const s = session(async (url, init) => {
+    if (init.method === 'PUT') { updates++; return json({ id: 'draft1' }); }
+    const message = draftMessage(); if (rich) message.payload.mimeType = 'text/html';
+    return json({ message });
+  });
+  let read = await readDraft(s);
+  const args = { draft_id: 'draft1', revision: read.revision, to: 'joe@example.com', subject: 'New subject', body: 'New content' };
+  assert.equal((await s.run('gmail_update_draft', args)).status, 'updated');
+  rich = true; read = await readDraft(s);
+  assert.equal((await s.run('gmail_update_draft', { ...args, revision: read.revision })).code, 'edit_rich_draft_in_gmail');
+  assert.equal(updates, 1);
+});
+
+test('finish_app_task only suppresses redundant peers after successful work', async () => {
+  let completed = 0;
+  const s = session(async () => json({ messages: [] }), { onTaskComplete: () => completed++ });
+  assert.equal((await s.run('finish_app_task', {})).code, 'app_task_not_complete');
+  await s.run('gmail_count', { query: 'from:joe@example.com' });
+  assert.equal((await s.run('finish_app_task', {})).status, 'complete');
+  assert.equal(completed, 1);
+  const failing = session(async () => new Response('', { status: 403 }), { onTaskComplete: () => completed++ });
+  await failing.run('gmail_count', { query: 'from:joe@example.com' });
+  assert.equal((await failing.run('finish_app_task', {})).code, 'app_task_not_complete');
+  assert.equal(completed, 1);
+});
+
+test('Cc/Bcc are validated against header injection and survive plain-text draft editing', async () => {
+  assert.throws(() => google.draftMime('joe@example.com', 'Hi', 'Hello', undefined, 'a@example.com\r\nBcc: evil@example.com'));
+  let raw;
+  const s = session(async (_url, init) => {
+    if (init.method === 'PUT') { raw = JSON.parse(init.body).message.raw; return json({ id: 'draft1' }); }
+    const message = draftMessage();
+    message.payload.headers.push({ name: 'Cc', value: 'copy@example.com' }, { name: 'Bcc', value: 'blind@example.com' });
+    return json({ message });
+  });
+  const read = await readDraft(s);
+  await s.run('gmail_update_draft', { draft_id: 'draft1', revision: read.revision, to: 'joe@example.com', subject: 'Updated', body: 'Hello' });
+  const mime = Buffer.from(raw, 'base64url').toString();
+  assert.match(mime, /Cc: copy@example.com/);
+  assert.match(mime, /Bcc: blind@example.com/);
+});
+
+test('partial Trash failures report completed count without repeating earlier messages', async () => {
+  let trashCalls = 0;
+  const s = session(async (url) => {
+    if (url.includes('messages?')) return json({ messages: [{ id: 'm1' }, { id: 'm2' }] });
+    if (url.includes('format=metadata')) return json({ ...draftMessage(), id: url.includes('/m2?') ? 'm2' : 'm1' });
+    if (url.endsWith('/trash') && ++trashCalls === 2) return new Response('', { status: 500 });
+    return json({});
+  });
+  await s.run('gmail_search', { query: 'from:joe@example.com' });
+  const result = await s.run('gmail_modify_messages', { message_ids: ['m1', 'm2'], action: 'trash' });
+  assert.equal(result.status, 'partial_or_failed');
+  assert.equal(result.completed_count, 1);
+  assert.equal((await s.run('finish_app_task', {})).code, 'app_task_not_complete');
+  assert.equal(trashCalls, 2);
 });
