@@ -1,0 +1,114 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const Module = require('node:module');
+const ts = require('typescript');
+function load(file, mocks = {}) {
+  const filename = path.resolve(file);
+  const mod = new Module(filename, module);
+  mod.filename = filename;
+  mod.paths = module.paths;
+  mod.require = name => Object.hasOwn(mocks, name) ? mocks[name] : require(name);
+  mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+  }).outputText, filename);
+  return mod.exports;
+}
+const catalog = load('src/lib/integrations/catalog.ts');
+const tools = load('src/lib/integrations/connectionTools.ts', { './catalog': catalog });
+
+test('only exact local app destinations turn into privileged-looking connection buttons', () => {
+  assert.equal(catalog.appFromConnectionHref('/dashboard?connectApp=gmail'), 'gmail');
+  assert.equal(catalog.appFromConnectionHref('/dashboard?connectApp=google-drive'), 'google-drive');
+  for (const href of [undefined, 'https://evil.test/dashboard?connectApp=gmail', '//evil.test/dashboard?connectApp=gmail', '/dashboard?connectApp=gmail&redirect=https://evil.test', 'javascript:alert(1)', '/api/integrations/connect?app=gmail']) {
+    assert.equal(catalog.appFromConnectionHref(href), null);
+  }
+});
+
+test('model arguments cannot create arbitrary app destinations or claim successful Google access', () => {
+  assert.equal(tools.connectionToolResult({ app: '../../evil' }).status, 'invalid_app');
+  for (const app of ['gmail', 'google-drive']) {
+    const result = tools.connectionToolResult({ app, connected: true, token: 'ignored' });
+    assert.equal(result.connected, undefined);
+    assert.equal(result.status, 'open_connection_screen');
+    assert.equal(catalog.appFromConnectionHref(result.connection_url), app);
+    assert.equal(JSON.stringify(result).includes('ignored'), false);
+  }
+});
+
+test('signed-out availability requests are rejected', async () => {
+  const route = load('src/app/api/integrations/route.ts', {
+    '@/lib/integrations/catalog': catalog,
+    '@/lib/integrations/http': { integrationUser: async () => null, PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { connectionStatus: async () => { throw new Error('Must not access provider'); } },
+  });
+  const response = await route.GET();
+  assert.equal(response.status, 401);
+});
+
+test('Google sign-in does not masquerade as an app connection; status stays private and uncached', async () => {
+  const route = load('src/app/api/integrations/route.ts', {
+    '@/lib/integrations/catalog': catalog,
+    '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice', app_metadata: { provider: 'google' } }), PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { connectionStatus: async (_user, app) => ({ id: app, connected: false, status: 'setup_required' }) },
+  });
+  const response = await route.GET();
+  assert.equal(response.headers.get('Cache-Control'), 'private, no-store');
+  const body = await response.json();
+  assert.ok(body.apps.every(app => app.connected === false && app.status === 'setup_required'));
+  assert.equal(JSON.stringify(body).includes('alice'), false);
+});
+
+test('connection requests use current server status instead of asking connected users again', async () => {
+  const connected = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'connected', connected: true }));
+  assert.equal(connected.status, 'connected');
+  assert.equal(connected.connection_url, undefined);
+  const disconnected = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'connection_required', connected: false }));
+  assert.equal(disconnected.status, 'open_connection_screen');
+  const unavailable = await tools.resolveAppConnection({ app: 'gmail' }, async () => ({ status: 'unavailable', connected: false }));
+  assert.equal(unavailable.status, 'unavailable');
+  assert.equal(unavailable.connection_url, undefined);
+});
+
+test('provider branding appears only on real HTTPS Gmail and Google Docs destinations', () => {
+  assert.equal(catalog.appDestination('https://mail.google.com/mail/#drafts').label, 'Open Gmail drafts');
+  assert.equal(catalog.appDestination('https://mail.google.com/mail/#sent/abc').label, 'View sent email');
+  assert.equal(catalog.appDestination('https://docs.google.com/document/d/abc/edit').app, 'google-drive');
+  for (const url of ['https://mail.google.com.evil.test/mail/#drafts', 'https://mail.google.com@evil.test/mail/', 'http://mail.google.com/mail/', 'https://evil@mail.google.com/mail/', 'javascript:alert(1)', '/mail/#drafts']) assert.equal(catalog.appDestination(url), null);
+});
+
+test('deployment-specific preview connect moves to the configured origin without starting OAuth', async () => {
+  let starts = 0;
+  const route = load('src/app/api/integrations/connect/route.ts', {
+    '@/lib/integrations/catalog': catalog,
+    '@/lib/integrations/http': { integrationUser: async () => ({ id: 'alice' }), sameOrigin: () => false, PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store' } },
+    '@/lib/integrations/googleConnection': { AppAccessError: class extends Error {}, googleAppsAvailable: () => true, integrationOrigin: () => 'https://stable.example.com', beginGoogleConnection: async () => { starts++; } },
+  });
+  const request = origin => new Request('https://deployment.example.com/api/integrations/connect', { method: 'POST', headers: { origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ app: 'gmail' }) });
+  const response = await route.POST(request('https://deployment.example.com'));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).url, 'https://stable.example.com/dashboard?connectApp=gmail');
+  assert.equal(starts, 0);
+  assert.equal((await route.POST(request('https://evil.example.com'))).status, 403);
+});
+
+test('tool outcomes supply omitted connection and sent buttons without relying on model prose', () => {
+  const links = tools.createAppResponseLinks();
+  links.record('gmail_read_draft', { status: 'reconnect_required', connection_url: '/dashboard?connectApp=gmail' });
+  assert.match(links.suffix('Please connect Gmail.'), /\[Connect Gmail\]/);
+  links.record('gmail_read_draft', { status: 'ok', url: 'https://mail.google.com/mail/#drafts' });
+  links.record('gmail_send_draft', { status: 'sent', url: 'https://mail.google.com/mail/#sent/abc123' });
+  links.record('finish_app_task', { status: 'complete' });
+  const suffix = links.suffix('Sent successfully.');
+  assert.equal(suffix, '\n\n[View sent email](https://mail.google.com/mail/#sent/abc123)');
+  assert.equal(links.suffix('Sent.' + suffix), '');
+});
+
+test('failed and unrecognized destinations never manufacture success buttons', () => {
+  const links = tools.createAppResponseLinks();
+  links.record('gmail_send_draft', { status: 'error', url: 'https://mail.google.com/mail/#sent/abc123' });
+  links.record('gmail_send_draft', { status: 'sent', url: 'https://evil.test/mail/#sent/abc123' });
+  links.record('request_app_connection', { status: 'open_connection_screen', connection_url: 'https://evil.test/dashboard?connectApp=gmail' });
+  assert.equal(links.suffix('No success confirmed.'), '');
+});

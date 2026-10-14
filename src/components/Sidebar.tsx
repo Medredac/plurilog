@@ -12,6 +12,7 @@ import {
   MoreVertical,
   Loader2
 } from 'lucide-react';
+import { AppsSidebarSection, ConnectedAppsDialog } from './apps/ConnectedApps';
 import { DebateTopic } from '../types/chat';
 import { createClient } from '../utils/supabase/client';
 
@@ -283,6 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Bottom Profile / Account Trigger */}
         <div className="flex flex-col items-center w-full px-2 relative">
+          <AppsSidebarSection compact />
           <button
             type="button"
             onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
@@ -531,6 +533,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </div>
 
+            <AppsSidebarSection />
+
             {/* Bottom User Profile Section with Drop-up Menu */}
             <div className="relative p-3 border-t border-[#E2E0DB] bg-white">
               {/* Drop-up Popover Menu */}
@@ -637,6 +641,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
       </aside>
+
+      <ConnectedAppsDialog />
 
       {/* Delete Confirmation Modal */}
       {confirmDeleteDebate && (

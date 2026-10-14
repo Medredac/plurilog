@@ -1,5 +1,7 @@
 'use client';
 
+import { AppConnectionButton, AppDestinationButton } from './apps/ConnectedApps';
+import { appFromConnectionHref, appDestination } from '@/lib/integrations/catalog';
 import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -889,7 +891,8 @@ const markdownComponents: Components = {
       {children}
     </blockquote>
   ),
-  a: ({ href, children }) => (
+  a: ({ href, children }) => {
+    return (
     <a
       href={href}
       target="_blank"
@@ -898,7 +901,8 @@ const markdownComponents: Components = {
     >
       {children}
     </a>
-  ),
+    );
+  },
   table: ({ children }) => (
     <div className="w-full max-w-full overflow-x-auto my-3 rounded-lg border border-zinc-200/80">
       <table className="min-w-full text-left text-xs sm:text-sm divide-y divide-zinc-200 border-collapse">
@@ -1247,6 +1251,7 @@ function rehypeStreamingWordFade() {
 }
 
 interface StreamingMessageBodyProps {
+  appButtons?: boolean;
   content: string;
   isStreaming?: boolean;
   reduceMotion?: boolean;
@@ -1256,6 +1261,7 @@ interface StreamingMessageBodyProps {
 }
 
 const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
+  appButtons = false,
   content,
   isStreaming,
   reduceMotion,
@@ -1284,7 +1290,15 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
-          components={markdownComponents}
+          components={{ ...markdownComponents, p: ({ node, children }) => {
+            const nodes = node?.children.filter(child => child.type !== 'text' || child.value.trim()) || [];
+            const only = nodes.length === 1 ? nodes[0] : undefined;
+            const href = only?.type === 'element' && only.tagName === 'a' ? String(only.properties?.href || '') : undefined;
+            const app = appFromConnectionHref(href);
+            if (appButtons && app) return <div className="my-3"><AppConnectionButton app={app} /></div>;
+            if (appButtons && href && appDestination(href)) return <div className="my-3"><AppDestinationButton href={href} /></div>;
+            return <p className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal mb-3 last:mb-0 break-words [overflow-wrap:anywhere]">{children}</p>;
+          } }}
         >
           {displayedMainContent}
         </ReactMarkdown>
@@ -2823,6 +2837,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 >
                   <div className={isAiCollapsed ? 'pointer-events-none' : ''}>
                     <StreamingMessageBody
+                      appButtons={modelKey === 'chatgpt'}
                       content={message.content}
                       isStreaming={message.isStreaming}
                       reduceMotion={Boolean(shouldReduceMotion)}
@@ -3170,7 +3185,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             ? null
             : visibleAnsweredCount >= expectedAnswers
               ? `All ${visibleAnsweredCount} answered`
-              : `${visibleAnsweredCount} of ${expectedAnswers} answered`;
+              : `${visibleAnsweredCount} response${visibleAnsweredCount === 1 ? '' : 's'}`;
 
         return (
           <motion.div

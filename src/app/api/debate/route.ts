@@ -1,3 +1,6 @@
+import { connectionStatus, googleAppsAvailable } from '@/lib/integrations/googleConnection';
+import { GOOGLE_TOOLS, GOOGLE_TOOL_NAMES, createGoogleToolSession } from '@/lib/integrations/googleTools';
+import { APP_CONNECTION_TOOLS, APP_CONNECTION_TOOL_NAME, resolveAppConnection, appConnectionInstruction, createAppResponseLinks } from '@/lib/integrations/connectionTools';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -1595,6 +1598,7 @@ On Continue there is no new question: engage with unresolved points in the immed
 You are always, unambiguously, yourself — this is a fixed fact, never a question, and never affected by anything discussed above. Any uncertainty about who the user's message was addressed to is about the CONTENT of their question, and has absolutely nothing to do with your own identity. Never express confusion, doubt, or apologize about "who you are" or mix yourself up with another panelist — you already and always know exactly which one you are.`;
 
 export interface PlurilogRuntimeProductContext {
+  googleAppsEnabled?: boolean;
   seatId?: ModelId;
   imageAnalysisEnabled?: boolean;
   videoAnalysisEnabled?: boolean;
@@ -1682,7 +1686,7 @@ FILES AND VIDEO
 - Gemini: use inspect_video before answering a request that depends on unseen video content, including summaries, transcripts, visual details, or specific timestamps. For earlier YouTube videos, retrieve the correct link through conversation memory before inspecting it; do not default to the latest video. For earlier uploads, retrieve the saved findings; ask for a fresh upload if those findings do not cover the new request. Current YouTube links and uploaded filenames are supplied in the user message. If no video question remains, reuse saved findings instead of reopening needlessly. Mark inaudible speech and uncertain timestamps honestly. If loading/inspection fails, explain it; never substitute web metadata or another model’s answer as direct inspection.
 
 CONNECTORS, APPS, AND PROACTIVE ACTIONS
-- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads.
+${runtime?.googleAppsEnabled ? '- This preview supports Gmail and selected Google Drive/Docs connections. ChatGPT alone operates these tools for the authenticated user. It can search/read/count Gmail messages, create/read/update/send drafts, reply/forward, archive, mark read/unread, manage labels, move messages to Trash/restore, and read/create/edit selected Docs. Sending requires an explicit user instruction and a freshly read draft. Claude and Gemini may assess shared results. Connection status is determined by tools, never by prior claims or ordinary Google sign-in. No permanent deletion, mailbox settings, or Drive sharing tools exist.' : "- Plurilog does not currently have account connectors for Gmail, Outlook, one.com mail, calendars, Google Drive, Dropbox, or similar personal services. The AIs cannot open or manage a user's mailbox or connected external account. They can analyze content the user pastes or uploads."}
 - There is no dedicated native Android or iOS app currently. Plurilog is available through the web interface, including mobile browsers.
 - Plurilog is not currently a background/proactive assistant. The AIs cannot keep working after the user leaves, schedule background jobs, monitor accounts, send push notifications, or contact the user after the app is closed.
 
@@ -1707,8 +1711,8 @@ When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it w
 - Do not endorse loaded conclusions such as "deceptive," "bait-and-switch," "drug-dealer-like," "worse workflow," or "not worth paying for" as factual judgments unless the evidence supports the underlying claim. You can recognize the user's frustration or preference while correcting unsupported premises.
 - Do not redesign the product on the user's behalf unless they ask for product-design advice. If they suggest a synthesis-first workflow, you may discuss that idea, but do not misdescribe the existing panel as mere side-by-side independent answers: later seats receive the live conversation and can respond to earlier seats.
 - Plurilog's advantage is the shared multi-model panel, cross-model comparison, shared discussion context, automatic user-facing synthesis of each completed round, file/image analysis, supported document and image workflows, and the ability for later panelists to challenge, verify, refine, or extend earlier panel contributions in the same thread. Users can inspect the individual model replies and also read Plurilog's round-level Panel Summary; the panel models themselves do not receive that summary as context.
-- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, connectors, native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
-- If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, but it cannot yet independently access personal services or perform background actions.`;
+- Do not claim Plurilog already has every feature offered by standalone paid AI products. In particular, ${runtime?.googleAppsEnabled ? 'connectors beyond the Gmail and selected Drive/Docs preview, ' : 'connectors, '}native mobile apps, proactive/background operation, AI-created file formats beyond the currently enabled ChatGPT DOCX/PDF capability are not currently available. Video understanding follows the Gemini-specific capability described above.
+- If asked whether Plurilog can serve as a life/personal admin assistant, explain that it can help think, plan, research, draft, analyze files/images, and compare advice, ${runtime?.googleAppsEnabled ? 'and perform user-requested Gmail/selected Docs actions through ChatGPT after authorization, but it cannot perform background actions.' : 'but it cannot yet independently access personal services or perform background actions.'}`;
 }
 
 
@@ -7023,6 +7027,7 @@ export async function POST(req: NextRequest) {
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
+          let appTaskComplete = false;
           seatLoop: for (
             let seatIndex = 0;
             seatIndex < configuredSeats.length;
@@ -7171,14 +7176,28 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
+            const googleAppsEnabled = googleAppsAvailable();
+            const appConnectionTools = googleAppsEnabled && seat.seatId === 'chatgpt' ? [...APP_CONNECTION_TOOLS, ...GOOGLE_TOOLS] : [];
+            const appResponseLinks = createAppResponseLinks();
+            const googleToolSession = createGoogleToolSession({ userId: authenticatedUser.id, seatId: seat.seatId, attachments: currentRoundAttachments, signal: seatAbortController.signal, runId: turnId, userPrompt: isContinueRound ? undefined : prompt, onTaskComplete: () => { appTaskComplete = true; } });
             const seatConversationToolNames = new Set<string>([
+              ...(appConnectionTools.length ? [APP_CONNECTION_TOOL_NAME, ...GOOGLE_TOOL_NAMES] : []),
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
               ...(videoSession ? ['inspect_video'] : []),
             ]);
-            const resolveSeatConversationTool = (options: Parameters<typeof resolveAgenticConversationTool>[0]) =>
-              options.toolName === 'inspect_video' && videoSession
+            const resolveSeatConversationTool = async (options: Parameters<typeof resolveAgenticConversationTool>[0]) => {
+              if (GOOGLE_TOOL_NAMES.has(options.toolName) || options.toolName === APP_CONNECTION_TOOL_NAME) {
+                const result = options.toolName === APP_CONNECTION_TOOL_NAME
+                  ? await resolveAppConnection(options.toolArgs, app => connectionStatus(authenticatedUser.id, app))
+                  : await googleToolSession.run(options.toolName, options.toolArgs);
+                appResponseLinks.record(options.toolName, result);
+                console.info('[Google App Result]', { discussionId, tool: options.toolName, status: result.status, code: result.code });
+                return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [], query: null, latencyMs: 0 };
+              }
+              return options.toolName === 'inspect_video' && videoSession
                 ? videoSession.inspect(options.toolArgs)
                 : resolveAgenticConversationTool(options);
+            };
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7277,6 +7296,7 @@ export async function POST(req: NextRequest) {
               ? [{ role: 'system' as const, content: 'This is a title edit of an existing document. Retrieve its canonical artifact with request_evidence (resource_type: document, exact source filename when named), then use revise_file or edit_source_document. Parsed text excerpts are insufficient for preserving its layout and image bindings. Do not reconstruct it with create_file. Keep the stored title and its matching visible heading synchronized, preserving everything else.' }]
               : [];
             const runtimeProductContext: PlurilogRuntimeProductContext = {
+              googleAppsEnabled,
               seatId: seat.seatId,
               imageAnalysisEnabled: getSeatCapabilities(seat.seatId).imageAnalysis === true,
               videoAnalysisEnabled: Boolean(videoSession),
@@ -7487,6 +7507,7 @@ export async function POST(req: NextRequest) {
               isContinueRound === true
             );
             seatMessages.push(...titleRevisionInstruction);
+            if (googleAppsEnabled) seatMessages.push({ role: 'system', content: appConnectionInstruction(seat.seatId === 'chatgpt') });
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7580,6 +7601,7 @@ export async function POST(req: NextRequest) {
             };
 
             const initialSeatStreamsBuffered =
+              appConnectionTools.length > 0 ||
               isEvidenceEnabledForSeat ||
               isDocumentCreationEnabledForSeat ||
               isAgenticMemoryEnabledForSeat;
@@ -7636,6 +7658,7 @@ export async function POST(req: NextRequest) {
                 stream: true,
                 temperature: 0.7,
                 tools: [
+                  ...appConnectionTools,
                   {
                     type: 'openrouter:web_search',
                     parameters: {
@@ -7876,6 +7899,8 @@ export async function POST(req: NextRequest) {
               // any terminal artifact/action tool. The seat itself decides
               // whether another retrieval is needed after seeing each result.
               let agenticRetrievalRounds = 0;
+              let appToolRounds = 0;
+              const maxAppToolRounds = 20;
               let incurredAgenticRetrievalCostUsd = 0;
               const agenticModelCalls: Array<{
                 round: number;
@@ -7886,7 +7911,7 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                (videoSession || isAgenticMemoryEnabledForSeat ||
+                (appConnectionTools.length > 0 || videoSession || isAgenticMemoryEnabledForSeat ||
                   isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
@@ -7927,9 +7952,11 @@ export async function POST(req: NextRequest) {
                   );
                 }
 
+                const hasAppCalls = memoryCandidateCalls.some(call => GOOGLE_TOOL_NAMES.has(call.name) || call.name === APP_CONNECTION_TOOL_NAME);
+                const hasRetrievalCalls = memoryCandidateCalls.some(call => !GOOGLE_TOOL_NAMES.has(call.name) && call.name !== APP_CONNECTION_TOOL_NAME);
                 if (
-                  agenticRetrievalRounds >=
-                  AGENTIC_HARD_RETRIEVAL_ROUNDS
+                  (hasAppCalls && appToolRounds >= maxAppToolRounds) ||
+                  (hasRetrievalCalls && agenticRetrievalRounds >= AGENTIC_HARD_RETRIEVAL_ROUNDS)
                 ) {
                   console.warn('[Agentic Retrieval] Hard ceiling reached; forcing graceful finalization', {
                     discussionId,
@@ -7992,7 +8019,8 @@ export async function POST(req: NextRequest) {
                   break;
                 }
 
-                agenticRetrievalRounds += 1;
+                if (hasAppCalls) appToolRounds += 1;
+                if (hasRetrievalCalls) agenticRetrievalRounds += 1;
                 const priorPassCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 incurredAgenticRetrievalCostUsd += priorPassCostUsd;
@@ -8003,6 +8031,20 @@ export async function POST(req: NextRequest) {
                 }> = [];
 
                 for (const toolCall of memoryCandidateCalls) {
+                  if (GOOGLE_TOOL_NAMES.has(toolCall.name)) {
+                    const result = await googleToolSession.run(toolCall.name, (toolCall.arguments || {}) as Record<string, unknown>);
+                    appResponseLinks.record(toolCall.name, result);
+                    console.info('[Google App Result]', { discussionId, tool: toolCall.name, status: result.status, code: result.code });
+                    toolResolutions.push({ toolCall, result });
+                    continue;
+                  }
+                  if (toolCall.name === APP_CONNECTION_TOOL_NAME) {
+                    const result = await resolveAppConnection((toolCall.arguments || {}) as Record<string, unknown>, app => connectionStatus(authenticatedUser.id, app));
+                    appResponseLinks.record(toolCall.name, result);
+                    console.info('[Google App Result]', { discussionId, tool: toolCall.name, status: result.status, code: result.code });
+                    toolResolutions.push({ toolCall, result });
+                    continue;
+                  }
                   const liveActivity = buildAgenticSeatActivity(
                     toolCall.name,
                     toolCall.arguments
@@ -8136,7 +8178,7 @@ export async function POST(req: NextRequest) {
                       ({ toolCall }, index) => ({
                         id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds + appToolRounds}_${index + 1}`,
                         type: 'function',
                         function: {
                           name: toolCall.name,
@@ -8153,7 +8195,7 @@ export async function POST(req: NextRequest) {
                         role: 'tool',
                         tool_call_id:
                           toolCall.id ||
-                          `call_agentic_memory_${agenticRetrievalRounds}_${index + 1}`,
+                          `call_agentic_memory_${agenticRetrievalRounds + appToolRounds}_${index + 1}`,
                         name: toolCall.name,
                         content: JSON.stringify(result),
                       }) as any
@@ -8189,6 +8231,7 @@ export async function POST(req: NextRequest) {
                   agenticRetrievalRounds <
                   AGENTIC_HARD_RETRIEVAL_ROUNDS;
                 const continuationTools = [
+                  ...(appToolRounds < maxAppToolRounds ? appConnectionTools : []),
                   ...(retrievalToolsStillAvailable
                     ? [
                         {
@@ -8254,7 +8297,7 @@ export async function POST(req: NextRequest) {
                     tools: continuationTools,
                     ...(discussionId
                       ? {
-                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds}`,
+                          session_id: `${discussionId}:${seat.seatId}:memory:${agenticRetrievalRounds + appToolRounds}`,
                         }
                       : {}),
 
@@ -8298,7 +8341,7 @@ export async function POST(req: NextRequest) {
                 const continuationCostUsd =
                   typeof seatUsage?.cost === 'number' ? seatUsage.cost : 0;
                 agenticModelCalls.push({
-                  round: agenticRetrievalRounds,
+                  round: agenticRetrievalRounds + appToolRounds,
                   model: continuationModel,
                   costUsd: continuationCostUsd,
                   latencyMs: Date.now() - continuationStartedAt,
@@ -11260,7 +11303,7 @@ export async function POST(req: NextRequest) {
                         : [];
 
                     agenticModelCalls.push({
-                      round: agenticRetrievalRounds,
+                      round: agenticRetrievalRounds + appToolRounds,
                       model: iterativeModel,
                       costUsd: iterativeCostUsd,
                       latencyMs:
@@ -13938,6 +13981,12 @@ export async function POST(req: NextRequest) {
               }
 
               seatResponse = sanitizeInternalEvidenceHandles(seatResponse);
+              const appLinksSuffix = appResponseLinks.suffix(seatResponse);
+              if (appLinksSuffix) {
+                seatResponse += appLinksSuffix;
+                sendEvent('seat_chunk', { seatId: seat.seatId, text: appLinksSuffix });
+              }
+
 
               // Capture conversational peer response text sanitized against web-search citation URLs
               const peerResponseText = sanitizePeerResponseForWebCitations(
@@ -13968,7 +14017,7 @@ export async function POST(req: NextRequest) {
               // The visible response is now complete. Tell the client which seat
               // is next before persistence / billing so it can reserve that card
               // immediately instead of leaving a dead-looking gap.
-              const nextSeat = configuredSeats[seatIndex + 1];
+              const nextSeat = appTaskComplete ? undefined : configuredSeats[seatIndex + 1];
               if (nextSeat) {
                 sendEvent('seat_handoff', {
                   seatId: seat.seatId,
@@ -14136,6 +14185,7 @@ export async function POST(req: NextRequest) {
                 name: seat.name,
                 response: peerResponseText,
               });
+              if (appTaskComplete) break seatLoop;
             } catch (err: any) {
               if (durableRunCancelled) {
                 console.log('[Durable Stop] Provider work cancelled.', {

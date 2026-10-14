@@ -77,3 +77,13 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
  assert.match(m[0].content,/one inspection during their upload turn only/);
  assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });
+
+test('all preview seats receive connector-aware product context without contradicting available tools',()=>{
+ for (const name of ['ChatGPT','Claude','Gemini']) {
+  const messages=build({name,runtime:{googleAppsEnabled:true}});
+  assert.match(messages[0].content,/This preview supports Gmail and selected Google Drive\/Docs connections/);
+  assert.doesNotMatch(messages[0].content,/does not currently have account connectors|cannot yet independently access personal services/);
+ }
+ const production=build({runtime:{googleAppsEnabled:false}});
+ assert.match(production[0].content,/does not currently have account connectors/);
+});
