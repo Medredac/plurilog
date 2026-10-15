@@ -114,3 +114,17 @@ test('design catalog is complete and does not filter the agent choices using pro
  const route=fs.readFileSync('src/app/api/debate/route.ts','utf8');assert.ok(!route.includes('isLikelyDocumentCreationRequest'));
  assert.ok(!fs.readFileSync('src/utils/pdfDesignLibrary.ts','utf8').includes('scoreReference'));
 });
+
+ test('v2 tri-fold geometry cannot be disabled by a generic single-column default',()=>{
+ const design=applyDocumentLayout({templateVersion:2,layoutTemplate:'brochure-trifold',columns:1,orientation:'portrait'});
+ assert.equal(design.columns,3);assert.equal(design.orientation,'landscape');
+ assert.equal(applyDocumentLayout({templateVersion:1,layoutTemplate:'brochure-trifold',columns:1}).columns,1);
+ assert.equal(applyDocumentLayout({layoutTemplate:'essay',bodySizePt:null}).bodySizePt,12);
+ const blocks=[];for(let i=0;i<6;i++){if(i)blocks.push({type:i===3?'page_break':'column_break'});blocks.push({type:'paragraph',text:'Panel '+i});}
+ const {html}=buildHtml({filename:'fold.pdf',design,blocks});
+ assert.equal(html.split('<section class="brochure-fold"').length-1,2);
+ });
+ test('null image dimensions use proportional size instead of a tiny explicit box',()=>{
+ const {html}=buildHtml({filename:'photo.pdf',blocks:[{type:'image',size:'full',widthMm:null,heightMm:null,imageData:Buffer.from('photo'),imageContentType:'image/png'}]});
+ assert.ok(html.includes('width:100%;height:auto;object-fit:contain'));
+ });

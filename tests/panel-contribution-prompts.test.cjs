@@ -99,3 +99,9 @@ test('every evidence continuation retains working context, user identity, and Co
   assert.equal(call.arguments[15]?.getText(ast),'isContinueRound === true');
  }
 });
+
+ test('current new-file request is explicitly separated from older completed files',()=>{
+ const m=build({name:'ChatGPT',prompt:'Create a report and a guide now.',memory:{recentRounds:[{content:'User requested Word. Assistant created old.docx.'}]},runtime:{documentCreationEnabled:true}});
+ assert.ok(m[1].content.endsWith('CURRENT USER REQUEST — THIS IS THE TASK TO COMPLETE NOW:\nCreate a report and a guide now.'));
+ assert.ok(m[0].content.includes('An existing file from an older turn does not satisfy'));
+ });

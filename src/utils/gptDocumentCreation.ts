@@ -1355,7 +1355,7 @@ async function reviewRenderedPdfWithGpt(options: {
         'Return the complete revised PDF specification through the revise_pdf_layout tool.',
         'Improve only where the rendered result materially benefits: page balance, whitespace, hierarchy, density, grouping, alignment, table legibility, visual rhythm, overflow, awkward page breaks, and overall polish.',
         'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
-        'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
+        'Preserve every authored word and substantive block in the same order. This is layout-only: adjust design, image sizes, spacing and page breaks; never rewrite, shorten, merge or split the authored content.',
         'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
         'Images marked preserveAspectRatio are original documentary photos. Preserve their complete frame and use legible sizes for portrait images and phone screenshots; do not force every image into a small landscape frame.',
         'If an exact page count was requested, treat it as a hard constraint and balance the content across those pages rather than leaving one page crowded and another mostly empty.',

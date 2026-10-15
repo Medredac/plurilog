@@ -80,8 +80,8 @@ export function documentContentIssues(spec: Spec, prompt: string, source?: Conve
   if (source?.error) return [source.error];
   if (!Array.isArray(spec.blocks) || !spec.blocks.length) return ['Document has no content blocks.'];
   if (spec.blocks.length > 200) issues.push('Document exceeds the renderer limit of 200 blocks; consolidate blocks without shortening content.');
-  if (spec.design?.layoutTemplate === 'pamphlet') {
-    const columns = spec.design.columns || 3;
+  if (['pamphlet', 'brochure-trifold'].includes(spec.design?.layoutTemplate)) {
+    const columns = spec.design.layoutTemplate === 'brochure-trifold' ? 3 : (spec.design.columns || 3);
     const sheets: number[][] = [[0]];
     for (const block of spec.blocks) {
       const panels = sheets[sheets.length - 1];
@@ -95,6 +95,9 @@ export function documentContentIssues(spec: Spec, prompt: string, source?: Conve
   }
   const text = [spec.title || '', ...spec.blocks.map(blockText)].join('\n');
   for (const block of spec.blocks) {
+    if (block.type === 'image' && ['large', 'full'].includes(block.size) && typeof block.widthMm === 'number' && block.widthMm < 30) {
+      issues.push('Conflicting image sizing: a large/full visual has a thumbnail-sized width. Omit widthMm/heightMm (or use null) to let size control its natural proportions; use small if a tiny image is actually intended.');
+    }
     if (typeof block.text === 'string' && block.text.length > 30000) {
       issues.push('A text block exceeds the renderer limit. Split it into consecutive blocks without shortening its text.');
     }
