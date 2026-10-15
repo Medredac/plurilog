@@ -2706,7 +2706,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           Boolean(message.content.trim()) || attachments.length > 0;
         const isAiCollapsed =
           isAiCollapsible && (collapsedAiMsgIds[message.id] ?? false);
-        const readByModels = orderedActiveModels.filter((id) => id !== modelKey);
+        const readByModels = seatOrder.filter((id) => id !== modelKey);
         const readByLabel = readByModels
           .map((id) => COUNCIL_MEMBERS[id]?.name || id)
           .join(readByModels.length === 2 ? ' and ' : ', ');
