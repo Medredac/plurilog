@@ -58,6 +58,28 @@ test('invalid tool arguments and aborted requests do not load conversation data'
   assert.equal((await session.resolve({mode:'summary'})).error,'request_aborted');
   assert.deepEqual(db.calls,[]);
 });
+test('general full-chat review retrieves source without directing document creation', async () => {
+  const db=database([{id:'a',sender:'user',content:'Original requirement'}, {id:'c',sender:'user',content:'Review everything'}]);
+  const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'c'});
+  const result=await session.resolve({mode:'context'});
+  assert.equal(result.ok,true); assert.equal(result.message_count,1);
+  assert.ok(result.source.includes('Original requirement'));
+  assert.ok(result.source.includes('Retrieval alone does not request'));
+  assert.ok(!result.source.includes('Synthesize the requested report'));
+  assert.equal(session.getSource().mode,'context');
+  const exportResult=await session.resolve({mode:'transcript'});
+  assert.equal(exportResult.reused,true); assert.equal(exportResult.source,undefined);
+  assert.ok(exportResult.instruction.includes('source_message_id'));
+  assert.equal(session.getSource().mode,'transcript'); assert.equal(db.calls.length,1);
+  assert.equal((await session.resolve({mode:'context'})).ok,false);
+});
+test('concurrent context and transcript calls cannot weaken source coverage', async () => {
+  const db=database([{id:'a',sender:'user',content:'original'}, {id:'c',sender:'user',content:'export'}]);
+  const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'c'});
+  await Promise.all([session.resolve({mode:'context'}),session.resolve({mode:'transcript'})]);
+  assert.equal(db.calls.length,1); assert.equal(session.getSource().mode,'transcript');
+  assert.equal((await session.resolve({mode:'context'})).ok,false);
+});
 test('failed whole-chat retrieval stays failed and prevents a partial document', async () => {
   const db=database([{id:'a',sender:'user',content:'fragment without verified boundary'}]);
   const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'missing'});

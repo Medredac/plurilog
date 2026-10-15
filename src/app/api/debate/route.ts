@@ -7056,7 +7056,7 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
-            const isFullConversationEnabledForSeat = seat.seatId === 'chatgpt' && !isContinueRound &&
+            const isFullConversationEnabledForSeat = !isContinueRound &&
               Boolean(discussionId && sourceUserMessageId);
             const fullConversationSession = createFullConversationSession({ supabase,
               discussionId: discussionId || '', currentUserMessageId: sourceUserMessageId || '',
