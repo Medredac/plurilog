@@ -207,13 +207,13 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 function fontStack(value: PdfFontFamily | undefined): string {
   switch (value) {
     case 'serif':
-      return 'Georgia, "Times New Roman", serif';
+      return "Georgia, 'Times New Roman', serif";
     case 'mono':
-      return '"Courier New", monospace';
+      return "'Courier New', monospace";
     case 'jp-sans':
-      return '"Noto Sans CJK JP", "Yu Gothic", "Hiragino Kaku Gothic ProN", Arial, sans-serif';
+      return "'Noto Sans CJK JP', 'Yu Gothic', 'Hiragino Kaku Gothic ProN', Arial, sans-serif";
     case 'jp-serif':
-      return '"Noto Serif CJK JP", "Yu Mincho", "Hiragino Mincho ProN", Georgia, serif';
+      return "'Noto Serif CJK JP', 'Yu Mincho', 'Hiragino Mincho ProN', Georgia, serif";
     default:
       return 'Arial, Helvetica, sans-serif';
   }

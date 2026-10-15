@@ -70,3 +70,9 @@ test('fixed image boxes preserve the full logo by default in both formats',async
  assert.ok(extent);assert.equal(Number(extent[1])/Number(extent[2]),4);assert.ok(pdf.includes('object-fit:contain'));
  const crop={...input,blocks:[{...input.blocks[0],preserveAspectRatio:false}]};assert.ok(buildHtml(crop).html.includes('object-fit:cover'));
 });
+test('serif and multilingual font names cannot terminate inline HTML style attributes',()=>{
+ for(const fontFamily of ['serif','mono','jp-sans','jp-serif']){
+  const {html}=buildHtml({filename:'font.pdf',title:'Title',design:{fontFamily},blocks:[{type:'heading',text:'Heading'}]});
+  assert.match(html,/style="font-family:[^"]+;font-size:[^";]+;font-weight:700/);
+ }
+});
