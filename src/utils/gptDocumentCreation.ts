@@ -1,3 +1,5 @@
+import { prepareDocumentContent, documentContentIssues } from '@/utils/documentContentQuality';
+import { conversationDocumentInstruction, type ConversationDocumentSource } from '@/utils/conversationDocumentSource';
 import { rasterizeSvg } from './svgImage';
 import crypto from 'node:crypto';
 import { preparePdfPhotoRebuild, selectPhotoRebuildSource, photoNumber, MAX_REBUILT_PHOTOS } from './pdfPhotoRebuild';
@@ -94,6 +96,9 @@ export interface ExecuteGptDocumentCreationOptions {
   messageId: string;
   seatId: ModelId;
   args: GptCreateFileArgs;
+  conversationSource?: ConversationDocumentSource | null;
+  contentRepairTool?: any;
+  onContentRepairCost?: (usd: number) => void;
   signal?: AbortSignal;
   durableSignal?: AbortSignal;
   sourceDocx?: {
@@ -1232,6 +1237,7 @@ function preserveDocxSemanticContent(
 
     const original = originalContentBlocks[contentIndex++] as any;
     if (!original) return block;
+    if (original.source_message_id) block = { ...block, source_message_id: original.source_message_id };
 
     switch (block.type) {
       case 'heading':
@@ -1274,7 +1280,7 @@ function preserveDocxSemanticContent(
         } as RichDocumentBlock;
 
       default:
-        return block;
+        return original.source_message_id ? { ...original, style: block.style || original.style } : block;
     }
   });
 }
@@ -1507,6 +1513,10 @@ async function reviewRenderedPdfWithGpt(options: {
     reviewedDesign.targetPageCount = args.design.targetPageCount;
   }
 
+  const transcriptBlocks = (args.blocks as any[]).some(b => b.source_message_id)
+    ? preserveDocxSemanticContent(args.blocks, imageSafeBlocks) : imageSafeBlocks;
+  if (!transcriptBlocks) return { args, costUsd, applied: false, respondingModel,
+    rationale: 'Retained complete transcript; layout review changed source content structure.' };
   const reviewedArgs: GptCreateFileArgs = {
     ...args,
     format: 'pdf',
@@ -1516,7 +1526,7 @@ async function reviewRenderedPdfWithGpt(options: {
         ? parsed.title
         : args.title,
     design: reviewedDesign,
-    blocks: imageSafeBlocks,
+    blocks: transcriptBlocks,
   };
 
   const before = JSON.stringify({
@@ -1807,7 +1817,7 @@ export async function executeGptDocumentCreation(
     discussionId,
     messageId,
     seatId,
-    args,
+    args: initialArgs,
     signal,
     durableSignal = signal,
     sourceDocx = null,
@@ -1822,6 +1832,7 @@ export async function executeGptDocumentCreation(
     revisionContext = null,
   } = options;
 
+  let args = initialArgs;
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
     revisionContext?.preserveParentContent === true;
@@ -1833,6 +1844,17 @@ export async function executeGptDocumentCreation(
     throw new Error('Only DOCX and PDF generation are supported in this rollout.');
   }
 
+  // Localized revisions/conversions keep their existing preservation path. Only new
+  // authored files get a content repair; never regenerate a narrow edit here.
+  if (!revisionContext?.parentSnapshot && !sourceDocx && !args.source_pdf_filename) {
+    onActivity?.('checking_documents');
+    args = await prepareDocumentContent({ spec: args, prompt: originalUserPrompt,
+      source: options.conversationSource,
+      sourceInstruction: options.conversationSource ? conversationDocumentInstruction(options.conversationSource) : undefined,
+      openai, model: reviewModel, models: reviewModels, repairTool: options.contentRepairTool, signal,
+      onCost: options.onContentRepairCost,
+    });
+  }
   const serviceClient = createServiceClient();
 
   // A model-supplied page target is not a user requirement. For a fresh
@@ -2632,6 +2654,11 @@ export async function executeGptDocumentCreation(
         `Document revision would remove ${missingParentContent.length} existing content value(s) that the user did not ask to remove.`
       );
     }
+  }
+
+  if (!revisionContext?.parentSnapshot && !sourceDocx && !args.source_pdf_filename) {
+    const finalContentIssues = documentContentIssues(finalSpecForState, originalUserPrompt, options.conversationSource);
+    if (finalContentIssues.length) throw new Error(`Document final content validation failed: ${finalContentIssues.join(' ')}`);
   }
 
   let validatedPdfEmbeddedImages:
