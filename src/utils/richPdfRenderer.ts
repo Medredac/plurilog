@@ -599,7 +599,7 @@ function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normali
       const fg = block.style?.textColor
         ? safeColor(block.style.textColor, '#ffffff')
         : '#ffffff';
-      return `<div style="background:${bg};color:${fg};padding:${Math.max(14, s.paddingPt || 18)}pt;margin:${s.marginTopPt}pt 0 ${Math.max(10, s.marginBottomPt)}pt 0;page-break-inside:avoid;">
+      return `<div class="pdf-banner" style="background:${bg};color:${fg};padding:${Math.max(14, s.paddingPt || 18)}pt;margin:${s.marginTopPt}pt 0 ${Math.max(10, s.marginBottomPt)}pt 0;page-break-inside:avoid;">
         ${block.eyebrow ? `<div style="font-size:7.5pt;font-weight:700;letter-spacing:1.4pt;text-transform:uppercase;margin-bottom:8pt;opacity:.9;">${escapeHtml(cleanText(block.eyebrow, 200))}</div>` : ''}
         <div style="font-family:${fontStack(design.headingFontFamily)};font-size:${Math.max(20, s.fontSizePt || design.bodySizePt + 14)}pt;font-weight:700;line-height:1.08;margin-bottom:${block.subtitle ? 7 : 0}pt;">${escapeHtml(cleanText(block.title, 1000))}</div>
         ${block.subtitle ? `<div style="font-size:${design.bodySizePt + 0.4}pt;line-height:1.35;opacity:.92;">${escapeHtml(cleanText(block.subtitle, 3000))}</div>` : ''}
@@ -1011,6 +1011,9 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-page.wide-hero .brochure-visual { order:-1; padding:3mm; border-radius:0 14mm 0 0; border-bottom-width:4mm; }
 .brochure-page.wide-hero .brochure-visual img { height:auto !important; max-height:94mm; object-fit:contain; }
 .brochure-page.wide-hero .brochure-copy { padding:4mm 0; }
+.brochure-page.wide-hero:not(:first-child) .brochure-copy { column-count:2; column-gap:8mm; }
+.brochure-page.wide-hero .brochure-copy > .pdf-banner, .brochure-page.wide-hero .brochure-copy > .pdf-heading-1 { column-span:all; }
+.brochure-page.wide-hero .brochure-copy > .pdf-banner { padding:12pt !important; margin-bottom:7pt !important; }
 .brochure-page.wide-hero:first-child .brochure-copy { padding:5mm 7mm; border-radius:0 0 0 12mm; }
 .brochure-page.wide-hero .brochure-copy .pdf-heading-1, .brochure-page.wide-hero .brochure-copy .pdf-document-title { font-size:27pt !important; margin-bottom:4mm !important; }
 .brochure-page.wide-hero .pdf-columns { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
