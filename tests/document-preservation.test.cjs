@@ -106,6 +106,20 @@ test('existing narrow revision structural guard remains enforced', () => {
     assert.throws(() => revision.assertNarrowRevisionPatchSafety([operation], prompt));
   }
 });
+test('direct conversion preserves editable source blocks without replaying conversion directives on the next edit', () => {
+  const source = { ...parent, source_docx_filename: 'older.docx', source_pdf_filename: 'older.pdf' };
+  const converted = revision.convertedDocumentSpec(source, 'pdf', 'converted.pdf');
+  assert.deepEqual(converted.blocks, parent.blocks);
+  assert.equal(converted.title, parent.title);
+  assert.equal(converted.format, 'pdf');
+  assert.equal(converted.filename, 'converted.pdf');
+  assert.equal(converted.source_docx_filename, undefined);
+  assert.equal(converted.source_pdf_filename, undefined);
+  const next = revision.normalizeRequestedTitleRevision(converted, revision.applyDocumentJsonPatch(converted, [patch[0]]), prompt);
+  assert.equal(next.blocks[0].text, 'Verified transfer check');
+  assert.deepEqual(revision.missingPreservedDocumentContent(converted, next, prompt), []);
+  assert.deepEqual(source.blocks, parent.blocks);
+});
 test('image metadata distinguishes soft masks, hard masks and actual standalone images', () => {
   const entries = transparency.parsePdfImageList('page num type width height color comp bpc enc interp object ID\n 1 0 image 240 252 rgb 3 8 image no 4 0\n 1 1 smask 240 252 gray 1 8 image yes 4 0\n 2 2 image 80 80 rgb 3 8 jpeg no 6 0\n 2 3 mask 80 80 gray 1 1 image no 6 0');
   assert.deepEqual(entries.map(e => e.type), ['image', 'smask', 'image', 'mask']);

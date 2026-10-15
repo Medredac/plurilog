@@ -90,6 +90,18 @@ export function sanitizeDocumentSpecForState<T extends Record<string, any>>(
   return stripRuntimePayloads(jsonClone(spec)) as T;
 }
 
+/** A direct format copy keeps the source's editable structure and asset identity. */
+export function convertedDocumentSpec(
+  sourceSpec: Record<string, any>, format: 'pdf' | 'docx', filename: string
+): Record<string, any> {
+  const spec: Record<string, any> = sanitizeDocumentSpecForState({ ...sourceSpec, format, filename });
+  // These are one-time conversion instructions, not source content to replay
+  // when the user subsequently edits the converted document.
+  delete spec.source_docx_filename;
+  delete spec.source_pdf_filename;
+  return spec;
+}
+
 export async function persistDocumentStateSnapshot(options: {
   serviceSupabase: any;
   discussionId: string;

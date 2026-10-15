@@ -44,7 +44,9 @@ import {
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
 import {
+  convertedDocumentSpec,
   fetchSavedDocumentImageSources,
+  findDocumentStateSnapshot,
   inferDocumentStateImageBindings,
   missingPreservedDocumentContent,
   persistDocumentStateSnapshot,
@@ -2008,10 +2010,14 @@ export async function executeGptDocumentCreation(
   let finalDocxReviewPages: RenderedDocxPage[] = [];
   let finalPdfReviewPages: RenderedPdfReviewPage[] = [];
   let finalPageCount: number | null = null;
+  let directConversionParent: DocumentStateSnapshot | null = null;
   let finalSpecForState: GptCreateFileArgs =
     sanitizeDocumentSpecForState(args) as GptCreateFileArgs;
 
   if (args.format === 'pdf' && useDirectDocxToPdf && sourceDocx) {
+    directConversionParent = await findDocumentStateSnapshot({
+      serviceSupabase: serviceClient, discussionId, storagePath: sourceDocx.storagePath,
+    });
     const { data: sourceBlob, error: sourceDownloadError } =
       await serviceClient.storage
         .from('message-images')
@@ -2039,10 +2045,13 @@ export async function executeGptDocumentCreation(
     renderedFullText = parsedSource.markdown || '';
     generatedPdfPageCount = converted.totalPageCount;
     finalPageCount = generatedPdfPageCount;
-    finalSpecForState = sanitizeDocumentSpecForState({
-      ...args,
-      filename: finalFilename,
-    }) as GptCreateFileArgs;
+    finalSpecForState = convertedDocumentSpec(
+      directConversionParent?.spec || args, 'pdf', finalFilename
+    ) as GptCreateFileArgs;
+    if (directConversionParent) {
+      finalImageBindings = inferDocumentStateImageBindings(directConversionParent);
+      availableImages.push(...directConversionParent.imageSources);
+    }
     finalImageAssetCount = parsedSource.embeddedImages.length;
 
     console.log('[Generated PDF] Direct DOCX conversion:', {
@@ -2981,12 +2990,12 @@ export async function executeGptDocumentCreation(
       spec: finalSpecForState,
       fullText: renderedFullText,
       pageCount: finalPageCount,
-      parentSnapshotId: revisionContext?.parentSnapshot?.id || null,
+      parentSnapshotId: revisionContext?.parentSnapshot?.id || directConversionParent?.id || null,
       parentDocumentId:
-        revisionContext?.parentSnapshot?.documentId || photoSource?.id || null,
+        revisionContext?.parentSnapshot?.documentId || directConversionParent?.documentId || photoSource?.id || null,
       parentStoragePath:
-        revisionContext?.parentSnapshot?.storagePath || photoSource?.storagePath || null,
-      sourceDocumentIds: revisionContext?.sourceDocumentIds || (photoSource?.id ? [photoSource.id] : []),
+        revisionContext?.parentSnapshot?.storagePath || directConversionParent?.storagePath || sourceDocx?.storagePath || photoSource?.storagePath || null,
+      sourceDocumentIds: revisionContext?.sourceDocumentIds || (directConversionParent?.documentId ? [directConversionParent.documentId] : photoSource?.id ? [photoSource.id] : []),
       imageSources: [...availableImages, ...photoBindings.map(binding => binding.source)],
       imageBindings: finalImageBindings,
       generationKind:
