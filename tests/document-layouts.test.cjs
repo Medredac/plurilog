@@ -134,6 +134,7 @@ test('design catalog is complete and does not filter the agent choices using pro
  const html=buildHtml(input).html, word=xml(renderDocx(input).buffer);
  assert.ok(!html.includes('>Community Garden — Volunteer Guide</'));
  assert.ok(html.indexOf('data:image/png;base64')<html.indexOf('>Community Garden</'));
+ assert.ok(html.includes('class="pdf-heading-1 pdf-document-title"'));
  const body=word.slice(word.indexOf('<w:document'),word.indexOf('</w:document>'));
  assert.ok(!body.includes('>Community Garden — Volunteer Guide</'));
  assert.ok(word.indexOf('<w:drawing>')<word.indexOf('>Community Garden</'));

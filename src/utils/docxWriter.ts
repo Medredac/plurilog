@@ -1,6 +1,6 @@
 import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
-import { documentTreatment } from './documentTemplateTreatments';
+import { documentTreatment, contrastTextColor } from './documentTemplateTreatments';
 
 export type DocxBlockType =
   | 'heading'
@@ -691,7 +691,7 @@ function buildDocumentXml(
         keepNext: true,
         keepLines: true,
         lineHeight: 1.0,
-        color: treatment?.band ? 'FFFFFF' : design.textColor,
+        color: treatment?.band ? contrastTextColor(design.accentColor).slice(1) : design.textColor,
         backgroundColor: treatment?.band ? design.accentColor : undefined,
         spacingBefore: treatment?.band ? 240 : 0,
         fontFamily: design.headingFontFamily,

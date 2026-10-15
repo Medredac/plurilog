@@ -1,9 +1,10 @@
 import brochureFont from './pdfBrochureFont.json';
 import essayFont from './pdfEssayFont.json';
-import { documentTreatmentCss } from './documentTemplateTreatments';
+import { documentTreatmentCss, contrastTextColor } from './documentTemplateTreatments';
 import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
+export { contrastTextColor } from './documentTemplateTreatments';
 import type { DocxBlock } from '@/utils/docxWriter';
 
 export type PdfFontFamily =
@@ -119,7 +120,7 @@ export interface PdfSpacerBlock {
 }
 
 export type RichDocumentBlock =
-  | DocxBlock
+  | (DocxBlock & { rendererTitle?: boolean })
   | PdfBannerBlock
   | PdfCalloutBlock
   | PdfCardsBlock
@@ -573,7 +574,7 @@ function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normali
     case 'heading': {
       const level = Math.max(1, Math.min(3, Math.floor(block.level || 1)));
       const sizes = [0, design.bodySizePt + 10, design.bodySizePt + 5, design.bodySizePt + 2.5];
-      return `<div class="pdf-heading-${level}" style="font-family:${fontStack(design.headingFontFamily)};font-size:${sizes[level]}pt;font-weight:700;color:${design.textColor};margin:${level === 1 ? 12 : 9}pt 0 5pt 0;page-break-after:avoid;">${escapeHtml(cleanText(block.text))}</div>`;
+      return `<div class="pdf-heading-${level}${block.rendererTitle ? ' pdf-document-title' : ''}" style="font-family:${fontStack(design.headingFontFamily)};font-size:${sizes[level]}pt;font-weight:700;color:${design.textColor};margin:${level === 1 ? 12 : 9}pt 0 5pt 0;page-break-after:avoid;">${escapeHtml(cleanText(block.text))}</div>`;
     }
     case 'paragraph':
       return `<div class="pdf-paragraph" style="margin:0 0 8pt 0;">${paragraphsFromText(block.text || '')}</div>`;
@@ -689,18 +690,6 @@ function parsePdfPageCount(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-/** Choose the higher-contrast neutral foreground for model-selected color fields. */
-export function contrastTextColor(background: string): string {
-  let hex = background.startsWith('#') ? background.slice(1) : background;
-  if (hex.length === 3) hex = [...hex].map(c => c + c).join('');
-  if (hex.length !== 6) return '#111111';
-  const rgb = [0, 2, 4].map(i => Number.parseInt(hex.slice(i, i + 2), 16) / 255);
-  if (rgb.some(v => !Number.isFinite(v))) return '#111111';
-  const linear = rgb.map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
-  return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? '#000000' : '#FFFFFF';
-}
-
 /** Composed brochure pages use the same authored blocks and image bytes. */
 function renderEditorialBrochure(titleHtml: string, blocks: RichDocumentBlock[], design: ReturnType<typeof normalizeDesign>): string {
   const pages: RichDocumentBlock[][] = [[]];
@@ -797,6 +786,9 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
     (openingBlock.type === 'heading' && (cleanText(openingBlock.text).toLocaleLowerCase() === title.toLocaleLowerCase() || (design.templateVersion === 2 && (openingBlock.level || 1) === 1))) ||
     (openingBlock.type === 'banner' && (design.templateVersion === 2 || cleanText(openingBlock.title).toLocaleLowerCase() === title.toLocaleLowerCase()))
   );
+  if (design.templateVersion === 2 && openingBlock?.type === 'heading' && (openingBlock.level || 1) === 1) {
+    blocks[blocks.indexOf(openingBlock)] = { ...openingBlock, rendererTitle: true };
+  }
   const titleHtml = title && !titleAlreadyVisible
     ? `<div class="pdf-document-title" style="font-family:${fontStack(design.headingFontFamily)};color:${design.textColor};">${escapeHtml(title)}</div>`
     : '';
