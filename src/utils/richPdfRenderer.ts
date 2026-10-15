@@ -980,6 +980,8 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-spread { display:grid; grid-template-columns:1fr; gap:9mm; flex:1; align-items:center; }
 .brochure-page.has-hero .brochure-spread { grid-template-columns:1.1fr 1fr; }
 .brochure-copy { min-width:0; padding:5mm 0; }
+.brochure-copy table { table-layout:fixed; width:100% !important; }
+.brochure-copy td, .brochure-copy th { overflow-wrap:anywhere; }
 .brochure-copy img { height:auto !important; max-height:70mm; object-fit:contain; }
 .brochure-copy .pdf-heading-1, .brochure-copy .pdf-document-title { font-size:32pt !important; line-height:1.05 !important; letter-spacing:-1.1pt; color:${design.accentColor} !important; margin-bottom:7mm !important; }
 .brochure-copy .pdf-heading-2 { font-size:18pt !important; line-height:1.15 !important; color:${design.accentColor} !important; }
@@ -990,7 +992,7 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-page.reverse .brochure-visual { grid-column:1; grid-row:1; border-radius:28mm 0 0 0; border-color:${design.accentColor2}; }
 .brochure-page.reverse.has-hero .brochure-copy { grid-column:2; }
 .brochure-page:first-child.has-hero .brochure-copy { padding:9mm 7mm; background:${design.accentColor}; color:#fff; border-radius:0 0 0 18mm; }
-.brochure-page:first-child.has-hero .brochure-copy .pdf-heading-1, .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:#fff !important; }
+.brochure-page:first-child.has-hero .brochure-copy [class^='pdf-heading-'], .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:#fff !important; }
 .brochure-page:first-child.has-hero .brochure-copy img { background:#fff; padding:3mm; }
 .brochure-fold img { height:auto !important; max-height:65mm; object-fit:contain; }
 .brochure-fold .pdf-image-small img { background:#fff; padding:3mm; }

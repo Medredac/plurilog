@@ -9,7 +9,7 @@ export const DOCUMENT_LAYOUTS = {
   resume: { fontFamily: 'sans', bodySizePt: 10, lineHeight: 1.2, marginMm: 17, accentColor: '#25354A', showPageNumbers: false },
   guide: { fontFamily: 'sans', bodySizePt: 11, lineHeight: 1.45, marginMm: 20, accentColor: '#255A5C', showPageNumbers: true },
   flyer: { fontFamily: 'sans', bodySizePt: 12, lineHeight: 1.3, marginMm: 16, accentColor: '#8C3F26', showPageNumbers: false },
-  pamphlet: { fontFamily: 'sans', bodySizePt: 10, lineHeight: 1.3, marginMm: 12, orientation: 'landscape', columns: 3, columnGapMm: 8, accentColor: '#245269', showPageNumbers: false },
+  pamphlet: { fontFamily: 'sans', bodySizePt: 10, lineHeight: 1.3, marginMm: 12, orientation: 'landscape', columns: 3, columnGapMm: 8, accentColor: '#245269', accentColor2: '#B78056', accentColor3: '#EEE8D8', backgroundColor: '#FFFFFF', showPageNumbers: false },
 } as const;
 export type DocumentLayoutId = keyof typeof DOCUMENT_LAYOUTS | 'custom';
 export interface DocumentLayoutOptions {
