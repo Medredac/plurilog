@@ -439,7 +439,7 @@ function imageExtensionForContentType(contentType: string): string {
   return 'png';
 }
 
-function imageDimensions(data: Buffer, contentType: string): { width: number; height: number } {
+export function imageDimensions(data: Buffer, contentType: string): { width: number; height: number } {
   try {
     const normalized = (contentType || '').toLowerCase();
     if (normalized === 'image/png' && data.length >= 24 && data.readUInt32BE(0) === 0x89504e47) {

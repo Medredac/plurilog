@@ -6,6 +6,7 @@ import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 export { contrastTextColor } from './documentTemplateTreatments';
 import type { DocxBlock } from '@/utils/docxWriter';
+import { imageDimensions } from './docxWriter';
 
 export type PdfFontFamily =
   | 'sans'
@@ -702,8 +703,10 @@ function renderEditorialBrochure(titleHtml: string, blocks: RichDocumentBlock[],
     // logos and inline diagrams stay in the copy, with their aspect ratios.
     const heroIndex = page.findIndex(b => b.type === 'image' && (b.size === 'large' || b.size === 'full'));
     const hero = heroIndex >= 0 ? page[heroIndex] as DocxBlock : null;
+    const dimensions = hero?.imageData ? imageDimensions(hero.imageData, hero.imageContentType || 'image/png') : null;
+    const wideHero = design.templateVersion === 2 && dimensions && dimensions.width > dimensions.height * 1.15;
     const copy = page.filter((_, i) => i !== heroIndex);
-    return `<section class="brochure-page ${hero ? 'has-hero' : ''} ${index % 2 ? 'reverse' : ''}" style="${index ? 'break-before:page;' : ''}">
+    return `<section class="brochure-page ${hero ? 'has-hero' : ''} ${wideHero ? 'wide-hero' : ''} ${index % 2 ? 'reverse' : ''}" style="${index ? 'break-before:page;' : ''}">
       <div class="brochure-rule"><span>${escapeHtml(design.headerText)}</span><span>${String(index + 1).padStart(2, '0')}</span></div>
       <div class="brochure-spread"><div class="brochure-copy">${index === 0 ? titleHtml : ''}${renderBlocksWithCompositions(copy, design)}</div>
       ${hero ? `<div class="brochure-visual">${renderImage(hero, design)}</div>` : ''}</div>
@@ -1004,6 +1007,13 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-page:first-child.has-hero .brochure-copy [class^='pdf-heading-'], .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:${contrastTextColor(design.accentColor)} !important; }
 .brochure-page:first-child.has-hero .brochure-copy > .pdf-image .pdf-image-caption { color:${contrastTextColor(design.accentColor)} !important; }
 .brochure-page:first-child.has-hero .brochure-copy img { background:#fff; padding:3mm; }
+.brochure-page.wide-hero .brochure-spread { display:flex; flex-direction:column; gap:7mm; justify-content:center; align-items:stretch; }
+.brochure-page.wide-hero .brochure-visual { order:-1; padding:3mm; border-radius:0 14mm 0 0; border-bottom-width:4mm; }
+.brochure-page.wide-hero .brochure-visual img { height:auto !important; max-height:94mm; object-fit:contain; }
+.brochure-page.wide-hero .brochure-copy { padding:4mm 0; }
+.brochure-page.wide-hero:first-child .brochure-copy { padding:5mm 7mm; border-radius:0 0 0 12mm; }
+.brochure-page.wide-hero .brochure-copy .pdf-heading-1, .brochure-page.wide-hero .brochure-copy .pdf-document-title { font-size:27pt !important; margin-bottom:4mm !important; }
+.brochure-page.wide-hero .pdf-columns { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
 .brochure-fold img { height:auto !important; max-height:65mm; object-fit:contain; }
 .brochure-fold .pdf-image-small img { background:#fff; padding:3mm; }
 .brochure-fold .pdf-image:not(.pdf-image-small) img { width:100% !important; }

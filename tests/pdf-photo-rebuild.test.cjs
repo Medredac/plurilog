@@ -11,7 +11,7 @@ const sharp = require('sharp');
 function load(file, overrides = {}, extra = '') {
   const filename = path.resolve(file), mod = new Module(filename, module);
   mod.filename = filename; mod.paths = module.paths;
-  mod.require = name => overrides[name] || (name === './documentTemplateTreatments' ? load('src/utils/documentTemplateTreatments.ts') : name === './pdfEssayFont.json' ? JSON.parse(fs.readFileSync('src/utils/pdfEssayFont.json','utf8')) : name === './pdfBrochureFont.json' ? JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json', 'utf8')) : name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : require(name));
+  mod.require = name => overrides[name] || (name === './docxWriter' ? load('src/utils/docxWriter.ts') : name === './documentTemplateTreatments' ? load('src/utils/documentTemplateTreatments.ts') : name === './pdfEssayFont.json' ? JSON.parse(fs.readFileSync('src/utils/pdfEssayFont.json','utf8')) : name === './pdfBrochureFont.json' ? JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json', 'utf8')) : name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : require(name));
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') + extra, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);

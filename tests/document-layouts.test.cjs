@@ -1,10 +1,19 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript'),vm=require('node:vm');
-function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./documentTemplateTreatments'?load('src/utils/documentTemplateTreatments.ts'):n==='./pdfEssayFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfEssayFont.json','utf8')):n==='./pdfBrochureFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json','utf8')):n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
+function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./docxWriter'?load('src/utils/docxWriter.ts'):n==='./documentTemplateTreatments'?load('src/utils/documentTemplateTreatments.ts'):n==='./pdfEssayFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfEssayFont.json','utf8')):n==='./pdfBrochureFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json','utf8')):n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
 const {applyDocumentLayout,DOCUMENT_LAYOUTS}=load('src/utils/documentLayouts.ts');
 const {renderDocx}=load('src/utils/docxWriter.ts');
 const {buildHtml}=load('src/utils/richPdfRenderer.ts');
+test('editorial page composition follows the actual hero image proportions without cropping',()=>{
+ for(const [width,height,wide] of [[1600,900,true],[900,1600,false]]){
+  const bytes=Buffer.alloc(24);bytes.writeUInt32BE(0x89504e47,0);bytes.writeUInt32BE(width,16);bytes.writeUInt32BE(height,20);
+  const result=buildHtml({filename:'photo.pdf',design:{layoutTemplate:'brochure-editorial',templateVersion:2},blocks:[{type:'heading',text:'Title'},{type:'image',size:'full',imageData:bytes,imageContentType:'image/png',preserveAspectRatio:true}]});
+  const section=result.html.slice(result.html.indexOf('<section class="brochure-page'));
+  assert.equal(section.slice(0,100).includes('wide-hero'),wide);
+  assert.ok(result.html.includes('max-height:94mm; object-fit:contain'));
+ }
+});
 const xml=b=>b.toString('utf8'); // The production writer creates uncompressed ZIP entries.
 test('presets never override explicit styles and legacy custom documents keep their settings',()=>{
  assert.deepEqual(applyDocumentLayout(),{});assert.deepEqual(applyDocumentLayout({fontFamily:'mono'}),{fontFamily:'mono'});
