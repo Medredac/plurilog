@@ -1,5 +1,7 @@
 'use client';
 
+import { Film } from 'lucide-react';
+
 import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
@@ -287,6 +289,12 @@ function getSeatActivityLabel(status: SeatIndicatorStatus): string {
       return 'Locating the referenced source…';
     case 'reviewing_evidence':
       return 'Reviewing findings…';
+    case 'saving_file':
+      return 'Saving document…';
+    case 'analyzing_video':
+      return 'Examining video…';
+    case 'reviewing_web':
+      return 'Reviewing web sources…';
     case 'searching_web':
       return 'Searching the web…';
     case 'generating_image':
@@ -387,7 +395,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   const displayLabel = rawDisplayLabel.replace(/(?:…|\.\.\.)\s*$/, '');
 
   useEffect(() => {
-    if (effectiveStatus !== 'searching_web' || searchSources.length <= 1) {
+    if (!['searching_web', 'reviewing_web'].includes(effectiveStatus) || searchSources.length <= 1) {
       setSiteIndex(0);
       return;
     }
@@ -400,7 +408,7 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
   }, [effectiveStatus, searchSources.length]);
 
   const activeSource =
-    effectiveStatus === 'searching_web' && searchSources.length > 0
+    ['searching_web', 'reviewing_web'].includes(effectiveStatus) && searchSources.length > 0
       ? searchSources[Math.min(siteIndex, searchSources.length - 1)]
       : null;
   const faviconUrl = getSearchFaviconUrl(activeSource);
@@ -446,12 +454,16 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
         return Search;
       case 'reviewing_evidence':
         return Sparkles;
+      case 'analyzing_video':
+        return Film;
+      case 'reviewing_web':
       case 'searching_web':
         return Search;
       case 'generating_image':
         return ImageIcon;
       case 'editing_image':
         return Wand2;
+      case 'saving_file':
       case 'generating_pdf':
       case 'generating_word':
       case 'generating_file':
@@ -493,7 +505,9 @@ const SeatActivityIndicator: React.FC<SeatActivityIndicatorProps> = ({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -2 }}
             transition={{ duration: reduceMotion ? 0 : 0.16, ease: 'easeOut' }}
-            className="animate-text-shimmer min-w-0 truncate whitespace-nowrap font-normal tracking-tight select-none"
+            title={displayLabel}
+            aria-live="polite"
+            className="animate-text-shimmer min-w-0 line-clamp-2 break-words font-normal leading-snug tracking-tight select-none"
           >
             {displayLabel}
           </motion.span>

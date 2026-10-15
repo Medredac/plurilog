@@ -103,7 +103,7 @@ export async function inspectPreparedVideo(options: {
       const bytes = await sandbox.readFileToBuffer({ path: '/vercel/sandbox/analysis.mp4' });
       if (!bytes?.length || bytes.length > VIDEO_INLINE_MAX_BYTES) throw new Error('The analysis copy was too large. Try asking about a shorter time range.');
       const result = await options.analyze({
-        url: `data:video/mp4;base64,${bytes.toString('base64')}`, label: options.filename, youtube: false,
+        url: `data:video/mp4;base64,${bytes.toString('base64')}`, label: options.filename, youtube: false, startSeconds: windows[i].start, endSeconds: windows[i].end,
         question: `${options.question}\nThis is a temporary analysis copy covering original seconds ${window.start}–${window.end} of a ${duration}-second video. Clip time zero is original second ${window.start}; report timestamps on the ORIGINAL timeline. It is reduced to at most 720p, 30 FPS, with compressed mono audio. Do not infer unreadable fine details. Describe evidence relevant to the question from this section only.`,
       }, options.signal);
       if (!result.findings.trim()) throw new Error('Video inspection returned no findings. Please retry.');

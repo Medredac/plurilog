@@ -1,3 +1,4 @@
+import { buildAgenticSeatActivity, activityFilename, documentActivityLabel, videoActivity } from '@/utils/seatActivity';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
@@ -179,131 +180,6 @@ You have already made ${retrievalRounds} grounded-evidence retrieval rounds. If 
   return null;
 }
 
-function buildAgenticSeatActivity(
-  toolName: string,
-  rawArgs: unknown
-): { activity: string; label: string } | null {
-  const args =
-    rawArgs && typeof rawArgs === 'object'
-      ? (rawArgs as Record<string, unknown>)
-      : {};
-
-  const speaker =
-    typeof args.speaker === 'string' ? args.speaker.toLowerCase() : 'any';
-  const speakerLabel =
-    speaker === 'chatgpt'
-      ? 'ChatGPT'
-      : speaker === 'claude'
-        ? 'Claude'
-        : speaker === 'gemini'
-          ? 'Gemini'
-          : speaker === 'user'
-            ? 'you'
-            : null;
-  const speakerPossessive =
-    speakerLabel === 'you'
-      ? 'your'
-      : speakerLabel
-        ? `${speakerLabel}’s`
-        : null;
-
-  const rawFilename =
-    typeof args.filename === 'string' ? args.filename.trim() : '';
-  const filename = rawFilename
-    ? rawFilename.split(/[\\/]/).pop()?.slice(0, 64) || rawFilename.slice(0, 64)
-    : '';
-
-  switch (toolName) {
-    case 'search_conversation_memory':
-      return {
-        activity: 'searching_conversation',
-        label: speakerPossessive
-          ? `Searching ${speakerPossessive} earlier messages…`
-          : 'Searching earlier messages…',
-      };
-
-    case 'find_conversation_event': {
-      const mode =
-        args.mode === 'speaker_boundary' ? 'speaker_boundary' : 'topic';
-      const occurrence = args.occurrence === 'last' ? 'last' : 'first';
-
-      if (mode === 'speaker_boundary' && speakerPossessive) {
-        return {
-          activity: 'checking_chronology',
-          label:
-            speakerLabel === 'you'
-              ? `Finding your ${occurrence === 'last' ? 'latest' : 'earliest'} message…`
-              : `Finding ${speakerPossessive} ${occurrence === 'last' ? 'latest' : 'earliest'} reply…`,
-        };
-      }
-
-      return {
-        activity: 'checking_chronology',
-        label:
-          occurrence === 'last'
-            ? 'Checking when this most recently came up…'
-            : 'Checking when this first came up…',
-      };
-    }
-
-    case 'navigate_conversation_evidence': {
-      const direction = args.direction === 'after' ? 'after' : 'before';
-      return {
-        activity: 'checking_chronology',
-        label: speakerPossessive
-          ? speakerLabel === 'you'
-            ? `Checking your ${direction === 'after' ? 'next' : 'previous'} message…`
-            : `Checking ${speakerPossessive} ${direction === 'after' ? 'next' : 'previous'} reply…`
-          : `Checking what came immediately ${direction}…`,
-      };
-    }
-
-    case 'expand_grounded_evidence':
-    case 'expand_conversation_evidence':
-      return {
-        activity: 'reading_context',
-        label: 'Reading more context…',
-      };
-
-    case 'get_recent_conversation':
-      return {
-        activity: 'reading_context',
-        label: speakerPossessive
-          ? speakerLabel === 'you'
-            ? 'Reviewing your recent messages…'
-            : `Reviewing ${speakerPossessive} recent replies…`
-          : 'Reviewing recent conversation…',
-      };
-
-    case 'search_document_evidence':
-      return {
-        activity: 'searching_documents',
-        label: filename
-          ? `Searching ${filename}…`
-          : 'Searching earlier documents…',
-      };
-
-    case 'inspect_video':
-      return { activity: 'analyzing_video', label: 'Inspecting video…' };
-    case 'request_evidence': {
-      const resourceType =
-        args.resource_type === 'image'
-          ? 'image'
-          : args.resource_type === 'document'
-            ? 'document'
-            : 'source';
-      return {
-        activity: 'locating_evidence',
-        label: filename
-          ? `Locating ${filename}…`
-          : `Locating the referenced ${resourceType}…`,
-      };
-    }
-
-    default:
-      return null;
-  }
-}
 
 const AGENTIC_EVIDENCE_HANDOFF_LIMIT = 12;
 
@@ -7141,6 +7017,7 @@ export async function POST(req: NextRequest) {
             const primaryModel = models[0];
             let incurredVideoCostUsd = 0;
             const analyzeVideo = async (source: import('@/utils/videoInspection').VideoSource, signal: AbortSignal) => {
+              sendEvent('seat_activity', { seatId: seat.seatId, ...videoActivity(source.youtube ? { youtube_url: source.url } : { filename: source.label, start_seconds: source.startSeconds, end_seconds: source.endSeconds }) });
               const result = await inspectVideoWithModel(
                 (body, opts) => (openai.chat.completions.create as any)(body, opts), models, source, signal,
               );
@@ -7157,6 +7034,12 @@ export async function POST(req: NextRequest) {
                   sourceUserMessageId,
                   signal: seatAbortController.signal,
                   analyze: analyzeVideo,
+                  onActivity: (stage, filename) => sendEvent('seat_activity', {
+                    seatId: seat.seatId,
+                    ...(stage === 'reading_saved'
+                      ? { activity: 'reading_context', label: `Reading saved findings for “${activityFilename(filename)}”…` }
+                      : { activity: 'analyzing_video', label: `Preparing “${activityFilename(filename)}” for inspection…` }),
+                  }),
                   inspectUpload: (path, filename, question, range, signal) => inspectStoredVideo({ path, filename, question, range, signal, userId: authenticatedUser.id, analyze: analyzeVideo }),
                   readUpload: async (storagePath, signal) => {
                     // Session ownership and the user folder are checked before this
@@ -7175,10 +7058,17 @@ export async function POST(req: NextRequest) {
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
               ...(videoSession ? ['inspect_video'] : []),
             ]);
-            const resolveSeatConversationTool = (options: Parameters<typeof resolveAgenticConversationTool>[0]) =>
-              options.toolName === 'inspect_video' && videoSession
-                ? videoSession.inspect(options.toolArgs)
-                : resolveAgenticConversationTool(options);
+            const resolveSeatConversationTool = async (options: Parameters<typeof resolveAgenticConversationTool>[0]) => {
+              const activity = buildAgenticSeatActivity(options.toolName, options.toolArgs);
+              if (activity) sendEvent('seat_activity', { seatId: seat.seatId, ...activity });
+              try {
+                return options.toolName === 'inspect_video' && videoSession
+                  ? await videoSession.inspect(options.toolArgs)
+                  : await resolveAgenticConversationTool(options);
+              } finally {
+                sendEvent('seat_activity', { seatId: seat.seatId, activity: 'thinking' });
+              }
+            };
             diagnosticActiveModelId = primaryModel;
             let respondingModel = primaryModel;
             let seatResponse = '';
@@ -7335,11 +7225,21 @@ export async function POST(req: NextRequest) {
               sendEvent('seat_activity', {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
+                label: 'Reviewing the generated document pages…',
               });
             } else if (hasPdf) {
               sendEvent('seat_activity', {
                 seatId: seat.seatId,
                 activity: 'checking_documents',
+                label: pdfAttachments.length === 1 ? `Reading “${activityFilename(pdfAttachments[0].filename) || 'uploaded PDF'}”…` : `Reading ${pdfAttachments.length} uploaded PDFs…`,
+              });
+            }
+
+            if (!hasPdf && !reviewScopedToGeneratedDocument) {
+              const images = modelInputAttachments.filter((att: any) => /\.(png|jpe?g|webp|gif)$/i.test(att.filename || ''));
+              if (images.length) sendEvent('seat_activity', {
+                seatId: seat.seatId, activity: 'checking_images',
+                label: images.length === 1 ? `Examining “${activityFilename(images[0].filename)}”…` : `Examining ${images.length} attached images…`,
               });
             }
 
@@ -7562,7 +7462,8 @@ export async function POST(req: NextRequest) {
                       webSearchActivityStarted = true;
                       sendEvent('seat_activity', {
                         seatId: seat.seatId,
-                        activity: 'searching_web',
+                        activity: 'reviewing_web',
+                        label: 'Reviewing web sources…',
                       });
                     }
 
@@ -8240,8 +8141,7 @@ export async function POST(req: NextRequest) {
 
                 sendEvent('seat_activity', {
                   seatId: seat.seatId,
-                  activity: 'reviewing_evidence',
-                  label: 'Reviewing findings…',
+                  activity: 'thinking',
                 });
 
                 const memoryContinuationStream =
@@ -8592,6 +8492,7 @@ export async function POST(req: NextRequest) {
                   const sourceEditLower = sourceEditFilename.toLowerCase();
                   sendEvent('seat_activity', {
                     seatId: seat.seatId,
+                    label: `Editing “${activityFilename(sourceEditFilename)}”…`,
                     activity: sourceEditLower.endsWith('.pdf')
                       ? 'editing_pdf'
                       : sourceEditLower.endsWith('.docx')
@@ -8836,6 +8737,7 @@ export async function POST(req: NextRequest) {
                         sendEvent('seat_activity', {
                           seatId: seat.seatId,
                           activity,
+                          label: documentActivityLabel(activity, fileArgs.title, fileArgs.format),
                         });
                       },
                       reviewModel: primaryModel,
@@ -11340,6 +11242,7 @@ export async function POST(req: NextRequest) {
                       evidenceSourceFilename.toLowerCase();
                     sendEvent('seat_activity', {
                       seatId: seat.seatId,
+                      label: `Editing “${activityFilename(evidenceSourceFilename)}”…`,
                       activity: evidenceSourceLower.endsWith('.pdf')
                         ? 'editing_pdf'
                         : evidenceSourceLower.endsWith('.docx')
@@ -11735,6 +11638,7 @@ export async function POST(req: NextRequest) {
                           sendEvent('seat_activity', {
                             seatId: seat.seatId,
                             activity,
+                            label: documentActivityLabel(activity, fileArgs.title, fileArgs.format),
                           });
                         },
                         reviewModel: primaryModel,

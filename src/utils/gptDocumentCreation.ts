@@ -76,6 +76,8 @@ export interface DocumentImageCostEvent {
 }
 
 export type DocumentCreationActivity =
+  | 'checking_documents'
+  | 'saving_file'
   | 'generating_image'
   | 'editing_image'
   | 'generating_file'
@@ -2236,6 +2238,7 @@ export async function executeGptDocumentCreation(
 
     if (reviewModel) {
       try {
+        onActivity?.('checking_documents');
         const initialPages = await renderDocxPages(initialDocument.buffer, {
           signal,
           timeoutMs: 45_000,
@@ -2655,6 +2658,7 @@ export async function executeGptDocumentCreation(
     }
   }
 
+  onActivity?.('saving_file');
   const finalContent = `Created **${finalFilename}**.`;
 
   let persistedMsg: { id: string; created_at: string } | null = null;
