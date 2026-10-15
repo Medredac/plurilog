@@ -1,3 +1,4 @@
+import { DOCUMENT_LAYOUT_GUIDANCE } from '@/utils/documentLayouts';
 import { buildAgenticSeatActivity, activityFilename, documentActivityLabel, videoActivity } from '@/utils/seatActivity';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
@@ -89,6 +90,7 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
+import { scopeCreationToolsToCanonicalSource } from '@/utils/documentToolScope';
 import { createFullConversationSession, FULL_CONVERSATION_TOOL, FULL_CONVERSATION_TOOL_NAME, FULL_CONVERSATION_INSTRUCTION } from '@/utils/conversationDocumentSource';
 import type {
   GptCreateFileArgs,
@@ -97,6 +99,7 @@ import type {
 import {
   applyDocumentJsonPatch,
   assertNarrowRevisionPatchSafety,
+  documentRevisionOperations,
   findDocumentStateSnapshot,
   findLatestDocumentStateSnapshot,
   listDocumentStateSnapshots,
@@ -338,8 +341,9 @@ export const GPT_FILE_TOOLS = [
     type: 'function',
     function: {
       name: 'create_file',
+      strict: false,
       description:
-        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. When the user explicitly asks for, invites, or positively suggests visuals inside the document (for example "include images", "you can generate images and put them in it", "add visuals", or similar wording), treat that as a real document-design preference: include at least one useful image block when a relevant safe visual can improve the document rather than silently returning a text-only file. When no real source photo is available for a current event or real person, prefer a clearly illustrative/editorial graphic, diagram, timeline visual, or other generated asset that does not pretend to be documentary evidence. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input for a genuinely new document: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft. IMPORTANT ARTIFACT-LINEAGE CONTRACT: if the requested output is a version, conversion, translation, reformat, restyle, or other derivative of an existing document in this discussion, do not reconstruct that source from conversational summaries, peer reviews, or remembered snippets. If the canonical source content/state is not already present in the current model input, retrieve the document evidence first; after canonical evidence is available, prefer revise_file for Plurilog-generated canonical documents or edit_source_document for source-preserving edits when those tools are offered. Use create_file directly only for a genuinely new document or when the existing source has already been grounded and a fresh reconstruction is actually required. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, and page_break; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). When you actually use web search to research facts for a document, include a final Sources section inside the document using the real source titles and URLs available from that search. Do not invent, generalize, or substitute source names or URLs; if a source URL is not actually available to you, do not fabricate one. This sourcing requirement changes only the document contents and must never cause you to perform a web search you would not otherwise have chosen. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
+        'Create a complete downloadable Word document or PDF. You may compose text, lists, tables, page breaks, and images. For PDF you also have style-neutral layout primitives (banner, callout, cards, columns, flow, divider, spacer) plus a document design object controlling page geometry, typography, spacing, and palette. Use those capabilities to express the aesthetic appropriate to the user\'s request and document purpose; do NOT default every PDF to a colourful modern/SaaS style. A Japanese white CV, restrained legal memo, academic paper, luxury brochure, children\'s worksheet, or colourful executive report should each look materially different when the request calls for it. User-specified visual instructions take priority. When no style is specified, make an appropriate professional design judgement rather than forcing a template. Do not try to showcase every available visual primitive: choose the smallest set that genuinely improves comprehension. By default, keep the palette coherent and limited, and let typography, spacing, alignment, and proportion carry the hierarchy; use multiple saturated accents, repeated cards, or decorative boxes only when the document purpose benefits from them. For DOCX, use the core blocks only for now; the richer PDF-only primitives are not part of the Word rollout yet. For document-internal images, either reuse an existing image from the discussion, request a newly generated image asset, or request an edit of an existing image asset; Plurilog performs that image operation inside the document workflow and embeds the result in the requested file. When the user explicitly asks for, invites, or positively suggests visuals inside the document (for example "include images", "you can generate images and put them in it", "add visuals", or similar wording), treat that as a real document-design preference: include at least one useful image block when a relevant safe visual can improve the document rather than silently returning a text-only file. When no real source photo is available for a current event or real person, prefer a clearly illustrative/editorial graphic, diagram, timeline visual, or other generated asset that does not pretend to be documentary evidence. If the user explicitly wants a separate standalone generated or edited image, use the image tools normally instead of treating it only as a document-internal asset. Earlier panel contributions are optional input for a genuinely new document: independently synthesize, improve, and author the final document rather than merely transcribing another model\'s draft. IMPORTANT ARTIFACT-LINEAGE CONTRACT: if the requested output is a version, conversion, translation, reformat, restyle, or other derivative of an existing document in this discussion, do not reconstruct that source from conversational summaries, peer reviews, or remembered snippets. If the canonical source content/state is not already present in the current model input, retrieve the document evidence first; after canonical evidence is available, prefer revise_file for Plurilog-generated canonical documents or edit_source_document for source-preserving edits when those tools are offered. Use create_file directly only for a genuinely new document or when the existing source has already been grounded and a fresh reconstruction is actually required. When transforming, translating, reformatting, or converting an existing user document, preserve source-grounded facts exactly: names, dates, employment status, degree/completion status, institutional names, contact details, and other factual fields must not be invented, upgraded, or silently changed. Do not guess an official translation, Japanese reading, qualification, or completion status when the source does not establish it; leave the field blank or neutral instead. If the user explicitly asks you to reuse a specific image generated or supplied earlier in the current discussion, use that existing image rather than generating a replacement. For a Japanese 履歴書/rirekisho when a real portrait is available, reuse that exact portrait as an image, place it in the conventional upper-right area at approximately 30 mm wide × 40 mm high, and do not substitute a text-only "写真" instruction for the actual photo. Choose the requested format semantically from the user\'s request. Treat an explicitly requested page count as a real layout constraint: size the content, images, tables, spacing, and page breaks so the finished document fits that count. For Word/DOCX, prefer the core blocks heading, paragraph, bullets, numbered, table, image, page_break, and column_break; use design.columns for Word columns; rich banner/card/column/flow blocks are intended for PDF and will be flattened for Word. Avoid duplicating the title across the top-level title field and a banner/heading. Format semantics: if the user says "doc", "document", or "Word document" without explicitly requesting PDF, default to DOCX. Use PDF only when the user asks for PDF or the request clearly requires a fixed-layout PDF. In follow-ups such as "make a PDF one", "make a Word one", "give me a PDF version", or similar wording, "one" means a version/file in that format, NOT one page. Preserve the source document\'s content and page count unless the user explicitly says "one-page", "1-page", or otherwise asks to change the length/layout. Call create_file exactly once for a normal single-document request. Call it more than once only when the user explicitly asks for multiple distinct files or formats (for example, both Word and PDF). When you actually use web search to research facts for a document, include a final Sources section inside the document using the real source titles and URLs available from that search. Do not invent, generalize, or substitute source names or URLs; if a source URL is not actually available to you, do not fabricate one. This sourcing requirement changes only the document contents and must never cause you to perform a web search you would not otherwise have chosen. Use this tool only when the user explicitly wants a finished downloadable Word document or PDF.',
       parameters: {
         type: 'object',
         properties: {
@@ -355,7 +359,7 @@ export const GPT_FILE_TOOLS = [
           },
           source_pdf_filename: {
             type: 'string',
-            description: 'For a complete rebuild of an existing numbered-photo PDF, supply its exact known filename. Read the source first, then include one mode=existing image block for EVERY numbered Photo in source order, with need="Photo N" and its corrected caption. Plurilog extracts and binds the original photos on demand, including when earlier extraction failed. Supports up to 32 photos and refuses incomplete sets. Never generate replacement documentary photos or invent captions. Use this for extensive caption/layout improvements to a photo collection; edit_source_document is for narrow edits preserving the existing layout.',
+            description: 'Only for a user-uploaded numbered-photo PDF without canonical Plurilog document state: supply its exact known filename. Never use this for a Plurilog-generated document; retrieve its canonical state and use revise_file with the saved image bindings. Read the source first, then include one mode=existing image block for EVERY numbered Photo in source order, with need="Photo N" and its corrected caption. Plurilog extracts and binds the original photos on demand, including when earlier extraction failed. Supports up to 32 photos and refuses incomplete sets. Never generate replacement documentary photos or invent captions. Use this for extensive caption/layout improvements to a photo collection; edit_source_document is for narrow edits preserving the existing layout.',
           },
           title: {
             type: 'string',
@@ -373,6 +377,9 @@ export const GPT_FILE_TOOLS = [
             description:
               'Style-neutral design controls shared by PDF and Word where supported. Use the user\'s requested aesthetic; these are capabilities, not a template.',
             properties: {
+              layoutTemplate: { type: 'string', enum: ['essay', 'report', 'proposal', 'letter', 'resume', 'guide', 'flyer', 'pamphlet', 'brochure-editorial', 'brochure-trifold', 'custom'], description: 'Executable layout preset for new documents; explicit design controls override defaults. Preserve the source preset on revisions.' },
+              columns: { type: ['integer', 'null'], minimum: 1, maximum: 3, description: 'Omit or null to use the template. brochure-trifold requires 3; brochure-editorial uses 1.' },
+              columnGapMm: { type: 'number', minimum: 4, maximum: 16 },
               pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
               orientation: { type: 'string', enum: ['portrait', 'landscape'] },
               marginMm: { type: 'number', minimum: 6, maximum: 35 },
@@ -432,6 +439,7 @@ export const GPT_FILE_TOOLS = [
                     'table',
                     'image',
                     'page_break',
+                    'column_break',
                     'banner',
                     'callout',
                     'cards',
@@ -483,7 +491,7 @@ export const GPT_FILE_TOOLS = [
                 filename: {
                   type: 'string',
                   description:
-                    'Optional exact filename of the existing image to use or edit.',
+                    'Optional exact filename of the existing image to use or edit. Reuse an embedded asset, not a rendered document page. On canonical revisions retain original image directives when only layout changes; do not replace them with guessed descriptions.',
                 },
                 caption: {
                   type: 'string',
@@ -505,19 +513,20 @@ export const GPT_FILE_TOOLS = [
                   description:
                     'Word/DOCX image placement. Use top-right for a conventional rirekisho portrait.',
                 },
+                preserveAspectRatio: { type: 'boolean', description: 'Defaults to true: fit the full image without cropping or stretching, especially logos and supplied images. Set false only for explicitly requested cropping/stretching.' },
                 widthMm: {
-                  type: 'number',
+                  type: ['number', 'null'],
                   minimum: 10,
                   maximum: 180,
                   description:
-                    'Exact Word/DOCX image width in millimetres when document conventions require it.',
+                    'Normally omit or null: size controls proportional display. Set an exact width only when explicitly needed, such as a 30mm portrait. Never fill an unused dimension with 10.',
                 },
                 heightMm: {
-                  type: 'number',
+                  type: ['number', 'null'],
                   minimum: 10,
                   maximum: 240,
                   description:
-                    'Exact Word/DOCX image height in millimetres when document conventions require it.',
+                    'Normally omit or null to preserve natural proportions. Set exact height only for an intentional bounding box. Never fill an unused dimension with 10.',
                 },
                 eyebrow: {
                   type: 'string',
@@ -627,7 +636,7 @@ export const GPT_REVISE_FILE_TOOL = [
     function: {
       name: 'revise_file',
       description:
-        'Revise the canonical existing document state using JSON Patch. Use this instead of recreating the entire file when Plurilog provides a canonical document state for a revision follow-up. Patch only the properties the user asked to change; every unmentioned property is preserved by the server. For a narrow edit such as adding a photo, changing one heading, or adjusting spacing, do not replace the whole /blocks array. Use add/replace/remove operations at the smallest practical JSON-pointer path. Prefer add when setting an optional property that may not already exist in the canonical state; replace is for an existing value. The runtime safely normalizes replace on a missing object leaf, but missing parent paths and array positions remain strict. The server will reject narrow revisions that silently delete unrelated existing content.',
+        'Revise the canonical existing document state using JSON Patch. Use this instead of recreating the entire file when Plurilog provides a canonical document state for a revision follow-up. Patch only the properties the user asked to change; every unmentioned property is preserved by the server. For a narrow edit such as adding a photo, changing one heading, or adjusting spacing, do not replace the whole /blocks array. Use add/replace/remove operations at the smallest practical JSON-pointer path. Prefer add when setting an optional property that may not already exist in the canonical state; replace is for an existing value. The runtime safely normalizes replace on a missing object leaf, but missing parent paths and array positions remain strict. The server will reject narrow revisions that silently delete unrelated existing content. For a format-only copy, set format and filename and use an empty patch array. The canonical source is already selected; do not add source_pdf_filename or source_docx_filename extraction directives.',
       parameters: {
         type: 'object',
         properties: {
@@ -644,7 +653,7 @@ export const GPT_REVISE_FILE_TOOL = [
           },
           patch: {
             type: 'array',
-            minItems: 1,
+            minItems: 0,
             maxItems: 64,
             items: {
               type: 'object',
@@ -2409,12 +2418,13 @@ ${workingConversationContext.trim()}`
     discussionMemory?.knownDocuments &&
     discussionMemory.knownDocuments.length > 0
   ) {
-    const docList = discussionMemory.knownDocuments
-      .map((doc) => (doc.id ? `- doc_${doc.id} — ${doc.filename}` : `- ${doc.filename}`))
+    const docList = [...discussionMemory.knownDocuments]
+      .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))
+      .map((doc) => `${doc.id ? `- doc_${doc.id} — ${doc.filename}` : `- ${doc.filename}`}${doc.createdAt ? ` (saved ${doc.createdAt})` : ''}`)
       .join('\n');
 
     sections.push(
-      `Known documents available in this discussion (authoritative identity only):\n${docList}\n\nThis registry includes uploaded documents and panel-created documents that have been durably indexed. A listed document not having its content retrieved below means its excerpts are not currently loaded for this turn; it does NOT mean the document is unavailable or never existed. Do not claim that a known document was never provided or that previously grounded facts from it were fabricated.`
+      `Known documents available in this discussion (authoritative identity only, newest saved first where dates are available):\n${docList}\n\nThis registry includes uploaded documents and panel-created documents that have been durably indexed. A listed document not having its content retrieved below means its excerpts are not currently loaded for this turn; it does NOT mean the document is unavailable or never existed. Do not claim that a known document was never provided or that previously grounded facts from it were fabricated. For a format-copy follow-up, identify the source from the conversation and document chronology; the requested output format is not the source format. Do not select an older Word file merely because the user now wants Word. Retrieve the intended source's canonical artifact before converting it; clarify only if the referent remains genuinely ambiguous.`
     );
   }
 
@@ -2651,7 +2661,7 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     userContent = priorResponses.length > 0
       ? `${sections.join('\n\n')}\n\nApply the task-completion and panel-contribution rule to the current request and replies above.`
       : effectivePrompt
-        ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
+        ? `${sections.join('\n\n')}\n\nEND OF STORED CONTEXT.\nCURRENT USER REQUEST — THIS IS THE TASK TO COMPLETE NOW:\n${effectivePrompt}`
         : sections.join('\n\n');
   }
   if (currentRoundArtifactFollowThrough) {
@@ -2660,23 +2670,9 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
       : currentRoundArtifactFollowThrough;
   }
 
-  const isLikelyDocumentCreationRequest =
-    currentModelName === 'ChatGPT' &&
-    /\b(pdf|docx|word|document|doc|file)\b/i.test(effectivePrompt) &&
-    /\b(create|make|generate|produce|build|write|return|design|redesign|revise|prepare)\b/i.test(
-      effectivePrompt
-    );
-
-  const pdfDesignReferences = isLikelyDocumentCreationRequest
-    ? buildPdfDesignReferenceContext(effectivePrompt)
+  const pdfDesignReferences = currentModelName === 'ChatGPT' && runtimeProductContext?.documentCreationEnabled
+    ? buildPdfDesignReferenceContext()
     : null;
-
-  if (pdfDesignReferences) {
-    console.log('[Document Design Library]', {
-      prompt: effectivePrompt.slice(0, 220),
-      referenceIds: pdfDesignReferences.referenceIds,
-    });
-  }
 
   const normalizedUserDisplayName =
     typeof userDisplayName === 'string'
@@ -2726,8 +2722,12 @@ These rules concern conversation history only; do not reinterpret temporal langu
 Start with compact retrieval. Expand only evidence that needs more context. Use search_document_evidence when you need wording or facts from the parsed text of a prior file; use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
+    runtimeProductContext?.documentCreationEnabled && !runtimeProductContext?.documentCreatedThisTurn
+      ? `DOCUMENT ACTION FOLLOW-THROUGH: Opening a source, inspecting it, or retrieving its text/assets does not fulfill a request to create or convert a file. After retrieval, continue the current user's requested document action with the available creation/revision tool. Do not end with only an acknowledgment that you have the context or assets. An existing file from an older turn does not satisfy a request for new deliverables or a new revision. Complete the latest user request, not the last task mentioned in stored history. When the user requested a format copy of a canonical Plurilog document, use revise_file with that source and the requested format, preserving its content and saved image bindings. Do not create an unsolicited file for a question or inspection-only request.`
+      : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     `CURRENT SEAT STATE: You are ${currentModelName}. Historical replies labeled ${currentModelName} are your own earlier contributions; refer to them as your earlier points, not as another panelist. ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. Follow TASK COMPLETION AND PANEL CONTRIBUTION above.`,
+    runtimeProductContext?.documentCreationEnabled ? DOCUMENT_LAYOUT_GUIDANCE : '',
     pdfDesignReferences?.text || '',
   ]
     .filter(Boolean)
@@ -7845,6 +7845,13 @@ export async function POST(req: NextRequest) {
                         call.name as any
                       )
                   );
+                // request_evidence is a read, not a terminal action. Keep the
+                // model's selected artifact request when it also searches text
+                // in this pass; otherwise the continuation loses the canonical
+                // document/image bindings and reconstructs from excerpts alone.
+                const pendingArtifactRequests = isEvidenceEnabledForSeat
+                  ? accumulatedToolCalls.filter(call => call.function.name === 'request_evidence')
+                  : [];
                 if (deferredNonMemoryCalls.length > 0) {
                   console.log(
                     '[Agentic Retrieval] Deferred non-retrieval calls until after grounded evidence',
@@ -8113,6 +8120,18 @@ export async function POST(req: NextRequest) {
                 bufferedSeatChunks.length = 0;
                 seatWebCitations.length = 0;
                 seenCitationUrls.clear();
+
+                if (pendingArtifactRequests.length > 0) {
+                  accumulatedToolCalls = pendingArtifactRequests;
+                  // The current pass was already included above. A zero-cost
+                  // handoff lets the common accounting add it exactly once.
+                  seatUsage = { cost: 0 };
+                  console.log('[Agentic Retrieval] Routing requested artifact evidence after memory', {
+                    seatId: seat.seatId,
+                    requestCount: pendingArtifactRequests.length,
+                  });
+                  break;
+                }
 
                 const continuationStartedAt = Date.now();
                 const retrievalToolsStillAvailable =
@@ -8671,6 +8690,7 @@ export async function POST(req: NextRequest) {
                     availableDocumentImages.push({
                       filename: attachment.filename || 'image.png',
                       url: attachment.url,
+                      storagePath: extractStoragePathFromSignedUrl(attachment.url),
                     });
                   }
 
@@ -10025,7 +10045,9 @@ export async function POST(req: NextRequest) {
                     formatSharedAgenticEvidenceForPrompt(
                       sharedAgenticEvidenceLedger
                     ),
-                    userDisplayName
+                    workingConversationContext,
+                    userDisplayName,
+                    isContinueRound === true
                   );
 
                   const evidenceMessages = [
@@ -10207,7 +10229,7 @@ export async function POST(req: NextRequest) {
                       ...(AGENTIC_MEMORY_EXPERIMENT
                         ? [
                             ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
-                              ? GPT_FILE_TOOLS
+                              ? scopeCreationToolsToCanonicalSource(GPT_FILE_TOOLS, evidenceContinuationCanReviseFile)
                               : []),
                             ...(evidenceContinuationCanSourceEdit
                               ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
@@ -11007,7 +11029,9 @@ export async function POST(req: NextRequest) {
                         formatSharedAgenticEvidenceForPrompt(
                           sharedAgenticEvidenceLedger
                         ),
-                        userDisplayName
+                        workingConversationContext,
+                        userDisplayName,
+                        isContinueRound === true
                       );
 
                     seatResponse = '';
@@ -11068,7 +11092,7 @@ export async function POST(req: NextRequest) {
                             ...(AGENTIC_MEMORY_EXPERIMENT
                               ? [
                                   ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
-                                    ? GPT_FILE_TOOLS
+                                    ? scopeCreationToolsToCanonicalSource(GPT_FILE_TOOLS, evidenceContinuationCanReviseFile)
                                     : []),
                                   ...(evidenceContinuationCanSourceEdit
                                     ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
@@ -11458,6 +11482,7 @@ export async function POST(req: NextRequest) {
                       availableDocumentImages.push({
                         filename: attachment.filename || 'image.png',
                         url: attachment.url,
+                        storagePath: extractStoragePathFromSignedUrl(attachment.url),
                       });
                     }
 
@@ -11500,17 +11525,21 @@ export async function POST(req: NextRequest) {
                           (requiresCanonicalTitleRevision ||
                             isNarrowDocumentRevisionFollowUpQuery(prompt || '')) &&
                           !userExplicitlyAllowsContentRemoval(prompt || '');
+                        const revisionOperations = documentRevisionOperations(
+                          revisionParentState.spec,
+                          reviseArgs
+                        );
 
                         if (preserveParentContent) {
                           assertNarrowRevisionPatchSafety(
-                            reviseArgs.patch || [],
+                            revisionOperations,
                             prompt || ''
                           );
                         }
 
                         fileArgs = applyDocumentJsonPatch(
                           revisionParentState.spec as GptCreateFileArgs,
-                          reviseArgs.patch || []
+                          revisionOperations
                         ) as GptCreateFileArgs;
                         fileArgs = normalizeRequestedTitleRevision(
                           revisionParentState.spec,

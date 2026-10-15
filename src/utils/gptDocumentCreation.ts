@@ -1,3 +1,4 @@
+import { applyDocumentLayout } from './documentLayouts';
 import { prepareDocumentContent, documentContentIssues } from '@/utils/documentContentQuality';
 import { conversationDocumentInstruction, type ConversationDocumentSource } from '@/utils/conversationDocumentSource';
 import { rasterizeSvg } from './svgImage';
@@ -43,6 +44,10 @@ import {
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
 import {
+  convertedDocumentSpec,
+  documentLayoutChanged,
+  fetchSavedDocumentImageSources,
+  findDocumentStateSnapshot,
   inferDocumentStateImageBindings,
   missingPreservedDocumentContent,
   persistDocumentStateSnapshot,
@@ -144,36 +149,9 @@ export interface ExecuteGptDocumentCreationResult {
 const MAX_DOCUMENT_IMAGES = MAX_REBUILT_PHOTOS;
 const MAX_DOCUMENT_IMAGE_BYTES = 15 * 1024 * 1024;
 
-const PAGE_COUNT_WORDS: Record<string, number> = {
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-};
-
-function explicitlyRequestedPageCount(prompt?: string): number | null {
-  const value = (prompt || '').toLowerCase();
-  const numeric = value.match(/\b(\d{1,2})\s*[- ]?\s*pages?\b/i);
-  if (numeric) {
-    const parsed = Number(numeric[1]);
-    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 30) return parsed;
-  }
-
-  const word = value.match(
-    /\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?\s*pages?\b/i
-  );
-  return word ? PAGE_COUNT_WORDS[word[1].toLowerCase()] || null : null;
-}
-
-function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | null {
-  const explicitPromptTarget = explicitlyRequestedPageCount(prompt);
-  if (explicitPromptTarget) return explicitPromptTarget;
+function requestedPageCount(args: GptCreateFileArgs): number | null {
+  // Fresh files use the per-deliverable semantic requirements check.
+  // Revisions retain the grounded source target or the explicit agent patch.
 
   if (
     typeof args.design?.targetPageCount === 'number' &&
@@ -419,6 +397,7 @@ function spreadDocxAcrossTargetPages(
   args: GptCreateFileArgs,
   target: number
 ): GptCreateFileArgs {
+  if (args.blocks.some(block => block.type === 'column_break')) return args;
   if (target <= 1) {
     return {
       ...args,
@@ -489,7 +468,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
     const b: any = block;
 
     if (
-      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break', 'column_break'].includes(
         b.type
       )
     ) {
@@ -505,6 +484,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
     }
 
     if (b.type === 'callout') {
+      if (b.eyebrow && b.title) output.push({ type: 'paragraph', text: String(b.eyebrow) } as any);
       if (b.title) output.push({ type: 'heading', level: 2, text: String(b.title) } as any);
       else if (b.eyebrow) output.push({ type: 'heading', level: 3, text: String(b.eyebrow) } as any);
       if (b.text) output.push({ type: 'paragraph', text: String(b.text) } as any);
@@ -516,6 +496,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
 
     if (b.type === 'cards' && Array.isArray(b.cards)) {
       for (const card of b.cards) {
+        if (card?.eyebrow) output.push({ type: 'paragraph', text: String(card.eyebrow) } as any);
         if (card?.title) {
           output.push({ type: 'heading', level: 2, text: String(card.title) } as any);
         }
@@ -528,6 +509,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
 
     if (b.type === 'columns' && Array.isArray(b.columns)) {
       for (const column of b.columns) {
+        if (column?.eyebrow) output.push({ type: 'paragraph', text: String(column.eyebrow) } as any);
         if (column?.title) {
           output.push({ type: 'heading', level: 2, text: String(column.title) } as any);
         }
@@ -689,6 +671,14 @@ function scoreImageSource(
   if (wantedFilename && sourceName.includes(wantedFilename)) return 8000;
 
   const combinedNeed = `${need} ${filename || ''}`.toLowerCase();
+  // Models often place the exact filename inside a descriptive need instead
+  // of the filename field. Treat that as identity evidence, not bag-of-words.
+  const filenamePosition = sourceName ? combinedNeed.indexOf(sourceName) : -1;
+  if (filenamePosition >= 0 && isImageFilename(sourceName)) {
+    const before = combinedNeed[filenamePosition - 1] || '';
+    const after = combinedNeed[filenamePosition + sourceName.length] || '';
+    if (!/[\w.-]/.test(before) && !/[\w.-]/.test(after)) return 9000;
+  }
   const tokens = combinedNeed.match(/[a-z0-9]{3,}/g) || [];
   let score = 0;
   for (const token of tokens) if (sourceName.includes(token)) score += 20;
@@ -704,16 +694,27 @@ function scoreImageSource(
     score += 300;
   }
 
-  // When the model explicitly asks to reuse the original/existing image, provenance
-  // is stronger evidence than a generated-document filename. Prefer the earliest
-  // user-originated canonical image over assistant-generated copies/re-encodes.
+  // Prefer user originals slightly, but only after a semantic match. Provenance
+  // alone must not make an unrelated upload outrank the requested artwork.
   if (wantsOriginal) {
     const sender = (source.sender || '').toLowerCase();
-    if (sender === 'user') score += 1200;
-    else if (sender) score += 100;
+    if (score > 0 && sender === 'user') score += 10;
   }
 
   return score;
+}
+
+function isRenderedDocumentPage(source: DocumentImageSource): boolean {
+  return /\/(?:docx-pages|pdf-pages)\//i.test(source.storagePath || source.url || '') ||
+    /[—–-] rendered page \d+/i.test(source.filename || '');
+}
+function isPageDerivedImage(source: DocumentImageSource, availableImages: DocumentImageSource[]): boolean {
+  return isRenderedDocumentPage(source) || Boolean(source.artifactId && availableImages.some(
+    candidate => candidate.artifactId === source.artifactId && isRenderedDocumentPage(candidate)
+  ));
+}
+function requestsDocumentPage(need?: string, filename?: string): boolean {
+  return /\b(?:screenshot|rendered page|whole page|entire page|page preview)\b/i.test(`${need || ''} ${filename || ''}`);
 }
 
 function fallbackResolveImageSource(
@@ -722,43 +723,40 @@ function fallbackResolveImageSource(
   filename?: string
 ): DocumentImageSource | null {
   const rawCandidates = availableImages.filter((source) =>
-    isImageFilename(source.filename || source.url || source.storagePath)
+    isImageFilename(source.filename || source.url || source.storagePath) &&
+    (!isPageDerivedImage(source, availableImages) || requestsDocumentPage(need, filename))
   );
   if (rawCandidates.length === 0) return null;
 
   // Collapse aliases/copies that point at the same canonical artifact. Prefer a
   // user-originated alias when available because it best represents "original".
-  const byArtifact = new Map<string, DocumentImageSource>();
+  const byArtifact = new Map<string, { source: DocumentImageSource; score: number }>();
+  const artifactByPath = new Map(rawCandidates.filter(source => source.artifactId && source.storagePath).map(source => [source.storagePath, source.artifactId]));
   for (const source of rawCandidates) {
     const key =
       source.artifactId ||
+      (source.storagePath && artifactByPath.get(source.storagePath)) ||
       source.storagePath ||
       source.url ||
       source.filename;
     const existing = byArtifact.get(key);
     if (!existing) {
-      byArtifact.set(key, source);
+      byArtifact.set(key, { source, score: scoreImageSource(source, need, filename) });
       continue;
     }
-    const existingUser = (existing.sender || '').toLowerCase() === 'user';
+    existing.score = Math.max(existing.score, scoreImageSource(source, need, filename));
+    const existingUser = (existing.source.sender || '').toLowerCase() === 'user';
     const sourceUser = (source.sender || '').toLowerCase() === 'user';
-    if (sourceUser && !existingUser) byArtifact.set(key, source);
+    if (sourceUser && !existingUser) existing.source = source;
   }
   const candidates = Array.from(byArtifact.values());
 
   const combinedNeed = `${need} ${filename || ''}`;
-  const wantsPortrait =
-    /\b(photo|portrait|headshot|id\s*photo|profile\s*photo)\b/i.test(combinedNeed) ||
-    /(?:証明写真|顔写真|写真|ポートレート)/.test(need || '');
   const wantsOriginal =
     /\b(?:original|source|existing|same|previous)\b/i.test(combinedNeed) ||
     /(?:元の|原本|同じ|既存)/.test(need || '');
 
   const ranked = candidates
-    .map((source) => ({
-      source,
-      score: scoreImageSource(source, need, filename),
-    }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
 
@@ -792,17 +790,13 @@ function fallbackResolveImageSource(
     });
 
   if (ranked[0]?.score > 0) {
-    // Strong semantic requests such as "original portrait" are intentionally
-    // deterministic. Generic image requests remain ambiguity-safe below.
-    if (wantsOriginal || wantsPortrait || filename) {
-      return ranked[0].source;
-    }
+    // Even exact filenames can be ambiguous across different uploaded assets.
     if (!ranked[1] || ranked[0].score > ranked[1].score) {
       return ranked[0].source;
     }
   }
 
-  return candidates.length === 1 ? candidates[0] : null;
+  return candidates.length === 1 ? candidates[0].source : null;
 }
 
 async function downloadImageBytes(
@@ -994,21 +988,33 @@ function reusableParentImageBindings(
     (block: any) => block?.type === 'image'
   );
 
+  const identity = (block: any) => [block?.filename, block?.need, block?.prompt]
+    .filter((value): value is string => typeof value === 'string' && !!value.trim())
+    .map(value => value.trim());
   const directive = (block: any) => JSON.stringify({
-    mode: block?.mode || 'generate',
-    prompt: block?.prompt || '',
-    need: block?.need || '',
-    filename: block?.filename || '',
+    mode: block?.mode || 'generate', prompt: block?.prompt || '',
+    need: block?.need || '', filename: block?.filename || '',
   });
 
-  return parentBindings.filter((binding) => {
-    const parentImage = parentImages[binding.imageOrdinal];
-    const currentImage = currentImages[binding.imageOrdinal];
-    return Boolean(
-      parentImage &&
-      currentImage &&
-      directive(parentImage) === directive(currentImage)
-    );
+  // Layout edits may move an image or change generate -> existing. Match the
+  // saved asset's identity, never its new position alone. A genuinely changed
+  // generation/edit instruction must still create/edit the requested asset.
+  return currentImages.flatMap((current: any, imageOrdinal) => {
+    const exact = parentBindings.filter(binding => {
+      const parent = parentImages[binding.imageOrdinal];
+      if (!parent) return false;
+      if (directive(parent) === directive(current)) return true;
+      if (current.mode !== 'existing') return false;
+      const keys = [...identity(parent), binding.source.filename];
+      return identity(current).some(key => keys.includes(key));
+    });
+    const sources = new Map(exact.map(binding => [
+      binding.source.artifactId || binding.source.storagePath || binding.source.filename, binding,
+    ]));
+    if (sources.size !== 1) return [];
+    const binding = [...sources.values()][0];
+    if (isPageDerivedImage(binding.source, parentSnapshot.imageSources || []) && !requestsDocumentPage(current.need, current.filename)) return [];
+    return [{ ...binding, imageOrdinal }];
   });
 }
 
@@ -1120,6 +1126,7 @@ async function resolveDocumentBlocks(
           };
         }
       }
+      if (source && isPageDerivedImage(source, availableImages) && !requestsDocumentPage(need, block.filename)) source = null;
       source = source || fallbackResolveImageSource(availableImages, need, block.filename);
       if (!source) {
         throw new Error(`Could not uniquely resolve the image requested for the document: ${need}`);
@@ -1208,11 +1215,12 @@ function preserveDocxSemanticContent(
   originalBlocks: RichDocumentBlock[],
   revisedBlocks: RichDocumentBlock[]
 ): RichDocumentBlock[] | null {
+  if (originalBlocks.some(b => b.type === 'column_break') && JSON.stringify(originalBlocks.map(b => b.type)) !== JSON.stringify(revisedBlocks.map(b => b.type))) return null;
   const originalContentBlocks = (originalBlocks || []).filter(
-    (block: any) => block?.type !== 'page_break'
+    (block: any) => !['page_break', 'column_break'].includes(block?.type)
   );
   const revisedContentBlocks = (revisedBlocks || []).filter(
-    (block: any) => block?.type !== 'page_break'
+    (block: any) => !['page_break', 'column_break'].includes(block?.type)
   );
 
   // Visual QA is a layout pass, not a rewriting pass. If the reviewer changes
@@ -1233,7 +1241,7 @@ function preserveDocxSemanticContent(
 
   let contentIndex = 0;
   return revisedBlocks.map((block: any) => {
-    if (block?.type === 'page_break') return block;
+    if (block?.type === 'page_break' || block?.type === 'column_break') return block;
 
     const original = originalContentBlocks[contentIndex++] as any;
     if (!original) return block;
@@ -1280,7 +1288,7 @@ function preserveDocxSemanticContent(
         } as RichDocumentBlock;
 
       default:
-        return original.source_message_id ? { ...original, style: block.style || original.style } : block;
+        return { ...original, style: block.style || original.style };
     }
   });
 }
@@ -1350,7 +1358,7 @@ async function reviewRenderedPdfWithGpt(options: {
         'Return the complete revised PDF specification through the revise_pdf_layout tool.',
         'Improve only where the rendered result materially benefits: page balance, whitespace, hierarchy, density, grouping, alignment, table legibility, visual rhythm, overflow, awkward page breaks, and overall polish.',
         'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
-        'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
+        'Preserve every authored word and substantive block in the same order. This is layout-only: adjust design, image sizes, spacing and page breaks; never rewrite, shorten, merge or split the authored content.',
         'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
         'Images marked preserveAspectRatio are original documentary photos. Preserve their complete frame and use legible sizes for portrait images and phone screenshots; do not force every image into a small landscape frame.',
         'If an exact page count was requested, treat it as a hard constraint and balance the content across those pages rather than leaving one page crowded and another mostly empty.',
@@ -1509,24 +1517,28 @@ async function reviewRenderedPdfWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  reviewedDesign.templateVersion = args.design?.templateVersion;
+  if (args.blocks.some(block => block.type === 'column_break')) {
+    reviewedDesign.columns = args.design?.columns;
+    reviewedDesign.orientation = args.design?.orientation;
+    reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  }
   if (args.design?.targetPageCount) {
     reviewedDesign.targetPageCount = args.design.targetPageCount;
   }
 
-  const transcriptBlocks = (args.blocks as any[]).some(b => b.source_message_id)
-    ? preserveDocxSemanticContent(args.blocks, imageSafeBlocks) : imageSafeBlocks;
-  if (!transcriptBlocks) return { args, costUsd, applied: false, respondingModel,
-    rationale: 'Retained complete transcript; layout review changed source content structure.' };
+  const transcriptBlocks = preserveDocxSemanticContent(args.blocks, imageSafeBlocks);
+  // Never accept rewritten content, but retain independent typography/palette
+  // improvements rather than discarding the entire review.
+  if (!transcriptBlocks) console.log('[PDF Visual Review] Keeping original blocks; applying design-only review.');
   const reviewedArgs: GptCreateFileArgs = {
     ...args,
     format: 'pdf',
     filename: args.filename,
-    title:
-      typeof parsed.title === 'string'
-        ? parsed.title
-        : args.title,
+    title: args.title,
     design: reviewedDesign,
-    blocks: transcriptBlocks,
+    blocks: transcriptBlocks || args.blocks,
   };
 
   const before = JSON.stringify({
@@ -1585,7 +1597,7 @@ async function reviewRenderedDocxWithGpt(options: {
     };
   }
 
-  const target = requestedPageCount(args, originalUserPrompt);
+  const target = requestedPageCount(args);
   const pageBlocks: any[] = [
     {
       type: 'text',
@@ -1596,7 +1608,7 @@ async function reviewRenderedDocxWithGpt(options: {
         'Fix page balance, excessive whitespace, crowded areas, orphaned headings, split list items, awkward page breaks, image sizing, table legibility, hierarchy, spacing, and typography.',
         'Compare the rendered pages against the source specification. Every non-empty table cell, factual name/date/status, and requested image must remain visibly present. Never solve overflow by hiding or dropping a table column.',
         'If Japanese characters are visible in the page images, do not claim they are missing/tofu. Only diagnose glyph corruption when the actual rendered glyphs are visibly boxes or replacement characters.',
-        'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
+        'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, page_break, and column_break. Preserve explicit panel boundaries and print order. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
         'This is a layout-only pass: preserve the number, order, and type of every substantive non-page-break block. You may add, remove, or move page_break blocks; adjust the design object; resize/reposition images; and adjust table width/column widths. Do not turn paragraphs into bullets, split/merge sections, reorder headings, or add/remove substantive blocks.',
         'Preserve all factual text and table content exactly. Do not rewrite, shorten, paraphrase, or expand the document during this pass; the server will preserve source text and reject structural content changes.',
         'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
@@ -1736,7 +1748,7 @@ async function reviewRenderedDocxWithGpt(options: {
   }
 
   const wordBlocks = (parsed.blocks as RichDocumentBlock[]).filter((block: any) =>
-    ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+    ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break', 'column_break'].includes(
       block?.type
     )
   );
@@ -1774,6 +1786,13 @@ async function reviewRenderedDocxWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  reviewedDesign.templateVersion = args.design?.templateVersion;
+  if (args.blocks.some(block => block.type === 'column_break')) {
+    reviewedDesign.columns = args.design?.columns;
+    reviewedDesign.orientation = args.design?.orientation;
+    reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  }
   if (target) reviewedDesign.targetPageCount = target;
 
   const reviewedArgs: GptCreateFileArgs = {
@@ -1821,7 +1840,7 @@ export async function executeGptDocumentCreation(
     signal,
     durableSignal = signal,
     sourceDocx = null,
-    availableImages = [],
+    availableImages: providedImages = [],
     resourceContext,
     onImageCost,
     onActivity,
@@ -1832,10 +1851,25 @@ export async function executeGptDocumentCreation(
     revisionContext = null,
   } = options;
 
+  const availableImages = [
+    ...providedImages,
+    ...(revisionContext?.parentSnapshot?.imageSources || []),
+    ...(revisionContext?.parentSnapshot?.imageBindings || []).map(binding => binding.source),
+  ];
   let args = initialArgs;
+  if (revisionContext?.parentSnapshot && args.source_pdf_filename) {
+    // A canonical revision already has its source and per-image bindings.
+    // Models sometimes fill the fresh PDF-photo extraction directive merely
+    // to name that source during a format copy. Never rerun extraction or
+    // redirect the canonical revision to a different document.
+    const { source_pdf_filename: _extractionDirective, ...canonicalArgs } = args;
+    args = canonicalArgs;
+    console.log('[Document Revision] Using canonical image bindings instead of PDF extraction');
+  }
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
-    revisionContext?.preserveParentContent === true;
+    revisionContext?.preserveParentContent === true &&
+    !documentLayoutChanged(revisionContext.parentSnapshot?.spec || {}, args);
 
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');
@@ -1852,34 +1886,20 @@ export async function executeGptDocumentCreation(
       source: options.conversationSource,
       sourceInstruction: options.conversationSource ? conversationDocumentInstruction(options.conversationSource) : undefined,
       openai, model: reviewModel, models: reviewModels, repairTool: options.contentRepairTool, signal,
-      onCost: options.onContentRepairCost,
+      onCost: options.onContentRepairCost, validateDeliverable: true,
     });
   }
+  // Store resolved layout defaults with the canonical source so later edits retain them.
+  args = { ...args, design: applyDocumentLayout({ ...args.design, templateVersion: revisionContext?.parentSnapshot ? (args.design?.templateVersion || 1) : 2 }) };
   const serviceClient = createServiceClient();
-
-  // A model-supplied page target is not a user requirement. For a fresh
-  // document, trust targetPageCount only when the user actually asked for an
-  // exact number of pages. Revisions/conversions may legitimately inherit a
-  // canonical page target from the source document.
-  const explicitPromptTarget = explicitlyRequestedPageCount(originalUserPrompt);
-  const isFreshCreation =
-    !revisionContext ||
-    revisionContext.generationKind === 'create';
-  if (
-    isFreshCreation &&
-    !explicitPromptTarget &&
-    args.design &&
-    typeof args.design.targetPageCount === 'number'
-  ) {
-    const { targetPageCount: _ignoredTargetPageCount, ...restDesign } = args.design;
-    args.design = restDesign;
-    console.log('[Document Layout] Ignored model-invented page target', {
-      format: args.format,
-      filename: args.filename,
-    });
+  if ((args.blocks || []).some(block => block.type === 'image' && (block.mode === 'existing' || block.mode === 'edit'))) {
+    availableImages.push(...await fetchSavedDocumentImageSources({
+      serviceSupabase: serviceClient,
+      discussionId,
+    }));
   }
 
-  const inferredTarget = requestedPageCount(args, originalUserPrompt);
+  const inferredTarget = requestedPageCount(args);
   if (args.format === 'docx') {
     args.blocks = applyDocxDocumentConventions(
       coerceRichBlocksForDocx(args.blocks || []),
@@ -1992,10 +2012,14 @@ export async function executeGptDocumentCreation(
   let finalDocxReviewPages: RenderedDocxPage[] = [];
   let finalPdfReviewPages: RenderedPdfReviewPage[] = [];
   let finalPageCount: number | null = null;
+  let directConversionParent: DocumentStateSnapshot | null = null;
   let finalSpecForState: GptCreateFileArgs =
     sanitizeDocumentSpecForState(args) as GptCreateFileArgs;
 
   if (args.format === 'pdf' && useDirectDocxToPdf && sourceDocx) {
+    directConversionParent = await findDocumentStateSnapshot({
+      serviceSupabase: serviceClient, discussionId, storagePath: sourceDocx.storagePath,
+    });
     const { data: sourceBlob, error: sourceDownloadError } =
       await serviceClient.storage
         .from('message-images')
@@ -2023,10 +2047,13 @@ export async function executeGptDocumentCreation(
     renderedFullText = parsedSource.markdown || '';
     generatedPdfPageCount = converted.totalPageCount;
     finalPageCount = generatedPdfPageCount;
-    finalSpecForState = sanitizeDocumentSpecForState({
-      ...args,
-      filename: finalFilename,
-    }) as GptCreateFileArgs;
+    finalSpecForState = convertedDocumentSpec(
+      directConversionParent?.spec || args, 'pdf', finalFilename
+    ) as GptCreateFileArgs;
+    if (directConversionParent) {
+      finalImageBindings = inferDocumentStateImageBindings(directConversionParent);
+      availableImages.push(...directConversionParent.imageSources);
+    }
     finalImageAssetCount = parsedSource.embeddedImages.length;
 
     console.log('[Generated PDF] Direct DOCX conversion:', {
@@ -2234,7 +2261,7 @@ export async function executeGptDocumentCreation(
       }
     }
   } else {
-    const target = requestedPageCount(args, originalUserPrompt);
+    const target = requestedPageCount(args);
     const initialArgs: GptCreateFileArgs = target
       ? {
           ...args,
@@ -2965,12 +2992,12 @@ export async function executeGptDocumentCreation(
       spec: finalSpecForState,
       fullText: renderedFullText,
       pageCount: finalPageCount,
-      parentSnapshotId: revisionContext?.parentSnapshot?.id || null,
+      parentSnapshotId: revisionContext?.parentSnapshot?.id || directConversionParent?.id || null,
       parentDocumentId:
-        revisionContext?.parentSnapshot?.documentId || photoSource?.id || null,
+        revisionContext?.parentSnapshot?.documentId || directConversionParent?.documentId || photoSource?.id || null,
       parentStoragePath:
-        revisionContext?.parentSnapshot?.storagePath || photoSource?.storagePath || null,
-      sourceDocumentIds: revisionContext?.sourceDocumentIds || (photoSource?.id ? [photoSource.id] : []),
+        revisionContext?.parentSnapshot?.storagePath || directConversionParent?.storagePath || sourceDocx?.storagePath || photoSource?.storagePath || null,
+      sourceDocumentIds: revisionContext?.sourceDocumentIds || (directConversionParent?.documentId ? [directConversionParent.documentId] : photoSource?.id ? [photoSource.id] : []),
       imageSources: [...availableImages, ...photoBindings.map(binding => binding.source)],
       imageBindings: finalImageBindings,
       generationKind:

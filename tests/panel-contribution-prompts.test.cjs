@@ -8,7 +8,7 @@ const source=fs.readFileSync('src/app/api/debate/route.ts','utf8');
 const ast=ts.createSourceFile('route.ts',source,ts.ScriptTarget.Latest,true);
 const names=new Set(['SHARED_PANEL_SYSTEM_PROMPT','buildPlurilogProductContext','buildPanelMessages']);
 const selected=ast.statements.filter(n=>names.has(n.name?.text)||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>names.has(d.name.text))).map(n=>n.getText(ast)).join('\n');
-const context={exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
+const context={DOCUMENT_LAYOUT_GUIDANCE:'DOCUMENT LAYOUT LIBRARY',exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/utils/videoInputs.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 vm.runInNewContext(ts.transpileModule(selected,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 function build({name='Claude',prompt='Explain this.',prior=[],memory,documents,runtime={},continuation=false,attachments=null}={}){
@@ -77,3 +77,31 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
  assert.match(m[0].content,/one inspection during their upload turn only/);
  assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });
+
+
+test('document registry carries chronology without selecting source by requested output format',()=>{
+ const docs=[{id:'old',filename:'old.docx',createdAt:'2026-10-15T18:00:00Z'},{id:'new',filename:'latest.pdf',createdAt:'2026-10-15T19:00:00Z'}];
+ const m=build({name:'ChatGPT',prompt:'nice can you make me now a word one',memory:{knownDocuments:docs},runtime:{documentCreationEnabled:true}});
+ assert.ok(m[1].content.indexOf('latest.pdf')<m[1].content.indexOf('old.docx'));
+ assert.match(m[1].content,/saved 2026-10-15T19:00:00Z/);
+ assert.match(m[0].content,/does not fulfill a request to create or convert a file/);
+ assert.match(m[0].content,/Do not create an unsolicited file/);
+ assert.equal(docs[0].id,'old');
+});
+test('every evidence continuation retains working context, user identity, and Continue state',()=>{
+ const calls=[];
+ function visit(n){if(ts.isCallExpression(n)&&n.expression.getText(ast)==='buildPanelMessages')calls.push(n);ts.forEachChild(n,visit);}
+ visit(ast);
+ assert.equal(calls.length,3);
+ for(const call of calls){
+  assert.equal(call.arguments[13]?.getText(ast),'workingConversationContext');
+  assert.equal(call.arguments[14]?.getText(ast),'userDisplayName');
+  assert.equal(call.arguments[15]?.getText(ast),'isContinueRound === true');
+ }
+});
+
+ test('current new-file request is explicitly separated from older completed files',()=>{
+ const m=build({name:'ChatGPT',prompt:'Create a report and a guide now.',memory:{recentRounds:[{content:'User requested Word. Assistant created old.docx.'}]},runtime:{documentCreationEnabled:true}});
+ assert.ok(m[1].content.endsWith('CURRENT USER REQUEST — THIS IS THE TASK TO COMPLETE NOW:\nCreate a report and a guide now.'));
+ assert.ok(m[0].content.includes('An existing file from an older turn does not satisfy'));
+ });

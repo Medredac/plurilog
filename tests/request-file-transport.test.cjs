@@ -497,11 +497,11 @@ function loadDocumentImageResolver(brokerResult) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => name === './documentLayouts' ? {} : name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/documentRevisionState' ? { inferDocumentStateImageBindings: s => s.imageBindings } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
-    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives };', {
+    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives, reusableParentImageBindings, fallbackResolveImageSource, coerceRichBlocksForDocx };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
   return loaded.exports;
@@ -692,4 +692,90 @@ test('historical SVG uploads skipped by production are registered once with thei
   assert.equal(first[0].sourceId, second[0].sourceId);
   assert.equal(db.rows('discussion_artifact_sources').length, 1);
   assert.deepEqual(db.files.get('user/Claude_AI_symbol.svg'), svgLogo);
+});
+
+test('later document edits reuse saved generated artwork instead of generating a replacement',async()=>{
+ const {resolveDocumentBlocks}=loadDocumentImageResolver({});
+ const downloads=[];
+ const client={storage:{from:()=>({download:async storagePath=>{downloads.push(storagePath);return {data:new Blob([png],{type:'image/png'}),error:null};}})}};
+ const binding={imageOrdinal:0,source:{filename:'generated-artwork.png',storagePath:'user/document-assets/generated.png',sender:'assistant'}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'generate',prompt:'Original illustration',widthMm:55}],client,[],{},undefined,undefined,[binding]);
+ assert.deepEqual(downloads,['user/document-assets/generated.png']);
+ assert.deepEqual(result.blocks[0].imageData,png);
+ assert.equal(result.blocks[0].widthMm,55);
+});
+
+
+test('redesign reuses generated photos after reordering and generate-to-existing conversion', async () => {
+ const {reusableParentImageBindings,resolveDocumentBlocks}=loadDocumentImageResolver({});
+ const photo={type:'image',mode:'generate',prompt:'Editorial garden photograph',widthMm:165};
+ const logo={type:'image',mode:'existing',filename:'logo.png',need:'logo.png'};
+ const parent={spec:{blocks:[photo,logo]},imageBindings:[
+  {imageOrdinal:0,source:{filename:'generated-garden.png',storagePath:'user/document-assets/garden.png'}},
+  {imageOrdinal:1,source:{filename:'logo.png',storagePath:'user/logo.png'}}]};
+ const redesigned=[logo,{...photo,mode:'existing',prompt:'',need:photo.prompt,widthMm:80}];
+ const bindings=reusableParentImageBindings(parent,redesigned);
+ assert.deepEqual(bindings.map(b=>[b.imageOrdinal,b.source.storagePath]),[[0,'user/logo.png'],[1,'user/document-assets/garden.png']]);
+ const downloads=[];const client={storage:{from:()=>({download:async p=>{downloads.push(p);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks(redesigned,client,[],undefined,undefined,()=>assert.fail('must not regenerate'),bindings);
+ assert.deepEqual(downloads,['user/logo.png','user/document-assets/garden.png']);assert.equal(result.imageAssetCount,2);
+ assert.equal(reusableParentImageBindings(parent,[{...photo,prompt:'A different photograph'}]).length,0);
+ assert.equal(reusableParentImageBindings(parent,[{...photo,mode:'edit',prompt:'Change the lighting'}]).length,0);
+});
+test('a rendered flyer cannot substitute for an embedded botanical illustration',async()=>{
+ const page={filename:'community garden — rendered page 1.png',storagePath:'user/docx-pages/hash/page-001.png',sender:'user'};
+ const logo={filename:'qa-logo.png',storagePath:'user/logo.png',sender:'user'};
+ const art={filename:'community garden — embedded image 3 — botanical illustration.png',storagePath:'user/docx-assets/hash/art.png',sender:'assistant'};
+ const {resolveDocumentBlocks,fallbackResolveImageSource}=loadDocumentImageResolver({status:'resolved',evidence:{kind:'image',...page}});
+ const need='the existing small botanical illustration from the Community Garden Open Day flyer';
+ const client={storage:{from:()=>({download:async p=>{assert.equal(p,art.storagePath);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'existing',need}],client,[page,logo,art],{},undefined);
+ assert.equal(result.imageBindings[0].source.storagePath,art.storagePath);
+ assert.equal(fallbackResolveImageSource([page],need),null);
+ assert.equal(fallbackResolveImageSource([page],'the whole page screenshot').storagePath,page.storagePath);
+});
+test('ambiguous existing image descriptions do not silently choose by provenance or position',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ assert.equal(fallbackResolveImageSource([{filename:'garden photo one.png',storagePath:'a.png'},{filename:'garden photo two.png',storagePath:'b.png'}],'existing garden photo'),null);
+});
+test('copied page previews retain their exclusion through canonical artifact identity',()=>{
+ const {fallbackResolveImageSource,reusableParentImageBindings}=loadDocumentImageResolver({});
+ const page={filename:'flyer — rendered page 1.png',storagePath:'user/docx-pages/hash/page.png',artifactId:'page-asset'};
+ const copy={filename:'botanical illustration.png',storagePath:'user/docx-assets/copy.png',artifactId:'page-asset'};
+ const block={type:'image',mode:'existing',need:'botanical illustration'};
+ assert.equal(fallbackResolveImageSource([copy,page],block.need),null);
+ assert.deepEqual(reusableParentImageBindings({spec:{blocks:[block]},imageSources:[page],imageBindings:[{imageOrdinal:0,source:copy}]},[block]),[]);
+});
+
+test('new-file creation resolves an exact filename inside a descriptive need and preserves Word image bytes',async()=>{
+ const {resolveDocumentBlocks}=loadDocumentImageResolver({status:'ambiguous'});
+ const logo={filename:'qa-logo.png',storagePath:'user/logo.png',artifactId:'logo',sender:'user'};
+ const sources=[logo,{...logo,filename:'Community Garden pamphlet — embedded image 1 — qa-logo.png.png',storagePath:'user/copy.png',sender:null},{filename:'Community Garden source pamphlet photo one.png',storagePath:'user/one.png'},{filename:'Community Garden source pamphlet photo two.png',storagePath:'user/two.png'}];
+ const calls=[];const client={storage:{from:()=>({download:async p=>{calls.push(p);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'existing',need:'qa-logo.png / the Community Garden logo from the source pamphlet',widthMm:42,heightMm:42}],client,sources,{},undefined);
+ assert.deepEqual(calls,['user/logo.png']);assert.deepEqual(result.blocks[0].imageData,png);
+ const writerFile=path.resolve('src/utils/docxWriter.ts'),writer=new Module(writerFile,module);writer.paths=module.paths;writer.require=n=>n==='./documentTemplateTreatments'?{documentTreatment:()=>null}:n==='./documentLayouts'?{applyDocumentLayout:d=>d||{}}:require(n);writer._compile(ts.transpileModule(fs.readFileSync(writerFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,writerFile);
+ const doc=writer.exports.renderDocx({filename:'converted.docx',blocks:result.blocks});assert.ok(doc.buffer.includes(png));
+});
+test('matching retains descriptive aliases while returning the original canonical bytes',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ const original={filename:'upload.png',storagePath:'user/original.png',artifactId:'same',sender:'user'};
+ const alias={filename:'botanical illustration.png',storagePath:'user/derived.png',artifactId:'same'};
+ assert.equal(fallbackResolveImageSource([original,alias,{filename:'other.png',storagePath:'other.png'}],'botanical illustration').storagePath,original.storagePath);
+ assert.equal(fallbackResolveImageSource([original,{...original,artifactId:null}],'upload.png').storagePath,original.storagePath);
+});
+test('same-named different images remain ambiguous and filename boundaries are respected',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ const a={filename:'logo.png',storagePath:'a.png'},b={filename:'logo.png',storagePath:'b.png'};
+ assert.equal(fallbackResolveImageSource([a,b],'logo.png / the logo'),null);
+ assert.equal(fallbackResolveImageSource([a,b],'the logo','logo.png'),null);
+ const specific={filename:'other-logo.png',storagePath:'correct.png'};
+ assert.equal(fallbackResolveImageSource([a,specific],'Use other-logo.png from the document').storagePath,'correct.png');
+});
+
+test('PDF-to-Word flattening retains card, column and callout labels alongside their content',()=>{
+ const {coerceRichBlocksForDocx}=loadDocumentImageResolver({});
+ const blocks=[{type:'cards',cards:[{eyebrow:'01',title:'Raised beds',text:'Six beds'}]},{type:'columns',columns:[{eyebrow:'BRING',title:'Prepare',text:'Water'}]},{type:'callout',eyebrow:'CONTACT',title:'Join us',text:'garden@example.org'}];
+ const text=coerceRichBlocksForDocx(blocks).map(b=>b.text).join(' ');
+ for(const value of ['01','Raised beds','Six beds','BRING','Prepare','Water','CONTACT','Join us','garden@example.org'])assert.ok(text.includes(value));
 });

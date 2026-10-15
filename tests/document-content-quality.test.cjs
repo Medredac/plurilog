@@ -8,6 +8,8 @@ function load(relative) {
   const filename = path.resolve(__dirname, '..', relative);
   const mod = new Module(filename, module);
   mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
+  const originalRequire = mod.require.bind(mod);
+  mod.require = name => name === './documentTemplateTreatments' ? load('src/utils/documentTemplateTreatments.ts') : name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : originalRequire(name);
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
@@ -16,6 +18,18 @@ function load(relative) {
 const q = load('src/utils/documentContentQuality.ts');
 const sources = load('src/utils/conversationDocumentSource.ts');
 const writer = load('src/utils/docxWriter.ts');
+test('editorial spreads require explicit page composition instead of one unbounded photo column', () => {
+  const image = { type: 'image', mode: 'generate', size: 'full', prompt: 'Photo' };
+  const spec = { format: 'pdf', filename: 'booklet.pdf', design: { layoutTemplate: 'brochure-editorial' }, blocks: [
+    { type: 'heading', text: 'First story' }, image,
+    { type: 'heading', text: 'Second story' }, image,
+  ] };
+  assert.ok(q.documentContentIssues(spec, '').some(issue => issue.includes('page composition')));
+  const pages = { ...spec, blocks: [spec.blocks[0], image, { type: 'paragraph', text: 'First story copy.' }, { type: 'page_break' }, spec.blocks[2], image, { type: 'paragraph', text: 'Second story copy.' }] };
+  assert.deepEqual(q.documentContentIssues(pages, ''), []);
+  assert.ok(q.documentContentIssues({ ...pages, blocks: [...pages.blocks, { type: 'paragraph', text: 'Long copy. '.repeat(200) }] }, '').some(issue => issue.includes('overfull')));
+  assert.ok(q.documentContentIssues({ ...pages, blocks: [...pages.blocks, { type: 'page_break' }] }, '').some(issue => issue.includes('page composition')));
+});
 const source = { mode: 'transcript', messages: [
   { id: 'user-1', speaker: 'User', text: 'Compare steel and aluminium for our balcony.' },
   { id: 'gpt-1', speaker: 'ChatGPT', text: 'Separate the frame from the walking surface.' },
@@ -178,4 +192,42 @@ test('renderer limits are checked before content can be silently truncated', () 
     {type:'bullets',items:Array(201).fill('item')},
     {type:'numbered',items:['x'.repeat(10001)]},
   ]) assert.ok(q.documentContentIssues({blocks:[block]},'Write a report').some(x=>x.includes('renderer limit')));
+});
+
+test('pamphlet preflight rejects missing or blank panels without inventing content',()=>{
+ const {documentContentIssues}=load('src/utils/documentContentQuality.ts');
+ const spec={design:{layoutTemplate:'pamphlet'},blocks:[{type:'paragraph',text:'Cover'},{type:'column_break'},{type:'paragraph',text:'Back'}]};
+ assert.ok(documentContentIssues(spec,'Create a pamphlet').some(x=>x.includes('panels are incomplete')));
+ spec.blocks.push({type:'column_break'},{type:'paragraph',text:'Fold-in'});
+ assert.equal(documentContentIssues(spec,'Create a pamphlet').length,0);
+});
+
+test('per-file requirements repair catches a photo pamphlet incorrectly authored as an essay', async () => {
+ const bad={format:'pdf',filename:'pamphlet.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'Original facts: ORCHID-4729 and $4,200.'}]};
+ const fixed={...bad,design:{layoutTemplate:'brochure-editorial'},blocks:[...bad.blocks,{type:'image',mode:'generate',prompt:'A botanical photograph',size:'full'}]};
+ const messages=[],costs=[];let n=0;
+ const openai={chat:{completions:{async create(input){messages.push(input);n++;const repair=input.tool_choice.function.name==='create_file';return {usage:{cost:.001},choices:[{message:{tool_calls:[{function:{name:repair?'create_file':'review_deliverable',arguments:JSON.stringify(repair?fixed:{brief:'The second file: a modern pamphlet with photos.',family:'promotional',format:'pdf',allowedLayouts:['brochure-editorial','brochure-trifold','custom'],imagesRequired:true,exactPageCount:0,issues:[]})}}]}}]};}}}};
+ const out=await q.prepareDocumentContent({spec:bad,prompt:'Create an essay and another modern pamphlet with photos.',model:'test',openai,validateDeliverable:true,repairTool:{type:'function',function:{name:'create_file'}},onCost:c=>costs.push(c)});
+ assert.equal(n,2);assert.equal(out.design.layoutTemplate,'brochure-editorial');assert.equal(out.blocks[0].text,bad.blocks[0].text);assert.equal(bad.blocks.length,1);assert.equal(costs.length,2);
+ const repair=JSON.parse(messages[1].messages[1].content);assert.match(repair.deliverableBrief,/second file/);assert.ok(repair.issues.some(x=>x.includes('embedded images')));assert.ok(repair.issues.some(x=>x.includes('essay layout')));
+});
+test('companion essay is not forced to contain the photos requested only for a pamphlet', async()=>{
+ const spec={format:'pdf',filename:'essay.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'A developed explanation.'}]};let calls=0;
+ const openai={chat:{completions:{async create(){calls++;return {choices:[{message:{tool_calls:[{function:{name:'review_deliverable',arguments:JSON.stringify({brief:'An essay, the first deliverable.',family:'prose',format:'pdf',allowedLayouts:['essay','custom'],imagesRequired:false,exactPageCount:0,issues:[]})}}]}}]};}}}};
+ assert.deepEqual(await q.prepareDocumentContent({spec,prompt:'An essay and a pamphlet with photos',model:'test',openai,validateDeliverable:true}),{...spec,design:{...spec.design,targetPageCount:undefined}});assert.equal(calls,1);
+});
+test('unsatisfied semantic requirements cannot be published after repair',async()=>{
+ const bad={format:'pdf',filename:'pamphlet.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'No photos'}]};
+ const openai={chat:{completions:{async create(input){const repair=input.tool_choice.function.name==='create_file';return {choices:[{message:{tool_calls:[{function:{name:repair?'create_file':'review_deliverable',arguments:JSON.stringify(repair?bad:{brief:'Photo brochure',family:'promotional',format:'pdf',allowedLayouts:['brochure-editorial','brochure-trifold','custom'],imagesRequired:true,exactPageCount:0,issues:[]})}}]}}]};}}}};
+ await assert.rejects(q.prepareDocumentContent({spec:bad,prompt:'Photo brochure',model:'test',openai,validateDeliverable:true,repairTool:{type:'function',function:{name:'create_file'}}}),/validation failed after repair/);
+});
+test('page limits are scoped semantically to each file, not extracted from shared prompt',async()=>{
+ const spec={format:'pdf',filename:'pamphlet.pdf',design:{layoutTemplate:'brochure-editorial',targetPageCount:5},blocks:[{type:'paragraph',text:'Exact content'}]};
+ const openai={chat:{completions:{async create(){return {choices:[{message:{tool_calls:[{function:{name:'review_deliverable',arguments:JSON.stringify({brief:'Second deliverable',family:'promotional',format:'pdf',allowedLayouts:['brochure-editorial','brochure-trifold','custom'],imagesRequired:false,exactPageCount:2,issues:[]})}}]}}]};}}}};
+ const out=await q.prepareDocumentContent({spec,prompt:'A five-page essay and a two-page pamphlet',model:'test',openai,validateDeliverable:true});
+ assert.equal(out.design.targetPageCount,2);assert.equal(spec.design.targetPageCount,5);
+});
+test('general reviewer advice and positive comments cannot block a valid deliverable',()=>{
+ const requirements={brief:'An essay',family:'prose',format:'pdf',allowedLayouts:['essay','custom'],imagesRequired:false,exactPageCount:0,issues:['Format is correct','Verify everything before publication']};
+ assert.deepEqual(q.deliverableRequirementIssues({format:'pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'Complete essay'}]},requirements),[]);
 });

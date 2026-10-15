@@ -758,109 +758,15 @@ export const PDF_DESIGN_LIBRARY: PdfDesignReference[] = [
   },
 ];
 
-const STOPWORDS = new Set([
-  'the','and','for','with','from','into','that','this','about','create','make','generate',
-  'return','finished','pdf','document','polished','one','two','page','pages','please','how','what',
-  'using','use','include','multiple','models','model',
-]);
-
-function tokenize(value: string): string[] {
-  return (value.toLowerCase().match(/[a-z0-9À-ÿ一-龯ぁ-ゔァ-ヴー々〆〤]{2,}/g) || [])
-    .filter((token) => !STOPWORDS.has(token));
-}
-
-function scoreReference(reference: PdfDesignReference, prompt: string): number {
-  const lower = prompt.toLowerCase();
-  const promptTokens = new Set(tokenize(prompt));
-  let score = 0;
-
-  for (const tag of reference.tags) {
-    const tagLower = tag.toLowerCase();
-    if (lower.includes(tagLower)) score += tagLower.includes(' ') ? 9 : 6;
-    for (const token of tokenize(tagLower)) {
-      if (promptTokens.has(token)) score += 2;
-    }
-  }
-
-  const haystack = `${reference.name} ${reference.family} ${reference.summary}`.toLowerCase();
-  for (const token of promptTokens) {
-    if (haystack.includes(token)) score += 1;
-  }
-
-  return score;
-}
-
-const GENERIC_REFERENCE_IDS = [
-  'restrained-editorial-brief',
-  'minimal-tech-editorial',
-  'consulting-strategy',
-  'swiss-international',
-  'technical-whitepaper',
-  'institutional-report',
-  'monochrome-premium',
-  'custom',
-];
-
-export function selectPdfDesignReferences(
-  prompt: string,
-  limit = 8
-): PdfDesignReference[] {
-  const ranked = PDF_DESIGN_LIBRARY
-    .map((reference) => ({ reference, score: scoreReference(reference, prompt) }))
-    .sort((a, b) => b.score - a.score);
-
-  const selected: PdfDesignReference[] = [];
-  const seen = new Set<string>();
-
-  for (const item of ranked) {
-    if (item.score <= 0) break;
-    if (!seen.has(item.reference.id)) {
-      selected.push(item.reference);
-      seen.add(item.reference.id);
-    }
-    if (selected.length >= Math.max(3, limit - 2)) break;
-  }
-
-  for (const id of GENERIC_REFERENCE_IDS) {
-    if (selected.length >= limit) break;
-    const reference = PDF_DESIGN_LIBRARY.find((item) => item.id === id);
-    if (reference && !seen.has(id)) {
-      selected.push(reference);
-      seen.add(id);
-    }
-  }
-
-  return selected.slice(0, limit);
-}
-
-function formatReference(reference: PdfDesignReference): string {
-  return [
-    `[${reference.id}] ${reference.name} — ${reference.summary}`,
-    `Typography: ${reference.typography}`,
-    `Composition: ${reference.composition}`,
-    `Palette: ${reference.palette}`,
-    `Surfaces: ${reference.surfaces}`,
-    `Imagery: ${reference.imagery}`,
-    `Tables: ${reference.tables}`,
-    `Avoid: ${reference.avoid}`,
-  ].join('\n');
-}
-
-export function buildPdfDesignReferenceContext(prompt: string): {
-  text: string;
-  referenceIds: string[];
-} {
-  const selected = selectPdfDesignReferences(prompt, 8);
+/** The agent sees the complete compact catalog and chooses per deliverable.
+ * No keyword ranking or request regex decides which designs it can use. */
+export function buildPdfDesignReferenceContext(): { text: string; referenceIds: string[] } {
   return {
-    referenceIds: selected.map((reference) => reference.id),
+    referenceIds: PDF_DESIGN_LIBRARY.map(reference => reference.id),
     text: [
-      'DOCUMENT DESIGN REFERENCE LIBRARY — MOODBOARD, NOT TEMPLATES',
-      'The following references were retrieved from Plurilog’s broader design library because they may be relevant to this document request. They can guide both PDF and Word output; each format should use only the visual techniques it supports well.',
-      'Use them as visual grammar and art-direction references, not fixed layouts. Choose ONE primary reference and optionally ONE secondary reference to borrow from, or choose Custom / No Reference. You may ignore a retrieved reference if it is a poor fit.',
-      'Do not mechanically combine all references, do not try to demonstrate every layout primitive, and do not mention the library or selected references to the user.',
-      'The user’s explicit visual instructions always override these references. Cultural/document conventions matter: for example, a Japanese employment document should remain Japanese in visual language rather than being forced into a Western report style.',
-      '',
-      ...selected.map(formatReference),
-    ].join('\n\n'),
+      'DOCUMENT ART DIRECTION CATALOG — these references complement executable templates.',
+      'Choose semantically for EACH requested file, independently. Pick one primary reference (optionally a second) or custom. The user does not need to name a template. These references never override the requested document type, supplied branding, images or preservation requirements.',
+      ...PDF_DESIGN_LIBRARY.map(r => `[${r.id}] ${r.name}: ${r.summary} Composition: ${r.composition} Avoid: ${r.avoid}`),
+    ].join('\n'),
   };
 }

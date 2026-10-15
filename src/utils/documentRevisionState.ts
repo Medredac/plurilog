@@ -90,6 +90,37 @@ export function sanitizeDocumentSpecForState<T extends Record<string, any>>(
   return stripRuntimePayloads(jsonClone(spec)) as T;
 }
 
+/** A direct format copy keeps the source's editable structure and asset identity. */
+export function convertedDocumentSpec(
+  sourceSpec: Record<string, any>, format: 'pdf' | 'docx', filename: string
+): Record<string, any> {
+  const spec: Record<string, any> = sanitizeDocumentSpecForState({ ...sourceSpec, format, filename });
+  // These are one-time conversion instructions, not source content to replay
+  // when the user subsequently edits the converted document.
+  delete spec.source_docx_filename;
+  delete spec.source_pdf_filename;
+  return spec;
+}
+
+/** Compare structured presentation fields, not wording in the user's request. */
+export function documentLayoutChanged(parent: Record<string, any>, next: Record<string, any>): boolean {
+  const designFields = (spec: Record<string, any>) => {
+    const { targetPageCount: _pageConstraint, ...design } = spec.design || {};
+    return design;
+  };
+  const presentation = (spec: Record<string, any>) => ({
+    design: designFields(spec),
+    blocks: (spec.blocks || []).map((block: any) => {
+      const result: Record<string, unknown> = {};
+      for (const key of ['type', 'level', 'style', 'size', 'sizePt', 'widthMm', 'heightMm', 'placement', 'alignment', 'cardColumns', 'tableWidthPct', 'columnWidthsPct']) {
+        if (block[key] !== undefined && block[key] !== null) result[key] = block[key];
+      }
+      return result;
+    }),
+  });
+  return canonicalJson(presentation(parent)) !== canonicalJson(presentation(next));
+}
+
 export async function persistDocumentStateSnapshot(options: {
   serviceSupabase: any;
   discussionId: string;
@@ -349,6 +380,38 @@ export async function listDocumentStateSnapshots(options: {
     );
 }
 
+/** Reuse saved assets even when the model chooses create_file for a format copy.
+ * This is an asset catalog, not an implicit revision parent or content selection. */
+export async function fetchSavedDocumentImageSources(options: {
+  serviceSupabase: any;
+  discussionId: string;
+}): Promise<DocumentStateImageSource[]> {
+  const { serviceSupabase, discussionId } = options;
+  if (!serviceSupabase || !discussionId) return [];
+  const { data, error } = await serviceSupabase
+    .from('discussion_artifacts')
+    .select('metadata->image_sources, metadata->image_bindings')
+    .eq('discussion_id', discussionId)
+    .eq('artifact_type', DOCUMENT_STATE_ARTIFACT_TYPE)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) {
+    console.warn('[Document Images] Saved asset lookup unavailable', { discussionId, error: error.message });
+    return []; // Existing uploads remain usable if this supplementary lookup fails.
+  }
+  const sources = (data || []).flatMap((row: any) => [
+    ...(Array.isArray(row.image_sources) ? row.image_sources : []),
+    ...(Array.isArray(row.image_bindings) ? row.image_bindings.map((binding: any) => binding?.source) : []),
+  ]).filter((source: any) => source && typeof source.filename === 'string' && typeof source.storagePath === 'string' && source.storagePath);
+  const unique = new Map<string, DocumentStateImageSource>();
+  for (const source of sources) {
+    // Keep aliases for matching, but don't multiply identical historical copies.
+    const key = JSON.stringify([source.artifactId || '', source.storagePath, source.filename]);
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  return [...unique.values()];
+}
+
 export function selectGeneratedDocumentStateByReference(
   snapshots: DocumentStateSnapshot[],
   userPrompt: string
@@ -533,6 +596,25 @@ function assertSafeToken(token: string): void {
   ) {
     throw new Error('Unsafe revision patch path.');
   }
+}
+
+/** A format copy changes output metadata, not the document body. */
+export function documentRevisionOperations(
+  parentSpec: Record<string, any>,
+  request: { patch?: JsonPatchOperation[]; format?: string; filename?: string }
+): JsonPatchOperation[] {
+  if (request.patch !== undefined && !Array.isArray(request.patch)) {
+    throw new Error('Document revision patch must be an array.');
+  }
+  const operations = [...(request.patch || [])];
+  if (operations.length) return operations;
+  if ((request.format === 'pdf' || request.format === 'docx') && request.format !== parentSpec.format) {
+    operations.push({ op: 'replace', path: '/format', value: request.format });
+  }
+  if (typeof request.filename === 'string' && request.filename.trim() && request.filename.trim() !== parentSpec.filename) {
+    operations.push({ op: 'replace', path: '/filename', value: request.filename.trim() });
+  }
+  return operations;
 }
 
 export function assertNarrowRevisionPatchSafety(
@@ -826,6 +908,15 @@ function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPro
     normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
 }
 
+// Match the visible title structurally, including a title following a logo.
+// Metadata titles may include a subtitle that the visible heading does not.
+function openingTitleIndex(spec: Record<string, any>): number {
+  if (!Array.isArray(spec.blocks)) return -1;
+  const index = spec.blocks.findIndex((block: any) => block?.type !== 'image');
+  const block = spec.blocks[index];
+  return block?.type === 'heading' && (block.level || 1) === 1 ? index : -1;
+}
+
 export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   parentSpec: Record<string, any>, nextSpec: T, userPrompt: string
 ): T {
@@ -834,8 +925,14 @@ export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   const matchingHeadings = parentSpec.blocks.flatMap((block: any, index: number) =>
     block?.type === 'heading' && normalizeSemantic(block.text) === normalizeSemantic(oldTitle)
       ? [index] : []);
-  const candidates = [nextSpec.title, ...matchingHeadings.map((index: number) =>
-    nextSpec.blocks[index]?.type === 'heading' ? nextSpec.blocks[index].text : '')]
+  const openingIndex = openingTitleIndex(parentSpec);
+  const titleIndices = Array.from(new Set([
+    ...matchingHeadings, ...(openingIndex >= 0 ? [openingIndex] : []),
+  ]));
+  const candidates = [nextSpec.title, ...titleIndices.map((index: number) =>
+    nextSpec.blocks[index]?.type === 'heading' &&
+      normalizeSemantic(nextSpec.blocks[index].text) !== normalizeSemantic(parentSpec.blocks[index].text)
+      ? nextSpec.blocks[index].text : '')]
     .filter((value): value is string => typeof value === 'string' &&
       isRequestedTitleReplacement(oldTitle, value, userPrompt));
   if (!candidates.length) return nextSpec;
@@ -843,14 +940,19 @@ export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   if (candidates.some((value) => normalizeSemantic(value) !== normalizeSemantic(newTitle))) {
     throw new Error('Revision proposes conflicting document titles.');
   }
-  const next = jsonClone(nextSpec) as T & { title: string };
+  // A title-only request is an atomic rename, not permission to rewrite its
+  // subtitle, captions or body. Keep the canonical source for every other field.
+  const titleOnly = isTitleOnlyDocumentRevision(userPrompt);
+  const next = jsonClone(titleOnly ? {
+    ...parentSpec, filename: nextSpec.filename, format: nextSpec.format,
+  } : nextSpec) as T & { title: string };
   // Renderers suppress a duplicate heading only when it matches the stored
   // title. Synchronize both representations even if the model patches just one.
   next.title = newTitle;
-  for (const index of matchingHeadings) {
+  for (const index of titleIndices) {
     const block = next.blocks[index];
     if (block?.type === 'heading' &&
-        normalizeSemantic(block.text) === normalizeSemantic(oldTitle)) block.text = newTitle;
+        (titleOnly || normalizeSemantic(block.text) === normalizeSemantic(oldTitle))) block.text = newTitle;
   }
   return next;
 }
@@ -866,6 +968,7 @@ export function missingPreservedDocumentContent(
   const oldTitle = typeof parentSpec.title === 'string' ? parentSpec.title : '';
   const newTitle = typeof nextSpec.title === 'string' ? nextSpec.title : '';
   const renamesTitle = isRequestedTitleReplacement(oldTitle, newTitle, userPrompt);
+  const openingIndex = openingTitleIndex(parentSpec);
   const parentValues = [
     renamesTitle ? '' : oldTitle,
     ...(Array.isArray(parentSpec.blocks)
@@ -873,7 +976,7 @@ export function missingPreservedDocumentContent(
           const nextBlock = nextSpec.blocks?.[index];
           if (
             renamesTitle && block?.type === 'heading' &&
-            normalizeSemantic(block.text) === normalizeSemantic(oldTitle) &&
+            (normalizeSemantic(block.text) === normalizeSemantic(oldTitle) || index === openingIndex) &&
             nextBlock?.type === 'heading' &&
             normalizeSemantic(nextBlock.text) === normalizeSemantic(newTitle)
           ) return [];

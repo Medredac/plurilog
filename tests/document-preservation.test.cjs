@@ -73,10 +73,61 @@ test('rename cannot silently lose body, table cells, another heading or the titl
   const withBodyTitle = structuredClone(parent); withBodyTitle.blocks.push({ type: 'paragraph', text: parent.title });
   assert.deepEqual(revision.missingPreservedDocumentContent(withBodyTitle, renamed(), prompt), [parent.title]);
 });
+test('title-only rename handles a shorter visible title after a logo without changing the subtitle or body', () => {
+  const source = {
+    ...parent, title: 'Community Garden — Volunteer Guide',
+    blocks: [
+      { type: 'image', filename: 'qa-logo.png', preserveAspectRatio: true },
+      { type: 'heading', level: 1, text: 'Community Garden' },
+      { type: 'paragraph', text: 'Volunteer Guide' },
+      ...parent.blocks.slice(1),
+    ],
+    design: { layoutTemplate: 'guide', targetPageCount: 2 },
+  };
+  const request = 'Change only the title of community-garden-volunteer-guide.docx to Community Garden Volunteer Handbook. Preserve every other word, the original logo, the supplied image, their proportions, and the two-page structure.';
+  for (const path of ['/title', '/blocks/1/text']) {
+    const proposed = revision.applyDocumentJsonPatch(source, [
+      { op: 'replace', path, value: 'Community Garden Volunteer Handbook' },
+      { op: 'replace', path: '/blocks/2/text', value: 'Volunteer Handbook' },
+    ]);
+    const next = revision.normalizeRequestedTitleRevision(source, proposed, request);
+    assert.equal(next.title, 'Community Garden Volunteer Handbook');
+    assert.equal(next.blocks[1].text, next.title);
+    assert.deepEqual(next.blocks[0], source.blocks[0]);
+    assert.deepEqual(next.blocks.slice(2), source.blocks.slice(2));
+    assert.deepEqual(next.design, source.design);
+    assert.deepEqual(revision.missingPreservedDocumentContent(source, next, request), []);
+    const lostSubtitle = structuredClone(next); lostSubtitle.blocks[2].text = 'Changed';
+    assert.deepEqual(revision.missingPreservedDocumentContent(source, lostSubtitle, request), ['Volunteer Guide']);
+  }
+});
 test('existing narrow revision structural guard remains enforced', () => {
   for (const operation of [{ op: 'remove', path: '/blocks/1' }, { op: 'replace', path: '/blocks', value: [] }]) {
     assert.throws(() => revision.assertNarrowRevisionPatchSafety([operation], prompt));
   }
+});
+test('layout revisions can receive visual fitting while text-only renames remain visually protected', () => {
+  assert.equal(revision.documentLayoutChanged(parent, renamed()), false);
+  assert.equal(revision.documentLayoutChanged(parent, { ...renamed(), design: { targetPageCount: 2 } }), false);
+  assert.equal(revision.documentLayoutChanged(parent, { ...parent, design: { marginMm: 14 } }), true);
+  const resized = structuredClone(parent); resized.blocks[3].widthMm = 160;
+  assert.equal(revision.documentLayoutChanged(parent, resized), true);
+  const restyled = structuredClone(parent); restyled.blocks[0].style = { fontSizePt: 24 };
+  assert.equal(revision.documentLayoutChanged(parent, restyled), true);
+});
+test('direct conversion preserves editable source blocks without replaying conversion directives on the next edit', () => {
+  const source = { ...parent, source_docx_filename: 'older.docx', source_pdf_filename: 'older.pdf' };
+  const converted = revision.convertedDocumentSpec(source, 'pdf', 'converted.pdf');
+  assert.deepEqual(converted.blocks, parent.blocks);
+  assert.equal(converted.title, parent.title);
+  assert.equal(converted.format, 'pdf');
+  assert.equal(converted.filename, 'converted.pdf');
+  assert.equal(converted.source_docx_filename, undefined);
+  assert.equal(converted.source_pdf_filename, undefined);
+  const next = revision.normalizeRequestedTitleRevision(converted, revision.applyDocumentJsonPatch(converted, [patch[0]]), prompt);
+  assert.equal(next.blocks[0].text, 'Verified transfer check');
+  assert.deepEqual(revision.missingPreservedDocumentContent(converted, next, prompt), []);
+  assert.deepEqual(source.blocks, parent.blocks);
 });
 test('image metadata distinguishes soft masks, hard masks and actual standalone images', () => {
   const entries = transparency.parsePdfImageList('page num type width height color comp bpc enc interp object ID\n 1 0 image 240 252 rgb 3 8 image no 4 0\n 1 1 smask 240 252 gray 1 8 image yes 4 0\n 2 2 image 80 80 rgb 3 8 jpeg no 6 0\n 2 3 mask 80 80 gray 1 1 image no 6 0');
@@ -150,4 +201,54 @@ test('real PDF extraction returns transparent picture plus opaque picture, never
     assert.deepEqual(opaque.data, fs.readFileSync(path.join(dir, 'pdfimg-002.png')));
     assert.equal(stopped, true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('saved asset catalog is discussion-scoped, bounded and includes bindings without a revision parent', async () => {
+ const source={filename:'qa-logo.png',storagePath:'owner/logo.png',artifactId:'logo'};
+ const binding={filename:'generated.png',storagePath:'owner/generated.png'};
+ const calls=[];
+ const db={from(table){calls.push(['from',table]);return this;},select(value){calls.push(['select',value]);return this;},eq(...args){calls.push(['eq',...args]);return this;},order(...args){calls.push(['order',...args]);return this;},async limit(n){calls.push(['limit',n]);return {data:[{image_sources:[source,null,{}],image_bindings:[{source},null,{source:binding}]},{image_sources:[source]}]};}};
+ const images=await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:'this-discussion'});
+ assert.deepEqual(images,[source,binding]);
+ assert.ok(calls.some(c=>JSON.stringify(c)===JSON.stringify(['eq','discussion_id','this-discussion'])));
+ assert.ok(calls.some(c=>JSON.stringify(c)===JSON.stringify(['eq','artifact_type','document_state'])));
+ assert.equal(calls.find(c=>c[0]==='limit')[1],100);
+ assert.ok(!calls.find(c=>c[0]==='select')[1].includes('spec'));
+ assert.deepEqual(await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:''}),[]);
+ db.limit=async()=>({error:{message:'temporary failure'}});
+ assert.deepEqual(await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:'this-discussion'}),[]);
+});
+
+
+test('format-only copies preserve the complete canonical body with an empty model patch',()=>{
+ for(const [from,to] of [['pdf','docx'],['docx','pdf']]){
+  const source={...structuredClone(parent),format:from,filename:'source.'+from};
+  const operations=revision.documentRevisionOperations(source,{format:to,filename:'copy.'+to,patch:[]});
+  revision.assertNarrowRevisionPatchSafety(operations,'Give me a version in the other format.');
+  const copy=revision.applyDocumentJsonPatch(source,operations);
+  assert.equal(copy.format,to);assert.equal(copy.filename,'copy.'+to);
+  assert.deepEqual(copy.blocks,source.blocks);assert.equal(copy.title,source.title);
+  assert.equal(source.format,from);
+ }
+});
+test('empty/no-op and malformed revisions still fail while body edits keep existing guards',()=>{
+ assert.throws(()=>revision.applyDocumentJsonPatch(parent,revision.documentRevisionOperations(parent,{patch:[]})),/at least one/);
+ assert.throws(()=>revision.documentRevisionOperations(parent,{patch:{}}),/array/);
+ const unsafe=revision.documentRevisionOperations(parent,{format:'pdf',patch:[{op:'replace',path:'/blocks',value:[]}]});
+ assert.throws(()=>revision.assertNarrowRevisionPatchSafety(unsafe,'Just give me a PDF copy'),/cannot replace/);
+});
+
+const { scopeCreationToolsToCanonicalSource } = load('src/utils/documentToolScope.ts');
+test('canonical source retains new document creation but excludes redundant photo extraction', () => {
+  const tools = [{ type: 'function', function: { name: 'create_file', description: 'Create a file', parameters: {
+    properties: { source_pdf_filename: { type: 'string' }, source_docx_filename: { type: 'string' }, blocks: { type: 'array' } },
+    additionalProperties: false,
+  } } }];
+  assert.equal(scopeCreationToolsToCanonicalSource(tools, false), tools);
+  const scoped = scopeCreationToolsToCanonicalSource(tools, true);
+  assert.equal(scoped[0].function.parameters.properties.source_pdf_filename, undefined);
+  assert.deepEqual(scoped[0].function.parameters.properties.blocks, tools[0].function.parameters.properties.blocks);
+  assert.deepEqual(scoped[0].function.parameters.properties.source_docx_filename, tools[0].function.parameters.properties.source_docx_filename);
+  assert.ok(scoped[0].function.description.includes('use revise_file'));
+  assert.ok(tools[0].function.parameters.properties.source_pdf_filename);
 });
