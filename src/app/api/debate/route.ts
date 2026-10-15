@@ -89,6 +89,7 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
+import { conversationDocumentMode, loadConversationDocumentSource, conversationDocumentInstruction } from '@/utils/conversationDocumentSource';
 import type {
   GptCreateFileArgs,
   DocumentImageSource,
@@ -440,6 +441,7 @@ export const GPT_FILE_TOOLS = [
                     'spacer',
                   ],
                 },
+                source_message_id: { type: 'string', description: 'For a whole-conversation transcript only: exact message ID from CONVERSATION DOCUMENT SOURCE for this block. Never print the ID.' },
                 text: { type: 'string' },
                 level: { type: 'integer', minimum: 1, maximum: 3 },
                 items: { type: 'array', items: { type: 'string' } },
@@ -6726,6 +6728,18 @@ export async function POST(req: NextRequest) {
           const createAgenticEvidenceId = () =>
             `mem_${++agenticEvidenceSequence}`;
 
+          const documentSourceMode = !isContinueRound && configuredSeats.some(s => s.seatId === 'chatgpt')
+            ? conversationDocumentMode(prompt || '') : null;
+          const conversationDocumentSource = documentSourceMode
+            ? await loadConversationDocumentSource({ supabase, discussionId: discussionId || '',
+                currentUserMessageId: sourceUserMessageId || '', mode: documentSourceMode })
+            : null;
+          if (conversationDocumentSource) {
+            console.log('[Conversation Document Source]', { mode: conversationDocumentSource.mode,
+              messageCount: conversationDocumentSource.messages.length,
+              complete: !conversationDocumentSource.error });
+          }
+
           let proactiveMemoryPlannerMeta: {
             shouldRetrieve: boolean;
             confidence: number;
@@ -6752,6 +6766,7 @@ export async function POST(req: NextRequest) {
           };
 
           if (
+            !conversationDocumentSource &&
             AGENTIC_MEMORY_EXPERIMENT &&
             discussionId &&
             prompt?.trim() &&
@@ -7368,11 +7383,12 @@ export async function POST(req: NextRequest) {
 
             const sharedAgenticEvidenceContext =
               formatSharedAgenticEvidenceForPrompt(sharedAgenticEvidenceLedger);
+            const exactDocumentSource = seat.seatId === 'chatgpt' ? conversationDocumentSource : null;
             let seatMessages = buildPanelMessages(
               seat.name,
               prompt,
               priorResponses,
-              panelDiscussionMemory,
+              exactDocumentSource ? { ...panelDiscussionMemory, recentRounds: [], summary: undefined } : panelDiscussionMemory,
               seatAttachments,
               null,
               retrievedMemory,
@@ -7382,10 +7398,11 @@ export async function POST(req: NextRequest) {
               visualDeliveryMismatch,
               runtimeProductContext,
               sharedAgenticEvidenceContext,
-              workingConversationContext,
+              exactDocumentSource ? null : workingConversationContext,
               userDisplayName,
               isContinueRound === true
             );
+            if (exactDocumentSource) seatMessages.push({ role: 'system', content: conversationDocumentInstruction(exactDocumentSource) });
             seatMessages.push(...titleRevisionInstruction);
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
@@ -8702,6 +8719,9 @@ export async function POST(req: NextRequest) {
                       messageId,
                       seatId: seat.seatId,
                       args: fileArgs,
+                      conversationSource: exactDocumentSource,
+                      contentRepairTool: GPT_FILE_TOOLS[0],
+                      onContentRepairCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
                       signal: req.signal,
                       durableSignal: req.signal,
                       sourceDocx,
@@ -11617,6 +11637,9 @@ export async function POST(req: NextRequest) {
                         messageId,
                         seatId: seat.seatId,
                         args: fileArgs,
+                        conversationSource: exactDocumentSource,
+                        contentRepairTool: GPT_FILE_TOOLS[0],
+                        onContentRepairCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
                         signal: req.signal,
                         durableSignal: req.signal,
                         sourceDocx: resolvedSourceDocx,
