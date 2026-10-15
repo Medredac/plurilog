@@ -26,24 +26,58 @@ const good = { format: 'docx', filename: 'translation.docx', title: 'Übersetzun
   { type: 'paragraph', source_message_id: 'gpt-1', text: 'ChatGPT: Tragwerk und Gehbelag getrennt betrachten.' },
   { type: 'paragraph', source_message_id: 'claude-1', text: 'Claude: Zuerst Eigentumsverhältnisse und Tragfähigkeit prüfen.' },
 ] };
-test('whole conversation and report requests opt in, ordinary chat and document edits do not', () => {
-  for (const p of ['ChatGPT: can you translate this entire string into German for me and create a separate downoadable PDF',
-    'Export our whole conversation to Word', 'Put the full discussion into a PDF', 'Translate all of this chat into German and save a PDF']) {
-    assert.equal(sources.conversationDocumentMode(p), 'transcript', p);
-  }
-  assert.equal(sources.conversationDocumentMode('Create a report in German that summarizes the issues, discussion and findings'), 'summary');
-  for (const p of ['How is our discussion going?', 'Translate the entire attached PDF', 'Change only the title in report.docx',
-    'Create a PDF about balcony materials', 'Write a report about discussion techniques',
-    'How do I export the whole conversation to PDF?', 'Translate the last response into a PDF', 'Do not export the entire chat to PDF']) {
-    assert.equal(sources.conversationDocumentMode(p), null, p);
-  }
-});
 function database(rows, error = null) {
   const calls = [];
   const query = { select() { return this; }, eq(k,v) { calls.push([k,v]); return this; },
     order() { return this; }, async range(a,b) { return { data: rows.slice(a,b+1), error }; } };
   return { calls, from(table) { assert.equal(table, 'messages'); return query; } };
 }
+test('full conversation tool is lazy, scoped by the server and returns exact text once', async () => {
+  const db = database([
+    {id:'first',sender:'user',content:'Original question: ORCHID-4729'},
+    {id:'second',sender:'claude',content:'Keep the unknown price unknown.'},
+    {id:'current',sender:'user',content:'Please translate the discussion'},
+  ]);
+  const session = sources.createFullConversationSession({supabase:db,discussionId:'owned-chat',currentUserMessageId:'current'});
+  assert.deepEqual(db.calls, []); assert.equal(session.getSource(), null);
+  const first = await session.resolve({mode:'transcript',discussion_id:'some-other-chat',currentUserMessageId:'first'});
+  assert.equal(first.ok,true); assert.equal(first.message_count,2);
+  assert.ok(first.source.includes('ORCHID-4729')); assert.ok(first.source.includes('Keep the unknown price unknown.'));
+  assert.deepEqual(db.calls,[['discussion_id','owned-chat']]);
+  assert.deepEqual(session.getSource().messages.map(m=>m.id),['first','second']);
+  const again=await session.resolve({mode:'transcript'});
+  assert.equal(again.reused,true); assert.equal(again.source,undefined); assert.equal(db.calls.length,1);
+  assert.equal((await session.resolve({mode:'summary'})).ok,false);
+  assert.equal(session.getSource().mode,'transcript'); // cannot downgrade coverage validation
+});
+test('invalid tool arguments and aborted requests do not load conversation data', async () => {
+  const db=database([]), controller=new AbortController();
+  const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'c',signal:controller.signal});
+  assert.equal((await session.resolve({mode:'everything'})).ok,false);
+  controller.abort();
+  assert.equal((await session.resolve({mode:'summary'})).error,'request_aborted');
+  assert.deepEqual(db.calls,[]);
+});
+test('failed whole-chat retrieval stays failed and prevents a partial document', async () => {
+  const db=database([{id:'a',sender:'user',content:'fragment without verified boundary'}]);
+  const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'missing'});
+  const result=await session.resolve({mode:'transcript'});
+  assert.equal(result.ok,false); assert.deepEqual(result.messages,[]);
+  await assert.rejects(q.prepareDocumentContent({spec:good,prompt:'Translate',source:session.getSource()}),/boundary/);
+  await session.resolve({mode:'transcript'}); assert.equal(db.calls.length,1);
+});
+test('concurrent repeated full-chat calls share one source read and one full result', async () => {
+  const db=database([{id:'a',sender:'user',content:'original'}, {id:'c',sender:'user',content:'export'}]);
+  const session=sources.createFullConversationSession({supabase:db,discussionId:'d',currentUserMessageId:'c'});
+  const results=await Promise.all([session.resolve({mode:'summary'}),session.resolve({mode:'summary'})]);
+  assert.equal(db.calls.length,1); assert.equal(results.filter(r=>r.source).length,1);
+  assert.equal(results.filter(r=>r.reused).length,1);
+});
+test('database transport exceptions become explicit tool failure without source content', async () => {
+  const session=sources.createFullConversationSession({supabase:{from(){throw Error('transport broke');}},discussionId:'d',currentUserMessageId:'c'});
+  const result=await session.resolve({mode:'summary'});
+  assert.equal(result.ok,false); assert.equal(result.complete,false); assert.deepEqual(result.messages,[]);
+});
 test('source loader is discussion scoped, excludes internals and stops before the requesting turn', async () => {
   const db = database([
     { id: 'a', sender: 'user', content: 'Original question' },

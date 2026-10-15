@@ -108,6 +108,9 @@ export function buildAgenticSeatActivity(
         label: 'Reading more context…',
       };
 
+    case 'get_full_conversation':
+      return { activity: 'reading_context', label: 'Reading the full conversation…' };
+
     case 'get_recent_conversation':
       return {
         activity: 'reading_context',
