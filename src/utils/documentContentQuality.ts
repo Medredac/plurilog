@@ -80,6 +80,20 @@ export function documentContentIssues(spec: Spec, prompt: string, source?: Conve
   if (source?.error) return [source.error];
   if (!Array.isArray(spec.blocks) || !spec.blocks.length) return ['Document has no content blocks.'];
   if (spec.blocks.length > 200) issues.push('Document exceeds the renderer limit of 200 blocks; consolidate blocks without shortening content.');
+  if (spec.design?.layoutTemplate === 'brochure-editorial') {
+    const pages: Block[][] = [[]];
+    for (const block of spec.blocks) {
+      if (block.type === 'page_break') pages.push([]);
+      else pages[pages.length - 1].push(block);
+    }
+    for (const page of pages) {
+      const heroes = page.filter(block => block.type === 'image' && ['large', 'full'].includes(block.size));
+      if (!page.length || heroes.length > 1 || page.map(blockText).join('\n').length > 1600) {
+        issues.push('Editorial brochure page composition is incomplete or overfull. Use explicit page_break between designed pages. Each page can hold at most one large/full hero photo and 1600 characters of copy; preserve all content and images by distributing them across additional pages. Do not put the entire booklet into one spread or reduce type to force a fit.');
+        break;
+      }
+    }
+  }
   if (['pamphlet', 'brochure-trifold'].includes(spec.design?.layoutTemplate)) {
     const columns = spec.design.layoutTemplate === 'brochure-trifold' ? 3 : (spec.design.columns || 3);
     const sheets: number[][] = [[0]];

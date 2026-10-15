@@ -984,6 +984,11 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-spread { display:grid; grid-template-columns:1fr; gap:9mm; flex:1; align-items:center; }
 .brochure-page.has-hero .brochure-spread { grid-template-columns:1.1fr 1fr; }
 .brochure-copy { min-width:0; padding:5mm 0; }
+.brochure-page.has-hero .pdf-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+.brochure-page.has-hero .pdf-columns { grid-template-columns:1fr !important; }
+.brochure-page.has-hero .pdf-flow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6pt; }
+.brochure-page.has-hero .pdf-flow-unit { width:100%; }
+.brochure-page.has-hero .pdf-flow-arrow { display:none; }
 .brochure-copy table { table-layout:fixed; width:100% !important; }
 .brochure-copy td, .brochure-copy th { overflow-wrap:anywhere; }
 .brochure-copy img { height:auto !important; max-height:70mm; object-fit:contain; }
@@ -997,6 +1002,7 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-page.reverse.has-hero .brochure-copy { grid-column:2; }
 .brochure-page:first-child.has-hero .brochure-copy { padding:9mm 7mm; background:${design.accentColor}; color:${contrastTextColor(design.accentColor)}; border-radius:0 0 0 18mm; }
 .brochure-page:first-child.has-hero .brochure-copy [class^='pdf-heading-'], .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:${contrastTextColor(design.accentColor)} !important; }
+.brochure-page:first-child.has-hero .brochure-copy > .pdf-image .pdf-image-caption { color:${contrastTextColor(design.accentColor)} !important; }
 .brochure-page:first-child.has-hero .brochure-copy img { background:#fff; padding:3mm; }
 .brochure-fold img { height:auto !important; max-height:65mm; object-fit:contain; }
 .brochure-fold .pdf-image-small img { background:#fff; padding:3mm; }

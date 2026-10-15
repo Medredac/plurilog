@@ -18,6 +18,18 @@ function load(relative) {
 const q = load('src/utils/documentContentQuality.ts');
 const sources = load('src/utils/conversationDocumentSource.ts');
 const writer = load('src/utils/docxWriter.ts');
+test('editorial spreads require explicit page composition instead of one unbounded photo column', () => {
+  const image = { type: 'image', mode: 'generate', size: 'full', prompt: 'Photo' };
+  const spec = { format: 'pdf', filename: 'booklet.pdf', design: { layoutTemplate: 'brochure-editorial' }, blocks: [
+    { type: 'heading', text: 'First story' }, image,
+    { type: 'heading', text: 'Second story' }, image,
+  ] };
+  assert.ok(q.documentContentIssues(spec, '').some(issue => issue.includes('page composition')));
+  const pages = { ...spec, blocks: [spec.blocks[0], image, { type: 'paragraph', text: 'First story copy.' }, { type: 'page_break' }, spec.blocks[2], image, { type: 'paragraph', text: 'Second story copy.' }] };
+  assert.deepEqual(q.documentContentIssues(pages, ''), []);
+  assert.ok(q.documentContentIssues({ ...pages, blocks: [...pages.blocks, { type: 'paragraph', text: 'Long copy. '.repeat(200) }] }, '').some(issue => issue.includes('overfull')));
+  assert.ok(q.documentContentIssues({ ...pages, blocks: [...pages.blocks, { type: 'page_break' }] }, '').some(issue => issue.includes('page composition')));
+});
 const source = { mode: 'transcript', messages: [
   { id: 'user-1', speaker: 'User', text: 'Compare steel and aluminium for our balcony.' },
   { id: 'gpt-1', speaker: 'ChatGPT', text: 'Separate the frame from the walking surface.' },
