@@ -146,36 +146,9 @@ export interface ExecuteGptDocumentCreationResult {
 const MAX_DOCUMENT_IMAGES = MAX_REBUILT_PHOTOS;
 const MAX_DOCUMENT_IMAGE_BYTES = 15 * 1024 * 1024;
 
-const PAGE_COUNT_WORDS: Record<string, number> = {
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-};
-
-function explicitlyRequestedPageCount(prompt?: string): number | null {
-  const value = (prompt || '').toLowerCase();
-  const numeric = value.match(/\b(\d{1,2})\s*[- ]?\s*pages?\b/i);
-  if (numeric) {
-    const parsed = Number(numeric[1]);
-    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 30) return parsed;
-  }
-
-  const word = value.match(
-    /\b(one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?\s*pages?\b/i
-  );
-  return word ? PAGE_COUNT_WORDS[word[1].toLowerCase()] || null : null;
-}
-
-function requestedPageCount(args: GptCreateFileArgs, prompt?: string): number | null {
-  const explicitPromptTarget = explicitlyRequestedPageCount(prompt);
-  if (explicitPromptTarget) return explicitPromptTarget;
+function requestedPageCount(args: GptCreateFileArgs): number | null {
+  // Fresh files use the per-deliverable semantic requirements check.
+  // Revisions retain the grounded source target or the explicit agent patch.
 
   if (
     typeof args.design?.targetPageCount === 'number' &&
@@ -1621,7 +1594,7 @@ async function reviewRenderedDocxWithGpt(options: {
     };
   }
 
-  const target = requestedPageCount(args, originalUserPrompt);
+  const target = requestedPageCount(args);
   const pageBlocks: any[] = [
     {
       type: 'text',
@@ -1922,29 +1895,7 @@ export async function executeGptDocumentCreation(
     }));
   }
 
-  // A model-supplied page target is not a user requirement. For a fresh
-  // document, trust targetPageCount only when the user actually asked for an
-  // exact number of pages. Revisions/conversions may legitimately inherit a
-  // canonical page target from the source document.
-  const explicitPromptTarget = explicitlyRequestedPageCount(originalUserPrompt);
-  const isFreshCreation =
-    !revisionContext ||
-    revisionContext.generationKind === 'create';
-  if (
-    isFreshCreation &&
-    !explicitPromptTarget &&
-    args.design &&
-    typeof args.design.targetPageCount === 'number'
-  ) {
-    const { targetPageCount: _ignoredTargetPageCount, ...restDesign } = args.design;
-    args.design = restDesign;
-    console.log('[Document Layout] Ignored model-invented page target', {
-      format: args.format,
-      filename: args.filename,
-    });
-  }
-
-  const inferredTarget = requestedPageCount(args, originalUserPrompt);
+  const inferredTarget = requestedPageCount(args);
   if (args.format === 'docx') {
     args.blocks = applyDocxDocumentConventions(
       coerceRichBlocksForDocx(args.blocks || []),
@@ -2299,7 +2250,7 @@ export async function executeGptDocumentCreation(
       }
     }
   } else {
-    const target = requestedPageCount(args, originalUserPrompt);
+    const target = requestedPageCount(args);
     const initialArgs: GptCreateFileArgs = target
       ? {
           ...args,
