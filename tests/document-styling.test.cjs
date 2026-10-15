@@ -5,13 +5,13 @@ function load(file){const filename=path.resolve(file),m=new Module(filename,modu
 const {applyDocumentLayout,DOCUMENT_LAYOUTS}=load('src/utils/documentLayouts.ts');
 const {renderDocx}=load('src/utils/docxWriter.ts');
 const {buildHtml}=load('src/utils/richPdfRenderer.ts');
-test('editorial page composition follows the actual hero image proportions without cropping',()=>{
- for(const [width,height,wide] of [[1600,900,true],[900,1600,false]]){
+test('Garden editorial composition stays side by side for portrait and landscape photos',()=>{
+ for(const [width,height,wide] of [[1600,900,false],[900,1600,false]]){
   const bytes=Buffer.alloc(24);bytes.writeUInt32BE(0x89504e47,0);bytes.writeUInt32BE(width,16);bytes.writeUInt32BE(height,20);
   const result=buildHtml({filename:'photo.pdf',design:{layoutTemplate:'brochure-editorial',templateVersion:2},blocks:[{type:'heading',text:'Title'},{type:'image',size:'full',imageData:bytes,imageContentType:'image/png',preserveAspectRatio:true}]});
   const section=result.html.slice(result.html.indexOf('<section class="brochure-page'));
   assert.equal(section.slice(0,100).includes('wide-hero'),wide);
-  assert.ok(result.html.includes('max-height:94mm; object-fit:contain'));
+  assert.ok(result.html.includes('height:160mm !important; object-fit:contain'));
  }
 });
 const xml=b=>b.toString('utf8'); // The production writer creates uncompressed ZIP entries.

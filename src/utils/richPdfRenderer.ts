@@ -6,7 +6,6 @@ import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 export { contrastTextColor } from './documentTemplateTreatments';
 import type { DocxBlock } from '@/utils/docxWriter';
-import { imageDimensions } from './docxWriter';
 
 export type PdfFontFamily =
   | 'sans'
@@ -703,10 +702,8 @@ function renderEditorialBrochure(titleHtml: string, blocks: RichDocumentBlock[],
     // logos and inline diagrams stay in the copy, with their aspect ratios.
     const heroIndex = page.findIndex(b => b.type === 'image' && (b.size === 'large' || b.size === 'full'));
     const hero = heroIndex >= 0 ? page[heroIndex] as DocxBlock : null;
-    const dimensions = hero?.imageData ? imageDimensions(hero.imageData, hero.imageContentType || 'image/png') : null;
-    const wideHero = design.templateVersion === 2 && dimensions && dimensions.width > dimensions.height * 1.15;
     const copy = page.filter((_, i) => i !== heroIndex);
-    return `<section class="brochure-page ${hero ? 'has-hero' : ''} ${wideHero ? 'wide-hero' : ''} ${index % 2 ? 'reverse' : ''}" style="${index ? 'break-before:page;' : ''}">
+    return `<section class="brochure-page ${hero ? 'has-hero' : ''} ${index % 2 ? 'reverse' : ''}" style="${index ? 'break-before:page;' : ''}">
       <div class="brochure-rule"><span>${escapeHtml(design.headerText)}</span><span>${String(index + 1).padStart(2, '0')}</span></div>
       <div class="brochure-spread"><div class="brochure-copy">${index === 0 ? titleHtml : ''}${renderBlocksWithCompositions(copy, design)}</div>
       ${hero ? `<div class="brochure-visual">${renderImage(hero, design)}</div>` : ''}</div>
@@ -786,11 +783,14 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
 
   // Suppress only a duplicated opening title, never a matching later section.
   const openingBlock = blocks.find(block => !['spacer', 'divider', 'image'].includes(block.type));
-  const titleAlreadyVisible = design.templateVersion === 2 && openingBlock && (
+  const isBrochure = design.layoutTemplate.startsWith('brochure-');
+  const titleAlreadyVisible = isBrochure
+    ? blocks.some(block => block.type === 'heading' && cleanText(block.text) === title)
+    : design.templateVersion === 2 && openingBlock && (
     (openingBlock.type === 'heading' && (cleanText(openingBlock.text).toLocaleLowerCase() === title.toLocaleLowerCase() || (design.templateVersion === 2 && (openingBlock.level || 1) === 1))) ||
     (openingBlock.type === 'banner' && (design.templateVersion === 2 || cleanText(openingBlock.title).toLocaleLowerCase() === title.toLocaleLowerCase()))
   );
-  if (design.templateVersion === 2 && openingBlock?.type === 'heading' && (openingBlock.level || 1) === 1) {
+  if (!isBrochure && design.templateVersion === 2 && openingBlock?.type === 'heading' && (openingBlock.level || 1) === 1) {
     blocks[blocks.indexOf(openingBlock)] = { ...openingBlock, rendererTitle: true };
   }
   const titleHtml = title && !titleAlreadyVisible
@@ -970,7 +970,7 @@ p {
 h1, h2, h3 {
   break-after: avoid;
 }
-${design.templateVersion === 2 ? `
+${design.templateVersion === 2 && !design.layoutTemplate.startsWith('brochure-') ? `
 ${essayFont.css}
 ${brochureFont.css}
 ${design.fontFamily === 'serif' ? `body, table { font-family:'Source Serif 4 Variable', Georgia, serif; }` : ''}
@@ -979,7 +979,7 @@ ${design.headingFontFamily === 'serif' ? `.pdf-document-title, [class^='pdf-head
 ${design.headingFontFamily === 'sans' ? `.pdf-document-title, [class^='pdf-heading-'] { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
 ${documentTreatmentCss(design)}
 ` : ''}
-${(design.layoutTemplate.startsWith('brochure-') || (design.templateVersion === 2 && design.layoutTemplate === 'pamphlet')) ? `
+${design.layoutTemplate.startsWith('brochure-') ? `
 ${brochureFont.css}
 ${['sans', 'Arial', 'Helvetica'].includes(design.fontFamily) ? `.brochure-page, .brochure-fold, .brochure-page table, .brochure-fold table { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
 ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure-page [class^='pdf-heading-'], .brochure-fold [class^='pdf-heading-'] { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
@@ -988,13 +988,6 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-spread { display:grid; grid-template-columns:1fr; gap:9mm; flex:1; align-items:center; }
 .brochure-page.has-hero .brochure-spread { grid-template-columns:1.1fr 1fr; }
 .brochure-copy { min-width:0; padding:5mm 0; }
-.brochure-page.has-hero .pdf-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
-.brochure-page.has-hero .pdf-columns { grid-template-columns:1fr !important; }
-.brochure-page.has-hero .pdf-flow { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6pt; }
-.brochure-page.has-hero .pdf-flow-unit { width:100%; }
-.brochure-page.has-hero .pdf-flow-arrow { display:none; }
-.brochure-copy table { table-layout:fixed; width:100% !important; }
-.brochure-copy td, .brochure-copy th { overflow-wrap:anywhere; }
 .brochure-copy img { height:auto !important; max-height:70mm; object-fit:contain; }
 .brochure-copy .pdf-heading-1, .brochure-copy .pdf-document-title { font-size:32pt !important; line-height:1.05 !important; letter-spacing:-1.1pt; color:${design.accentColor} !important; margin-bottom:7mm !important; }
 .brochure-copy .pdf-heading-2 { font-size:18pt !important; line-height:1.15 !important; color:${design.accentColor} !important; }
@@ -1004,32 +997,18 @@ ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure
 .brochure-visual > div { margin:0 !important; }
 .brochure-page.reverse .brochure-visual { grid-column:1; grid-row:1; border-radius:28mm 0 0 0; border-color:${design.accentColor2}; }
 .brochure-page.reverse.has-hero .brochure-copy { grid-column:2; }
-.brochure-page:first-child.has-hero .brochure-copy { padding:9mm 7mm; background:${design.accentColor}; color:${contrastTextColor(design.accentColor)}; border-radius:0 0 0 18mm; }
-.brochure-page:first-child.has-hero .brochure-copy [class^='pdf-heading-'], .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:${contrastTextColor(design.accentColor)} !important; }
-.brochure-page:first-child.has-hero .brochure-copy > .pdf-image .pdf-image-caption { color:${contrastTextColor(design.accentColor)} !important; }
+.brochure-page:first-child.has-hero .brochure-copy { padding:9mm 7mm; background:${design.accentColor}; color:#fff; border-radius:0 0 0 18mm; }
+.brochure-page:first-child.has-hero .brochure-copy .pdf-heading-1, .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:#fff !important; }
 .brochure-page:first-child.has-hero .brochure-copy img { background:#fff; padding:3mm; }
-.brochure-page.wide-hero .brochure-spread { display:flex; flex-direction:column; gap:7mm; justify-content:center; align-items:stretch; }
-.brochure-page.wide-hero .brochure-visual { order:-1; padding:3mm; border-radius:0 14mm 0 0; border-bottom-width:4mm; }
-.brochure-page.wide-hero .brochure-visual img { height:auto !important; max-height:94mm; object-fit:contain; }
-.brochure-page.wide-hero .brochure-copy { padding:4mm 0; }
-.brochure-page.wide-hero:not(:first-child) .brochure-copy { column-count:2; column-gap:8mm; }
-.brochure-page.wide-hero .brochure-copy > .pdf-banner, .brochure-page.wide-hero .brochure-copy > .pdf-heading-1 { column-span:all; }
-.brochure-page.wide-hero .brochure-copy > .pdf-banner { padding:12pt !important; margin-bottom:7pt !important; }
-.brochure-page.wide-hero:first-child .brochure-copy { padding:5mm 7mm; border-radius:0 0 0 12mm; }
-.brochure-page.wide-hero .brochure-copy .pdf-heading-1, .brochure-page.wide-hero .brochure-copy .pdf-document-title { font-size:27pt !important; margin-bottom:4mm !important; }
-.brochure-page.wide-hero .pdf-columns { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
 .brochure-fold img { height:auto !important; max-height:65mm; object-fit:contain; }
 .brochure-fold .pdf-image-small img { background:#fff; padding:3mm; }
-.brochure-fold .pdf-image:not(.pdf-image-small) img { width:100% !important; }
+.brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-image-caption { color:#fff !important; }
 .brochure-end { display:flex; align-items:center; justify-content:space-between; padding-top:8mm; color:${design.mutedColor}; font-size:8pt; }
 .brochure-end i { display:block; width:28mm; height:7mm; background:${design.accentColor2}; border-radius:7mm 0 0 7mm; }
 .brochure-fold > table > tbody > tr > td { padding:8mm !important; background:${design.accentColor3} !important; border-right:3mm solid ${design.backgroundColor} !important; }
 .brochure-fold > table > tbody > tr > td:nth-child(2) { background:${design.backgroundColor} !important; border-top:3mm solid ${design.accentColor2} !important; }
 .brochure-fold > table > tbody > tr > td:nth-child(3) { background:${design.accentColor} !important; }
-${[design.accentColor3, design.backgroundColor, design.accentColor].map((background, index) => {
-  const selector = `.brochure-fold > table > tbody > tr > td:nth-child(${index + 1})`;
-  return `${selector}, ${selector} p, ${selector} li, ${selector} [class^='pdf-heading-'], ${selector} .pdf-document-title, ${selector} .pdf-image-caption { color:${contrastTextColor(background)} !important; }`;
-}).join('\n')}
+.brochure-fold > table > tbody > tr > td:nth-child(3) p, .brochure-fold > table > tbody > tr > td:nth-child(3) li, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-1, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-2, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-3 { color:white !important; }
 .brochure-fold .pdf-heading-1 { font-size:27pt !important; line-height:1.08 !important; letter-spacing:-0.8pt; }
 .brochure-fold .pdf-heading-2 { font-size:18pt !important; line-height:1.15 !important; }
 ` : ''}
