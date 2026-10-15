@@ -45,6 +45,7 @@ import {
 } from '@/utils/resourceBroker';
 import {
   convertedDocumentSpec,
+  documentLayoutChanged,
   fetchSavedDocumentImageSources,
   findDocumentStateSnapshot,
   inferDocumentStateImageBindings,
@@ -1867,7 +1868,8 @@ export async function executeGptDocumentCreation(
   }
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
-    revisionContext?.preserveParentContent === true;
+    revisionContext?.preserveParentContent === true &&
+    !documentLayoutChanged(revisionContext.parentSnapshot?.spec || {}, args);
 
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');

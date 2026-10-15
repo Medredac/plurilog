@@ -106,6 +106,15 @@ test('existing narrow revision structural guard remains enforced', () => {
     assert.throws(() => revision.assertNarrowRevisionPatchSafety([operation], prompt));
   }
 });
+test('layout revisions can receive visual fitting while text-only renames remain visually protected', () => {
+  assert.equal(revision.documentLayoutChanged(parent, renamed()), false);
+  assert.equal(revision.documentLayoutChanged(parent, { ...renamed(), design: { targetPageCount: 2 } }), false);
+  assert.equal(revision.documentLayoutChanged(parent, { ...parent, design: { marginMm: 14 } }), true);
+  const resized = structuredClone(parent); resized.blocks[3].widthMm = 160;
+  assert.equal(revision.documentLayoutChanged(parent, resized), true);
+  const restyled = structuredClone(parent); restyled.blocks[0].style = { fontSizePt: 24 };
+  assert.equal(revision.documentLayoutChanged(parent, restyled), true);
+});
 test('direct conversion preserves editable source blocks without replaying conversion directives on the next edit', () => {
   const source = { ...parent, source_docx_filename: 'older.docx', source_pdf_filename: 'older.pdf' };
   const converted = revision.convertedDocumentSpec(source, 'pdf', 'converted.pdf');

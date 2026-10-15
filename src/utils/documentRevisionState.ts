@@ -102,6 +102,25 @@ export function convertedDocumentSpec(
   return spec;
 }
 
+/** Compare structured presentation fields, not wording in the user's request. */
+export function documentLayoutChanged(parent: Record<string, any>, next: Record<string, any>): boolean {
+  const designFields = (spec: Record<string, any>) => {
+    const { targetPageCount: _pageConstraint, ...design } = spec.design || {};
+    return design;
+  };
+  const presentation = (spec: Record<string, any>) => ({
+    design: designFields(spec),
+    blocks: (spec.blocks || []).map((block: any) => {
+      const result: Record<string, unknown> = {};
+      for (const key of ['type', 'level', 'style', 'size', 'sizePt', 'widthMm', 'heightMm', 'placement', 'alignment', 'cardColumns', 'tableWidthPct', 'columnWidthsPct']) {
+        if (block[key] !== undefined && block[key] !== null) result[key] = block[key];
+      }
+      return result;
+    }),
+  });
+  return canonicalJson(presentation(parent)) !== canonicalJson(presentation(next));
+}
+
 export async function persistDocumentStateSnapshot(options: {
   serviceSupabase: any;
   discussionId: string;
