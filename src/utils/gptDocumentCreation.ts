@@ -489,7 +489,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
     const b: any = block;
 
     if (
-      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break', 'column_break'].includes(
         b.type
       )
     ) {

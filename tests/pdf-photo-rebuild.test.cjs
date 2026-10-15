@@ -11,7 +11,7 @@ const sharp = require('sharp');
 function load(file, overrides = {}, extra = '') {
   const filename = path.resolve(file), mod = new Module(filename, module);
   mod.filename = filename; mod.paths = module.paths;
-  mod.require = name => overrides[name] || require(name);
+  mod.require = name => overrides[name] || (name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : name === './documentTemplateTreatments' ? load('src/utils/documentTemplateTreatments.ts') : name === './docxWriter' ? load('src/utils/docxWriter.ts') : name.endsWith('Font.json') ? JSON.parse(fs.readFileSync(path.resolve('src/utils', name), 'utf8')) : require(name));
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') + extra, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);

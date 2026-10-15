@@ -1,4 +1,6 @@
+import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
+import { documentTreatment, contrastTextColor } from './documentTemplateTreatments';
 
 export type DocxBlockType =
   | 'heading'
@@ -7,7 +9,8 @@ export type DocxBlockType =
   | 'numbered'
   | 'table'
   | 'image'
-  | 'page_break';
+  | 'page_break'
+  | 'column_break';
 
 export type DocxImageMode = 'existing' | 'generate' | 'edit';
 export type DocxImageSize = 'small' | 'medium' | 'large' | 'full';
@@ -15,7 +18,10 @@ export type DocxImageAlignment = 'left' | 'center' | 'right';
 export type DocxImagePlacement = 'inline' | 'top-right';
 export type DocxFontFamily = 'sans' | 'serif' | 'mono' | 'jp-sans' | 'jp-serif';
 
-export interface DocxDesign {
+export interface DocxDesign extends DocumentLayoutOptions {
+  headerText?: string;
+  footerText?: string;
+  showPageNumbers?: boolean;
   pageSize?: 'A4' | 'LETTER';
   orientation?: 'portrait' | 'landscape';
   marginMm?: number;
@@ -87,6 +93,7 @@ const IMAGE_WIDTH_INCHES: Record<DocxImageSize, number> = {
 };
 
 const DEFAULT_DOCX_DESIGN: Required<Omit<DocxDesign, 'locale'>> & { locale: string } = {
+  templateVersion: 1, layoutTemplate: 'custom', columns: 1, columnGapMm: 8, headerText: '', footerText: '', showPageNumbers: false,
   pageSize: 'A4',
   orientation: 'portrait',
   marginMm: 16,
@@ -130,7 +137,15 @@ function docxFontName(value?: DocxFontFamily): string {
 }
 
 function normalizeDocxDesign(input?: DocxDesign) {
+  input = applyDocumentLayout(input);
   return {
+    layoutTemplate: input.layoutTemplate,
+    templateVersion: input.templateVersion === 2 ? 2 : 1,
+    columns: Math.round(clampNumber(input.columns, 1, 1, 3)),
+    columnGapMm: clampNumber(input.columnGapMm, 8, 4, 16),
+    headerText: cleanText(input.headerText, 180),
+    footerText: cleanText(input.footerText, 180),
+    showPageNumbers: Boolean(input.showPageNumbers),
     pageSize: input?.pageSize === 'LETTER' ? 'LETTER' as const : 'A4' as const,
     orientation: input?.orientation === 'landscape' ? 'landscape' as const : 'portrait' as const,
     marginMm: clampNumber(input?.marginMm, DEFAULT_DOCX_DESIGN.marginMm, 8, 30),
@@ -240,6 +255,7 @@ function paragraphXml(
     fontFamily?: DocxFontFamily;
     alignment?: 'left' | 'center' | 'right';
     bottomBorderColor?: string;
+    backgroundColor?: string;
   }
 ): string {
   const pPrParts: string[] = ['<w:widowControl/>'];
@@ -262,6 +278,7 @@ function paragraphXml(
       )}"/></w:pBdr>`
     );
   }
+  if (options?.backgroundColor) pPrParts.push(`<w:shd w:val="clear" w:fill="${escapeXml(options.backgroundColor)}"/><w:ind w:left="160" w:right="160"/>`);
   const pPr = `<w:pPr>${pPrParts.join('')}</w:pPr>`;
   return `<w:p>${pPr}${textRuns(text, options)}</w:p>`;
 }
@@ -273,6 +290,7 @@ function headingXml(
 ): string {
   const safeLevel = Math.max(1, Math.min(3, Math.floor(level || 1)));
   const body = design.bodySizePt;
+  const treatment = documentTreatment(design);
   const sizesPt: Record<number, number> = {
     1: Math.max(15.5, body * 1.5),
     2: Math.max(13, body * 1.28),
@@ -280,13 +298,14 @@ function headingXml(
   };
   return paragraphXml(text, {
     bold: true,
-    sizeHalfPoints: ptToHalfPoints(sizesPt[safeLevel]),
-    spacingBefore: safeLevel === 1 ? 220 : 150,
+    sizeHalfPoints: ptToHalfPoints(treatment ? treatment.sectionSize + (safeLevel === 1 ? 2 : safeLevel === 3 ? -2 : 0) : sizesPt[safeLevel]),
+    spacingBefore: treatment?.sectionSpace ?? (safeLevel === 1 ? 220 : 150),
     spacingAfter: safeLevel === 1 ? 100 : 70,
     keepNext: true,
     keepLines: true,
     lineHeight: 1.05,
-    color: safeLevel <= 2 ? design.accentColor : design.textColor,
+    color: treatment && design.layoutTemplate === 'letter' ? design.textColor : safeLevel <= 2 ? design.accentColor : design.textColor,
+    bottomBorderColor: treatment && ['report', 'resume', 'guide'].includes(design.layoutTemplate || '') ? design.accentColor : undefined,
     fontFamily: design.headingFontFamily,
   });
 }
@@ -302,7 +321,7 @@ function pageContentWidthTwips(
       : design.pageSize === 'LETTER'
         ? 215.9
         : 210;
-  return Math.max(2000, mmToTwips(pageWidthMm - design.marginMm * 2));
+  return Math.max(2000, mmToTwips((pageWidthMm - design.marginMm * 2 - (design.columns - 1) * design.columnGapMm) / design.columns));
 }
 
 function normalizedColumnWidths(
@@ -370,7 +389,7 @@ function tableXml(
   const availableWidth = pageContentWidthTwips(design);
   const widthPct = clampNumber(block.tableWidthPct, 100, 35, 100);
   const tableWidth = Math.max(1800, Math.round(availableWidth * (widthPct / 100)));
-  const proportions = normalizedColumnWidths(columnCount, block.columnWidthsPct);
+  const proportions = normalizedColumnWidths(columnCount, block.columnWidthsPct || (design.layoutTemplate && design.layoutTemplate !== 'custom' ? Array(columnCount).fill(1) : undefined));
   const widths = proportions.map((proportion) =>
     Math.max(300, Math.round(tableWidth * proportion))
   );
@@ -420,7 +439,7 @@ function imageExtensionForContentType(contentType: string): string {
   return 'png';
 }
 
-function imageDimensions(data: Buffer, contentType: string): { width: number; height: number } {
+export function imageDimensions(data: Buffer, contentType: string): { width: number; height: number } {
   try {
     const normalized = (contentType || '').toLowerCase();
     if (normalized === 'image/png' && data.length >= 24 && data.readUInt32BE(0) === 0x89504e47) {
@@ -489,6 +508,12 @@ function imageParagraphXml(
   if (block.preserveAspectRatio) {
     widthInches = Math.min(widthInches, heightInches / ratio);
     heightInches = widthInches * ratio;
+  }
+  // Keep images inside the actual text column, retaining their current aspect ratio.
+  const maxWidthInches = pageContentWidthTwips(design) / 1440;
+  if (design.layoutTemplate !== 'custom' && widthInches > maxWidthInches) {
+    heightInches *= maxWidthInches / widthInches;
+    widthInches = maxWidthInches;
   }
   const cx = Math.max(1, Math.round(widthInches * EMU_PER_INCH));
   const cy = Math.max(1, Math.round(heightInches * EMU_PER_INCH));
@@ -641,7 +666,7 @@ function normalizeBlocks(blocks: unknown): DocxBlock[] {
         imageContentType: cleanText(block.imageContentType, 100) || 'image/png',
         imageAltText: cleanText(block.imageAltText, 500),
       });
-    } else if (type === 'page_break') {
+    } else if (type === 'page_break' || type === 'column_break') {
       normalized.push({ type });
     }
   }
@@ -657,33 +682,35 @@ function buildDocumentXml(
   const body: string[] = [];
   let imageIndex = 0;
   const bodyHalfPoints = ptToHalfPoints(design.bodySizePt);
+  const treatment = documentTreatment(design);
 
-  if (title) {
-    body.push(
-      paragraphXml(title, {
+  const titleParagraph = (text: string) => paragraphXml(text, {
         bold: true,
-        sizeHalfPoints: ptToHalfPoints(Math.max(22, design.bodySizePt * 2.2)),
-        spacingAfter: 220,
+        sizeHalfPoints: ptToHalfPoints(treatment?.titleSize ?? Math.max(22, design.bodySizePt * 2.2)),
+        spacingAfter: treatment?.titleSpace ?? 220,
         keepNext: true,
         keepLines: true,
         lineHeight: 1.0,
-        color: design.textColor,
+        color: treatment?.band ? contrastTextColor(design.accentColor).slice(1) : design.textColor,
+        backgroundColor: treatment?.band ? design.accentColor : undefined,
+        spacingBefore: treatment?.band ? 240 : 0,
         fontFamily: design.headingFontFamily,
-        bottomBorderColor: design.accentColor,
-      })
-    );
-  }
+        bottomBorderColor: treatment ? (treatment.rule ? design.accentColor : undefined) : design.layoutTemplate && design.layoutTemplate !== 'custom' ? undefined : design.accentColor,
+      });
+  if (title) body.push(titleParagraph(title));
+  const openingHeading = !title && treatment ? blocks.find(block => block.type !== 'image') : null;
 
   for (const block of blocks) {
     switch (block.type) {
       case 'heading':
-        body.push(headingXml(block.text || '', block.level || 1, design));
+        body.push(block === openingHeading && (block.level || 1) === 1
+          ? titleParagraph(block.text || '') : headingXml(block.text || '', block.level || 1, design));
         break;
       case 'paragraph':
         body.push(
           paragraphXml(block.text || '', {
             sizeHalfPoints: bodyHalfPoints,
-            spacingAfter: 110,
+            spacingAfter: treatment?.paragraphSpace ?? 110,
             lineHeight: design.lineHeight,
             color: design.textColor,
             fontFamily: design.fontFamily,
@@ -726,6 +753,9 @@ function buildDocumentXml(
         body.push(imageParagraphXml(block, imageIndex, design));
         imageIndex++;
         break;
+      case 'column_break':
+        body.push('<w:p><w:r><w:br w:type="column"/></w:r></w:p>');
+        break;
       case 'page_break':
         body.push(pageBreakXml());
         break;
@@ -751,8 +781,11 @@ function buildDocumentXml(
   <w:body>
     ${body.join('\n')}
     <w:sectPr>
+      ${design.headerText ? '<w:headerReference w:type="default" r:id="rIdHeader"/>' : ''}
+      ${design.footerText || design.showPageNumbers ? '<w:footerReference w:type="default" r:id="rIdFooter"/>' : ''}
       <w:pgSz w:w="${pageWidth}" w:h="${pageHeight}"${isLandscape ? ' w:orient="landscape"' : ''}/>
       <w:pgMar w:top="${margin}" w:right="${margin}" w:bottom="${margin}" w:left="${margin}" w:header="567" w:footer="567" w:gutter="0"/>
+      <w:cols w:num="${design.columns}" w:space="${mmToTwips(design.columnGapMm)}"/>
       <w:docGrid w:linePitch="360"/>
     </w:sectPr>
   </w:body>
@@ -888,7 +921,9 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   // and as an early heading/paragraph block. Allow leading hero images before the
   // repeated text title, but do not scan deep into the document and accidentally
   // remove a legitimate later heading.
-  if (title && blocks.length > 0) {
+  const openingBlock = blocks.find(block => block.type !== 'image');
+  const authoredOpeningTitle = design.templateVersion === 2 && openingBlock?.type === 'heading' && (openingBlock.level || 1) === 1;
+  if (title && blocks.length > 0 && !authoredOpeningTitle) {
     const normalizeForComparison = (value: string) =>
       value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
     const titleKey = normalizeForComparison(title);
@@ -912,7 +947,7 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
     throw new Error('Word document content cannot be empty.');
   }
 
-  const documentXml = buildDocumentXml(title, blocks, design);
+  const documentXml = buildDocumentXml(authoredOpeningTitle ? '' : title, blocks, design);
   const fullText = documentFullText(title, blocks);
   const imageBlocks = blocks
     .filter(
@@ -943,11 +978,18 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
     )
     .join('\n');
 
+  const runningParts = [
+    ...(design.headerText ? [{ kind: 'header', tag: 'hdr', text: design.headerText }] : []),
+    ...(design.footerText || design.showPageNumbers ? [{ kind: 'footer', tag: 'ftr', text: design.footerText }] : []),
+  ];
+  const runningFiles = runningParts.map(part => ({ name: `word/${part.kind}1.xml`, data: Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:${part.tag} xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="${part.kind === 'footer' ? 'right' : 'left'}"/></w:pPr>${textRuns(part.text, {sizeHalfPoints: 16, color: design.mutedColor})}${part.kind === 'footer' && design.showPageNumbers ? '<w:r><w:t xml:space="preserve">  </w:t></w:r><w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple>' : ''}</w:p></w:${part.tag}>`, 'utf8') }));
   const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   ${imageContentTypeDefaults}
+  ${runningParts.map(p => `<Override PartName="/word/${p.kind}1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.${p.kind}+xml"/>`).join('')}
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
   <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
@@ -983,6 +1025,7 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
 
   const documentRelationships = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+${runningParts.map(p => `<Relationship Id="rId${p.kind === 'header' ? 'Header' : 'Footer'}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${p.kind}" Target="${p.kind}1.xml"/>`).join('')}
 ${imageBlocks
   .map((block, index) => {
     const extension = imageExtensionForContentType(block.imageContentType);
@@ -1002,6 +1045,7 @@ ${imageBlocks
     { name: 'word/document.xml', data: Buffer.from(documentXml, 'utf8') },
     { name: 'word/_rels/document.xml.rels', data: Buffer.from(documentRelationships, 'utf8') },
     ...mediaFiles,
+    ...runningFiles,
     { name: 'docProps/core.xml', data: Buffer.from(coreXml, 'utf8') },
     { name: 'docProps/app.xml', data: Buffer.from(appXml, 'utf8') },
   ]);

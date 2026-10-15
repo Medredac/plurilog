@@ -138,6 +138,7 @@ import {
   resolveAgenticDocumentEvidenceTool,
 } from '@/utils/agenticDocumentEvidence';
 import { buildPdfDesignReferenceContext } from '@/utils/pdfDesignLibrary';
+import { DOCUMENT_LAYOUT_GUIDANCE } from '@/utils/documentLayouts';
 import {
   extractPdfEmbeddedImages,
   persistPdfEmbeddedImages,
@@ -371,8 +372,11 @@ export const GPT_FILE_TOOLS = [
           design: {
             type: 'object',
             description:
-              'Style-neutral design controls shared by PDF and Word where supported. Use the user\'s requested aesthetic; these are capabilities, not a template.',
+              DOCUMENT_LAYOUT_GUIDANCE,
             properties: {
+              layoutTemplate: { type: 'string', enum: ['essay', 'report', 'proposal', 'letter', 'resume', 'guide', 'flyer', 'pamphlet', 'brochure-editorial', 'brochure-trifold', 'custom'], description: 'Select the visual template for this file; preserve it for edits. Brochure-editorial and brochure-trifold are designed PDF layouts.' },
+              columns: { type: 'integer', minimum: 1, maximum: 3 },
+              columnGapMm: { type: 'number', minimum: 4, maximum: 16 },
               pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
               orientation: { type: 'string', enum: ['portrait', 'landscape'] },
               marginMm: { type: 'number', minimum: 6, maximum: 35 },
@@ -432,6 +436,7 @@ export const GPT_FILE_TOOLS = [
                     'table',
                     'image',
                     'page_break',
+                    'column_break', // Formatting separator for folded/multi-column layouts.
                     'banner',
                     'callout',
                     'cards',
