@@ -1876,6 +1876,15 @@ export async function executeGptDocumentCreation(
     ...(revisionContext?.parentSnapshot?.imageBindings || []).map(binding => binding.source),
   ];
   let args = initialArgs;
+  if (revisionContext?.parentSnapshot && args.source_pdf_filename) {
+    // A canonical revision already has its source and per-image bindings.
+    // Models sometimes fill the fresh PDF-photo extraction directive merely
+    // to name that source during a format copy. Never rerun extraction or
+    // redirect the canonical revision to a different document.
+    const { source_pdf_filename: _extractionDirective, ...canonicalArgs } = args;
+    args = canonicalArgs;
+    console.log('[Document Revision] Using canonical image bindings instead of PDF extraction');
+  }
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
     revisionContext?.preserveParentContent === true;
