@@ -90,6 +90,7 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
+import { scopeCreationToolsToCanonicalSource } from '@/utils/documentToolScope';
 import { createFullConversationSession, FULL_CONVERSATION_TOOL, FULL_CONVERSATION_TOOL_NAME, FULL_CONVERSATION_INSTRUCTION } from '@/utils/conversationDocumentSource';
 import type {
   GptCreateFileArgs,
@@ -358,7 +359,7 @@ export const GPT_FILE_TOOLS = [
           },
           source_pdf_filename: {
             type: 'string',
-            description: 'For a complete rebuild of an existing numbered-photo PDF, supply its exact known filename. Read the source first, then include one mode=existing image block for EVERY numbered Photo in source order, with need="Photo N" and its corrected caption. Plurilog extracts and binds the original photos on demand, including when earlier extraction failed. Supports up to 32 photos and refuses incomplete sets. Never generate replacement documentary photos or invent captions. Use this for extensive caption/layout improvements to a photo collection; edit_source_document is for narrow edits preserving the existing layout.',
+            description: 'Only for a user-uploaded numbered-photo PDF without canonical Plurilog document state: supply its exact known filename. Never use this for a Plurilog-generated document; retrieve its canonical state and use revise_file with the saved image bindings. Read the source first, then include one mode=existing image block for EVERY numbered Photo in source order, with need="Photo N" and its corrected caption. Plurilog extracts and binds the original photos on demand, including when earlier extraction failed. Supports up to 32 photos and refuses incomplete sets. Never generate replacement documentary photos or invent captions. Use this for extensive caption/layout improvements to a photo collection; edit_source_document is for narrow edits preserving the existing layout.',
           },
           title: {
             type: 'string',
@@ -10228,7 +10229,7 @@ export async function POST(req: NextRequest) {
                       ...(AGENTIC_MEMORY_EXPERIMENT
                         ? [
                             ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
-                              ? GPT_FILE_TOOLS
+                              ? scopeCreationToolsToCanonicalSource(GPT_FILE_TOOLS, evidenceContinuationCanReviseFile)
                               : []),
                             ...(evidenceContinuationCanSourceEdit
                               ? GPT_SOURCE_DOCUMENT_EDIT_TOOL
@@ -11091,7 +11092,7 @@ export async function POST(req: NextRequest) {
                             ...(AGENTIC_MEMORY_EXPERIMENT
                               ? [
                                   ...(evidenceContinuationCanCreateFile && !requiresCanonicalTitleRevision
-                                    ? GPT_FILE_TOOLS
+                                    ? scopeCreationToolsToCanonicalSource(GPT_FILE_TOOLS, evidenceContinuationCanReviseFile)
                                     : []),
                                   ...(evidenceContinuationCanSourceEdit
                                     ? GPT_SOURCE_DOCUMENT_EDIT_TOOL

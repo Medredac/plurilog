@@ -237,3 +237,18 @@ test('empty/no-op and malformed revisions still fail while body edits keep exist
  const unsafe=revision.documentRevisionOperations(parent,{format:'pdf',patch:[{op:'replace',path:'/blocks',value:[]}]});
  assert.throws(()=>revision.assertNarrowRevisionPatchSafety(unsafe,'Just give me a PDF copy'),/cannot replace/);
 });
+
+const { scopeCreationToolsToCanonicalSource } = load('src/utils/documentToolScope.ts');
+test('canonical source retains new document creation but excludes redundant photo extraction', () => {
+  const tools = [{ type: 'function', function: { name: 'create_file', description: 'Create a file', parameters: {
+    properties: { source_pdf_filename: { type: 'string' }, source_docx_filename: { type: 'string' }, blocks: { type: 'array' } },
+    additionalProperties: false,
+  } } }];
+  assert.equal(scopeCreationToolsToCanonicalSource(tools, false), tools);
+  const scoped = scopeCreationToolsToCanonicalSource(tools, true);
+  assert.equal(scoped[0].function.parameters.properties.source_pdf_filename, undefined);
+  assert.deepEqual(scoped[0].function.parameters.properties.blocks, tools[0].function.parameters.properties.blocks);
+  assert.deepEqual(scoped[0].function.parameters.properties.source_docx_filename, tools[0].function.parameters.properties.source_docx_filename);
+  assert.ok(scoped[0].function.description.includes('use revise_file'));
+  assert.ok(tools[0].function.parameters.properties.source_pdf_filename);
+});
