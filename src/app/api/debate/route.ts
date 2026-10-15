@@ -7852,6 +7852,13 @@ export async function POST(req: NextRequest) {
                         call.name as any
                       )
                   );
+                // request_evidence is a read, not a terminal action. Keep the
+                // model's selected artifact request when it also searches text
+                // in this pass; otherwise the continuation loses the canonical
+                // document/image bindings and reconstructs from excerpts alone.
+                const pendingArtifactRequests = isEvidenceEnabledForSeat
+                  ? accumulatedToolCalls.filter(call => call.function.name === 'request_evidence')
+                  : [];
                 if (deferredNonMemoryCalls.length > 0) {
                   console.log(
                     '[Agentic Retrieval] Deferred non-retrieval calls until after grounded evidence',
@@ -8120,6 +8127,18 @@ export async function POST(req: NextRequest) {
                 bufferedSeatChunks.length = 0;
                 seatWebCitations.length = 0;
                 seenCitationUrls.clear();
+
+                if (pendingArtifactRequests.length > 0) {
+                  accumulatedToolCalls = pendingArtifactRequests;
+                  // The current pass was already included above. A zero-cost
+                  // handoff lets the common accounting add it exactly once.
+                  seatUsage = { cost: 0 };
+                  console.log('[Agentic Retrieval] Routing requested artifact evidence after memory', {
+                    seatId: seat.seatId,
+                    requestCount: pendingArtifactRequests.length,
+                  });
+                  break;
+                }
 
                 const continuationStartedAt = Date.now();
                 const retrievalToolsStillAvailable =
