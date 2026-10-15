@@ -89,7 +89,7 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
-import { conversationDocumentMode, loadConversationDocumentSource, conversationDocumentInstruction } from '@/utils/conversationDocumentSource';
+import { createFullConversationSession, FULL_CONVERSATION_TOOL, FULL_CONVERSATION_TOOL_NAME, FULL_CONVERSATION_INSTRUCTION } from '@/utils/conversationDocumentSource';
 import type {
   GptCreateFileArgs,
   DocumentImageSource,
@@ -6728,18 +6728,6 @@ export async function POST(req: NextRequest) {
           const createAgenticEvidenceId = () =>
             `mem_${++agenticEvidenceSequence}`;
 
-          const documentSourceMode = !isContinueRound && configuredSeats.some(s => s.seatId === 'chatgpt')
-            ? conversationDocumentMode(prompt || '') : null;
-          const conversationDocumentSource = documentSourceMode
-            ? await loadConversationDocumentSource({ supabase, discussionId: discussionId || '',
-                currentUserMessageId: sourceUserMessageId || '', mode: documentSourceMode })
-            : null;
-          if (conversationDocumentSource) {
-            console.log('[Conversation Document Source]', { mode: conversationDocumentSource.mode,
-              messageCount: conversationDocumentSource.messages.length,
-              complete: !conversationDocumentSource.error });
-          }
-
           let proactiveMemoryPlannerMeta: {
             shouldRetrieve: boolean;
             confidence: number;
@@ -6766,7 +6754,6 @@ export async function POST(req: NextRequest) {
           };
 
           if (
-            !conversationDocumentSource &&
             AGENTIC_MEMORY_EXPERIMENT &&
             discussionId &&
             prompt?.trim() &&
@@ -7069,14 +7056,28 @@ export async function POST(req: NextRequest) {
                     return readVideoResponse(response);
                   },
                 }) : null;
+            const isFullConversationEnabledForSeat = !isContinueRound &&
+              Boolean(discussionId && sourceUserMessageId);
+            const fullConversationSession = createFullConversationSession({ supabase,
+              discussionId: discussionId || '', currentUserMessageId: sourceUserMessageId || '',
+              signal: seatAbortController.signal });
             const seatConversationToolNames = new Set<string>([
               ...AGENTIC_CONVERSATION_TOOL_NAMES,
+              ...(isFullConversationEnabledForSeat ? [FULL_CONVERSATION_TOOL_NAME] : []),
               ...(videoSession ? ['inspect_video'] : []),
             ]);
             const resolveSeatConversationTool = async (options: Parameters<typeof resolveAgenticConversationTool>[0]) => {
               const activity = buildAgenticSeatActivity(options.toolName, options.toolArgs);
               if (activity) sendEvent('seat_activity', { seatId: seat.seatId, ...activity });
               try {
+                if (options.toolName === FULL_CONVERSATION_TOOL_NAME && isFullConversationEnabledForSeat) {
+                  const startedAt = Date.now();
+                  const result = await fullConversationSession.resolve(options.toolArgs);
+                  console.log('[Full Conversation Tool]', { seatId: seat.seatId, ok: result.ok,
+                    reused: result.reused === true, messageCount: result.message_count || 0 });
+                  return { toolName: options.toolName, result, addedEntries: [], reusedEvidenceIds: [],
+                    query: null, latencyMs: Date.now() - startedAt };
+                }
                 return options.toolName === 'inspect_video' && videoSession
                   ? await videoSession.inspect(options.toolArgs)
                   : await resolveAgenticConversationTool(options);
@@ -7383,12 +7384,11 @@ export async function POST(req: NextRequest) {
 
             const sharedAgenticEvidenceContext =
               formatSharedAgenticEvidenceForPrompt(sharedAgenticEvidenceLedger);
-            const exactDocumentSource = seat.seatId === 'chatgpt' ? conversationDocumentSource : null;
             let seatMessages = buildPanelMessages(
               seat.name,
               prompt,
               priorResponses,
-              exactDocumentSource ? { ...panelDiscussionMemory, recentRounds: [], summary: undefined } : panelDiscussionMemory,
+              panelDiscussionMemory,
               seatAttachments,
               null,
               retrievedMemory,
@@ -7398,11 +7398,11 @@ export async function POST(req: NextRequest) {
               visualDeliveryMismatch,
               runtimeProductContext,
               sharedAgenticEvidenceContext,
-              exactDocumentSource ? null : workingConversationContext,
+              workingConversationContext,
               userDisplayName,
               isContinueRound === true
             );
-            if (exactDocumentSource) seatMessages.push({ role: 'system', content: conversationDocumentInstruction(exactDocumentSource) });
+            if (isFullConversationEnabledForSeat) seatMessages.push({ role: 'system', content: FULL_CONVERSATION_INSTRUCTION });
             seatMessages.push(...titleRevisionInstruction);
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
@@ -7498,6 +7498,7 @@ export async function POST(req: NextRequest) {
             };
 
             const initialSeatStreamsBuffered =
+              isFullConversationEnabledForSeat ||
               isEvidenceEnabledForSeat ||
               isDocumentCreationEnabledForSeat ||
               isAgenticMemoryEnabledForSeat;
@@ -7581,6 +7582,7 @@ export async function POST(req: NextRequest) {
                   ...(isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
+                  ...(isFullConversationEnabledForSeat ? [FULL_CONVERSATION_TOOL] : []),
                   ...(videoSession ? [VIDEO_INSPECTION_TOOL] : []),
                   ...(isAgenticDocumentEvidenceEnabledForSeat
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
@@ -7804,7 +7806,7 @@ export async function POST(req: NextRequest) {
               }> = [];
 
               while (
-                (videoSession || isAgenticMemoryEnabledForSeat ||
+                (videoSession || isFullConversationEnabledForSeat || isAgenticMemoryEnabledForSeat ||
                   isAgenticDocumentEvidenceEnabledForSeat) &&
                 accumulatedToolCalls.length > 0
               ) {
@@ -8147,6 +8149,8 @@ export async function POST(req: NextRequest) {
                   isAgenticMemoryEnabledForSeat
                     ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                     : []),
+                  ...(isFullConversationEnabledForSeat && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                    ? [FULL_CONVERSATION_TOOL] : []),
                   ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
                     ? [VIDEO_INSPECTION_TOOL]
                     : []),
@@ -8719,7 +8723,7 @@ export async function POST(req: NextRequest) {
                       messageId,
                       seatId: seat.seatId,
                       args: fileArgs,
-                      conversationSource: exactDocumentSource,
+                      conversationSource: fullConversationSession.getSource(),
                       contentRepairTool: GPT_FILE_TOOLS[0],
                       onContentRepairCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
                       signal: req.signal,
@@ -10219,6 +10223,8 @@ export async function POST(req: NextRequest) {
                       isAgenticMemoryEnabledForSeat
                         ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                         : []),
+                      ...(isFullConversationEnabledForSeat && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                        ? [FULL_CONVERSATION_TOOL] : []),
                       ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
                         ? [VIDEO_INSPECTION_TOOL]
                         : []),
@@ -11078,9 +11084,11 @@ export async function POST(req: NextRequest) {
                             isAgenticMemoryEnabledForSeat
                               ? AGENTIC_CONVERSATION_MEMORY_TOOLS
                               : []),
+                            ...(isFullConversationEnabledForSeat && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
+                              ? [FULL_CONVERSATION_TOOL] : []),
                             ...(videoSession && agenticRetrievalRounds < AGENTIC_HARD_RETRIEVAL_ROUNDS
-                        ? [VIDEO_INSPECTION_TOOL]
-                        : []),
+                              ? [VIDEO_INSPECTION_TOOL]
+                              : []),
                             ...(agenticRetrievalRounds <
                               AGENTIC_HARD_RETRIEVAL_ROUNDS &&
                             isAgenticDocumentEvidenceEnabledForSeat
@@ -11637,7 +11645,7 @@ export async function POST(req: NextRequest) {
                         messageId,
                         seatId: seat.seatId,
                         args: fileArgs,
-                        conversationSource: exactDocumentSource,
+                        conversationSource: fullConversationSession.getSource(),
                         contentRepairTool: GPT_FILE_TOOLS[0],
                         onContentRepairCost: usd => { incurredDocumentFollowUpCostUsd += usd; },
                         signal: req.signal,
@@ -13848,6 +13856,7 @@ export async function POST(req: NextRequest) {
                 (
                   isEvidenceEnabledForSeat ||
                   isDocumentCreationEnabledForSeat ||
+                  isFullConversationEnabledForSeat ||
                   isAgenticMemoryEnabledForSeat
                 ) &&
                 bufferedSeatChunks.length > 0

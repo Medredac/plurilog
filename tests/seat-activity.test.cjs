@@ -8,6 +8,7 @@ m._compile(ts.transpileModule(fs.readFileSync('src/utils/seatActivity.ts', 'utf8
 const { buildAgenticSeatActivity: activity, activityFilename, videoActivity, documentActivityLabel } = m.exports;
 
 test('document and conversation searches expose real query and source details', () => {
+  assert.deepEqual(activity('get_full_conversation', {mode:'transcript'}), {activity:'reading_context',label:'Reading the full conversation…'});
   assert.equal(activity('search_document_evidence', { filename: '/private/Business plan.pdf', query: 'cancellation terms' }).label, 'Searching “Business plan.pdf”: “cancellation terms”…');
   assert.match(activity('search_conversation_memory', { speaker: 'user', query: 'pricing' }).label, /your earlier messages: “pricing”/);
   assert.equal(activity('not_a_real_tool', {}), null);
