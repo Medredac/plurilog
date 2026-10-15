@@ -1,4 +1,6 @@
 import brochureFont from './pdfBrochureFont.json';
+import essayFont from './pdfEssayFont.json';
+import { documentTreatmentCss } from './documentTemplateTreatments';
 import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
@@ -158,7 +160,7 @@ export interface RenderRichPdfResult {
 export const DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID = 'snap_LtrBqpBOaEyb0vj8kVHuIHLW7o7O';
 
 const DEFAULT_DESIGN: Required<Omit<PdfDesign, 'locale'>> & { locale: string } = {
-  layoutTemplate: 'custom', columns: 1, columnGapMm: 8,
+  templateVersion: 1, layoutTemplate: 'custom', columns: 1, columnGapMm: 8,
   pageSize: 'A4',
   orientation: 'portrait',
   marginMm: 16,
@@ -224,6 +226,7 @@ function normalizeDesign(input?: PdfDesign): Required<Omit<PdfDesign, 'locale'>>
   input = applyDocumentLayout(input);
   return {
     layoutTemplate: input.layoutTemplate || 'custom',
+    templateVersion: input.templateVersion === 2 ? 2 : 1,
     columns: Math.round(clampNumber(input.columns, 1, 1, 3)),
     columnGapMm: clampNumber(input.columnGapMm, 8, 4, 16),
     pageSize: input?.pageSize === 'LETTER' ? 'LETTER' : 'A4',
@@ -573,7 +576,7 @@ function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normali
       return `<div class="pdf-heading-${level}" style="font-family:${fontStack(design.headingFontFamily)};font-size:${sizes[level]}pt;font-weight:700;color:${design.textColor};margin:${level === 1 ? 12 : 9}pt 0 5pt 0;page-break-after:avoid;">${escapeHtml(cleanText(block.text))}</div>`;
     }
     case 'paragraph':
-      return `<div style="margin:0 0 8pt 0;">${paragraphsFromText(block.text || '')}</div>`;
+      return `<div class="pdf-paragraph" style="margin:0 0 8pt 0;">${paragraphsFromText(block.text || '')}</div>`;
     case 'bullets':
       return renderBulletItems(block.items || [], false);
     case 'numbered':
@@ -727,7 +730,7 @@ function renderDocumentBody(titleHtml: string, blocks: RichDocumentBlock[], desi
   }
   return sheets.map((sheet, index) => {
     while (sheet.length < design.columns) sheet.push([]);
-    return `<section class="${design.layoutTemplate === 'brochure-trifold' ? 'brochure-fold' : ''}" style="${index ? 'break-before:page;' : ''}"><table role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:0;"><tbody><tr>${sheet.map((panel,i) => `<td style="vertical-align:top;border:0;background:transparent;padding:0 ${i === sheet.length-1 ? 0 : design.columnGapMm / 2}mm 0 ${i ? design.columnGapMm / 2 : 0}mm;width:${100/design.columns}%;">${index === 0 && i === 0 ? titleHtml : ''}${renderBlocksWithCompositions(panel, design)}</td>`).join('')}</tr></tbody></table></section>`;
+    return `<section class="${(design.layoutTemplate === 'brochure-trifold' || (design.templateVersion === 2 && design.layoutTemplate === 'pamphlet')) ? 'brochure-fold' : ''}" style="${index ? 'break-before:page;' : ''}"><table role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:0;"><tbody><tr>${sheet.map((panel,i) => `<td style="vertical-align:top;border:0;background:transparent;padding:0 ${i === sheet.length-1 ? 0 : design.columnGapMm / 2}mm 0 ${i ? design.columnGapMm / 2 : 0}mm;width:${100/design.columns}%;">${index === 0 && i === 0 ? titleHtml : ''}${renderBlocksWithCompositions(panel, design)}</td>`).join('')}</tr></tbody></table></section>`;
   }).join('');
 }
 
@@ -776,8 +779,13 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
       }`
     : '';
 
-  const titleAlreadyInBrochure = design.layoutTemplate.startsWith('brochure-') && blocks.some(block => block.type === 'heading' && cleanText(block.text) === title);
-  const titleHtml = title && !titleAlreadyInBrochure
+  // Suppress only a duplicated opening title, never a matching later section.
+  const openingBlock = blocks.find(block => !['spacer', 'divider', 'image'].includes(block.type));
+  const titleAlreadyVisible = openingBlock && (
+    (openingBlock.type === 'heading' && cleanText(openingBlock.text) === title) ||
+    (openingBlock.type === 'banner' && cleanText(openingBlock.title) === title)
+  );
+  const titleHtml = title && !titleAlreadyVisible
     ? `<div class="pdf-document-title" style="font-family:${fontStack(design.headingFontFamily)};color:${design.textColor};">${escapeHtml(title)}</div>`
     : '';
 
@@ -954,7 +962,16 @@ p {
 h1, h2, h3 {
   break-after: avoid;
 }
-${design.layoutTemplate.startsWith('brochure-') ? `
+${design.templateVersion === 2 ? `
+${essayFont.css}
+${brochureFont.css}
+${design.fontFamily === 'serif' ? `body, table { font-family:'Source Serif 4 Variable', Georgia, serif; }` : ''}
+${design.fontFamily === 'sans' ? `body, table { font-family:'Inter Variable', Arial, sans-serif; }` : ''}
+${design.headingFontFamily === 'serif' ? `.pdf-document-title, [class^='pdf-heading-'] { font-family:'Source Serif 4 Variable', Georgia, serif !important; }` : ''}
+${design.headingFontFamily === 'sans' ? `.pdf-document-title, [class^='pdf-heading-'] { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
+${documentTreatmentCss(design)}
+` : ''}
+${(design.layoutTemplate.startsWith('brochure-') || (design.templateVersion === 2 && design.layoutTemplate === 'pamphlet')) ? `
 ${brochureFont.css}
 ${['sans', 'Arial', 'Helvetica'].includes(design.fontFamily) ? `.brochure-page, .brochure-fold, .brochure-page table, .brochure-fold table { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
 ${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure-page [class^='pdf-heading-'], .brochure-fold [class^='pdf-heading-'] { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}

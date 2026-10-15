@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript'),vm=require('node:vm');
-function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./pdfBrochureFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json','utf8')):n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
+function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./documentTemplateTreatments'?load('src/utils/documentTemplateTreatments.ts'):n==='./pdfEssayFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfEssayFont.json','utf8')):n==='./pdfBrochureFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json','utf8')):n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
 const {applyDocumentLayout,DOCUMENT_LAYOUTS}=load('src/utils/documentLayouts.ts');
 const {renderDocx}=load('src/utils/docxWriter.ts');
 const {buildHtml}=load('src/utils/richPdfRenderer.ts');
@@ -91,4 +91,26 @@ test('folded brochure applies designed panels without changing print order or co
  assert.equal((html.match(/<section class="brochure-fold"/g)||[]).length,2);
  for(let i=0;i<6;i++)assert.ok(html.includes('Unchanged content '+i));
  assert.ok(html.indexOf('Panel 0')<html.indexOf('Panel 1'));
+});
+
+test('every supported v2 layout has a distinct treatment and retains all content in both formats',()=>{
+ const {documentTreatment}=load('src/utils/documentTemplateTreatments.ts');
+ for(const layoutTemplate of Object.keys(DOCUMENT_LAYOUTS)){
+  assert.ok(documentTreatment({layoutTemplate,templateVersion:2}),layoutTemplate);
+  assert.equal(documentTreatment({layoutTemplate,templateVersion:1}),null);
+  const spec={filename:'test.docx',title:'Title once',design:{layoutTemplate,templateVersion:2},blocks:[{type:'heading',level:1,text:'Title once'},{type:'paragraph',text:'ORCHID-4729 • $4,200'},{type:'heading',level:2,text:'Evidence'},{type:'table',headers:['Item','Value'],rows:[['Original','98.40']]}]};
+  const pdf=buildHtml(spec),word=renderDocx(spec);assert.equal((pdf.html.match(/>Title once</g)||[]).length,1,layoutTemplate);
+  for(const content of ['ORCHID-4729','98.40']){assert.ok(pdf.fullText.includes(content));assert.ok(word.fullText.includes(content));}
+  assert.ok(pdf.html.includes('Source Serif 4 Variable'));assert.ok(pdf.html.includes('Inter Variable'));
+ }
+});
+test('PDF opening title suppression does not hide a legitimate later repeated section',()=>{
+ const {html}=buildHtml({filename:'test.pdf',title:'Reference',blocks:[{type:'paragraph',text:'Introduction'},{type:'heading',text:'Reference',level:2}]});
+ assert.equal((html.match(/>Reference</g)||[]).length,2);
+});
+test('design catalog is complete and does not filter the agent choices using prompt keywords',()=>{
+ const lib=load('src/utils/pdfDesignLibrary.ts');const catalog=lib.buildPdfDesignReferenceContext();
+ assert.equal(catalog.referenceIds.length,lib.PDF_DESIGN_LIBRARY.length);
+ const route=fs.readFileSync('src/app/api/debate/route.ts','utf8');assert.ok(!route.includes('isLikelyDocumentCreationRequest'));
+ assert.ok(!fs.readFileSync('src/utils/pdfDesignLibrary.ts','utf8').includes('scoreReference'));
 });

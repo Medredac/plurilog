@@ -754,7 +754,7 @@ test('new-file creation resolves an exact filename inside a descriptive need and
  const calls=[];const client={storage:{from:()=>({download:async p=>{calls.push(p);return {data:new Blob([png],{type:'image/png'})};}})}};
  const result=await resolveDocumentBlocks([{type:'image',mode:'existing',need:'qa-logo.png / the Community Garden logo from the source pamphlet',widthMm:42,heightMm:42}],client,sources,{},undefined);
  assert.deepEqual(calls,['user/logo.png']);assert.deepEqual(result.blocks[0].imageData,png);
- const writerFile=path.resolve('src/utils/docxWriter.ts'),writer=new Module(writerFile,module);writer.paths=module.paths;writer.require=n=>n==='./documentLayouts'?{applyDocumentLayout:d=>d||{}}:require(n);writer._compile(ts.transpileModule(fs.readFileSync(writerFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,writerFile);
+ const writerFile=path.resolve('src/utils/docxWriter.ts'),writer=new Module(writerFile,module);writer.paths=module.paths;writer.require=n=>n==='./documentTemplateTreatments'?{documentTreatment:()=>null}:n==='./documentLayouts'?{applyDocumentLayout:d=>d||{}}:require(n);writer._compile(ts.transpileModule(fs.readFileSync(writerFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,writerFile);
  const doc=writer.exports.renderDocx({filename:'converted.docx',blocks:result.blocks});assert.ok(doc.buffer.includes(png));
 });
 test('matching retains descriptive aliases while returning the original canonical bytes',()=>{

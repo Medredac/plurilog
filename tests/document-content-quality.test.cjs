@@ -9,7 +9,7 @@ function load(relative) {
   const mod = new Module(filename, module);
   mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
   const originalRequire = mod.require.bind(mod);
-  mod.require = name => name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : originalRequire(name);
+  mod.require = name => name === './documentTemplateTreatments' ? load('src/utils/documentTemplateTreatments.ts') : name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : originalRequire(name);
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
@@ -188,4 +188,24 @@ test('pamphlet preflight rejects missing or blank panels without inventing conte
  assert.ok(documentContentIssues(spec,'Create a pamphlet').some(x=>x.includes('panels are incomplete')));
  spec.blocks.push({type:'column_break'},{type:'paragraph',text:'Fold-in'});
  assert.equal(documentContentIssues(spec,'Create a pamphlet').length,0);
+});
+
+test('per-file requirements repair catches a photo pamphlet incorrectly authored as an essay', async () => {
+ const bad={format:'pdf',filename:'pamphlet.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'Original facts: ORCHID-4729 and $4,200.'}]};
+ const fixed={...bad,design:{layoutTemplate:'brochure-editorial'},blocks:[...bad.blocks,{type:'image',mode:'generate',prompt:'A botanical photograph',size:'full'}]};
+ const messages=[],costs=[];let n=0;
+ const openai={chat:{completions:{async create(input){messages.push(input);n++;const repair=input.tool_choice.function.name==='create_file';return {usage:{cost:.001},choices:[{message:{tool_calls:[{function:{name:repair?'create_file':'review_deliverable',arguments:JSON.stringify(repair?fixed:{brief:'The second file: a modern pamphlet with photos.',family:'promotional',imagesRequired:true,issues:[]})}}]}}]};}}}};
+ const out=await q.prepareDocumentContent({spec:bad,prompt:'Create an essay and another modern pamphlet with photos.',model:'test',openai,validateDeliverable:true,repairTool:{type:'function',function:{name:'create_file'}},onCost:c=>costs.push(c)});
+ assert.equal(n,3);assert.equal(out.design.layoutTemplate,'brochure-editorial');assert.equal(out.blocks[0].text,bad.blocks[0].text);assert.equal(bad.blocks.length,1);assert.equal(costs.length,3);
+ const repair=JSON.parse(messages[1].messages[1].content);assert.match(repair.deliverableBrief,/second file/);assert.ok(repair.issues.some(x=>x.includes('embedded images')));assert.ok(repair.issues.some(x=>x.includes('essay layout')));
+});
+test('companion essay is not forced to contain the photos requested only for a pamphlet', async()=>{
+ const spec={format:'pdf',filename:'essay.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'A developed explanation.'}]};let calls=0;
+ const openai={chat:{completions:{async create(){calls++;return {choices:[{message:{tool_calls:[{function:{name:'review_deliverable',arguments:JSON.stringify({brief:'An essay, the first deliverable.',family:'prose',imagesRequired:false,issues:[]})}}]}}]};}}}};
+ assert.deepEqual(await q.prepareDocumentContent({spec,prompt:'An essay and a pamphlet with photos',model:'test',openai,validateDeliverable:true}),spec);assert.equal(calls,1);
+});
+test('unsatisfied semantic requirements cannot be published after repair',async()=>{
+ const bad={format:'pdf',filename:'pamphlet.pdf',design:{layoutTemplate:'essay'},blocks:[{type:'paragraph',text:'No photos'}]};
+ const openai={chat:{completions:{async create(input){const repair=input.tool_choice.function.name==='create_file';return {choices:[{message:{tool_calls:[{function:{name:repair?'create_file':'review_deliverable',arguments:JSON.stringify(repair?bad:{brief:'Photo brochure',family:'promotional',imagesRequired:true,issues:[]})}}]}}]};}}}};
+ await assert.rejects(q.prepareDocumentContent({spec:bad,prompt:'Photo brochure',model:'test',openai,validateDeliverable:true,repairTool:{type:'function',function:{name:'create_file'}}}),/validation failed after repair/);
 });

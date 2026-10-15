@@ -1,5 +1,6 @@
 import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
+import { documentTreatment } from './documentTemplateTreatments';
 
 export type DocxBlockType =
   | 'heading'
@@ -92,7 +93,7 @@ const IMAGE_WIDTH_INCHES: Record<DocxImageSize, number> = {
 };
 
 const DEFAULT_DOCX_DESIGN: Required<Omit<DocxDesign, 'locale'>> & { locale: string } = {
-  layoutTemplate: 'custom', columns: 1, columnGapMm: 8, headerText: '', footerText: '', showPageNumbers: false,
+  templateVersion: 1, layoutTemplate: 'custom', columns: 1, columnGapMm: 8, headerText: '', footerText: '', showPageNumbers: false,
   pageSize: 'A4',
   orientation: 'portrait',
   marginMm: 16,
@@ -139,6 +140,7 @@ function normalizeDocxDesign(input?: DocxDesign) {
   input = applyDocumentLayout(input);
   return {
     layoutTemplate: input.layoutTemplate,
+    templateVersion: input.templateVersion === 2 ? 2 : 1,
     columns: Math.round(clampNumber(input.columns, 1, 1, 3)),
     columnGapMm: clampNumber(input.columnGapMm, 8, 4, 16),
     headerText: cleanText(input.headerText, 180),
@@ -253,6 +255,7 @@ function paragraphXml(
     fontFamily?: DocxFontFamily;
     alignment?: 'left' | 'center' | 'right';
     bottomBorderColor?: string;
+    backgroundColor?: string;
   }
 ): string {
   const pPrParts: string[] = ['<w:widowControl/>'];
@@ -275,6 +278,7 @@ function paragraphXml(
       )}"/></w:pBdr>`
     );
   }
+  if (options?.backgroundColor) pPrParts.push(`<w:shd w:val="clear" w:fill="${escapeXml(options.backgroundColor)}"/><w:ind w:left="160" w:right="160"/>`);
   const pPr = `<w:pPr>${pPrParts.join('')}</w:pPr>`;
   return `<w:p>${pPr}${textRuns(text, options)}</w:p>`;
 }
@@ -286,6 +290,7 @@ function headingXml(
 ): string {
   const safeLevel = Math.max(1, Math.min(3, Math.floor(level || 1)));
   const body = design.bodySizePt;
+  const treatment = documentTreatment(design);
   const sizesPt: Record<number, number> = {
     1: Math.max(15.5, body * 1.5),
     2: Math.max(13, body * 1.28),
@@ -293,13 +298,14 @@ function headingXml(
   };
   return paragraphXml(text, {
     bold: true,
-    sizeHalfPoints: ptToHalfPoints(sizesPt[safeLevel]),
-    spacingBefore: safeLevel === 1 ? 220 : 150,
+    sizeHalfPoints: ptToHalfPoints(treatment ? treatment.sectionSize + (safeLevel === 1 ? 2 : safeLevel === 3 ? -2 : 0) : sizesPt[safeLevel]),
+    spacingBefore: treatment?.sectionSpace ?? (safeLevel === 1 ? 220 : 150),
     spacingAfter: safeLevel === 1 ? 100 : 70,
     keepNext: true,
     keepLines: true,
     lineHeight: 1.05,
-    color: safeLevel <= 2 ? design.accentColor : design.textColor,
+    color: treatment && design.layoutTemplate === 'letter' ? design.textColor : safeLevel <= 2 ? design.accentColor : design.textColor,
+    bottomBorderColor: treatment && ['report', 'resume', 'guide'].includes(design.layoutTemplate || '') ? design.accentColor : undefined,
     fontFamily: design.headingFontFamily,
   });
 }
@@ -676,19 +682,22 @@ function buildDocumentXml(
   const body: string[] = [];
   let imageIndex = 0;
   const bodyHalfPoints = ptToHalfPoints(design.bodySizePt);
+  const treatment = documentTreatment(design);
 
   if (title) {
     body.push(
       paragraphXml(title, {
         bold: true,
-        sizeHalfPoints: ptToHalfPoints(Math.max(22, design.bodySizePt * 2.2)),
-        spacingAfter: 220,
+        sizeHalfPoints: ptToHalfPoints(treatment?.titleSize ?? Math.max(22, design.bodySizePt * 2.2)),
+        spacingAfter: treatment?.titleSpace ?? 220,
         keepNext: true,
         keepLines: true,
         lineHeight: 1.0,
-        color: design.textColor,
+        color: treatment?.band ? 'FFFFFF' : design.textColor,
+        backgroundColor: treatment?.band ? design.accentColor : undefined,
+        spacingBefore: treatment?.band ? 240 : 0,
         fontFamily: design.headingFontFamily,
-        bottomBorderColor: design.layoutTemplate && design.layoutTemplate !== 'custom' ? undefined : design.accentColor,
+        bottomBorderColor: treatment ? (treatment.rule ? design.accentColor : undefined) : design.layoutTemplate && design.layoutTemplate !== 'custom' ? undefined : design.accentColor,
       })
     );
   }
@@ -702,7 +711,7 @@ function buildDocumentXml(
         body.push(
           paragraphXml(block.text || '', {
             sizeHalfPoints: bodyHalfPoints,
-            spacingAfter: 110,
+            spacingAfter: treatment?.paragraphSpace ?? 110,
             lineHeight: design.lineHeight,
             color: design.textColor,
             fontFamily: design.fontFamily,

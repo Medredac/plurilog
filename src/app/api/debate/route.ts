@@ -2668,23 +2668,9 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
       : currentRoundArtifactFollowThrough;
   }
 
-  const isLikelyDocumentCreationRequest =
-    currentModelName === 'ChatGPT' &&
-    /\b(pdf|docx|word|document|doc|file)\b/i.test(effectivePrompt) &&
-    /\b(create|make|generate|produce|build|write|return|design|redesign|revise|prepare)\b/i.test(
-      effectivePrompt
-    );
-
-  const pdfDesignReferences = isLikelyDocumentCreationRequest
-    ? buildPdfDesignReferenceContext(effectivePrompt)
+  const pdfDesignReferences = currentModelName === 'ChatGPT' && runtimeProductContext?.documentCreationEnabled
+    ? buildPdfDesignReferenceContext()
     : null;
-
-  if (pdfDesignReferences) {
-    console.log('[Document Design Library]', {
-      prompt: effectivePrompt.slice(0, 220),
-      referenceIds: pdfDesignReferences.referenceIds,
-    });
-  }
 
   const normalizedUserDisplayName =
     typeof userDisplayName === 'string'

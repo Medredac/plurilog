@@ -1541,6 +1541,8 @@ async function reviewRenderedPdfWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  reviewedDesign.templateVersion = args.design?.templateVersion;
   if (args.blocks.some(block => block.type === 'column_break')) {
     reviewedDesign.columns = args.design?.columns;
     reviewedDesign.orientation = args.design?.orientation;
@@ -1551,15 +1553,16 @@ async function reviewRenderedPdfWithGpt(options: {
   }
 
   const transcriptBlocks = preserveDocxSemanticContent(args.blocks, imageSafeBlocks);
-  if (!transcriptBlocks) return { args, costUsd, applied: false, respondingModel,
-    rationale: 'Retained original content; layout review changed substantive block structure.' };
+  // Never accept rewritten content, but retain independent typography/palette
+  // improvements rather than discarding the entire review.
+  if (!transcriptBlocks) console.log('[PDF Visual Review] Keeping original blocks; applying design-only review.');
   const reviewedArgs: GptCreateFileArgs = {
     ...args,
     format: 'pdf',
     filename: args.filename,
     title: args.title,
     design: reviewedDesign,
-    blocks: transcriptBlocks,
+    blocks: transcriptBlocks || args.blocks,
   };
 
   const before = JSON.stringify({
@@ -1807,6 +1810,8 @@ async function reviewRenderedDocxWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  reviewedDesign.templateVersion = args.design?.templateVersion;
   if (args.blocks.some(block => block.type === 'column_break')) {
     reviewedDesign.columns = args.design?.columns;
     reviewedDesign.orientation = args.design?.orientation;
@@ -1904,11 +1909,11 @@ export async function executeGptDocumentCreation(
       source: options.conversationSource,
       sourceInstruction: options.conversationSource ? conversationDocumentInstruction(options.conversationSource) : undefined,
       openai, model: reviewModel, models: reviewModels, repairTool: options.contentRepairTool, signal,
-      onCost: options.onContentRepairCost,
+      onCost: options.onContentRepairCost, validateDeliverable: true,
     });
   }
   // Store resolved layout defaults with the canonical source so later edits retain them.
-  args = { ...args, design: applyDocumentLayout(args.design) };
+  args = { ...args, design: applyDocumentLayout({ ...args.design, templateVersion: revisionContext?.parentSnapshot ? (args.design?.templateVersion || 1) : 2 }) };
   const serviceClient = createServiceClient();
   if ((args.blocks || []).some(block => block.type === 'image' && (block.mode === 'existing' || block.mode === 'edit'))) {
     availableImages.push(...await fetchSavedDocumentImageSources({
