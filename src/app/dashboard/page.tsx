@@ -2424,9 +2424,13 @@ export default function DashboardPage() {
               const activity = data.activity as SeatStatus;
               const activityLabel =
                 typeof data.label === 'string' && data.label.trim()
-                  ? data.label.trim().slice(0, 120)
+                  ? data.label.trim().slice(0, 240)
                   : null;
               const allowedActivities: SeatStatus[] = [
+                'thinking',
+                'analyzing_video',
+                'saving_file',
+                'reviewing_web',
                 'working',
                 'checking_documents',
                 'checking_images',

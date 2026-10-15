@@ -3,7 +3,7 @@ import type { AgenticMemoryToolResolution } from './agenticConversationMemory';
 import { extractAttachmentStoragePath } from './durableAttachments';
 import { extractYouTubeUrls, isVideoAttachment, normalizeYouTubeUrl, videoMime, VIDEO_INLINE_MAX_BYTES, validateVideoRange, type VideoRange } from './videoInputs';
 
-export type VideoSource = { url: string; label: string; question: string; youtube: boolean };
+export type VideoSource = { url: string; label: string; question: string; youtube: boolean; startSeconds?: number; endSeconds?: number };
 type Upload = { filename: string; storagePath: string; sourceUserMessageId?: string };
 type Options = {
   userId: string;
@@ -11,6 +11,7 @@ type Options = {
   rounds: Round[];
   currentAttachments: Array<{ filename: string; url: string }>;
   sourceUserMessageId?: string;
+  onActivity?: (stage: 'inspecting' | 'reading_saved', filename: string, range?: VideoRange) => void;
   inspectUpload?: (path: string, filename: string, question: string, range: VideoRange, signal: AbortSignal) => Promise<{ findings: string; model: string }>;
   readUpload: (path: string, signal: AbortSignal) => Promise<Buffer>;
   signal: AbortSignal;
@@ -99,6 +100,7 @@ export function createVideoInspectionSession(options: Options) {
           return result({ ok: false, error: 'Video not available to this account.' });
         }
         const existing = inspections.get(upload.storagePath);
+        options.onActivity?.(existing ? 'reading_saved' : 'inspecting', upload.filename, range);
         if (!existing) {
           const promise = (async () => {
             const analysis = options.inspectUpload

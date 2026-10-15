@@ -164,3 +164,13 @@ test('video expiry fails closed and caps signed access to the remaining hour', (
   assert.equal(videoRemainingSeconds(new Date(now - 3_590_000).toISOString(), now), 10);
   assert.equal(videoRemainingSeconds(undefined, now), 0);
 });
+
+test('video progress is emitted only for a validated owned upload and recognizes cached findings', async () => {
+  const stages = [];
+  const session = createVideoInspectionSession({ ...base, currentAttachments: [{ filename: 'clip.mp4', url: '/api/attachments/message-images/owner/clip.mp4' }], onActivity: (stage, name) => stages.push([stage, name]) });
+  await session.inspect({ filename: 'missing.mp4', question: 'Describe' });
+  assert.deepEqual(stages, []);
+  await session.inspect({ filename: 'clip.mp4', question: 'Describe' });
+  await session.inspect({ filename: 'clip.mp4', question: 'Describe again' });
+  assert.deepEqual(stages, [['inspecting', 'clip.mp4'], ['reading_saved', 'clip.mp4']]);
+});
