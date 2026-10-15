@@ -65,11 +65,11 @@ const faqItems = [
     ]
   },
   {
-    question: "Does Plurilog support file and image uploads?",
+    question: "Does Plurilog support files, images and videos?",
     answer: [
-      "Yes. Plurilog supports multimodal AI discussions involving documents, images and text alongside normal conversation.",
+      "Yes. You can work with documents, images, text files and uploaded videos, or paste a public YouTube link into your discussion.",
       "You can work with PDFs, Word documents, images and common text-based files inside a discussion. Plurilog preserves the source files and creates searchable representations that help the AI models retrieve relevant information when it is needed.",
-      "This means you can ask questions about a PDF, analyze an image, work through a document, and continue discussing those materials with different AIs without repeatedly uploading or copying the same content between separate apps."
+      "Ask questions about a PDF, analyse an image or use Gemini-powered video analysis to summarise scenes and speech. Video findings can feed the shared discussion; a fresh inspection of an earlier video upload may require uploading it again."
     ]
   },
   {
@@ -643,7 +643,7 @@ export default function LandingPage() {
               What Can You Do With Plurilog?
             </h2>
             <p className="mt-3 text-sm sm:text-base text-zinc-500 font-normal leading-relaxed">
-              Work with ChatGPT, Claude and Gemini in one shared conversation, then move from answers to actual work: analyse files and images, create and edit documents, generate visuals, and research without breaking the thread.
+              Work with ChatGPT, Claude and Gemini in one shared conversation, then move from answers to actual work: analyse files, images and videos, create and edit documents, generate visuals, and research without breaking the thread.
             </p>
           </motion.div>
 
@@ -790,19 +790,21 @@ export default function LandingPage() {
                 />
               </div>
               <h3 className="text-xl sm:text-[20px] font-semibold tracking-tight leading-snug text-zinc-900">
-                Analyse Files and Images Together
+                Analyse Files, Images and Videos
               </h3>
               <p className="mt-3 text-sm text-zinc-500 leading-relaxed">
-                Work with PDFs, Word files, images and text files without repeatedly moving the same material between separate AI apps.
+                Work with documents and images, upload a video or paste a YouTube link. Use Gemini-powered video analysis to summarise scenes, transcribe speech and turn the findings into notes or new drafts.
               </p>
-              <Link
-                href="/ai-pdf-editor"
-                className="mt-auto pt-5 text-xs font-medium text-zinc-500 hover:text-zinc-900 transition-colors"
-              >
-                Explore AI PDF workflows →
-              </Link>
+              <div className="mt-auto pt-5 flex flex-col items-start gap-2 text-xs font-medium text-zinc-500">
+                <Link href="/ai-video-analysis" className="hover:text-zinc-900 transition-colors">
+                  Explore AI video analysis →
+                </Link>
+                <Link href="/ai-pdf-editor" className="hover:text-zinc-900 transition-colors">
+                  Explore AI PDF workflows →
+                </Link>
+              </div>
               <p className="mt-2 text-[11px] text-zinc-400">
-                PDF · DOCX · images · text
+                PDF · DOCX · images · video · YouTube
               </p>
             </motion.div>
 
