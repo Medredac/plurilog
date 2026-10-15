@@ -128,3 +128,21 @@ test('design catalog is complete and does not filter the agent choices using pro
  const {html}=buildHtml({filename:'photo.pdf',blocks:[{type:'image',size:'full',widthMm:null,heightMm:null,imageData:Buffer.from('photo'),imageContentType:'image/png'}]});
  assert.ok(html.includes('width:100%;height:auto;object-fit:contain'));
  });
+
+ test('authored opening headings keep logos first without an extra metadata title in v2',()=>{
+ const input={filename:'guide.docx',title:'Community Garden — Volunteer Guide',design:{layoutTemplate:'guide',templateVersion:2},blocks:[{type:'image',size:'small',imageData:Buffer.from('original-logo'),imageContentType:'image/png'},{type:'heading',level:1,text:'Community Garden'},{type:'paragraph',text:'Volunteer Guide'},{type:'paragraph',text:'Exact body'}]};
+ const html=buildHtml(input).html, word=xml(renderDocx(input).buffer);
+ assert.ok(!html.includes('>Community Garden — Volunteer Guide</'));
+ assert.ok(html.indexOf('data:image/png;base64')<html.indexOf('>Community Garden</'));
+ const body=word.slice(word.indexOf('<w:document'),word.indexOf('</w:document>'));
+ assert.ok(!body.includes('>Community Garden — Volunteer Guide</'));
+ assert.ok(word.indexOf('<w:drawing>')<word.indexOf('>Community Garden</'));
+ assert.ok(word.includes('Exact body'));
+ });
+ test('brochure foregrounds remain readable on model-selected dark and light palettes',()=>{
+ const {contrastTextColor}=load('src/utils/richPdfRenderer.ts');
+ assert.equal(contrastTextColor('#4F46E5'),'#FFFFFF');
+ assert.equal(contrastTextColor('#F2A831'),'#000000');
+ assert.equal(contrastTextColor('#fff'),'#000000');
+ assert.equal(contrastTextColor('#000'),'#FFFFFF');
+ });

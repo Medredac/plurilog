@@ -684,9 +684,7 @@ function buildDocumentXml(
   const bodyHalfPoints = ptToHalfPoints(design.bodySizePt);
   const treatment = documentTreatment(design);
 
-  if (title) {
-    body.push(
-      paragraphXml(title, {
+  const titleParagraph = (text: string) => paragraphXml(text, {
         bold: true,
         sizeHalfPoints: ptToHalfPoints(treatment?.titleSize ?? Math.max(22, design.bodySizePt * 2.2)),
         spacingAfter: treatment?.titleSpace ?? 220,
@@ -698,14 +696,15 @@ function buildDocumentXml(
         spacingBefore: treatment?.band ? 240 : 0,
         fontFamily: design.headingFontFamily,
         bottomBorderColor: treatment ? (treatment.rule ? design.accentColor : undefined) : design.layoutTemplate && design.layoutTemplate !== 'custom' ? undefined : design.accentColor,
-      })
-    );
-  }
+      });
+  if (title) body.push(titleParagraph(title));
+  const openingHeading = !title && treatment ? blocks.find(block => block.type !== 'image') : null;
 
   for (const block of blocks) {
     switch (block.type) {
       case 'heading':
-        body.push(headingXml(block.text || '', block.level || 1, design));
+        body.push(block === openingHeading && (block.level || 1) === 1
+          ? titleParagraph(block.text || '') : headingXml(block.text || '', block.level || 1, design));
         break;
       case 'paragraph':
         body.push(
@@ -922,7 +921,9 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
   // and as an early heading/paragraph block. Allow leading hero images before the
   // repeated text title, but do not scan deep into the document and accidentally
   // remove a legitimate later heading.
-  if (title && blocks.length > 0) {
+  const openingBlock = blocks.find(block => block.type !== 'image');
+  const authoredOpeningTitle = design.templateVersion === 2 && openingBlock?.type === 'heading' && (openingBlock.level || 1) === 1;
+  if (title && blocks.length > 0 && !authoredOpeningTitle) {
     const normalizeForComparison = (value: string) =>
       value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
     const titleKey = normalizeForComparison(title);
@@ -946,7 +947,7 @@ export function renderDocx(input: StructuredDocxInput): RenderedDocx {
     throw new Error('Word document content cannot be empty.');
   }
 
-  const documentXml = buildDocumentXml(title, blocks, design);
+  const documentXml = buildDocumentXml(authoredOpeningTitle ? '' : title, blocks, design);
   const fullText = documentFullText(title, blocks);
   const imageBlocks = blocks
     .filter(

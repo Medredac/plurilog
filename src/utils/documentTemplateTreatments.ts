@@ -22,7 +22,7 @@ export function documentTreatment(design: { layoutTemplate?: string; templateVer
 export function documentTreatmentCss(design: { layoutTemplate?: string; templateVersion?: number; accentColor: string; textColor: string; mutedColor: string; bodySizePt: number }): string {
   const t = documentTreatment(design);
   if (!t) return '';
-  const title = '.pdf-document-title, main > .pdf-heading-1:first-child';
+  const title = '.pdf-document-title, main > .pdf-heading-1:first-of-type';
   const common = `${title} { font-size:${t.titleSize}pt !important; line-height:1.12 !important; letter-spacing:-0.6pt; margin:0 0 ${t.titleSpace / 20}pt !important; ${t.rule ? `padding-bottom:7mm;border-bottom:1pt solid ${design.accentColor};` : ''} }
     .pdf-heading-2 { font-size:${t.sectionSize}pt !important; line-height:1.25 !important; margin:${t.sectionSpace / 20}pt 0 6pt !important; color:${design.accentColor} !important; }
     .pdf-paragraph { margin-bottom:${t.paragraphSpace / 20}pt !important; }
@@ -30,7 +30,7 @@ export function documentTreatmentCss(design: { layoutTemplate?: string; template
     th { font-weight:650; } td { vertical-align:top; }`;
   const specific: Record<string, string> = {
     essay: `${title} { font-weight:600 !important; }
-      .pdf-document-title + .pdf-paragraph, main > .pdf-heading-1:first-child + .pdf-paragraph { font-size:${design.bodySizePt + 1.5}pt; line-height:1.5; color:${design.mutedColor}; margin-bottom:7mm !important; }
+      .pdf-document-title + .pdf-paragraph, main > .pdf-heading-1:first-of-type + .pdf-paragraph { font-size:${design.bodySizePt + 1.5}pt; line-height:1.5; color:${design.mutedColor}; margin-bottom:7mm !important; }
       .pdf-heading-3 { font-size:12pt !important; margin:6mm 0 2mm !important; }`,
     report: `${title} { padding-top:6mm;border-top:5pt solid ${design.accentColor}; }
       .pdf-heading-2 { border-bottom:0.6pt solid ${design.mutedColor};padding-bottom:3mm; }
