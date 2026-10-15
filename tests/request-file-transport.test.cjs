@@ -497,7 +497,7 @@ function loadDocumentImageResolver(brokerResult) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => name === './documentLayouts' ? {} : name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
@@ -692,4 +692,15 @@ test('historical SVG uploads skipped by production are registered once with thei
   assert.equal(first[0].sourceId, second[0].sourceId);
   assert.equal(db.rows('discussion_artifact_sources').length, 1);
   assert.deepEqual(db.files.get('user/Claude_AI_symbol.svg'), svgLogo);
+});
+
+test('later document edits reuse saved generated artwork instead of generating a replacement',async()=>{
+ const {resolveDocumentBlocks}=loadDocumentImageResolver({});
+ const downloads=[];
+ const client={storage:{from:()=>({download:async storagePath=>{downloads.push(storagePath);return {data:new Blob([png],{type:'image/png'}),error:null};}})}};
+ const binding={imageOrdinal:0,source:{filename:'generated-artwork.png',storagePath:'user/document-assets/generated.png',sender:'assistant'}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'generate',prompt:'Original illustration',widthMm:55}],client,[],{},undefined,undefined,[binding]);
+ assert.deepEqual(downloads,['user/document-assets/generated.png']);
+ assert.deepEqual(result.blocks[0].imageData,png);
+ assert.equal(result.blocks[0].widthMm,55);
 });

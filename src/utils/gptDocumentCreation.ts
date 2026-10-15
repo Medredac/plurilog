@@ -1,3 +1,4 @@
+import { applyDocumentLayout } from './documentLayouts';
 import { prepareDocumentContent, documentContentIssues } from '@/utils/documentContentQuality';
 import { conversationDocumentInstruction, type ConversationDocumentSource } from '@/utils/conversationDocumentSource';
 import { rasterizeSvg } from './svgImage';
@@ -419,6 +420,7 @@ function spreadDocxAcrossTargetPages(
   args: GptCreateFileArgs,
   target: number
 ): GptCreateFileArgs {
+  if (args.blocks.some(block => block.type === 'column_break')) return args;
   if (target <= 1) {
     return {
       ...args,
@@ -489,7 +491,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
     const b: any = block;
 
     if (
-      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+      ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break', 'column_break'].includes(
         b.type
       )
     ) {
@@ -1208,11 +1210,12 @@ function preserveDocxSemanticContent(
   originalBlocks: RichDocumentBlock[],
   revisedBlocks: RichDocumentBlock[]
 ): RichDocumentBlock[] | null {
+  if (originalBlocks.some(b => b.type === 'column_break') && JSON.stringify(originalBlocks.map(b => b.type)) !== JSON.stringify(revisedBlocks.map(b => b.type))) return null;
   const originalContentBlocks = (originalBlocks || []).filter(
-    (block: any) => block?.type !== 'page_break'
+    (block: any) => !['page_break', 'column_break'].includes(block?.type)
   );
   const revisedContentBlocks = (revisedBlocks || []).filter(
-    (block: any) => block?.type !== 'page_break'
+    (block: any) => !['page_break', 'column_break'].includes(block?.type)
   );
 
   // Visual QA is a layout pass, not a rewriting pass. If the reviewer changes
@@ -1233,7 +1236,7 @@ function preserveDocxSemanticContent(
 
   let contentIndex = 0;
   return revisedBlocks.map((block: any) => {
-    if (block?.type === 'page_break') return block;
+    if (block?.type === 'page_break' || block?.type === 'column_break') return block;
 
     const original = originalContentBlocks[contentIndex++] as any;
     if (!original) return block;
@@ -1280,7 +1283,7 @@ function preserveDocxSemanticContent(
         } as RichDocumentBlock;
 
       default:
-        return original.source_message_id ? { ...original, style: block.style || original.style } : block;
+        return { ...original, style: block.style || original.style };
     }
   });
 }
@@ -1509,22 +1512,23 @@ async function reviewRenderedPdfWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  if (args.blocks.some(block => block.type === 'column_break')) {
+    reviewedDesign.columns = args.design?.columns;
+    reviewedDesign.orientation = args.design?.orientation;
+    reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  }
   if (args.design?.targetPageCount) {
     reviewedDesign.targetPageCount = args.design.targetPageCount;
   }
 
-  const transcriptBlocks = (args.blocks as any[]).some(b => b.source_message_id)
-    ? preserveDocxSemanticContent(args.blocks, imageSafeBlocks) : imageSafeBlocks;
+  const transcriptBlocks = preserveDocxSemanticContent(args.blocks, imageSafeBlocks);
   if (!transcriptBlocks) return { args, costUsd, applied: false, respondingModel,
-    rationale: 'Retained complete transcript; layout review changed source content structure.' };
+    rationale: 'Retained original content; layout review changed substantive block structure.' };
   const reviewedArgs: GptCreateFileArgs = {
     ...args,
     format: 'pdf',
     filename: args.filename,
-    title:
-      typeof parsed.title === 'string'
-        ? parsed.title
-        : args.title,
+    title: args.title,
     design: reviewedDesign,
     blocks: transcriptBlocks,
   };
@@ -1596,7 +1600,7 @@ async function reviewRenderedDocxWithGpt(options: {
         'Fix page balance, excessive whitespace, crowded areas, orphaned headings, split list items, awkward page breaks, image sizing, table legibility, hierarchy, spacing, and typography.',
         'Compare the rendered pages against the source specification. Every non-empty table cell, factual name/date/status, and requested image must remain visibly present. Never solve overflow by hiding or dropping a table column.',
         'If Japanese characters are visible in the page images, do not claim they are missing/tofu. Only diagnose glyph corruption when the actual rendered glyphs are visibly boxes or replacement characters.',
-        'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
+        'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, page_break, and column_break. Preserve explicit panel boundaries and print order. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
         'This is a layout-only pass: preserve the number, order, and type of every substantive non-page-break block. You may add, remove, or move page_break blocks; adjust the design object; resize/reposition images; and adjust table width/column widths. Do not turn paragraphs into bullets, split/merge sections, reorder headings, or add/remove substantive blocks.',
         'Preserve all factual text and table content exactly. Do not rewrite, shorten, paraphrase, or expand the document during this pass; the server will preserve source text and reject structural content changes.',
         'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
@@ -1736,7 +1740,7 @@ async function reviewRenderedDocxWithGpt(options: {
   }
 
   const wordBlocks = (parsed.blocks as RichDocumentBlock[]).filter((block: any) =>
-    ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break'].includes(
+    ['heading', 'paragraph', 'bullets', 'numbered', 'table', 'image', 'page_break', 'column_break'].includes(
       block?.type
     )
   );
@@ -1774,6 +1778,11 @@ async function reviewRenderedDocxWithGpt(options: {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
   };
+  if (args.blocks.some(block => block.type === 'column_break')) {
+    reviewedDesign.columns = args.design?.columns;
+    reviewedDesign.orientation = args.design?.orientation;
+    reviewedDesign.layoutTemplate = args.design?.layoutTemplate;
+  }
   if (target) reviewedDesign.targetPageCount = target;
 
   const reviewedArgs: GptCreateFileArgs = {
@@ -1855,6 +1864,8 @@ export async function executeGptDocumentCreation(
       onCost: options.onContentRepairCost,
     });
   }
+  // Store resolved layout defaults with the canonical source so later edits retain them.
+  args = { ...args, design: applyDocumentLayout(args.design) };
   const serviceClient = createServiceClient();
 
   // A model-supplied page target is not a user requirement. For a fresh

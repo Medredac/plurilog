@@ -8,6 +8,8 @@ function load(relative) {
   const filename = path.resolve(__dirname, '..', relative);
   const mod = new Module(filename, module);
   mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
+  const originalRequire = mod.require.bind(mod);
+  mod.require = name => name === './documentLayouts' ? load('src/utils/documentLayouts.ts') : originalRequire(name);
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
@@ -178,4 +180,12 @@ test('renderer limits are checked before content can be silently truncated', () 
     {type:'bullets',items:Array(201).fill('item')},
     {type:'numbered',items:['x'.repeat(10001)]},
   ]) assert.ok(q.documentContentIssues({blocks:[block]},'Write a report').some(x=>x.includes('renderer limit')));
+});
+
+test('pamphlet preflight rejects missing or blank panels without inventing content',()=>{
+ const {documentContentIssues}=load('src/utils/documentContentQuality.ts');
+ const spec={design:{layoutTemplate:'pamphlet'},blocks:[{type:'paragraph',text:'Cover'},{type:'column_break'},{type:'paragraph',text:'Back'}]};
+ assert.ok(documentContentIssues(spec,'Create a pamphlet').some(x=>x.includes('panels are incomplete')));
+ spec.blocks.push({type:'column_break'},{type:'paragraph',text:'Fold-in'});
+ assert.equal(documentContentIssues(spec,'Create a pamphlet').length,0);
 });

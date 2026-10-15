@@ -1,3 +1,4 @@
+import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 import type { DocxBlock } from '@/utils/docxWriter';
@@ -9,7 +10,7 @@ export type PdfFontFamily =
   | 'jp-sans'
   | 'jp-serif';
 
-export interface PdfDesign {
+export interface PdfDesign extends DocumentLayoutOptions {
   pageSize?: 'A4' | 'LETTER';
   orientation?: 'portrait' | 'landscape';
   marginMm?: number;
@@ -156,6 +157,7 @@ export interface RenderRichPdfResult {
 export const DEFAULT_RICH_PDF_RENDERER_SNAPSHOT_ID = 'snap_LtrBqpBOaEyb0vj8kVHuIHLW7o7O';
 
 const DEFAULT_DESIGN: Required<Omit<PdfDesign, 'locale'>> & { locale: string } = {
+  layoutTemplate: 'custom', columns: 1, columnGapMm: 8,
   pageSize: 'A4',
   orientation: 'portrait',
   marginMm: 16,
@@ -218,7 +220,11 @@ function fontStack(value: PdfFontFamily | undefined): string {
 }
 
 function normalizeDesign(input?: PdfDesign): Required<Omit<PdfDesign, 'locale'>> & { locale: string } {
+  input = applyDocumentLayout(input);
   return {
+    layoutTemplate: input.layoutTemplate || 'custom',
+    columns: Math.round(clampNumber(input.columns, 1, 1, 3)),
+    columnGapMm: clampNumber(input.columnGapMm, 8, 4, 16),
     pageSize: input?.pageSize === 'LETTER' ? 'LETTER' : 'A4',
     orientation: input?.orientation === 'landscape' ? 'landscape' : 'portrait',
     marginMm: clampNumber(input?.marginMm, DEFAULT_DESIGN.marginMm, 6, 35),
@@ -295,7 +301,7 @@ function renderBulletItems(items: string[], ordered: boolean): string {
 
 function renderTable(block: DocxBlock, design: ReturnType<typeof normalizeDesign>): string {
   const headers = (block.headers || []).map((v) => cleanText(v, 5000));
-  const rows = (block.rows || []).slice(0, 100).map((row) =>
+  const rows = (block.rows || []).slice(0, 200).map((row) =>
     (row || []).map((v) => cleanText(v, 5000))
   );
   const columnCount = Math.max(headers.length, ...rows.map((r) => r.length), 1);
@@ -309,7 +315,7 @@ function renderTable(block: DocxBlock, design: ReturnType<typeof normalizeDesign
       `<td style="padding:6pt 8pt;background:${rowIndex % 2 ? '#f7f9fb' : '#ffffff'};border:0.5pt solid #d9e0e8;vertical-align:top;font-size:${Math.max(8, design.bodySizePt - 0.5)}pt;">${escapeHtml(row[i] || '')}</td>`
     ).join('')}</tr>`
   ).join('');
-  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 10pt 0;page-break-inside:avoid;">${head}${body}</table>`;
+  return `<table cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;margin:5pt 0 10pt 0;page-break-inside:auto;">${head ? `<thead>${head}</thead>` : ''}<tbody>${body}</tbody></table>`;
 }
 
 function renderImageElement(block: DocxBlock): string {
@@ -336,7 +342,7 @@ function renderImageElement(block: DocxBlock): string {
     typeof block.heightMm === 'number' && Number.isFinite(block.heightMm)
       ? `${Math.max(10, Math.min(240, block.heightMm))}mm`
       : 'auto';
-  const objectFit = height === 'auto' || block.preserveAspectRatio ? 'contain' : 'cover';
+  const objectFit = height === 'auto' || block.preserveAspectRatio !== false ? 'contain' : 'cover';
   return `<img src="data:${escapeHtml(contentType)};base64,${b64}" alt="${escapeHtml(
     cleanText(
       block.imageAltText ||
@@ -575,6 +581,8 @@ function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normali
       return renderTable(block, design);
     case 'image':
       return renderImage(block, design);
+    case 'column_break':
+      return '<div style="break-before:column"></div>';
     case 'page_break':
       return '<div style="page-break-before:always;height:0;"></div>';
     case 'banner': {
@@ -677,7 +685,29 @@ function parsePdfPageCount(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function buildHtml(input: RichPdfInput): { html: string; fullText: string } {
+/** Explicit panel breaks use fixed-width print panels; flowing columns remain paginated. */
+function renderDocumentBody(titleHtml: string, blocks: RichDocumentBlock[], design: ReturnType<typeof normalizeDesign>): string {
+  if (design.columns <= 1 || !blocks.some(b => b.type === 'column_break')) {
+    return `<main style="column-count:${design.columns};column-gap:${design.columnGapMm}mm;orphans:3;widows:3;">${titleHtml}${renderBlocksWithCompositions(blocks, design)}</main>`;
+  }
+  const sheets: RichDocumentBlock[][][] = [[[]]];
+  for (const block of blocks) {
+    let sheet = sheets[sheets.length - 1];
+    if (block.type === 'page_break') { sheets.push([[]]); continue; }
+    if (block.type === 'column_break') {
+      if (sheet.length === design.columns) sheets.push([[]]);
+      else sheet.push([]);
+      continue;
+    }
+    sheet[sheet.length - 1].push(block);
+  }
+  return sheets.map((sheet, index) => {
+    while (sheet.length < design.columns) sheet.push([]);
+    return `<section style="${index ? 'break-before:page;' : ''}"><table role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:0;"><tbody><tr>${sheet.map((panel,i) => `<td style="vertical-align:top;border:0;background:transparent;padding:0 ${i === sheet.length-1 ? 0 : design.columnGapMm / 2}mm 0 ${i ? design.columnGapMm / 2 : 0}mm;width:${100/design.columns}%;">${index === 0 && i === 0 ? titleHtml : ''}${renderBlocksWithCompositions(panel, design)}</td>`).join('')}</tr></tbody></table></section>`;
+  }).join('');
+}
+
+export function buildHtml(input: RichPdfInput): { html: string; fullText: string } {
   const design = normalizeDesign(input.design);
   const blocks = Array.isArray(input.blocks) ? input.blocks.slice(0, 200) : [];
   const title = cleanText(input.title, 1000);
@@ -902,8 +932,7 @@ h1, h2, h3 {
 </style>
 </head>
 <body>
-${titleHtml}
-${renderBlocksWithCompositions(blocks, design)}
+${renderDocumentBody(titleHtml, blocks, design)}
 </body>
 </html>`;
 

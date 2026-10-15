@@ -39,6 +39,19 @@ export function documentContentIssues(spec: Spec, prompt: string, source?: Conve
   if (source?.error) return [source.error];
   if (!Array.isArray(spec.blocks) || !spec.blocks.length) return ['Document has no content blocks.'];
   if (spec.blocks.length > 200) issues.push('Document exceeds the renderer limit of 200 blocks; consolidate blocks without shortening content.');
+  if (spec.design?.layoutTemplate === 'pamphlet') {
+    const columns = spec.design.columns || 3;
+    const sheets: number[][] = [[0]];
+    for (const block of spec.blocks) {
+      const panels = sheets[sheets.length - 1];
+      if (block.type === 'page_break') sheets.push([0]);
+      else if (block.type === 'column_break') panels.push(0);
+      else if (block.type === 'image' || blockText(block).trim()) panels[panels.length - 1]++;
+    }
+    if (sheets.some(panels => panels.length !== columns || panels.some(count => count === 0))) {
+      issues.push(`Pamphlet panels are incomplete: every sheet needs ${columns} nonempty panels, separated by column_break, with page_break only between complete sheets. Preserve all supplied images and content; do not leave an accidental blank panel.`);
+    }
+  }
   const text = [spec.title || '', ...spec.blocks.map(blockText)].join('\n');
   for (const block of spec.blocks) {
     if (typeof block.text === 'string' && block.text.length > 30000) {

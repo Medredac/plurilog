@@ -8,7 +8,7 @@ const source=fs.readFileSync('src/app/api/debate/route.ts','utf8');
 const ast=ts.createSourceFile('route.ts',source,ts.ScriptTarget.Latest,true);
 const names=new Set(['SHARED_PANEL_SYSTEM_PROMPT','buildPlurilogProductContext','buildPanelMessages']);
 const selected=ast.statements.filter(n=>names.has(n.name?.text)||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>names.has(d.name.text))).map(n=>n.getText(ast)).join('\n');
-const context={exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
+const context={DOCUMENT_LAYOUT_GUIDANCE:'DOCUMENT LAYOUT LIBRARY',exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/utils/videoInputs.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 vm.runInNewContext(ts.transpileModule(selected,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 function build({name='Claude',prompt='Explain this.',prior=[],memory,documents,runtime={},continuation=false,attachments=null}={}){
