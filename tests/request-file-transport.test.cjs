@@ -497,11 +497,11 @@ function loadDocumentImageResolver(brokerResult) {
   const loaded = new Module(filename, module);
   loaded.filename = filename;
   loaded.paths = module.paths;
-  loaded.require = name => name === './documentLayouts' ? {} : name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/resourceBroker'
+  loaded.require = name => name === './documentLayouts' ? {} : name === './svgImage' ? svgModule.exports : name === './pdfPhotoRebuild' ? { MAX_REBUILT_PHOTOS: 32 } : name === '@/utils/documentRevisionState' ? { inferDocumentStateImageBindings: s => s.imageBindings } : name === '@/utils/resourceBroker'
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
-    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives };', {
+    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives, reusableParentImageBindings, fallbackResolveImageSource };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
   return loaded.exports;
@@ -703,4 +703,46 @@ test('later document edits reuse saved generated artwork instead of generating a
  assert.deepEqual(downloads,['user/document-assets/generated.png']);
  assert.deepEqual(result.blocks[0].imageData,png);
  assert.equal(result.blocks[0].widthMm,55);
+});
+
+
+test('redesign reuses generated photos after reordering and generate-to-existing conversion', async () => {
+ const {reusableParentImageBindings,resolveDocumentBlocks}=loadDocumentImageResolver({});
+ const photo={type:'image',mode:'generate',prompt:'Editorial garden photograph',widthMm:165};
+ const logo={type:'image',mode:'existing',filename:'logo.png',need:'logo.png'};
+ const parent={spec:{blocks:[photo,logo]},imageBindings:[
+  {imageOrdinal:0,source:{filename:'generated-garden.png',storagePath:'user/document-assets/garden.png'}},
+  {imageOrdinal:1,source:{filename:'logo.png',storagePath:'user/logo.png'}}]};
+ const redesigned=[logo,{...photo,mode:'existing',prompt:'',need:photo.prompt,widthMm:80}];
+ const bindings=reusableParentImageBindings(parent,redesigned);
+ assert.deepEqual(bindings.map(b=>[b.imageOrdinal,b.source.storagePath]),[[0,'user/logo.png'],[1,'user/document-assets/garden.png']]);
+ const downloads=[];const client={storage:{from:()=>({download:async p=>{downloads.push(p);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks(redesigned,client,[],undefined,undefined,()=>assert.fail('must not regenerate'),bindings);
+ assert.deepEqual(downloads,['user/logo.png','user/document-assets/garden.png']);assert.equal(result.imageAssetCount,2);
+ assert.equal(reusableParentImageBindings(parent,[{...photo,prompt:'A different photograph'}]).length,0);
+ assert.equal(reusableParentImageBindings(parent,[{...photo,mode:'edit',prompt:'Change the lighting'}]).length,0);
+});
+test('a rendered flyer cannot substitute for an embedded botanical illustration',async()=>{
+ const page={filename:'community garden — rendered page 1.png',storagePath:'user/docx-pages/hash/page-001.png',sender:'user'};
+ const logo={filename:'qa-logo.png',storagePath:'user/logo.png',sender:'user'};
+ const art={filename:'community garden — embedded image 3 — botanical illustration.png',storagePath:'user/docx-assets/hash/art.png',sender:'assistant'};
+ const {resolveDocumentBlocks,fallbackResolveImageSource}=loadDocumentImageResolver({status:'resolved',evidence:{kind:'image',...page}});
+ const need='the existing small botanical illustration from the Community Garden Open Day flyer';
+ const client={storage:{from:()=>({download:async p=>{assert.equal(p,art.storagePath);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'existing',need}],client,[page,logo,art],{},undefined);
+ assert.equal(result.imageBindings[0].source.storagePath,art.storagePath);
+ assert.equal(fallbackResolveImageSource([page],need),null);
+ assert.equal(fallbackResolveImageSource([page],'the whole page screenshot').storagePath,page.storagePath);
+});
+test('ambiguous existing image descriptions do not silently choose by provenance or position',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ assert.equal(fallbackResolveImageSource([{filename:'garden photo one.png',storagePath:'a.png'},{filename:'garden photo two.png',storagePath:'b.png'}],'existing garden photo'),null);
+});
+test('copied page previews retain their exclusion through canonical artifact identity',()=>{
+ const {fallbackResolveImageSource,reusableParentImageBindings}=loadDocumentImageResolver({});
+ const page={filename:'flyer — rendered page 1.png',storagePath:'user/docx-pages/hash/page.png',artifactId:'page-asset'};
+ const copy={filename:'botanical illustration.png',storagePath:'user/docx-assets/copy.png',artifactId:'page-asset'};
+ const block={type:'image',mode:'existing',need:'botanical illustration'};
+ assert.equal(fallbackResolveImageSource([copy,page],block.need),null);
+ assert.deepEqual(reusableParentImageBindings({spec:{blocks:[block]},imageSources:[page],imageBindings:[{imageOrdinal:0,source:copy}]},[block]),[]);
 });

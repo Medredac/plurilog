@@ -374,7 +374,7 @@ export const GPT_FILE_TOOLS = [
             description:
               'Style-neutral design controls shared by PDF and Word where supported. Use the user\'s requested aesthetic; these are capabilities, not a template.',
             properties: {
-              layoutTemplate: { type: 'string', enum: ['essay', 'report', 'proposal', 'letter', 'resume', 'guide', 'flyer', 'pamphlet', 'custom'], description: 'Executable layout preset for new documents; explicit design controls override defaults. Preserve the source preset on revisions.' },
+              layoutTemplate: { type: 'string', enum: ['essay', 'report', 'proposal', 'letter', 'resume', 'guide', 'flyer', 'pamphlet', 'brochure-editorial', 'brochure-trifold', 'custom'], description: 'Executable layout preset for new documents; explicit design controls override defaults. Preserve the source preset on revisions.' },
               columns: { type: 'integer', minimum: 1, maximum: 3 },
               columnGapMm: { type: 'number', minimum: 4, maximum: 16 },
               pageSize: { type: 'string', enum: ['A4', 'LETTER'] },
@@ -488,7 +488,7 @@ export const GPT_FILE_TOOLS = [
                 filename: {
                   type: 'string',
                   description:
-                    'Optional exact filename of the existing image to use or edit.',
+                    'Optional exact filename of the existing image to use or edit. Reuse an embedded asset, not a rendered document page. On canonical revisions retain original image directives when only layout changes; do not replace them with guessed descriptions.',
                 },
                 caption: {
                   type: 'string',

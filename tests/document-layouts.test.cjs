@@ -1,7 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),ts=require('typescript'),vm=require('node:vm');
-function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
+function load(file){const filename=path.resolve(file),m=new Module(filename,module);m.paths=module.paths;m.require=n=>n==='./pdfBrochureFont.json'?JSON.parse(fs.readFileSync('src/utils/pdfBrochureFont.json','utf8')):n==='./documentLayouts'?load('src/utils/documentLayouts.ts'):require(n);m._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,filename);return m.exports;}
 const {applyDocumentLayout,DOCUMENT_LAYOUTS}=load('src/utils/documentLayouts.ts');
 const {renderDocx}=load('src/utils/docxWriter.ts');
 const {buildHtml}=load('src/utils/richPdfRenderer.ts');
@@ -75,4 +75,20 @@ test('serif and multilingual font names cannot terminate inline HTML style attri
   const {html}=buildHtml({filename:'font.pdf',title:'Title',design:{fontFamily},blocks:[{type:'heading',text:'Heading'}]});
   assert.match(html,/style="font-family:[^"]+;font-size:[^";]+;font-weight:700/);
  }
+});
+test('editorial brochure composes every page without duplicating headings or hiding overflow',()=>{
+ const blocks=[{type:'heading',level:1,text:'Garden story'},{type:'paragraph',text:'EXACT INTRO'},{type:'page_break'},{type:'heading',level:1,text:'Details'},{type:'table',headers:['Reference'],rows:[['ORCHID-4729']]},{type:'paragraph',text:'FINAL CONTACT'}];
+ const {html,fullText}=buildHtml({filename:'brochure.pdf',title:'Garden story',design:{layoutTemplate:'brochure-editorial',footerText:'$4,200'},blocks});
+ assert.equal((html.match(/<section class="brochure-page/g)||[]).length,2);
+ assert.equal((html.match(/>Garden story</g)||[]).length,1);
+ for(const t of ['EXACT INTRO','ORCHID-4729','FINAL CONTACT','$4,200'])assert.ok(html.includes(t));
+ assert.ok(fullText.includes('FINAL CONTACT'));assert.ok(!html.includes('overflow:hidden'));
+ assert.ok(html.includes('pdf-heading-1'));assert.ok(!html.includes('@bottom-left'));
+});
+test('folded brochure applies designed panels without changing print order or content',()=>{
+ const blocks=[];for(let i=0;i<6;i++){if(i)blocks.push({type:i===3?'page_break':'column_break'});blocks.push({type:'heading',level:1,text:'Panel '+i},{type:'paragraph',text:'Unchanged content '+i});}
+ const {html}=buildHtml({filename:'fold.pdf',design:{layoutTemplate:'brochure-trifold'},blocks});
+ assert.equal((html.match(/<section class="brochure-fold"/g)||[]).length,2);
+ for(let i=0;i<6;i++)assert.ok(html.includes('Unchanged content '+i));
+ assert.ok(html.indexOf('Panel 0')<html.indexOf('Panel 1'));
 });

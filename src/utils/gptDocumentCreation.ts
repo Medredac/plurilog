@@ -706,16 +706,27 @@ function scoreImageSource(
     score += 300;
   }
 
-  // When the model explicitly asks to reuse the original/existing image, provenance
-  // is stronger evidence than a generated-document filename. Prefer the earliest
-  // user-originated canonical image over assistant-generated copies/re-encodes.
+  // Prefer user originals slightly, but only after a semantic match. Provenance
+  // alone must not make an unrelated upload outrank the requested artwork.
   if (wantsOriginal) {
     const sender = (source.sender || '').toLowerCase();
-    if (sender === 'user') score += 1200;
-    else if (sender) score += 100;
+    if (score > 0 && sender === 'user') score += 10;
   }
 
   return score;
+}
+
+function isRenderedDocumentPage(source: DocumentImageSource): boolean {
+  return /\/(?:docx-pages|pdf-pages)\//i.test(source.storagePath || source.url || '') ||
+    /[—–-] rendered page \d+/i.test(source.filename || '');
+}
+function isPageDerivedImage(source: DocumentImageSource, availableImages: DocumentImageSource[]): boolean {
+  return isRenderedDocumentPage(source) || Boolean(source.artifactId && availableImages.some(
+    candidate => candidate.artifactId === source.artifactId && isRenderedDocumentPage(candidate)
+  ));
+}
+function requestsDocumentPage(need?: string, filename?: string): boolean {
+  return /\b(?:screenshot|rendered page|whole page|entire page|page preview)\b/i.test(`${need || ''} ${filename || ''}`);
 }
 
 function fallbackResolveImageSource(
@@ -724,7 +735,8 @@ function fallbackResolveImageSource(
   filename?: string
 ): DocumentImageSource | null {
   const rawCandidates = availableImages.filter((source) =>
-    isImageFilename(source.filename || source.url || source.storagePath)
+    isImageFilename(source.filename || source.url || source.storagePath) &&
+    (!isPageDerivedImage(source, availableImages) || requestsDocumentPage(need, filename))
   );
   if (rawCandidates.length === 0) return null;
 
@@ -794,9 +806,9 @@ function fallbackResolveImageSource(
     });
 
   if (ranked[0]?.score > 0) {
-    // Strong semantic requests such as "original portrait" are intentionally
-    // deterministic. Generic image requests remain ambiguity-safe below.
-    if (wantsOriginal || wantsPortrait || filename) {
+    // Exact filenames can resolve directly; semantic matches must have a
+    // unique winner rather than silently choosing between different assets.
+    if (filename && ranked[0].score >= 8000) {
       return ranked[0].source;
     }
     if (!ranked[1] || ranked[0].score > ranked[1].score) {
@@ -996,21 +1008,33 @@ function reusableParentImageBindings(
     (block: any) => block?.type === 'image'
   );
 
+  const identity = (block: any) => [block?.filename, block?.need, block?.prompt]
+    .filter((value): value is string => typeof value === 'string' && !!value.trim())
+    .map(value => value.trim());
   const directive = (block: any) => JSON.stringify({
-    mode: block?.mode || 'generate',
-    prompt: block?.prompt || '',
-    need: block?.need || '',
-    filename: block?.filename || '',
+    mode: block?.mode || 'generate', prompt: block?.prompt || '',
+    need: block?.need || '', filename: block?.filename || '',
   });
 
-  return parentBindings.filter((binding) => {
-    const parentImage = parentImages[binding.imageOrdinal];
-    const currentImage = currentImages[binding.imageOrdinal];
-    return Boolean(
-      parentImage &&
-      currentImage &&
-      directive(parentImage) === directive(currentImage)
-    );
+  // Layout edits may move an image or change generate -> existing. Match the
+  // saved asset's identity, never its new position alone. A genuinely changed
+  // generation/edit instruction must still create/edit the requested asset.
+  return currentImages.flatMap((current: any, imageOrdinal) => {
+    const exact = parentBindings.filter(binding => {
+      const parent = parentImages[binding.imageOrdinal];
+      if (!parent) return false;
+      if (directive(parent) === directive(current)) return true;
+      if (current.mode !== 'existing') return false;
+      const keys = [...identity(parent), binding.source.filename];
+      return identity(current).some(key => keys.includes(key));
+    });
+    const sources = new Map(exact.map(binding => [
+      binding.source.artifactId || binding.source.storagePath || binding.source.filename, binding,
+    ]));
+    if (sources.size !== 1) return [];
+    const binding = [...sources.values()][0];
+    if (isPageDerivedImage(binding.source, parentSnapshot.imageSources || []) && !requestsDocumentPage(current.need, current.filename)) return [];
+    return [{ ...binding, imageOrdinal }];
   });
 }
 
@@ -1122,6 +1146,7 @@ async function resolveDocumentBlocks(
           };
         }
       }
+      if (source && isPageDerivedImage(source, availableImages) && !requestsDocumentPage(need, block.filename)) source = null;
       source = source || fallbackResolveImageSource(availableImages, need, block.filename);
       if (!source) {
         throw new Error(`Could not uniquely resolve the image requested for the document: ${need}`);
@@ -1830,7 +1855,7 @@ export async function executeGptDocumentCreation(
     signal,
     durableSignal = signal,
     sourceDocx = null,
-    availableImages = [],
+    availableImages: providedImages = [],
     resourceContext,
     onImageCost,
     onActivity,
@@ -1841,6 +1866,11 @@ export async function executeGptDocumentCreation(
     revisionContext = null,
   } = options;
 
+  const availableImages = [
+    ...providedImages,
+    ...(revisionContext?.parentSnapshot?.imageSources || []),
+    ...(revisionContext?.parentSnapshot?.imageBindings || []).map(binding => binding.source),
+  ];
   let args = initialArgs;
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&

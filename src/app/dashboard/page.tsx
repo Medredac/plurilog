@@ -2788,8 +2788,12 @@ export default function DashboardPage() {
               }
             } else if (eventType === 'seat_error') {
               const seatId = data.seatId as ModelId;
-              if (isCurrentDiscussionActive && data.videoInspection === true) {
-                setErrorMessage(data.message || 'Video inspection failed. Please try again.');
+              if (isCurrentDiscussionActive) {
+                setErrorMessage(
+                  typeof data.message === 'string' && data.message.includes('Could not uniquely resolve the image requested for the document')
+                    ? 'The document could not be completed because one of its images could not be found. Please try again.'
+                    : data.message || 'This response could not be completed. Please try again.'
+                );
               }
 
               inProgressModelId = null;

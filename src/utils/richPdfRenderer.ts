@@ -1,3 +1,4 @@
+import brochureFont from './pdfBrochureFont.json';
 import { applyDocumentLayout, type DocumentLayoutOptions } from './documentLayouts';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
@@ -370,9 +371,9 @@ function renderImage(block: DocxBlock, design: ReturnType<typeof normalizeDesign
         ? '8pt 0 10pt auto'
         : '8pt auto 10pt auto';
   const caption = cleanText(block.caption, 2000);
-  return `<div style="text-align:${align};margin:0 0 10pt 0;page-break-inside:avoid;">
+  return `<div class="pdf-image${block.size === 'small' ? ' pdf-image-small' : ''}" style="text-align:${align};margin:0 0 10pt 0;page-break-inside:avoid;">
     <div style="display:flex;justify-content:${align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'};margin:${margin};">${image}</div>
-    ${caption ? `<div style="font-size:${Math.max(8, design.bodySizePt - 1.5)}pt;color:${design.mutedColor};margin-top:3pt;">${escapeHtml(caption)}</div>` : ''}
+    ${caption ? `<div class="pdf-image-caption" style="font-size:${Math.max(8, design.bodySizePt - 1.5)}pt;color:${design.mutedColor};margin-top:3pt;">${escapeHtml(caption)}</div>` : ''}
   </div>`;
 }
 
@@ -569,7 +570,7 @@ function renderBlock(block: RichDocumentBlock, design: ReturnType<typeof normali
     case 'heading': {
       const level = Math.max(1, Math.min(3, Math.floor(block.level || 1)));
       const sizes = [0, design.bodySizePt + 10, design.bodySizePt + 5, design.bodySizePt + 2.5];
-      return `<div style="font-family:${fontStack(design.headingFontFamily)};font-size:${sizes[level]}pt;font-weight:700;color:${design.textColor};margin:${level === 1 ? 12 : 9}pt 0 5pt 0;page-break-after:avoid;">${escapeHtml(cleanText(block.text))}</div>`;
+      return `<div class="pdf-heading-${level}" style="font-family:${fontStack(design.headingFontFamily)};font-size:${sizes[level]}pt;font-weight:700;color:${design.textColor};margin:${level === 1 ? 12 : 9}pt 0 5pt 0;page-break-after:avoid;">${escapeHtml(cleanText(block.text))}</div>`;
     }
     case 'paragraph':
       return `<div style="margin:0 0 8pt 0;">${paragraphsFromText(block.text || '')}</div>`;
@@ -685,8 +686,31 @@ function parsePdfPageCount(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** Composed brochure pages use the same authored blocks and image bytes. */
+function renderEditorialBrochure(titleHtml: string, blocks: RichDocumentBlock[], design: ReturnType<typeof normalizeDesign>): string {
+  const pages: RichDocumentBlock[][] = [[]];
+  for (const block of blocks) {
+    if (block.type === 'page_break') { if (pages[pages.length - 1].length) pages.push([]); }
+    else pages[pages.length - 1].push(block);
+  }
+  return pages.filter(page => page.length).map((page, index) => {
+    // Only an explicitly large/full image becomes the feature visual. Small
+    // logos and inline diagrams stay in the copy, with their aspect ratios.
+    const heroIndex = page.findIndex(b => b.type === 'image' && (b.size === 'large' || b.size === 'full'));
+    const hero = heroIndex >= 0 ? page[heroIndex] as DocxBlock : null;
+    const copy = page.filter((_, i) => i !== heroIndex);
+    return `<section class="brochure-page ${hero ? 'has-hero' : ''} ${index % 2 ? 'reverse' : ''}" style="${index ? 'break-before:page;' : ''}">
+      <div class="brochure-rule"><span>${escapeHtml(design.headerText)}</span><span>${String(index + 1).padStart(2, '0')}</span></div>
+      <div class="brochure-spread"><div class="brochure-copy">${index === 0 ? titleHtml : ''}${renderBlocksWithCompositions(copy, design)}</div>
+      ${hero ? `<div class="brochure-visual">${renderImage(hero, design)}</div>` : ''}</div>
+      <div class="brochure-end"><span>${escapeHtml(design.footerText)}</span><i aria-hidden="true"></i></div>
+    </section>`;
+  }).join('');
+}
+
 /** Explicit panel breaks use fixed-width print panels; flowing columns remain paginated. */
 function renderDocumentBody(titleHtml: string, blocks: RichDocumentBlock[], design: ReturnType<typeof normalizeDesign>): string {
+  if (design.layoutTemplate === 'brochure-editorial') return renderEditorialBrochure(titleHtml, blocks, design);
   if (design.columns <= 1 || !blocks.some(b => b.type === 'column_break')) {
     return `<main style="column-count:${design.columns};column-gap:${design.columnGapMm}mm;orphans:3;widows:3;">${titleHtml}${renderBlocksWithCompositions(blocks, design)}</main>`;
   }
@@ -703,7 +727,7 @@ function renderDocumentBody(titleHtml: string, blocks: RichDocumentBlock[], desi
   }
   return sheets.map((sheet, index) => {
     while (sheet.length < design.columns) sheet.push([]);
-    return `<section style="${index ? 'break-before:page;' : ''}"><table role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:0;"><tbody><tr>${sheet.map((panel,i) => `<td style="vertical-align:top;border:0;background:transparent;padding:0 ${i === sheet.length-1 ? 0 : design.columnGapMm / 2}mm 0 ${i ? design.columnGapMm / 2 : 0}mm;width:${100/design.columns}%;">${index === 0 && i === 0 ? titleHtml : ''}${renderBlocksWithCompositions(panel, design)}</td>`).join('')}</tr></tbody></table></section>`;
+    return `<section class="${design.layoutTemplate === 'brochure-trifold' ? 'brochure-fold' : ''}" style="${index ? 'break-before:page;' : ''}"><table role="presentation" style="width:100%;table-layout:fixed;border-collapse:collapse;border:0;"><tbody><tr>${sheet.map((panel,i) => `<td style="vertical-align:top;border:0;background:transparent;padding:0 ${i === sheet.length-1 ? 0 : design.columnGapMm / 2}mm 0 ${i ? design.columnGapMm / 2 : 0}mm;width:${100/design.columns}%;">${index === 0 && i === 0 ? titleHtml : ''}${renderBlocksWithCompositions(panel, design)}</td>`).join('')}</tr></tbody></table></section>`;
   }).join('');
 }
 
@@ -725,7 +749,7 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
       ? design.orientation === 'landscape' ? '11in 8.5in' : '8.5in 11in'
       : design.orientation === 'landscape' ? '297mm 210mm' : '210mm 297mm';
 
-  const headerCss = design.headerText
+  const headerCss = design.headerText && design.layoutTemplate !== 'brochure-editorial'
     ? `@top-left {
         content: ${JSON.stringify(design.headerText)};
         color: ${design.mutedColor};
@@ -734,7 +758,7 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
       }`
     : '';
 
-  const footerCss = design.footerText
+  const footerCss = design.footerText && design.layoutTemplate !== 'brochure-editorial'
     ? `@bottom-left {
         content: ${JSON.stringify(design.footerText)};
         color: ${design.mutedColor};
@@ -752,7 +776,8 @@ export function buildHtml(input: RichPdfInput): { html: string; fullText: string
       }`
     : '';
 
-  const titleHtml = title
+  const titleAlreadyInBrochure = design.layoutTemplate.startsWith('brochure-') && blocks.some(block => block.type === 'heading' && cleanText(block.text) === title);
+  const titleHtml = title && !titleAlreadyInBrochure
     ? `<div class="pdf-document-title" style="font-family:${fontStack(design.headingFontFamily)};color:${design.textColor};">${escapeHtml(title)}</div>`
     : '';
 
@@ -929,6 +954,39 @@ p {
 h1, h2, h3 {
   break-after: avoid;
 }
+${design.layoutTemplate.startsWith('brochure-') ? `
+${brochureFont.css}
+${['sans', 'Arial', 'Helvetica'].includes(design.fontFamily) ? `.brochure-page, .brochure-fold, .brochure-page table, .brochure-fold table { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
+${['sans', 'Arial', 'Helvetica'].includes(design.headingFontFamily) ? `.brochure-page [class^='pdf-heading-'], .brochure-fold [class^='pdf-heading-'] { font-family:'Inter Variable', Arial, sans-serif !important; }` : ''}
+.brochure-page { min-height:${(design.pageSize === 'LETTER' ? (design.orientation === 'landscape' ? 215.9 : 279.4) : (design.orientation === 'landscape' ? 210 : 297)) - design.marginMm * 2 - 1}mm; display:flex; flex-direction:column; }
+.brochure-rule { display:flex; justify-content:space-between; border-top:2pt solid ${design.accentColor}; padding:5mm 0 9mm; color:${design.accentColor}; font-size:8pt; font-weight:700; letter-spacing:1.2pt; text-transform:uppercase; }
+.brochure-spread { display:grid; grid-template-columns:1fr; gap:9mm; flex:1; align-items:center; }
+.brochure-page.has-hero .brochure-spread { grid-template-columns:1.1fr 1fr; }
+.brochure-copy { min-width:0; padding:5mm 0; }
+.brochure-copy img { height:auto !important; max-height:70mm; object-fit:contain; }
+.brochure-copy .pdf-heading-1, .brochure-copy .pdf-document-title { font-size:32pt !important; line-height:1.05 !important; letter-spacing:-1.1pt; color:${design.accentColor} !important; margin-bottom:7mm !important; }
+.brochure-copy .pdf-heading-2 { font-size:18pt !important; line-height:1.15 !important; color:${design.accentColor} !important; }
+.brochure-copy p, .brochure-copy li { font-size:${design.bodySizePt}pt !important; line-height:${design.lineHeight} !important; }
+.brochure-visual { min-width:0; background:${design.accentColor3}; padding:5mm; border-radius:0 28mm 0 0; border-bottom:8mm solid ${design.accentColor}; }
+.brochure-visual img { width:100% !important; height:160mm !important; object-fit:contain; }
+.brochure-visual > div { margin:0 !important; }
+.brochure-page.reverse .brochure-visual { grid-column:1; grid-row:1; border-radius:28mm 0 0 0; border-color:${design.accentColor2}; }
+.brochure-page.reverse.has-hero .brochure-copy { grid-column:2; }
+.brochure-page:first-child.has-hero .brochure-copy { padding:9mm 7mm; background:${design.accentColor}; color:#fff; border-radius:0 0 0 18mm; }
+.brochure-page:first-child.has-hero .brochure-copy .pdf-heading-1, .brochure-page:first-child.has-hero .brochure-copy .pdf-document-title { color:#fff !important; }
+.brochure-page:first-child.has-hero .brochure-copy img { background:#fff; padding:3mm; }
+.brochure-fold img { height:auto !important; max-height:65mm; object-fit:contain; }
+.brochure-fold .pdf-image-small img { background:#fff; padding:3mm; }
+.brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-image-caption { color:#fff !important; }
+.brochure-end { display:flex; align-items:center; justify-content:space-between; padding-top:8mm; color:${design.mutedColor}; font-size:8pt; }
+.brochure-end i { display:block; width:28mm; height:7mm; background:${design.accentColor2}; border-radius:7mm 0 0 7mm; }
+.brochure-fold > table > tbody > tr > td { padding:8mm !important; background:${design.accentColor3} !important; border-right:3mm solid ${design.backgroundColor} !important; }
+.brochure-fold > table > tbody > tr > td:nth-child(2) { background:${design.backgroundColor} !important; border-top:3mm solid ${design.accentColor2} !important; }
+.brochure-fold > table > tbody > tr > td:nth-child(3) { background:${design.accentColor} !important; }
+.brochure-fold > table > tbody > tr > td:nth-child(3) p, .brochure-fold > table > tbody > tr > td:nth-child(3) li, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-1, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-2, .brochure-fold > table > tbody > tr > td:nth-child(3) .pdf-heading-3 { color:white !important; }
+.brochure-fold .pdf-heading-1 { font-size:27pt !important; line-height:1.08 !important; letter-spacing:-0.8pt; }
+.brochure-fold .pdf-heading-2 { font-size:18pt !important; line-height:1.15 !important; }
+` : ''}
 </style>
 </head>
 <body>
