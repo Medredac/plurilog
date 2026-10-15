@@ -85,7 +85,7 @@ export default function PrivacyPage() {
               Your Rights
             </h2>
             <p>
-              Depending on where you live, you may have the right to access, correct, delete, or receive a copy of your personal information, and to object to or restrict certain uses of it. To exercise any of these rights, email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
+              Depending on where you live, you may have the right to access, correct, delete, or receive a copy of your personal information, and to object to or restrict certain uses of it. To exercise any of these rights, email us at <a href="mailto:hello@plurilogai.com" className="text-zinc-900 underline hover:no-underline font-medium">hello@plurilogai.com</a>.
             </p>
           </MotionReveal>
 
@@ -130,7 +130,7 @@ export default function PrivacyPage() {
               Contact Us
             </h2>
             <p>
-              Questions about this policy, or want to exercise your data rights? Email us at <a href="mailto:plurilogAI@gmail.com" className="text-zinc-900 underline hover:no-underline font-medium">plurilogAI@gmail.com</a>.
+              Questions about this policy, or want to exercise your data rights? Email us at <a href="mailto:hello@plurilogai.com" className="text-zinc-900 underline hover:no-underline font-medium">hello@plurilogai.com</a>.
             </p>
           </MotionReveal>
         </article>
