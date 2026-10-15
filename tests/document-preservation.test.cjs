@@ -73,6 +73,34 @@ test('rename cannot silently lose body, table cells, another heading or the titl
   const withBodyTitle = structuredClone(parent); withBodyTitle.blocks.push({ type: 'paragraph', text: parent.title });
   assert.deepEqual(revision.missingPreservedDocumentContent(withBodyTitle, renamed(), prompt), [parent.title]);
 });
+test('title-only rename handles a shorter visible title after a logo without changing the subtitle or body', () => {
+  const source = {
+    ...parent, title: 'Community Garden — Volunteer Guide',
+    blocks: [
+      { type: 'image', filename: 'qa-logo.png', preserveAspectRatio: true },
+      { type: 'heading', level: 1, text: 'Community Garden' },
+      { type: 'paragraph', text: 'Volunteer Guide' },
+      ...parent.blocks.slice(1),
+    ],
+    design: { layoutTemplate: 'guide', targetPageCount: 2 },
+  };
+  const request = 'Change only the title of community-garden-volunteer-guide.docx to Community Garden Volunteer Handbook. Preserve every other word, the original logo, the supplied image, their proportions, and the two-page structure.';
+  for (const path of ['/title', '/blocks/1/text']) {
+    const proposed = revision.applyDocumentJsonPatch(source, [
+      { op: 'replace', path, value: 'Community Garden Volunteer Handbook' },
+      { op: 'replace', path: '/blocks/2/text', value: 'Volunteer Handbook' },
+    ]);
+    const next = revision.normalizeRequestedTitleRevision(source, proposed, request);
+    assert.equal(next.title, 'Community Garden Volunteer Handbook');
+    assert.equal(next.blocks[1].text, next.title);
+    assert.deepEqual(next.blocks[0], source.blocks[0]);
+    assert.deepEqual(next.blocks.slice(2), source.blocks.slice(2));
+    assert.deepEqual(next.design, source.design);
+    assert.deepEqual(revision.missingPreservedDocumentContent(source, next, request), []);
+    const lostSubtitle = structuredClone(next); lostSubtitle.blocks[2].text = 'Changed';
+    assert.deepEqual(revision.missingPreservedDocumentContent(source, lostSubtitle, request), ['Volunteer Guide']);
+  }
+});
 test('existing narrow revision structural guard remains enforced', () => {
   for (const operation of [{ op: 'remove', path: '/blocks/1' }, { op: 'replace', path: '/blocks', value: [] }]) {
     assert.throws(() => revision.assertNarrowRevisionPatchSafety([operation], prompt));

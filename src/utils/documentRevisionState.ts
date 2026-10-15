@@ -877,6 +877,15 @@ function isRequestedTitleReplacement(oldTitle: string, newTitle: string, userPro
     normalizeSemantic(oldTitle) !== normalizeSemantic(newTitle);
 }
 
+// Match the visible title structurally, including a title following a logo.
+// Metadata titles may include a subtitle that the visible heading does not.
+function openingTitleIndex(spec: Record<string, any>): number {
+  if (!Array.isArray(spec.blocks)) return -1;
+  const index = spec.blocks.findIndex((block: any) => block?.type !== 'image');
+  const block = spec.blocks[index];
+  return block?.type === 'heading' && (block.level || 1) === 1 ? index : -1;
+}
+
 export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   parentSpec: Record<string, any>, nextSpec: T, userPrompt: string
 ): T {
@@ -885,8 +894,14 @@ export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   const matchingHeadings = parentSpec.blocks.flatMap((block: any, index: number) =>
     block?.type === 'heading' && normalizeSemantic(block.text) === normalizeSemantic(oldTitle)
       ? [index] : []);
-  const candidates = [nextSpec.title, ...matchingHeadings.map((index: number) =>
-    nextSpec.blocks[index]?.type === 'heading' ? nextSpec.blocks[index].text : '')]
+  const openingIndex = openingTitleIndex(parentSpec);
+  const titleIndices = Array.from(new Set([
+    ...matchingHeadings, ...(openingIndex >= 0 ? [openingIndex] : []),
+  ]));
+  const candidates = [nextSpec.title, ...titleIndices.map((index: number) =>
+    nextSpec.blocks[index]?.type === 'heading' &&
+      normalizeSemantic(nextSpec.blocks[index].text) !== normalizeSemantic(parentSpec.blocks[index].text)
+      ? nextSpec.blocks[index].text : '')]
     .filter((value): value is string => typeof value === 'string' &&
       isRequestedTitleReplacement(oldTitle, value, userPrompt));
   if (!candidates.length) return nextSpec;
@@ -894,14 +909,19 @@ export function normalizeRequestedTitleRevision<T extends Record<string, any>>(
   if (candidates.some((value) => normalizeSemantic(value) !== normalizeSemantic(newTitle))) {
     throw new Error('Revision proposes conflicting document titles.');
   }
-  const next = jsonClone(nextSpec) as T & { title: string };
+  // A title-only request is an atomic rename, not permission to rewrite its
+  // subtitle, captions or body. Keep the canonical source for every other field.
+  const titleOnly = isTitleOnlyDocumentRevision(userPrompt);
+  const next = jsonClone(titleOnly ? {
+    ...parentSpec, filename: nextSpec.filename, format: nextSpec.format,
+  } : nextSpec) as T & { title: string };
   // Renderers suppress a duplicate heading only when it matches the stored
   // title. Synchronize both representations even if the model patches just one.
   next.title = newTitle;
-  for (const index of matchingHeadings) {
+  for (const index of titleIndices) {
     const block = next.blocks[index];
     if (block?.type === 'heading' &&
-        normalizeSemantic(block.text) === normalizeSemantic(oldTitle)) block.text = newTitle;
+        (titleOnly || normalizeSemantic(block.text) === normalizeSemantic(oldTitle))) block.text = newTitle;
   }
   return next;
 }
@@ -917,6 +937,7 @@ export function missingPreservedDocumentContent(
   const oldTitle = typeof parentSpec.title === 'string' ? parentSpec.title : '';
   const newTitle = typeof nextSpec.title === 'string' ? nextSpec.title : '';
   const renamesTitle = isRequestedTitleReplacement(oldTitle, newTitle, userPrompt);
+  const openingIndex = openingTitleIndex(parentSpec);
   const parentValues = [
     renamesTitle ? '' : oldTitle,
     ...(Array.isArray(parentSpec.blocks)
@@ -924,7 +945,7 @@ export function missingPreservedDocumentContent(
           const nextBlock = nextSpec.blocks?.[index];
           if (
             renamesTitle && block?.type === 'heading' &&
-            normalizeSemantic(block.text) === normalizeSemantic(oldTitle) &&
+            (normalizeSemantic(block.text) === normalizeSemantic(oldTitle) || index === openingIndex) &&
             nextBlock?.type === 'heading' &&
             normalizeSemantic(nextBlock.text) === normalizeSemantic(newTitle)
           ) return [];
