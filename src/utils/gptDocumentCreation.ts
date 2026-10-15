@@ -44,6 +44,7 @@ import {
   type ResourceBrokerContext,
 } from '@/utils/resourceBroker';
 import {
+  fetchSavedDocumentImageSources,
   inferDocumentStateImageBindings,
   missingPreservedDocumentContent,
   persistDocumentStateSnapshot,
@@ -507,6 +508,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
     }
 
     if (b.type === 'callout') {
+      if (b.eyebrow && b.title) output.push({ type: 'paragraph', text: String(b.eyebrow) } as any);
       if (b.title) output.push({ type: 'heading', level: 2, text: String(b.title) } as any);
       else if (b.eyebrow) output.push({ type: 'heading', level: 3, text: String(b.eyebrow) } as any);
       if (b.text) output.push({ type: 'paragraph', text: String(b.text) } as any);
@@ -518,6 +520,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
 
     if (b.type === 'cards' && Array.isArray(b.cards)) {
       for (const card of b.cards) {
+        if (card?.eyebrow) output.push({ type: 'paragraph', text: String(card.eyebrow) } as any);
         if (card?.title) {
           output.push({ type: 'heading', level: 2, text: String(card.title) } as any);
         }
@@ -530,6 +533,7 @@ function coerceRichBlocksForDocx(blocks: RichDocumentBlock[]): RichDocumentBlock
 
     if (b.type === 'columns' && Array.isArray(b.columns)) {
       for (const column of b.columns) {
+        if (column?.eyebrow) output.push({ type: 'paragraph', text: String(column.eyebrow) } as any);
         if (column?.title) {
           output.push({ type: 'heading', level: 2, text: String(column.title) } as any);
         }
@@ -691,6 +695,14 @@ function scoreImageSource(
   if (wantedFilename && sourceName.includes(wantedFilename)) return 8000;
 
   const combinedNeed = `${need} ${filename || ''}`.toLowerCase();
+  // Models often place the exact filename inside a descriptive need instead
+  // of the filename field. Treat that as identity evidence, not bag-of-words.
+  const filenamePosition = sourceName ? combinedNeed.indexOf(sourceName) : -1;
+  if (filenamePosition >= 0 && isImageFilename(sourceName)) {
+    const before = combinedNeed[filenamePosition - 1] || '';
+    const after = combinedNeed[filenamePosition + sourceName.length] || '';
+    if (!/[\w.-]/.test(before) && !/[\w.-]/.test(after)) return 9000;
+  }
   const tokens = combinedNeed.match(/[a-z0-9]{3,}/g) || [];
   let score = 0;
   for (const token of tokens) if (sourceName.includes(token)) score += 20;
@@ -742,37 +754,33 @@ function fallbackResolveImageSource(
 
   // Collapse aliases/copies that point at the same canonical artifact. Prefer a
   // user-originated alias when available because it best represents "original".
-  const byArtifact = new Map<string, DocumentImageSource>();
+  const byArtifact = new Map<string, { source: DocumentImageSource; score: number }>();
+  const artifactByPath = new Map(rawCandidates.filter(source => source.artifactId && source.storagePath).map(source => [source.storagePath, source.artifactId]));
   for (const source of rawCandidates) {
     const key =
       source.artifactId ||
+      (source.storagePath && artifactByPath.get(source.storagePath)) ||
       source.storagePath ||
       source.url ||
       source.filename;
     const existing = byArtifact.get(key);
     if (!existing) {
-      byArtifact.set(key, source);
+      byArtifact.set(key, { source, score: scoreImageSource(source, need, filename) });
       continue;
     }
-    const existingUser = (existing.sender || '').toLowerCase() === 'user';
+    existing.score = Math.max(existing.score, scoreImageSource(source, need, filename));
+    const existingUser = (existing.source.sender || '').toLowerCase() === 'user';
     const sourceUser = (source.sender || '').toLowerCase() === 'user';
-    if (sourceUser && !existingUser) byArtifact.set(key, source);
+    if (sourceUser && !existingUser) existing.source = source;
   }
   const candidates = Array.from(byArtifact.values());
 
   const combinedNeed = `${need} ${filename || ''}`;
-  const wantsPortrait =
-    /\b(photo|portrait|headshot|id\s*photo|profile\s*photo)\b/i.test(combinedNeed) ||
-    /(?:証明写真|顔写真|写真|ポートレート)/.test(need || '');
   const wantsOriginal =
     /\b(?:original|source|existing|same|previous)\b/i.test(combinedNeed) ||
     /(?:元の|原本|同じ|既存)/.test(need || '');
 
   const ranked = candidates
-    .map((source) => ({
-      source,
-      score: scoreImageSource(source, need, filename),
-    }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
 
@@ -806,17 +814,13 @@ function fallbackResolveImageSource(
     });
 
   if (ranked[0]?.score > 0) {
-    // Exact filenames can resolve directly; semantic matches must have a
-    // unique winner rather than silently choosing between different assets.
-    if (filename && ranked[0].score >= 8000) {
-      return ranked[0].source;
-    }
+    // Even exact filenames can be ambiguous across different uploaded assets.
     if (!ranked[1] || ranked[0].score > ranked[1].score) {
       return ranked[0].source;
     }
   }
 
-  return candidates.length === 1 ? candidates[0] : null;
+  return candidates.length === 1 ? candidates[0].source : null;
 }
 
 async function downloadImageBytes(
@@ -1897,6 +1901,12 @@ export async function executeGptDocumentCreation(
   // Store resolved layout defaults with the canonical source so later edits retain them.
   args = { ...args, design: applyDocumentLayout(args.design) };
   const serviceClient = createServiceClient();
+  if ((args.blocks || []).some(block => block.type === 'image' && (block.mode === 'existing' || block.mode === 'edit'))) {
+    availableImages.push(...await fetchSavedDocumentImageSources({
+      serviceSupabase: serviceClient,
+      discussionId,
+    }));
+  }
 
   // A model-supplied page target is not a user requirement. For a fresh
   // document, trust targetPageCount only when the user actually asked for an

@@ -151,3 +151,19 @@ test('real PDF extraction returns transparent picture plus opaque picture, never
     assert.equal(stopped, true);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('saved asset catalog is discussion-scoped, bounded and includes bindings without a revision parent', async () => {
+ const source={filename:'qa-logo.png',storagePath:'owner/logo.png',artifactId:'logo'};
+ const binding={filename:'generated.png',storagePath:'owner/generated.png'};
+ const calls=[];
+ const db={from(table){calls.push(['from',table]);return this;},select(value){calls.push(['select',value]);return this;},eq(...args){calls.push(['eq',...args]);return this;},order(...args){calls.push(['order',...args]);return this;},async limit(n){calls.push(['limit',n]);return {data:[{image_sources:[source,null,{}],image_bindings:[{source},null,{source:binding}]},{image_sources:[source]}]};}};
+ const images=await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:'this-discussion'});
+ assert.deepEqual(images,[source,binding]);
+ assert.ok(calls.some(c=>JSON.stringify(c)===JSON.stringify(['eq','discussion_id','this-discussion'])));
+ assert.ok(calls.some(c=>JSON.stringify(c)===JSON.stringify(['eq','artifact_type','document_state'])));
+ assert.equal(calls.find(c=>c[0]==='limit')[1],100);
+ assert.ok(!calls.find(c=>c[0]==='select')[1].includes('spec'));
+ assert.deepEqual(await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:''}),[]);
+ db.limit=async()=>({error:{message:'temporary failure'}});
+ assert.deepEqual(await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:'this-discussion'}),[]);
+});

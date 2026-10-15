@@ -349,6 +349,38 @@ export async function listDocumentStateSnapshots(options: {
     );
 }
 
+/** Reuse saved assets even when the model chooses create_file for a format copy.
+ * This is an asset catalog, not an implicit revision parent or content selection. */
+export async function fetchSavedDocumentImageSources(options: {
+  serviceSupabase: any;
+  discussionId: string;
+}): Promise<DocumentStateImageSource[]> {
+  const { serviceSupabase, discussionId } = options;
+  if (!serviceSupabase || !discussionId) return [];
+  const { data, error } = await serviceSupabase
+    .from('discussion_artifacts')
+    .select('metadata->image_sources, metadata->image_bindings')
+    .eq('discussion_id', discussionId)
+    .eq('artifact_type', DOCUMENT_STATE_ARTIFACT_TYPE)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) {
+    console.warn('[Document Images] Saved asset lookup unavailable', { discussionId, error: error.message });
+    return []; // Existing uploads remain usable if this supplementary lookup fails.
+  }
+  const sources = (data || []).flatMap((row: any) => [
+    ...(Array.isArray(row.image_sources) ? row.image_sources : []),
+    ...(Array.isArray(row.image_bindings) ? row.image_bindings.map((binding: any) => binding?.source) : []),
+  ]).filter((source: any) => source && typeof source.filename === 'string' && typeof source.storagePath === 'string' && source.storagePath);
+  const unique = new Map<string, DocumentStateImageSource>();
+  for (const source of sources) {
+    // Keep aliases for matching, but don't multiply identical historical copies.
+    const key = JSON.stringify([source.artifactId || '', source.storagePath, source.filename]);
+    if (!unique.has(key)) unique.set(key, source);
+  }
+  return [...unique.values()];
+}
+
 export function selectGeneratedDocumentStateByReference(
   snapshots: DocumentStateSnapshot[],
   userPrompt: string

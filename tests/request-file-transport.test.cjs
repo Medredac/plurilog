@@ -501,7 +501,7 @@ function loadDocumentImageResolver(brokerResult) {
     ? { resolveRequestedEvidence: () => brokerResult }
     : name.startsWith('@/') ? {} : require(name);
   loaded._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8') +
-    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives, reusableParentImageBindings, fallbackResolveImageSource };', {
+    '\nexport { resolveDocumentBlocks, downloadImageBytes, preserveImageSourceDirectives, reusableParentImageBindings, fallbackResolveImageSource, coerceRichBlocksForDocx };', {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText, filename);
   return loaded.exports;
@@ -745,4 +745,37 @@ test('copied page previews retain their exclusion through canonical artifact ide
  const block={type:'image',mode:'existing',need:'botanical illustration'};
  assert.equal(fallbackResolveImageSource([copy,page],block.need),null);
  assert.deepEqual(reusableParentImageBindings({spec:{blocks:[block]},imageSources:[page],imageBindings:[{imageOrdinal:0,source:copy}]},[block]),[]);
+});
+
+test('new-file creation resolves an exact filename inside a descriptive need and preserves Word image bytes',async()=>{
+ const {resolveDocumentBlocks}=loadDocumentImageResolver({status:'ambiguous'});
+ const logo={filename:'qa-logo.png',storagePath:'user/logo.png',artifactId:'logo',sender:'user'};
+ const sources=[logo,{...logo,filename:'Community Garden pamphlet — embedded image 1 — qa-logo.png.png',storagePath:'user/copy.png',sender:null},{filename:'Community Garden source pamphlet photo one.png',storagePath:'user/one.png'},{filename:'Community Garden source pamphlet photo two.png',storagePath:'user/two.png'}];
+ const calls=[];const client={storage:{from:()=>({download:async p=>{calls.push(p);return {data:new Blob([png],{type:'image/png'})};}})}};
+ const result=await resolveDocumentBlocks([{type:'image',mode:'existing',need:'qa-logo.png / the Community Garden logo from the source pamphlet',widthMm:42,heightMm:42}],client,sources,{},undefined);
+ assert.deepEqual(calls,['user/logo.png']);assert.deepEqual(result.blocks[0].imageData,png);
+ const writerFile=path.resolve('src/utils/docxWriter.ts'),writer=new Module(writerFile,module);writer.paths=module.paths;writer.require=n=>n==='./documentLayouts'?{applyDocumentLayout:d=>d||{}}:require(n);writer._compile(ts.transpileModule(fs.readFileSync(writerFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText,writerFile);
+ const doc=writer.exports.renderDocx({filename:'converted.docx',blocks:result.blocks});assert.ok(doc.buffer.includes(png));
+});
+test('matching retains descriptive aliases while returning the original canonical bytes',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ const original={filename:'upload.png',storagePath:'user/original.png',artifactId:'same',sender:'user'};
+ const alias={filename:'botanical illustration.png',storagePath:'user/derived.png',artifactId:'same'};
+ assert.equal(fallbackResolveImageSource([original,alias,{filename:'other.png',storagePath:'other.png'}],'botanical illustration').storagePath,original.storagePath);
+ assert.equal(fallbackResolveImageSource([original,{...original,artifactId:null}],'upload.png').storagePath,original.storagePath);
+});
+test('same-named different images remain ambiguous and filename boundaries are respected',()=>{
+ const {fallbackResolveImageSource}=loadDocumentImageResolver({});
+ const a={filename:'logo.png',storagePath:'a.png'},b={filename:'logo.png',storagePath:'b.png'};
+ assert.equal(fallbackResolveImageSource([a,b],'logo.png / the logo'),null);
+ assert.equal(fallbackResolveImageSource([a,b],'the logo','logo.png'),null);
+ const specific={filename:'other-logo.png',storagePath:'correct.png'};
+ assert.equal(fallbackResolveImageSource([a,specific],'Use other-logo.png from the document').storagePath,'correct.png');
+});
+
+test('PDF-to-Word flattening retains card, column and callout labels alongside their content',()=>{
+ const {coerceRichBlocksForDocx}=loadDocumentImageResolver({});
+ const blocks=[{type:'cards',cards:[{eyebrow:'01',title:'Raised beds',text:'Six beds'}]},{type:'columns',columns:[{eyebrow:'BRING',title:'Prepare',text:'Water'}]},{type:'callout',eyebrow:'CONTACT',title:'Join us',text:'garden@example.org'}];
+ const text=coerceRichBlocksForDocx(blocks).map(b=>b.text).join(' ');
+ for(const value of ['01','Raised beds','Six beds','BRING','Prepare','Water','CONTACT','Join us','garden@example.org'])assert.ok(text.includes(value));
 });

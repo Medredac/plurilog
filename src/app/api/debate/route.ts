@@ -8678,6 +8678,7 @@ export async function POST(req: NextRequest) {
                     availableDocumentImages.push({
                       filename: attachment.filename || 'image.png',
                       url: attachment.url,
+                      storagePath: extractStoragePathFromSignedUrl(attachment.url),
                     });
                   }
 
@@ -11465,6 +11466,7 @@ export async function POST(req: NextRequest) {
                       availableDocumentImages.push({
                         filename: attachment.filename || 'image.png',
                         url: attachment.url,
+                        storagePath: extractStoragePathFromSignedUrl(attachment.url),
                       });
                     }
 
