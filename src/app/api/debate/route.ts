@@ -98,6 +98,7 @@ import type {
 import {
   applyDocumentJsonPatch,
   assertNarrowRevisionPatchSafety,
+  documentRevisionOperations,
   findDocumentStateSnapshot,
   findLatestDocumentStateSnapshot,
   listDocumentStateSnapshots,
@@ -650,7 +651,7 @@ export const GPT_REVISE_FILE_TOOL = [
           },
           patch: {
             type: 'array',
-            minItems: 1,
+            minItems: 0,
             maxItems: 64,
             items: {
               type: 'object',
@@ -11536,17 +11537,21 @@ export async function POST(req: NextRequest) {
                           (requiresCanonicalTitleRevision ||
                             isNarrowDocumentRevisionFollowUpQuery(prompt || '')) &&
                           !userExplicitlyAllowsContentRemoval(prompt || '');
+                        const revisionOperations = documentRevisionOperations(
+                          revisionParentState.spec,
+                          reviseArgs
+                        );
 
                         if (preserveParentContent) {
                           assertNarrowRevisionPatchSafety(
-                            reviseArgs.patch || [],
+                            revisionOperations,
                             prompt || ''
                           );
                         }
 
                         fileArgs = applyDocumentJsonPatch(
                           revisionParentState.spec as GptCreateFileArgs,
-                          reviseArgs.patch || []
+                          revisionOperations
                         ) as GptCreateFileArgs;
                         fileArgs = normalizeRequestedTitleRevision(
                           revisionParentState.spec,

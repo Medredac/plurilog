@@ -567,6 +567,25 @@ function assertSafeToken(token: string): void {
   }
 }
 
+/** A format copy changes output metadata, not the document body. */
+export function documentRevisionOperations(
+  parentSpec: Record<string, any>,
+  request: { patch?: JsonPatchOperation[]; format?: string; filename?: string }
+): JsonPatchOperation[] {
+  if (request.patch !== undefined && !Array.isArray(request.patch)) {
+    throw new Error('Document revision patch must be an array.');
+  }
+  const operations = [...(request.patch || [])];
+  if (operations.length) return operations;
+  if ((request.format === 'pdf' || request.format === 'docx') && request.format !== parentSpec.format) {
+    operations.push({ op: 'replace', path: '/format', value: request.format });
+  }
+  if (typeof request.filename === 'string' && request.filename.trim() && request.filename.trim() !== parentSpec.filename) {
+    operations.push({ op: 'replace', path: '/filename', value: request.filename.trim() });
+  }
+  return operations;
+}
+
 export function assertNarrowRevisionPatchSafety(
   operations: JsonPatchOperation[],
   userPrompt: string

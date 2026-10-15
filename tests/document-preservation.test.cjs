@@ -167,3 +167,22 @@ test('saved asset catalog is discussion-scoped, bounded and includes bindings wi
  db.limit=async()=>({error:{message:'temporary failure'}});
  assert.deepEqual(await revision.fetchSavedDocumentImageSources({serviceSupabase:db,discussionId:'this-discussion'}),[]);
 });
+
+
+test('format-only copies preserve the complete canonical body with an empty model patch',()=>{
+ for(const [from,to] of [['pdf','docx'],['docx','pdf']]){
+  const source={...structuredClone(parent),format:from,filename:'source.'+from};
+  const operations=revision.documentRevisionOperations(source,{format:to,filename:'copy.'+to,patch:[]});
+  revision.assertNarrowRevisionPatchSafety(operations,'Give me a version in the other format.');
+  const copy=revision.applyDocumentJsonPatch(source,operations);
+  assert.equal(copy.format,to);assert.equal(copy.filename,'copy.'+to);
+  assert.deepEqual(copy.blocks,source.blocks);assert.equal(copy.title,source.title);
+  assert.equal(source.format,from);
+ }
+});
+test('empty/no-op and malformed revisions still fail while body edits keep existing guards',()=>{
+ assert.throws(()=>revision.applyDocumentJsonPatch(parent,revision.documentRevisionOperations(parent,{patch:[]})),/at least one/);
+ assert.throws(()=>revision.documentRevisionOperations(parent,{patch:{}}),/array/);
+ const unsafe=revision.documentRevisionOperations(parent,{format:'pdf',patch:[{op:'replace',path:'/blocks',value:[]}]});
+ assert.throws(()=>revision.assertNarrowRevisionPatchSafety(unsafe,'Just give me a PDF copy'),/cannot replace/);
+});
