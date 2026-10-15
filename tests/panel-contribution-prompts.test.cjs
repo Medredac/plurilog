@@ -77,3 +77,25 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
  assert.match(m[0].content,/one inspection during their upload turn only/);
  assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });
+
+
+test('document registry carries chronology without selecting source by requested output format',()=>{
+ const docs=[{id:'old',filename:'old.docx',createdAt:'2026-10-15T18:00:00Z'},{id:'new',filename:'latest.pdf',createdAt:'2026-10-15T19:00:00Z'}];
+ const m=build({name:'ChatGPT',prompt:'nice can you make me now a word one',memory:{knownDocuments:docs},runtime:{documentCreationEnabled:true}});
+ assert.ok(m[1].content.indexOf('latest.pdf')<m[1].content.indexOf('old.docx'));
+ assert.match(m[1].content,/saved 2026-10-15T19:00:00Z/);
+ assert.match(m[0].content,/does not fulfill a request to create or convert a file/);
+ assert.match(m[0].content,/Do not create an unsolicited file/);
+ assert.equal(docs[0].id,'old');
+});
+test('every evidence continuation retains working context, user identity, and Continue state',()=>{
+ const calls=[];
+ function visit(n){if(ts.isCallExpression(n)&&n.expression.getText(ast)==='buildPanelMessages')calls.push(n);ts.forEachChild(n,visit);}
+ visit(ast);
+ assert.equal(calls.length,3);
+ for(const call of calls){
+  assert.equal(call.arguments[13]?.getText(ast),'workingConversationContext');
+  assert.equal(call.arguments[14]?.getText(ast),'userDisplayName');
+  assert.equal(call.arguments[15]?.getText(ast),'isContinueRound === true');
+ }
+});

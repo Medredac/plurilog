@@ -2415,12 +2415,13 @@ ${workingConversationContext.trim()}`
     discussionMemory?.knownDocuments &&
     discussionMemory.knownDocuments.length > 0
   ) {
-    const docList = discussionMemory.knownDocuments
-      .map((doc) => (doc.id ? `- doc_${doc.id} — ${doc.filename}` : `- ${doc.filename}`))
+    const docList = [...discussionMemory.knownDocuments]
+      .sort((a, b) => (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0))
+      .map((doc) => `${doc.id ? `- doc_${doc.id} — ${doc.filename}` : `- ${doc.filename}`}${doc.createdAt ? ` (saved ${doc.createdAt})` : ''}`)
       .join('\n');
 
     sections.push(
-      `Known documents available in this discussion (authoritative identity only):\n${docList}\n\nThis registry includes uploaded documents and panel-created documents that have been durably indexed. A listed document not having its content retrieved below means its excerpts are not currently loaded for this turn; it does NOT mean the document is unavailable or never existed. Do not claim that a known document was never provided or that previously grounded facts from it were fabricated.`
+      `Known documents available in this discussion (authoritative identity only, newest saved first where dates are available):\n${docList}\n\nThis registry includes uploaded documents and panel-created documents that have been durably indexed. A listed document not having its content retrieved below means its excerpts are not currently loaded for this turn; it does NOT mean the document is unavailable or never existed. Do not claim that a known document was never provided or that previously grounded facts from it were fabricated. For a format-copy follow-up, identify the source from the conversation and document chronology; the requested output format is not the source format. Do not select an older Word file merely because the user now wants Word. Retrieve the intended source's canonical artifact before converting it; clarify only if the referent remains genuinely ambiguous.`
     );
   }
 
@@ -2731,6 +2732,9 @@ These rules concern conversation history only; do not reinterpret temporal langu
 
 Start with compact retrieval. Expand only evidence that needs more context. Use search_document_evidence when you need wording or facts from the parsed text of a prior file; use request_evidence when you need actual historical pixels, rendered pages, or a canonical artifact. After inspecting any result, you may retrieve again if it reveals a genuine additional need or the returned evidence is not the referent required by the task.
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
+      : '',
+    runtimeProductContext?.documentCreationEnabled && !runtimeProductContext?.documentCreatedThisTurn
+      ? `DOCUMENT ACTION FOLLOW-THROUGH: Opening a source, inspecting it, or retrieving its text/assets does not fulfill a request to create or convert a file. After retrieval, continue the current user's requested document action with the available creation/revision tool. Do not end with only an acknowledgment that you have the context or assets. When the user requested a format copy of a canonical Plurilog document, use revise_file with that source and the requested format, preserving its content and saved image bindings. Do not create an unsolicited file for a question or inspection-only request.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
     `CURRENT SEAT STATE: You are ${currentModelName}. Historical replies labeled ${currentModelName} are your own earlier contributions; refer to them as your earlier points, not as another panelist. ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. Follow TASK COMPLETION AND PANEL CONTRIBUTION above.`,
@@ -10052,7 +10056,9 @@ export async function POST(req: NextRequest) {
                     formatSharedAgenticEvidenceForPrompt(
                       sharedAgenticEvidenceLedger
                     ),
-                    userDisplayName
+                    workingConversationContext,
+                    userDisplayName,
+                    isContinueRound === true
                   );
 
                   const evidenceMessages = [
@@ -11034,7 +11040,9 @@ export async function POST(req: NextRequest) {
                         formatSharedAgenticEvidenceForPrompt(
                           sharedAgenticEvidenceLedger
                         ),
-                        userDisplayName
+                        workingConversationContext,
+                        userDisplayName,
+                        isContinueRound === true
                       );
 
                     seatResponse = '';
