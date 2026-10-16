@@ -1,3 +1,4 @@
+import { documentImageRecoveryInstruction, documentFailureRecoveryInstruction } from '@/utils/documentImageError';
 import { buildAgenticSeatActivity, activityFilename, documentActivityLabel, videoActivity } from '@/utils/seatActivity';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
@@ -14112,6 +14113,10 @@ export async function POST(req: NextRequest) {
               }
 
               const seatTimedOut = seatAbortController.signal.aborted;
+              const imageRecoveryInstruction = documentImageRecoveryInstruction(err);
+              const documentRecoveryInstruction = documentToolBranchActive
+                ? documentFailureRecoveryInstruction(err)
+                : imageRecoveryInstruction;
 
               // A source-preserving editor intentionally refuses to guess when
               // the model names text that cannot be matched exactly. That is a
@@ -14121,10 +14126,10 @@ export async function POST(req: NextRequest) {
               if (
                 !seatTimedOut &&
                 seat.seatId === 'chatgpt' &&
-                isRecoverableSourceEditExecutionError(err)
+                (documentRecoveryInstruction !== null || isRecoverableSourceEditExecutionError(err))
               ) {
                 try {
-                  console.warn('[Source Document Edit] Recovering from safe edit refusal', {
+                  console.warn('[Document Tool] Recovering with user-facing explanation', {
                     turnId,
                     discussionId: discussionId || null,
                     seatId: seat.seatId,
@@ -14140,7 +14145,7 @@ export async function POST(req: NextRequest) {
                     ...seatMessages,
                     {
                       role: 'system',
-                      content:
+                      content: documentRecoveryInstruction ||
                         'A source-document edit attempt was safely refused because an exact target could not be matched in the source. Do not call any document-editing or file-creation tools in this recovery response. Answer the user\'s original request directly using the conversation and evidence already available. If the original request genuinely required editing the document, briefly explain that the exact source text could not be matched and state what would be needed to retry safely. Do not claim that a file was edited.',
                     },
                   ];
@@ -14256,7 +14261,9 @@ export async function POST(req: NextRequest) {
                         p_discussion_id: discussionId || null,
                         p_meta: {
                           seatId: seat.seatId,
-                          sourceEditRecovery: true,
+                          sourceEditRecovery: !documentRecoveryInstruction,
+                          documentFailureRecovery: !!documentRecoveryInstruction,
+                          documentImageRecovery: !!imageRecoveryInstruction,
                           sourceEditError: err?.message || String(err),
                           waivedFailedToolCostUsd,
                           recoveryCostUsd: fallbackCostUsd,
@@ -14287,7 +14294,7 @@ export async function POST(req: NextRequest) {
                     discussionId: discussionId || null,
                     seatId: seat.seatId,
                     modelId: fallbackRespondingModel,
-                    reason: 'source_edit_safe_refusal',
+                    reason: imageRecoveryInstruction ? 'document_image_unavailable' : documentRecoveryInstruction ? 'document_tool_failure' : 'source_edit_safe_refusal',
                     seatElapsedMs: Date.now() - seatStartedAt,
                     elapsedTurnMs: Date.now() - turnStartedAt,
                   });
@@ -14300,7 +14307,7 @@ export async function POST(req: NextRequest) {
                   continue;
                 } catch (recoveryError) {
                   console.error(
-                    '[Source Document Edit] Recovery response failed:',
+                    '[Document Tool] Recovery response failed:',
                     recoveryError
                   );
                 }
