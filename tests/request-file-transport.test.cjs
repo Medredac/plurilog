@@ -324,7 +324,7 @@ test('route integration keeps signals outside model JSON and assets outside ordi
   const userAttachments = source.slice(source.indexOf('const userAttachments:'), source.indexOf('const effectiveAttachments:'));
   assert.ok(!userAttachments.includes('...pdfEmbeddedImageAttachments'));
   assert.ok(source.includes('[...(currentRoundAttachments || []), ...pdfEmbeddedImageAttachments]'));
-  assert.ok(source.includes('[...(evidenceAttachments || []), ...pdfEmbeddedImageAttachments]'));
+  assert.ok(source.includes('for (const asset of availableAssets())')); // Every creation/revision uses the same asset inventory.
 });
 
 function storageAndDatabase(bytes) {
