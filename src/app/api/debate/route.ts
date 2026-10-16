@@ -1,3 +1,4 @@
+import { canReplanToolFailure, toolFailureFeedback, type ToolRecoveryState } from '@/utils/agenticToolRecovery';
 import { buildAgenticSeatActivity, activityFilename, documentActivityLabel, videoActivity } from '@/utils/seatActivity';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
@@ -6911,6 +6912,7 @@ export async function POST(req: NextRequest) {
           // Sequential panel execution across configured seats in custom order.
           // Label the seat loop so successful image generation is explicitly terminal for that seat,
           // even if nested control flow is added around it in the future.
+          const toolRecoveryStates = new Map<string, ToolRecoveryState>();
           seatLoop: for (
             let seatIndex = 0;
             seatIndex < configuredSeats.length;
@@ -6928,7 +6930,9 @@ export async function POST(req: NextRequest) {
               return;
             }
 
-            const messageId = crypto.randomUUID();
+            const attachmentsBeforeAttempt = currentRoundAttachments.length;
+            const recoveryState = toolRecoveryStates.get(seat.seatId);
+            const messageId = recoveryState?.messageId || crypto.randomUUID();
             const seatStartedAt = Date.now();
             diagnosticActiveSeatId = seat.seatId;
             diagnosticActiveModelId = null;
@@ -6939,11 +6943,15 @@ export async function POST(req: NextRequest) {
             // fast provider responses still complete immediately.
             const elapsedBeforeSeatMs = Date.now() - turnStartedAt;
             const seatsRemaining = configuredSeats.length - seatIndex;
-            const seatTimeoutMs = calculateDebateSeatTimeoutMs({
+            const calculatedSeatTimeoutMs = calculateDebateSeatTimeoutMs({
               elapsedTurnMs: elapsedBeforeSeatMs,
               seatsRemaining,
               configuredSeatCount: configuredSeats.length,
             });
+
+            const seatTimeoutMs = Math.min(calculatedSeatTimeoutMs, recoveryState ? recoveryState.deadline - Date.now() : calculatedSeatTimeoutMs);
+            const recovery = recoveryState || { attempts: 0, messageId, deadline: Date.now() + seatTimeoutMs, feedback: [] };
+            toolRecoveryStates.set(seat.seatId, recovery);
 
             if (seatTimeoutMs <= 0) {
               throw new Error(
@@ -7116,7 +7124,7 @@ export async function POST(req: NextRequest) {
             const documentImageModels = new Set<string>();
             const bufferedSeatChunks: string[] = [];
 
-            sendEvent('seat_start', {
+            if (recovery.attempts === 0) sendEvent('seat_start', {
               seatId: seat.seatId,
               modelId: primaryModel,
               name: seat.name,
@@ -7414,6 +7422,7 @@ export async function POST(req: NextRequest) {
             );
             if (isFullConversationEnabledForSeat) seatMessages.push({ role: 'system', content: FULL_CONVERSATION_INSTRUCTION });
             seatMessages.push(...titleRevisionInstruction);
+            if (recovery.feedback.length) seatMessages.push({ role: 'system', content: recovery.feedback.join('\n\n') });
 
             const seatWebCitations: { url: string; title: string; content?: string }[] = [];
             const seenCitationUrls = new Set<string>();
@@ -7598,14 +7607,14 @@ export async function POST(req: NextRequest) {
                     ? AGENTIC_DOCUMENT_EVIDENCE_TOOLS
                     : []),
                 ],
-                ...(shouldForceEvidenceOnFirstPass
+                ...(recovery.attempts === 0 && shouldForceEvidenceOnFirstPass
                   ? {
                       tool_choice: {
                         type: 'function',
                         function: { name: 'request_evidence' },
                       },
                     }
-                  : !AGENTIC_MEMORY_EXPERIMENT &&
+                  : recovery.attempts === 0 && !AGENTIC_MEMORY_EXPERIMENT &&
                       sourceDocumentEditingForCurrentTurn
                     ? {
                         tool_choice: {
@@ -14107,6 +14116,16 @@ export async function POST(req: NextRequest) {
               }
 
               const seatTimedOut = seatAbortController.signal.aborted;
+              const hadToolAttempt = accumulatedToolCalls.length > 0 || documentToolBranchActive || imageToolBranchActive || evidenceToolBranchActive;
+              let outcomeKnownUncommitted = false;
+              if (hadToolAttempt && discussionId && currentRoundAttachments.length === attachmentsBeforeAttempt && !(incurredImageCostUsd && incurredImageCostUsd > 0) && incurredDocumentAssetCostUsd === 0) {
+                try {
+                  const persisted = await supabase.from('messages').select('id', { count: 'exact', head: true }).eq('id', messageId);
+                  outcomeKnownUncommitted = !persisted.error && persisted.count === 0;
+                } catch { /* Unknown outcome must not be replayed. */ }
+              }
+              const willReplan = canReplanToolFailure({ state: recovery, now: Date.now(), aborted: seatTimedOut || req.signal.aborted || durableRunCancelled, hasToolCall: hadToolAttempt, outcomeKnownUncommitted });
+
 
               // A source-preserving editor intentionally refuses to guess when
               // the model names text that cannot be matched exactly. That is a
@@ -14115,11 +14134,11 @@ export async function POST(req: NextRequest) {
               // match safety invariant instead of weakening the editor.
               if (
                 !seatTimedOut &&
-                seat.seatId === 'chatgpt' &&
-                isRecoverableSourceEditExecutionError(err)
+                !willReplan &&
+                (hadToolAttempt || (seat.seatId === 'chatgpt' && isRecoverableSourceEditExecutionError(err)))
               ) {
                 try {
-                  console.warn('[Source Document Edit] Recovering from safe edit refusal', {
+                  console.warn('[Agentic Recovery] Finalizing with explanation', {
                     turnId,
                     discussionId: discussionId || null,
                     seatId: seat.seatId,
@@ -14135,7 +14154,7 @@ export async function POST(req: NextRequest) {
                     ...seatMessages,
                     {
                       role: 'system',
-                      content:
+                      content: hadToolAttempt ? toolFailureFeedback(err, accumulatedToolCalls, true) :
                         'A source-document edit attempt was safely refused because an exact target could not be matched in the source. Do not call any document-editing or file-creation tools in this recovery response. Answer the user\'s original request directly using the conversation and evidence already available. If the original request genuinely required editing the document, briefly explain that the exact source text could not be matched and state what would be needed to retry safely. Do not claim that a file was edited.',
                     },
                   ];
@@ -14251,7 +14270,8 @@ export async function POST(req: NextRequest) {
                         p_discussion_id: discussionId || null,
                         p_meta: {
                           seatId: seat.seatId,
-                          sourceEditRecovery: true,
+                          sourceEditRecovery: !hadToolAttempt,
+                          agenticToolFinalization: hadToolAttempt,
                           sourceEditError: err?.message || String(err),
                           waivedFailedToolCostUsd,
                           recoveryCostUsd: fallbackCostUsd,
@@ -14282,7 +14302,7 @@ export async function POST(req: NextRequest) {
                     discussionId: discussionId || null,
                     seatId: seat.seatId,
                     modelId: fallbackRespondingModel,
-                    reason: 'source_edit_safe_refusal',
+                    reason: hadToolAttempt ? 'tool_recovery_finalization' : 'source_edit_safe_refusal',
                     seatElapsedMs: Date.now() - seatStartedAt,
                     elapsedTurnMs: Date.now() - turnStartedAt,
                   });
@@ -14291,6 +14311,7 @@ export async function POST(req: NextRequest) {
                     name: seat.name,
                     response: fallbackResponse,
                   });
+                  if (!diagnosticCompletedSeatIds.includes(seat.seatId)) diagnosticCompletedSeatIds.push(seat.seatId);
 
                   continue;
                 } catch (recoveryError) {
@@ -14408,6 +14429,15 @@ export async function POST(req: NextRequest) {
                     console.error(`[Spend Tracking] Failed to record spend on error for ${seat.name}:`, spendErr);
                   }
                 }
+              }
+
+              if (willReplan) {
+                recovery.attempts += 1;
+                recovery.feedback.push(toolFailureFeedback(err, accumulatedToolCalls, false));
+                sendEvent('seat_activity', { seatId: seat.seatId, activity: 'thinking', label: 'Checking the tool result and trying another approach' });
+                console.log('[Agentic Tool Recovery]', { turnId, seatId: seat.seatId, attempt: recovery.attempts });
+                seatIndex -= 1;
+                continue seatLoop;
               }
 
               // Capture reusable file annotations from error path if present
