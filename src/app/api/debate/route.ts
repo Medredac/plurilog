@@ -1,3 +1,4 @@
+import { missingDocumentInputInstruction } from '@/utils/missingDocumentInput';
 import { buildAgenticSeatActivity, activityFilename, documentActivityLabel, videoActivity } from '@/utils/seatActivity';
 import { indexCompletedConversationRound } from '@/utils/completedConversationRound';
 import { NextRequest } from 'next/server';
@@ -14107,6 +14108,9 @@ export async function POST(req: NextRequest) {
               }
 
               const seatTimedOut = seatAbortController.signal.aborted;
+              const missingInputInstruction = !seatTimedOut && seat.seatId === 'chatgpt'
+                ? await missingDocumentInputInstruction(err, supabase, discussionId, currentRoundAttachments.length > 0)
+                : null;
 
               // A source-preserving editor intentionally refuses to guess when
               // the model names text that cannot be matched exactly. That is a
@@ -14116,7 +14120,7 @@ export async function POST(req: NextRequest) {
               if (
                 !seatTimedOut &&
                 seat.seatId === 'chatgpt' &&
-                isRecoverableSourceEditExecutionError(err)
+                (missingInputInstruction !== null || isRecoverableSourceEditExecutionError(err))
               ) {
                 try {
                   console.warn('[Source Document Edit] Recovering from safe edit refusal', {
@@ -14135,7 +14139,7 @@ export async function POST(req: NextRequest) {
                     ...seatMessages,
                     {
                       role: 'system',
-                      content:
+                      content: missingInputInstruction ||
                         'A source-document edit attempt was safely refused because an exact target could not be matched in the source. Do not call any document-editing or file-creation tools in this recovery response. Answer the user\'s original request directly using the conversation and evidence already available. If the original request genuinely required editing the document, briefly explain that the exact source text could not be matched and state what would be needed to retry safely. Do not claim that a file was edited.',
                     },
                   ];
@@ -14251,7 +14255,8 @@ export async function POST(req: NextRequest) {
                         p_discussion_id: discussionId || null,
                         p_meta: {
                           seatId: seat.seatId,
-                          sourceEditRecovery: true,
+                          sourceEditRecovery: !missingInputInstruction,
+                          missingDocumentInputRecovery: !!missingInputInstruction,
                           sourceEditError: err?.message || String(err),
                           waivedFailedToolCostUsd,
                           recoveryCostUsd: fallbackCostUsd,
@@ -14282,7 +14287,7 @@ export async function POST(req: NextRequest) {
                     discussionId: discussionId || null,
                     seatId: seat.seatId,
                     modelId: fallbackRespondingModel,
-                    reason: 'source_edit_safe_refusal',
+                    reason: missingInputInstruction ? 'missing_document_input' : 'source_edit_safe_refusal',
                     seatElapsedMs: Date.now() - seatStartedAt,
                     elapsedTurnMs: Date.now() - turnStartedAt,
                   });

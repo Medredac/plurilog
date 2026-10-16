@@ -1,3 +1,4 @@
+import { UnresolvedDocumentImageError } from './missingDocumentInput';
 import { prepareDocumentContent, documentContentIssues } from '@/utils/documentContentQuality';
 import { conversationDocumentInstruction, type ConversationDocumentSource } from '@/utils/conversationDocumentSource';
 import { rasterizeSvg } from './svgImage';
@@ -1122,7 +1123,7 @@ async function resolveDocumentBlocks(
       }
       source = source || fallbackResolveImageSource(availableImages, need, block.filename);
       if (!source) {
-        throw new Error(`Could not uniquely resolve the image requested for the document: ${need}`);
+        throw new UnresolvedDocumentImageError(need);
       }
 
       if (mode === 'existing') {
