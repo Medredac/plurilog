@@ -32,7 +32,7 @@ export const SEAT_CAPABILITIES: Record<ModelId, SeatCapabilities> = {
     imageAnalysis: true,
     imageGeneration: false,
     imageEditing: false,
-    documentCreation: false,
+    documentCreation: true,
   },
   gemini: {
     seatId: 'gemini',
@@ -40,7 +40,7 @@ export const SEAT_CAPABILITIES: Record<ModelId, SeatCapabilities> = {
     imageAnalysis: true,
     imageGeneration: true,
     imageEditing: true,
-    documentCreation: false,
+    documentCreation: true,
   },
 };
 

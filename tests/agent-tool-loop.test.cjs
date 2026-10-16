@@ -74,3 +74,9 @@ test('same failed arguments stop executing but model can choose another approach
  let executed=0,turns=0;
  await runAgentToolLoop(options({bad:tool('bad','write',async()=>{executed++;throw Error('invalid input')})},async messages=>{turns++;if(turns<3)return reply(call('retry'+turns,'bad'));assert.match(results(messages).at(-1).error,/failed twice/);return{content:'Need a different source'};},reply(call('first','bad'))));assert.equal(executed,2);
 });
+
+test('longer tasks can continue beyond 24 steps within the time budget',async()=>{
+ let count=0;
+ const result=await runAgentToolLoop(options({read:tool('read','read',async()=>({ok:true}))},async()=>++count<=26?reply(call('step'+count,'read')):{content:'Complete'},undefined));
+ assert.equal(result.content,'Complete');assert.equal(count,27);
+});

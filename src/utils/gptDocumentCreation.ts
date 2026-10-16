@@ -118,6 +118,7 @@ export interface ExecuteGptDocumentCreationOptions {
     sourceDocumentIds?: string[];
     generationKind?: 'create' | 'revision' | 'convert';
     preserveParentContent?: boolean;
+    preserveLayout?: boolean;
   } | null;
 }
 
@@ -1430,7 +1431,7 @@ async function reviewRenderedPdfWithGpt(options: {
       {
         role: 'system',
         content:
-          'You are ChatGPT acting as a meticulous document art director. This is a bounded visual QA pass, not a new document-writing task. Inspect the rendered pages and make one final correction pass.',
+          'You are acting as a meticulous document art director. This is a bounded visual QA pass, not a new document-writing task. Inspect the rendered pages and make one final correction pass.',
       },
       {
         role: 'user',
@@ -1675,7 +1676,7 @@ async function reviewRenderedDocxWithGpt(options: {
       {
         role: 'system',
         content:
-          'You are ChatGPT acting as a meticulous Word-document art director. This is a bounded visual QA pass. Correct the real rendered pages and respect exact page-count requests.',
+          'You are acting as a meticulous Word-document art director. This is a bounded visual QA pass. Correct the real rendered pages and respect exact page-count requests.',
       },
       {
         role: 'user',
@@ -1835,7 +1836,8 @@ export async function executeGptDocumentCreation(
   let args = initialArgs;
   const protectNarrowRevisionFromVisualMutation =
     revisionContext?.generationKind === 'revision' &&
-    revisionContext?.preserveParentContent === true;
+    revisionContext?.preserveParentContent === true &&
+    revisionContext?.preserveLayout !== false;
 
   if (!discussionId) {
     throw new Error('A discussion is required for document creation.');
@@ -2618,8 +2620,8 @@ export async function executeGptDocumentCreation(
   }
 
   if (
-    revisionContext?.preserveParentContent &&
-    revisionContext.parentSnapshot?.pageCount &&
+    protectNarrowRevisionFromVisualMutation &&
+    revisionContext?.parentSnapshot?.pageCount &&
     finalPageCount &&
     finalPageCount !== revisionContext.parentSnapshot.pageCount
   ) {
