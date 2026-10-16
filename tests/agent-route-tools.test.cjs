@@ -28,7 +28,7 @@ async function fixture(seatId='chatgpt') {
   extractStoragePathFromSignedUrl:url=>url?.split('/message-images/')[1]||null,isImageUrl:url=>/\.(png|jpg)$/.test(url),
   listDocumentStateSnapshots:async()=>[parent],findDocumentStateSnapshot:async()=>outputs.length?{...parent,storagePath:outputs.at(-1).storagePath,filename:outputs.at(-1).filename,format:outputs.at(-1).format,spec:calls.at(-1).args}:parent,
   isAgenticMemoryEnabledForSeat:true,isFullConversationEnabledForSeat:true,isAgenticDocumentEvidenceEnabledForSeat:true,
-  isDocumentCreationEnabledForSeat:true,isImageGenerationEnabledForSeat:seatId!=='claude',isImageEditingEnabledForSeat:seatId!=='claude',videoSession:seatId==='gemini'?{}:null,
+  isDocumentCreationEnabledForSeat:seatId==='chatgpt',isImageGenerationEnabledForSeat:seatId!=='claude',isImageEditingEnabledForSeat:seatId!=='claude',videoSession:seatId==='gemini'?{}:null,
   AGENTIC_CONVERSATION_MEMORY_TOOLS:[{function:{name:'search_conversation'}}],FULL_CONVERSATION_TOOL:{function:{name:'read_full_conversation'}},VIDEO_INSPECTION_TOOL:{function:{name:'inspect_video'}},AGENTIC_DOCUMENT_EVIDENCE_TOOLS:[{function:{name:'search_document'}}],
   resolveSeatConversationTool:async o=>({result:{ok:true,tool:o.toolName}}),resolveAgenticDocumentEvidenceTool:async o=>({result:{ok:true,tool:o.toolName}}),
   registerAgenticArtifactEvidence:()=>({}),sharedAgenticEvidenceLedger:[],createAgenticEvidenceId:()=> 'evidence',seatAbortController:new AbortController(),
@@ -69,8 +69,8 @@ test('generated image can be reused immediately by a later document tool',async(
  await f.toolRegistry.create_file.execute({format:'pdf',filename:'flyer.pdf',title:'Garden',blocks:[{type:'image',filename:'generated.png'}]});
  assert.ok(f.calls[0].availableImages.some(a=>a.filename==='generated.png'));assert.equal(f.producedAttachments.length,2);
 });
-test('all three seats get document and research tools; video stays Gemini-native',async()=>{
- for(const seat of ['chatgpt','claude','gemini']){const f=await fixture(seat);assert.ok(f.toolRegistry.search_conversation);assert.ok(f.toolRegistry.read_full_conversation);assert.ok(f.toolRegistry.inspect_asset);assert.ok(f.toolRegistry.create_file);assert.ok(f.toolRegistry.search_web);assert.equal(Boolean(f.toolRegistry.inspect_video),seat==='gemini');}
+test('all seats retain research and inspection; only GPT gets document writes',async()=>{
+ for(const seat of ['chatgpt','claude','gemini']){const f=await fixture(seat);assert.ok(f.toolRegistry.search_conversation);assert.ok(f.toolRegistry.read_full_conversation);assert.ok(f.toolRegistry.inspect_asset);for(const name of ['create_file','revise_file','edit_source_document']) assert.equal(Boolean(f.toolRegistry[name]),seat==='chatgpt');assert.ok(f.toolRegistry.search_web);assert.equal(Boolean(f.toolRegistry.inspect_video),seat==='gemini');}
 });
 
 test('revision replaces its earlier attachment while keeping other deliverables and formats',async()=>{
@@ -87,13 +87,20 @@ test('revision replaces its earlier attachment while keeping other deliverables 
  await f.toolRegistry.create_file.execute({...args,filename:'essay.pdf'});
  assert.equal(f.producedAttachments.length,3);
 });
-test('all seats can create then inspect a document and research sourced information',async()=>{
+test('all seats can inspect documents and research sources without granting document writes',async()=>{
  for(const seat of ['chatgpt','claude','gemini']){
   const f=await fixture(seat);
   const research=await f.toolRegistry.search_web.execute({query:'brochure typography'});
   assert.equal(research.result.ok,true);assert.equal(research.result.sources.length,1);
-  await f.toolRegistry.create_file.execute({format:'pdf',filename:'flyer.pdf',title:'Garden',blocks:[{type:'paragraph',text:'ORCHID-4729 $4,200'}]});
-  const inspected=await f.toolRegistry.inspect_asset.execute({filename:'flyer.pdf'});
-  assert.ok(inspected.messages.length);assert.equal(f.outputs.length,1);
+  const inspected=await f.toolRegistry.inspect_asset.execute({filename:'garden.pdf'});
+  assert.ok(inspected.messages.length);assert.equal(f.outputs.length,0);
  }
+});
+
+test('production runtime gate grants document writing to GPT only',()=>{
+ const marker='const isDocumentCreationEnabledForSeat =';
+ const start=route.indexOf(marker);const gate=route.slice(start+marker.length,route.indexOf(';',start));
+ const evaluate=new Function('seat','isContinueRound','isHistoryLookupTurn','isGptDocumentCreationEnabled','return ('+gate+');');
+ for(const seatId of ['chatgpt','claude','gemini']) assert.equal(evaluate({seatId},false,false,()=>true),seatId==='chatgpt');
+ assert.equal(evaluate({seatId:'chatgpt'},false,false,()=>false),false);
 });

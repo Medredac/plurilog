@@ -1431,7 +1431,7 @@ async function reviewRenderedPdfWithGpt(options: {
       {
         role: 'system',
         content:
-          'You are acting as a meticulous document art director. This is a bounded visual QA pass, not a new document-writing task. Inspect the rendered pages and make one final correction pass.',
+          'You are ChatGPT acting as a meticulous document art director. This is a bounded visual QA pass, not a new document-writing task. Inspect the rendered pages and make one final correction pass.',
       },
       {
         role: 'user',
@@ -1676,7 +1676,7 @@ async function reviewRenderedDocxWithGpt(options: {
       {
         role: 'system',
         content:
-          'You are acting as a meticulous Word-document art director. This is a bounded visual QA pass. Correct the real rendered pages and respect exact page-count requests.',
+          'You are ChatGPT acting as a meticulous Word-document art director. This is a bounded visual QA pass. Correct the real rendered pages and respect exact page-count requests.',
       },
       {
         role: 'user',
