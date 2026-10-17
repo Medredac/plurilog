@@ -47,6 +47,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       lastModified: new Date('2026-09-25T00:00:00.000Z'),
     },
     {
+      url: 'https://plurilogai.com/blog/how-to-validate-a-business-idea-with-ai',
+      lastModified: new Date('2026-10-16T00:00:00.000Z'),
+    },
+    {
       url: 'https://plurilogai.com/blog/chatgpt-gemini-image-generation-editing',
       lastModified: new Date('2026-09-20T00:00:00.000Z'),
     },
