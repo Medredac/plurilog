@@ -6,7 +6,7 @@ import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { mathRemarkPlugins, mathRehypePlugins, normalizeMathMarkdown } from '@/utils/markdownMath';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
@@ -1214,7 +1214,7 @@ function useSmoothReveal(
  * once.
  */
 function rehypeStreamingWordFade() {
-  const skippedTags = new Set(['code', 'pre', 'script', 'style']);
+  const skippedTags = new Set(['code', 'pre', 'script', 'style', 'math', 'svg']);
 
   return (tree: any) => {
     const walk = (node: any, insideSkippedTag = false) => {
@@ -1222,7 +1222,9 @@ function rehypeStreamingWordFade() {
 
       const skipChildren =
         insideSkippedTag ||
-        (typeof node.tagName === 'string' && skippedTags.has(node.tagName));
+        (typeof node.tagName === 'string' && skippedTags.has(node.tagName)) ||
+        (Array.isArray(node.properties?.className) &&
+          node.properties.className.some((name: string) => name.startsWith('katex')));
 
       const nextChildren: any[] = [];
 
@@ -1296,11 +1298,11 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
       {/* Message Body with real ReactMarkdown rendering */}
       <div className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
+          remarkPlugins={mathRemarkPlugins}
+          rehypePlugins={isRevealing ? [...mathRehypePlugins, rehypeStreamingWordFade] : mathRehypePlugins}
           components={markdownComponents}
         >
-          {displayedMainContent}
+          {normalizeMathMarkdown(displayedMainContent)}
         </ReactMarkdown>
         {isRevealing && (
           <span className="streaming-caret" aria-hidden="true" />
@@ -1895,7 +1897,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     className="max-h-[420px] overflow-y-auto px-4 py-4 sm:px-5"
                   >
                     <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={mathRemarkPlugins}
+                      rehypePlugins={mathRehypePlugins}
                       components={{
                         ...markdownComponents,
                         p: ({ children }) => (
@@ -1935,7 +1938,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ),
                       }}
                     >
-                      {summary.content}
+                      {normalizeMathMarkdown(summary.content)}
                     </ReactMarkdown>
 
                     {summaryArtifacts.length > 0 && (

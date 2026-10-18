@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 import { SignupSourceTracker } from "@/components/SignupSourceTracker";
 import { PostHogProvider } from "@/components/PostHogProvider";
