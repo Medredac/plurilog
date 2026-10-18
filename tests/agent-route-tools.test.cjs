@@ -1,3 +1,5 @@
+require('./helpers/register-typescript.cjs');
+const { createDocumentGenerationGuard } = require('../src/utils/documentGenerationGuard.ts');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
@@ -20,7 +22,7 @@ async function fixture(seatId='chatgpt') {
  const outputs=[],calls=[],attachments=[{filename:'logo.png',url:'https://storage/message-images/u/logo.png'}];
  const parent={id:'state-1',discussionId:'discussion',filename:'garden.pdf',storagePath:'u/garden.pdf',format:'pdf',pageCount:1,spec:{format:'pdf',filename:'garden.pdf',title:'Garden',blocks:[{type:'paragraph',text:'ORCHID-4729 $4,200',style:{textColor:'#ffffff'}}]},fullText:'ORCHID-4729 $4,200',imageSources:[{filename:'logo.png',storagePath:'u/logo.png'}],sourceDocumentIds:[],imageBindings:[],generationKind:'create'};
  const service={...chain(),storage:{from:()=>({createSignedUrl:async path=>({data:{signedUrl:'https://storage/message-images/'+path},error:null})})},rpc:async()=>({data:[{remaining_cents:100}],error:null})};
- const ctx={...definitions,...revision,
+ const ctx={...definitions,...revision,createDocumentGenerationGuard,
   createServiceClient:()=>service,supabase:service,openai:{chat:{completions:{create:async()=>({usage:{cost:0.01},choices:[{message:{content:'Research summary',annotations:[{type:'url_citation',url_citation:{url:'https://example.org/source',title:'Source'}}]}}]})}}},addWebCitations:()=>{},turnId:'turn',discussionId:'discussion',sourceUserMessageId:'user-message',messageId:'assistant-message',seat:{seatId},
   accumulatedToolCalls:[{}],discussionMemory:{knownDocuments:[{filename:'garden.pdf',storagePath:'u/garden.pdf'}],recentRounds:[],allRounds:[]},retrievedDocuments:[],visualContextState:null,prompt:'Make it light. Preserve all content.',
   currentRoundAttachments:attachments,pdfEmbeddedImageAttachments:[{filename:'embedded.png',url:'https://storage/message-images/u/embedded.png'}],
@@ -84,7 +86,7 @@ test('revision replaces its earlier attachment while keeping other deliverables 
  assert.equal(f.calls[1].revisionContext.preserveParentContent,true);
  await f.toolRegistry.create_file.execute({...args,format:'docx',filename:'flyer.docx'});
  assert.equal(f.producedAttachments.length,2);
- await f.toolRegistry.create_file.execute({...args,filename:'essay.pdf'});
+ await f.toolRegistry.create_file.execute({...args,filename:'essay.pdf',title:'Garden essay'});
  assert.equal(f.producedAttachments.length,3);
 });
 test('all seats can inspect documents and research sources without granting document writes',async()=>{
@@ -103,4 +105,15 @@ test('production runtime gate grants document writing to GPT only',()=>{
  const evaluate=new Function('seat','isContinueRound','isHistoryLookupTurn','isGptDocumentCreationEnabled','return ('+gate+');');
  for(const seatId of ['chatgpt','claude','gemini']) assert.equal(evaluate({seatId},false,false,()=>true),seatId==='chatgpt');
  assert.equal(evaluate({seatId:'chatgpt'},false,false,()=>false),false);
+});
+
+test('actual route keeps the correction guard active across renamed copies',async()=>{
+ const f=await fixture();
+ const args={format:'pdf',filename:'flyer.pdf',title:'Garden',blocks:[{type:'paragraph',text:'ORCHID-4729 $4,200'}]};
+ await f.toolRegistry.create_file.execute(args);
+ await f.toolRegistry.create_file.execute({...args,filename:'flyer-revised.pdf'});
+ await assert.rejects(f.toolRegistry.create_file.execute({...args,filename:'flyer-third.pdf'}),/creation\/correction limit/);
+ assert.equal(f.outputs.length,2);
+ await f.toolRegistry.create_file.execute({...args,format:'docx',filename:'flyer.docx'});
+ assert.equal(f.outputs.length,3);
 });
