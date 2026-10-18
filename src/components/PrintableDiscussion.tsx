@@ -2,7 +2,7 @@
 
 import React from "react";
 import ReactMarkdown, { Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { mathRemarkPlugins, mathRehypePlugins, normalizeMathMarkdown } from "@/utils/markdownMath";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ChatMessage, ModelId } from "../types/chat";
@@ -305,8 +305,8 @@ export const PrintableDiscussion: React.FC<PrintableDiscussionProps> = ({
                 {/* Markdown Content (Paginates naturally across pages) */}
                 {mainContent ? (
                   <div className="text-zinc-900 text-sm leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={printMarkdownComponents}>
-                      {mainContent}
+                    <ReactMarkdown remarkPlugins={mathRemarkPlugins} rehypePlugins={mathRehypePlugins} components={printMarkdownComponents}>
+                      {normalizeMathMarkdown(mainContent)}
                     </ReactMarkdown>
                   </div>
                 ) : null}

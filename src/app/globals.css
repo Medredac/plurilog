@@ -515,3 +515,11 @@ body {
     min-height: 44px;
   }
 }
+
+/* Keep scientific notation intact and wide equations inside the message. */
+.katex { overflow-wrap: normal; word-break: normal; }
+.katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 0.35rem 0; }
+.katex-error { white-space: pre-wrap; overflow-wrap: anywhere; color: inherit; }
+@media print {
+  .katex-display { overflow: visible; break-inside: avoid; }
+}

@@ -8,6 +8,7 @@ interface ImageLightboxProps {
   onClose: () => void;
   imageUrl: string | null;
   altText?: string;
+  expandVector?: boolean;
 }
 
 export const ImageLightbox: React.FC<ImageLightboxProps> = ({
@@ -15,6 +16,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   onClose,
   imageUrl,
   altText = 'Expanded image preview',
+  expandVector = false,
 }) => {
   // Close on Escape key press
   useEffect(() => {
@@ -60,7 +62,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
         <img
           src={imageUrl}
           alt={altText}
-          className="max-h-[85dvh] max-w-full rounded-xl object-contain shadow-2xl border border-white/10 select-none"
+          className={`max-h-[85dvh] max-w-full rounded-xl object-contain shadow-2xl border border-white/10 select-none ${expandVector ? 'w-[min(90vw,56rem)] h-[80dvh] bg-white' : ''}`}
         />
       </div>
     </div>

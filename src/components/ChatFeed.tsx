@@ -1,12 +1,13 @@
 'use client';
 
-import { Film } from 'lucide-react';
+import { Film, Maximize2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 import { VideoAttachment } from './VideoAttachment';
 import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import ReactMarkdown, { Components } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { mathRemarkPlugins, mathRehypePlugins, normalizeMathMarkdown } from '@/utils/markdownMath';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { 
@@ -651,6 +652,9 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     const sanitized = sanitizeStandaloneSvg(codeContent);
@@ -687,6 +691,57 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  const handleDownloadPng = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setExporting(true);
+    setExportError(null);
+    let sourceUrl: string | undefined;
+    try {
+      const root = new DOMParser().parseFromString(safeSvg, 'image/svg+xml').documentElement;
+      const viewBox = root.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+      const dimension = (name: string) => {
+        const value = root.getAttribute(name) || '';
+        return /^\d+(?:\.\d+)?(?:px)?$/.test(value) ? parseFloat(value) : 0;
+      };
+      const width = dimension('width') || viewBox?.[2] || 800;
+      const height = dimension('height') || viewBox?.[3] || 600;
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        throw new Error('Invalid SVG dimensions');
+      }
+      const scale = Math.min(2, 2048 / Math.max(width, height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      root.setAttribute('width', String(canvas.width));
+      root.setAttribute('height', String(canvas.height));
+      if (!root.hasAttribute('viewBox')) root.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      sourceUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(root)], { type: 'image/svg+xml' }));
+      const image = new Image();
+      image.src = sourceUrl;
+      await image.decode();
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas unavailable');
+      // Leave the canvas clear so artwork without a background stays transparent.
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error('PNG export failed')), 'image/png');
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'vector-artwork.png';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch {
+      setExportError('PNG download failed. Please try again or download the SVG.');
+    } finally {
+      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      setExporting(false);
+    }
+  };
+
   const handleCopy = async (event: React.MouseEvent) => {
     event.stopPropagation();
     await navigator.clipboard.writeText(codeContent);
@@ -702,6 +757,14 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
           <span className="text-xs font-semibold">SVG preview</span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1">
+          <button type="button" onClick={(event) => { event.stopPropagation(); setExpanded(true); }}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-200/70" title="Expand SVG preview">
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" /> Expand
+          </button>
+          <button type="button" onClick={handleDownloadPng} disabled={exporting}
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-200/70 disabled:opacity-50" title="Download PNG (preserves transparency)">
+            <Download className="h-3.5 w-3.5" aria-hidden="true" /> {exporting ? 'Preparing PNG…' : 'Download PNG'}
+          </button>
           <button
             type="button"
             onClick={handleDownload}
@@ -743,13 +806,15 @@ const SvgCodeBlock: React.FC<{ children?: React.ReactNode; className?: string }>
         </div>
       </div>
 
-      <div className="flex min-h-36 items-center justify-center bg-white p-5">
+      {exportError && <p role="alert" className="px-4 pt-3 text-sm text-red-700">{exportError}</p>}
+      {expanded && createPortal(<ImageLightbox isOpen expandVector onClose={() => setExpanded(false)} imageUrl={previewUrl} altText="Expanded SVG preview" />, document.body)}
+      <button type="button" aria-label="Expand SVG preview" onClick={(event) => { event.stopPropagation(); setExpanded(true); }} className="flex w-full min-h-36 items-center justify-center bg-white p-5 cursor-zoom-in">
         <img
           src={previewUrl}
           alt="AI-generated SVG preview"
           className="max-h-64 max-w-full object-contain"
         />
-      </div>
+      </button>
 
       {showCode && (
         <div className="border-t border-zinc-200/70">
@@ -1214,7 +1279,7 @@ function useSmoothReveal(
  * once.
  */
 function rehypeStreamingWordFade() {
-  const skippedTags = new Set(['code', 'pre', 'script', 'style']);
+  const skippedTags = new Set(['code', 'pre', 'script', 'style', 'math', 'svg']);
 
   return (tree: any) => {
     const walk = (node: any, insideSkippedTag = false) => {
@@ -1222,7 +1287,9 @@ function rehypeStreamingWordFade() {
 
       const skipChildren =
         insideSkippedTag ||
-        (typeof node.tagName === 'string' && skippedTags.has(node.tagName));
+        (typeof node.tagName === 'string' && skippedTags.has(node.tagName)) ||
+        (Array.isArray(node.properties?.className) &&
+          node.properties.className.some((name: string) => name.startsWith('katex')));
 
       const nextChildren: any[] = [];
 
@@ -1296,11 +1363,11 @@ const StreamingMessageBody: React.FC<StreamingMessageBodyProps> = ({
       {/* Message Body with real ReactMarkdown rendering */}
       <div className="text-base sm:text-[16.5px] text-[#1C1B1A] leading-relaxed font-normal min-w-0 max-w-full [overflow-wrap:anywhere]">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={isRevealing ? [rehypeStreamingWordFade] : []}
+          remarkPlugins={mathRemarkPlugins}
+          rehypePlugins={isRevealing ? [...mathRehypePlugins, rehypeStreamingWordFade] : mathRehypePlugins}
           components={markdownComponents}
         >
-          {displayedMainContent}
+          {normalizeMathMarkdown(displayedMainContent)}
         </ReactMarkdown>
         {isRevealing && (
           <span className="streaming-caret" aria-hidden="true" />
@@ -1895,7 +1962,8 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                     className="max-h-[420px] overflow-y-auto px-4 py-4 sm:px-5"
                   >
                     <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={mathRemarkPlugins}
+                      rehypePlugins={mathRehypePlugins}
                       components={{
                         ...markdownComponents,
                         p: ({ children }) => (
@@ -1935,7 +2003,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         ),
                       }}
                     >
-                      {summary.content}
+                      {normalizeMathMarkdown(summary.content)}
                     </ReactMarkdown>
 
                     {summaryArtifacts.length > 0 && (
