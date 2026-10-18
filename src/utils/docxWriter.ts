@@ -1,3 +1,4 @@
+import { splitDocumentMath, equationToWord } from './documentMath';
 import { Buffer } from 'node:buffer';
 
 export type DocxBlockType =
@@ -198,7 +199,6 @@ function textRuns(
     fontFamily?: DocxFontFamily;
   }
 ): string {
-  const segments = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
   const rPrParts: string[] = [];
   if (options?.bold) rPrParts.push('<w:b/>');
   if (options?.italic) rPrParts.push('<w:i/>');
@@ -217,12 +217,14 @@ function textRuns(
   }
   const rPr = rPrParts.length > 0 ? `<w:rPr>${rPrParts.join('')}</w:rPr>` : '';
 
-  return segments
-    .map((segment, index) => {
-      const run = `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(segment)}</w:t></w:r>`;
-      return index === segments.length - 1 ? run : `${run}<w:r><w:br/></w:r>`;
-    })
-    .join('');
+  return splitDocumentMath(text).map(part => {
+    if (part.tex) {
+      return equationToWord(part.tex, part.display);
+    }
+    return part.source.replace(/\r\n?/g, '\n').split('\n').map((segment, index) =>
+      `${index ? '<w:r><w:br/></w:r>' : ''}<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(segment)}</w:t></w:r>`
+    ).join('');
+  }).join('');
 }
 
 function paragraphXml(

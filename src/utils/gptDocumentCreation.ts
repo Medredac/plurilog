@@ -1,3 +1,4 @@
+import { preservesDocumentEquations, splitDocumentMath } from './documentMath';
 import { prepareDocumentContent, documentContentIssues } from '@/utils/documentContentQuality';
 import { conversationDocumentInstruction, type ConversationDocumentSource } from '@/utils/conversationDocumentSource';
 import { rasterizeSvg } from './svgImage';
@@ -313,7 +314,9 @@ function missingRenderedTableValues(
       ? (block as any).rows
       : [];
     const values = [...headers, ...rows.flat()]
-      .map((value) => String(value || '').trim())
+      // LaTeX source is not a literal PDF text sentinel. Its visual form is reviewed
+      // from page images; still validate all ordinary text around each equation.
+      .flatMap((value) => splitDocumentMath(String(value || '')).filter(part => !part.tex).map(part => part.source.trim()))
       .filter(
         (value) =>
           value.length >= 2 &&
@@ -368,7 +371,9 @@ function repairMissingDocxTableValues(
 ): GptCreateFileArgs {
   const missing = new Set(
     (missingValues || [])
-      .map((value) => String(value || '').trim())
+      // LaTeX source is not a literal PDF text sentinel. Its visual form is reviewed
+      // from page images; still validate all ordinary text around each equation.
+      .flatMap((value) => splitDocumentMath(String(value || '')).filter(part => !part.tex).map(part => part.source.trim()))
       .filter(Boolean)
   );
   if (missing.size === 0) return args;
@@ -1351,6 +1356,7 @@ async function reviewRenderedPdfWithGpt(options: {
         'Return the complete revised PDF specification through the revise_pdf_layout tool.',
         'Improve only where the rendered result materially benefits: page balance, whitespace, hierarchy, density, grouping, alignment, table legibility, visual rhythm, overflow, awkward page breaks, and overall polish.',
         'Respect the user\'s requested aesthetic and document type. Do not force a colourful SaaS look unless the request calls for it.',
+        'Preserve every equation and its LaTeX delimiters exactly. Never replace equations with Unicode or ASCII approximations. The renderer supports native mathematical typesetting.',
         'Preserve the factual substance. You may shorten or reflow wording modestly when necessary for layout, but do not introduce unsupported claims.',
         'Preserve the number and identity of image assets. You may change their display size, alignment, caption, or placement, but do not add, remove, regenerate, or replace images in this review pass.',
         'Images marked preserveAspectRatio are original documentary photos. Preserve their complete frame and use legible sizes for portrait images and phone screenshots; do not force every image into a small landscape frame.',
@@ -1506,6 +1512,11 @@ async function reviewRenderedPdfWithGpt(options: {
     };
   }
 
+  if (!preservesDocumentEquations(args, { title: parsed.title ?? args.title, blocks: imageSafeBlocks })) {
+    return { args, costUsd, applied: false, respondingModel,
+      rationale: 'Retained original equations; visual review changed or removed mathematical source.' };
+  }
+
   const reviewedDesign: PdfDesign = {
     ...(args.design || {}),
     ...(parsed.design && typeof parsed.design === 'object' ? parsed.design : {}),
@@ -1599,7 +1610,7 @@ async function reviewRenderedDocxWithGpt(options: {
         'If Japanese characters are visible in the page images, do not claim they are missing/tofu. Only diagnose glyph corruption when the actual rendered glyphs are visibly boxes or replacement characters.',
         'Use only Word-supported core blocks: heading, paragraph, bullets, numbered, table, image, and page_break. Do not introduce PDF-only banner/card/column/flow/divider/spacer blocks.',
         'This is a layout-only pass: preserve the number, order, and type of every substantive non-page-break block. You may add, remove, or move page_break blocks; adjust the design object; resize/reposition images; and adjust table width/column widths. Do not turn paragraphs into bullets, split/merge sections, reorder headings, or add/remove substantive blocks.',
-        'Preserve all factual text and table content exactly. Do not rewrite, shorten, paraphrase, or expand the document during this pass; the server will preserve source text and reject structural content changes.',
+        'Preserve LaTeX math delimiters and equation source exactly; never flatten subscripts, fractions, or chemistry to plain text. Preserve all factual text and table content exactly. Do not rewrite, shorten, paraphrase, or expand the document during this pass; the server will preserve source text and reject structural content changes.',
         'Preserve the number and identity of image assets. You may resize, align, caption, or reposition them, but do not add, remove, regenerate, or replace images in this review pass.',
         target
           ? `HARD CONSTRAINT: the user requested exactly ${target} page${target === 1 ? '' : 's'}. The current Word render has ${totalPageCount || pages.length} page${(totalPageCount || pages.length) === 1 ? '' : 's'}. Revise the document so the finished Word render is exactly ${target} page${target === 1 ? '' : 's'} while keeping the pages visually balanced.`
@@ -2058,7 +2069,6 @@ export async function executeGptDocumentCreation(
           resolvedDocument.blocks
         ) as DocxBlock[],
       });
-      const parsedFallbackDocx = await parseDocx(fallbackDocx.buffer);
       const converted = await convertDocxToPdf(fallbackDocx.buffer, {
         signal: durableSignal,
         timeoutMs: 60_000,
@@ -2078,7 +2088,7 @@ export async function executeGptDocumentCreation(
       return {
         buffer: converted.buffer,
         filename,
-        fullText: parsedFallbackDocx.markdown || '',
+        fullText: fallbackDocx.fullText,
         pageCount: converted.totalPageCount,
       };
     };

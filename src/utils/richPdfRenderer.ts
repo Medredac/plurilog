@@ -1,3 +1,4 @@
+import { renderDocumentMathHtml } from './documentMath';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 import type { DocxBlock } from '@/utils/docxWriter';
@@ -903,7 +904,7 @@ h1, h2, h3 {
 </head>
 <body>
 ${titleHtml}
-${renderBlocksWithCompositions(blocks, design)}
+${renderDocumentMathHtml(renderBlocksWithCompositions(blocks, design))}
 </body>
 </html>`;
 
