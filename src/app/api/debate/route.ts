@@ -7874,7 +7874,12 @@ export async function POST(req: NextRequest) {
                     query: args.need || args.filename || prompt });
                 }
                 for (const attachment of observation.materializedEvidenceAttachments) {
-                  if (!currentRoundAttachments.some(a => a.url === attachment.url)) currentRoundAttachments.push(attachment);
+                  if (!currentRoundAttachments.some(a => a.url === attachment.url)) {
+                    currentRoundAttachments.push(attachment);
+                    if (broker.status === 'resolved' && broker.evidence?.storagePath) {
+                      documentOutputs.get(broker.evidence.storagePath)?.attachments.push(attachment);
+                    }
+                  }
                 }
                 if (broker.status === 'resolved' && broker.evidence?.storagePath) {
                   revisionParent = await findDocumentStateSnapshot({ serviceSupabase: service, discussionId: discussionId!, storagePath: broker.evidence.storagePath });
@@ -7886,23 +7891,33 @@ export async function POST(req: NextRequest) {
               addTool(REQUEST_EVIDENCE_TOOL[0], 'read', inspectAsset);
               addTool(toolDefinition('inspect_asset', 'Inspect an exact available filename. For generated documents returns its canonical editable state and visual evidence. Use to check an output and before revising an existing document.', { filename: { type: 'string' } }, ['filename']), 'read', inspectAsset);
               const documentGenerationGuard = createDocumentGenerationGuard();
-              const documentOutputs = new Map<string, { filename: string; format: string; url: string }>();
+              const documentOutputs = new Map<string, { filename: string; format: string; url: string; attachments: RouteAttachment[]; document: { filename: string; content: string } }>();
               const rememberOutput = async (result: Awaited<ReturnType<typeof executeGptDocumentCreation>>, parentPath?: string) => {
                 // Supersede only this turn's prior version, retaining distinct files and formats.
                 for (const [path, previous] of documentOutputs) {
                   if (previous.format === result.format && (path === parentPath || previous.filename === result.filename)) {
                     const index = producedAttachments.indexOf(previous.url);
                     if (index >= 0) producedAttachments.splice(index, 1);
+                    // Remove the same superseded version from peer evidence, not just the UI.
+                    for (let i = currentRoundAttachments.length - 1; i >= 0; i--) {
+                      if (previous.attachments.includes(currentRoundAttachments[i])) currentRoundAttachments.splice(i, 1);
+                    }
+                    const documentIndex = currentTurnDocuments.indexOf(previous.document);
+                    if (documentIndex >= 0) currentTurnDocuments.splice(documentIndex, 1);
                     documentOutputs.delete(path);
                   }
                 }
-                documentOutputs.set(result.storagePath, { filename: result.filename, format: result.format, url: result.durableUrl });
                 documentCreatedThisTurn = true;
                 const sourcePages = (result as Awaited<ReturnType<typeof executeSourcePreservingDocumentEdit>>).sourceRenderedPageAttachments || [];
-                currentRoundAttachments.push(...sourcePages.map(page => ({ ...page, provenance: 'same_round_source_document_render' as const, creatorSeatId: seat.seatId })));
-                currentTurnDocuments.push({ filename: result.filename, content: result.fullText });
-                currentRoundAttachments.push({ url: result.signedUrl, filename: result.filename, provenance: 'same_round_assistant_generated', creatorSeatId: seat.seatId });
-                currentRoundAttachments.push(...result.renderedPageAttachments.map(page => ({ ...page, provenance: 'same_round_document_render' as const, creatorSeatId: seat.seatId })));
+                const document = { filename: result.filename, content: result.fullText };
+                const attachments: RouteAttachment[] = [
+                  ...sourcePages.map(page => ({ ...page, provenance: 'same_round_source_document_render' as const, creatorSeatId: seat.seatId })),
+                  { url: result.signedUrl, filename: result.filename, provenance: 'same_round_assistant_generated', creatorSeatId: seat.seatId },
+                  ...result.renderedPageAttachments.map(page => ({ ...page, provenance: 'same_round_document_render' as const, creatorSeatId: seat.seatId })),
+                ];
+                documentOutputs.set(result.storagePath, { filename: result.filename, format: result.format, url: result.durableUrl, attachments, document });
+                currentTurnDocuments.push(document);
+                currentRoundAttachments.push(...attachments);
                 producedAttachments.push(result.durableUrl);
                 const publication = await supabase.from('messages').update({ attachment_urls: [...producedAttachments] }).eq('id', messageId).eq('discussion_id', discussionId!).eq('sender', seat.seatId);
                 if (publication.error) console.warn('[Agent Deliverables] Final attachment update deferred to response persistence', { turnId, seatId: seat.seatId, code: publication.error.code });
