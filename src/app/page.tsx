@@ -1,5 +1,7 @@
 'use client';
 
+import { PLUS_FEATURES } from '@/lib/plusFeatures';
+
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -843,7 +845,7 @@ export default function LandingPage() {
           <div className="max-w-5xl mx-auto px-6 sm:px-12 py-16">
             <motion.div {...scrollRevealProps(0)}>
               <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 text-center">
-                Simple pricing
+                Simple and transparent pricing. No surprises
               </h2>
               <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
                 Try Plurilog for free, then upgrade when you&apos;re ready.
@@ -927,13 +929,7 @@ export default function LandingPage() {
                   </p>
 
                   <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
-                    {[
-                      'Everything in Free',
-                      'Monthly usage refreshed every billing cycle',
-                      'ChatGPT, Claude and Gemini available',
-                      'Shared memory, files and retrieval',
-                      'Cancel anytime',
-                    ].map((feature) => (
+                    {PLUS_FEATURES.map((feature) => (
                       <li key={feature} className="flex items-start gap-2">
                         <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
                           <Check className="h-2.5 w-2.5 stroke-[2.5]" />
