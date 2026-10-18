@@ -7,7 +7,7 @@ const LIBREOFFICE_VERSION = '26.2.6';
 // Snapshot rebuilt with LibreOffice Writer + Math, Poppler, fontconfig, and Japanese Noto CJK fonts.
 // Keep this code-level default ahead of older environment snapshots so preview/production
 // do not silently regress to tofu rendering after deployment.
-const DEFAULT_DOCX_RENDERER_SNAPSHOT_ID = 'snap_NkPwepU2A3TECjEBUXLiSqR0sAoV';
+const DEFAULT_DOCX_RENDERER_SNAPSHOT_ID = 'snap_cbknPjnQC7hkIHA7dWhDjWYKopFw';
 
 export interface RenderedDocxPage {
   pageNumber: number;
