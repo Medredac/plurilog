@@ -235,31 +235,37 @@ const sections: Section[] = [
     ]
   },
   {
-    "title": "7. Which platform should you choose?",
+    "title": "7. Why switch from Poe to Plurilog?",
     "blocks": [
       {
-        "kind": "subheading",
-        "text": "Choose Poe if..."
+        "kind": "p",
+        "text": "If you're already using Poe to access GPT, Claude and Gemini, you don't need convincing that different AIs bring different perspectives. The question is whether your current workflow makes it easy to use them together — without worrying about your remaining points."
       },
       {
         "kind": "p",
-        "text": "You want a very large catalog of AI models and specialized bots, creator-built experiences, creative generation tools or optional cross-chat personalization for supported official bots."
+        "text": "Plurilog is built for people who want to spend less time managing AI tools and more time working on their questions, research and projects."
       },
       {
-        "kind": "subheading",
-        "text": "Consider Plurilog if..."
+        "kind": "list",
+        "items": [
+          "Stop counting chat points: Plus offers unlimited ongoing usage, with no message-exhaustion limit or extra credits to buy.",
+          "Let the models respond to each other: GPT, Claude and Gemini can challenge, correct and build on earlier contributions.",
+          "Set your own panel: choose one, two or all three AIs, and control who speaks first, second and third.",
+          "Keep your work together: use Gemini's video understanding, GPT's document workflows and Claude's analytical contributions in one shared discussion.",
+          "Continue where you left off: participating AIs can retrieve relevant earlier messages and files within the same discussion, and the Panel Summary brings their conclusions together."
+        ]
       },
       {
         "kind": "p",
-        "text": "You mainly work with ChatGPT, Claude and Gemini and want them to challenge each other instead of giving separate answers. Plurilog is especially relevant if you value unlimited Plus chat, customizable seats, shared context within a long-running discussion, and video or document workflows in one workspace."
+        "text": "Poe has a wider bot marketplace, and that may be useful for other kinds of AI tasks. But if your goal is a focused workspace where leading models work together, with predictable Plus pricing, that's exactly what Plurilog is designed to offer."
       },
       {
-        "kind": "p",
-        "text": "Both platforms make multiple AIs accessible. The choice is whether you prioritize the breadth of a marketplace or a more focused space for collaboration."
+        "kind": "link",
+        "text": "Try Plurilog free",
+        "href": "/?signup=true"
       }
     ]
-  }
-];
+  }];
 
 const rows = [
   ['Primary focus', 'Broad AI model and bot marketplace', 'Collaborative GPT, Claude and Gemini discussions'],
