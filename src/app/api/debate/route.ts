@@ -7926,7 +7926,7 @@ export async function POST(req: NextRequest) {
                 revisionParent = await findDocumentStateSnapshot({ serviceSupabase: service, discussionId: discussionId!, storagePath: result.storagePath });
                 return { result: { ok: true, filename: result.filename, format: result.format, page_count: result.pageCount, visual_review_applied: result.visualReviewApplied,
                   attachment_update_pending: Boolean(publication.error),
-                  instruction: 'The file is saved. The document workflow handles its internal layout review; review any attached pages directly; do not call inspect_asset merely to retrieve these same pages. Allow at most one correction for a concrete visible defect, preserving all equation source. Then deliver the file and disclose any remaining limitation. Complete any other requested format.' },
+                  instruction: 'The file is saved and attached as a downloadable file card. Do not add a download link or sandbox path in your answer. The document workflow handles its internal layout review; review any attached pages directly; do not call inspect_asset merely to retrieve these same pages. Allow at most one correction for a concrete visible defect, preserving all equation source. Then deliver the file and disclose any remaining limitation. Complete any other requested format.' },
                   messages: await observeAttachments(result.renderedPageAttachments) };
               };
               const createDocument = async (args: GptCreateFileArgs, revisionContext?: Parameters<typeof executeGptDocumentCreation>[0]['revisionContext']) => {

@@ -4,7 +4,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/contrib/mhchem';
 import type { PluggableList } from 'unified';
 
-export const mathRemarkPlugins: PluggableList = [remarkGfm, remarkMath];
+export const mathRemarkPlugins: PluggableList = [remarkGfm, remarkMath, remarkFileCards];
 export const mathRehypePlugins: PluggableList = [[rehypeKatex, {
   trust: false,
   strict: 'ignore',
@@ -68,4 +68,21 @@ export function normalizeMathMarkdown(source: string): string {
     offset = match.index! + match[0].length;
   }
   return result + normalize(source.slice(offset));
+}
+
+/** Sandbox downloads are not Plurilog URLs. Real deliverables use attachment cards. */
+export function remarkFileCards() {
+  return (tree: any) => {
+    const visit = (node: any) => {
+      if (!Array.isArray(node.children)) return;
+      node.children = node.children.filter((child: any) =>
+        !(child.type === 'link' && typeof child.url === 'string' && child.url.startsWith('sandbox:/mnt/data/'))
+      );
+      for (const child of node.children) visit(child);
+      node.children = node.children.filter((child: any) =>
+        !(child.type === 'paragraph' && child.children?.every((item: any) => item.type === 'text' && !item.value.trim()))
+      );
+    };
+    visit(tree);
+  };
 }
