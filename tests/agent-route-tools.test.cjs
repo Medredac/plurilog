@@ -37,7 +37,7 @@ async function fixture(seatId='chatgpt') {
   resolveRequestedEvidence:()=>({status:'not_found',message:'No match'}),
   materializeBrokerEvidenceForSeat:async o=>({modelSafeBrokerResult:{status:'resolved',filename:o.brokerResult.evidence.filename},materializedEvidenceAttachments:[{filename:o.brokerResult.evidence.filename,url:'https://storage/message-images/'+o.brokerResult.evidence.storagePath}]}),
   fullConversationSession:{getSource:()=>null},latestDocxSourceFromContext:()=>null,
-  executeGptDocumentCreation:async o=>{calls.push(o);const r={filename:o.args.filename,format:o.args.format,fullText:'ORCHID-4729 $4,200',signedUrl:'https://storage/message-images/u/out'+outputs.length+'.'+o.args.format,durableUrl:'/api/attachments/message-images/u/out'+outputs.length+'.'+o.args.format,storagePath:'u/out'+outputs.length+'.'+o.args.format,renderedPageAttachments:[{filename:'page.png',url:'https://storage/message-images/u/page.png'}],pageCount:1,visualReviewCostUsd:0};outputs.push(r);return r;},
+  executeGptDocumentCreation:async o=>{calls.push(o);const r={filename:o.args.filename,format:o.args.format,fullText:'ORCHID-4729 $4,200',signedUrl:'https://storage/message-images/u/out'+outputs.length+'.'+o.args.format,durableUrl:'/api/attachments/message-images/u/out'+outputs.length+'.'+o.args.format,storagePath:'u/out'+outputs.length+'.'+o.args.format,renderedPageAttachments:Array.from({length:1+o.args.blocks.filter(b=>b.type==='page_break').length},(_,i)=>({filename:'output'+outputs.length+'-page'+i+'.png',url:'https://storage/message-images/u/output'+outputs.length+'-page'+i+'.png'})),pageCount:1,visualReviewCostUsd:0};outputs.push(r);return r;},
   executeSourcePreservingDocumentEdit:async()=>{throw Error('not exercised');},isNarrowDocumentRevisionFollowUpQuery:()=>true,
   buildAgenticSeatActivity:()=>null,activityFilename:x=>x,documentActivityLabel:()=> 'Creating document',sendEvent:()=>{},primaryModel:'test',models:['test'],
   isPersistentVisualContextWritesEnabled:()=>false,ingestDiscussionArtifacts:async()=>({ingestedSourceIds:[]}),
@@ -82,12 +82,19 @@ test('revision replaces its earlier attachment while keeping other deliverables 
  await f.toolRegistry.revise_file.execute({edit_scope:'redesign',filename:'flyer-final.pdf',patch:[{op:'add',path:'/design',value:{backgroundColor:'#ffffff'}}]});
  assert.equal(f.producedAttachments.length,1);
  assert.equal(f.producedAttachments[0],f.outputs[1].durableUrl);
+ assert.equal(f.currentTurnDocuments.length,1);
+ assert.equal(f.currentTurnDocuments[0].filename,'flyer-final.pdf');
+ assert.ok(!f.attachments.some(a=>a.url===f.outputs[0].signedUrl || a.url===f.outputs[0].renderedPageAttachments[0].url));
+ assert.ok(f.attachments.some(a=>a.url===f.outputs[1].renderedPageAttachments[0].url));
+ assert.ok(f.attachments.some(a=>a.filename==='logo.png'));
  assert.equal(f.calls[1].revisionContext.preserveLayout,false);
  assert.equal(f.calls[1].revisionContext.preserveParentContent,true);
  await f.toolRegistry.create_file.execute({...args,format:'docx',filename:'flyer.docx'});
  assert.equal(f.producedAttachments.length,2);
  await f.toolRegistry.create_file.execute({...args,filename:'essay.pdf',title:'Garden essay'});
  assert.equal(f.producedAttachments.length,3);
+ assert.equal(f.currentTurnDocuments.length,3);
+ assert.equal(f.attachments.filter(a=>a.provenance==='same_round_document_render').length,3);
 });
 test('all seats can inspect documents and research sources without granting document writes',async()=>{
  for(const seat of ['chatgpt','claude','gemini']){
@@ -116,4 +123,17 @@ test('actual route keeps the correction guard active across renamed copies',asyn
  assert.equal(f.outputs.length,2);
  await f.toolRegistry.create_file.execute({...args,format:'docx',filename:'flyer.docx'});
  assert.equal(f.outputs.length,3);
+});
+
+test('four-page internal draft is replaced by the three-page final peer evidence',async()=>{
+ const f=await fixture();
+ const args={format:'pdf',filename:'quantum.pdf',title:'Quantum',blocks:[{type:'paragraph',text:'Quantum physics'},...Array.from({length:3},()=>({type:'page_break'}))]};
+ await f.toolRegistry.create_file.execute(args);
+ await f.toolRegistry.create_file.execute({...args,blocks:args.blocks.slice(0,-1)});
+ const oldUrls=new Set([f.outputs[0].signedUrl,...f.outputs[0].renderedPageAttachments.map(a=>a.url)]);
+ assert.equal(f.outputs[0].renderedPageAttachments.length,4);
+ assert.equal(f.currentTurnDocuments.length,1);
+ assert.equal(f.producedAttachments.length,1);
+ assert.equal(f.attachments.filter(a=>a.provenance==='same_round_document_render').length,3);
+ assert.ok(f.attachments.every(a=>!oldUrls.has(a.url)));
 });
