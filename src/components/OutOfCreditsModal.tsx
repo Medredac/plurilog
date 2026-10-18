@@ -1,5 +1,7 @@
 'use client';
 
+import { PLUS_FEATURES } from '@/lib/plusFeatures';
+
 import React, { useEffect, useState } from 'react';
 import { usePlusOffer } from '@/hooks/usePlusOffer';
 import type { PlusOffer } from '@/lib/plusPricing';
@@ -14,14 +16,7 @@ interface OutOfCreditsModalProps {
   isRenewal?: boolean;
 }
 
-const PLAN_FEATURES = [
-  'Everything in Free',
-  'Unlimited usage',
-  'No extra usage charges. No credits to buy.',
-  'ChatGPT, Claude and Gemini available',
-  'Shared memory, files and retrieval',
-  'Cancel anytime',
-];
+
 
 const RobotHeads = () => (
   <div
@@ -154,7 +149,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
               <p role="alert" className="mb-3 text-[12px] text-red-700">{offerError || checkoutError}</p>
             )}
             <ul className="space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
-              {PLAN_FEATURES.map((feature) => (
+              {PLUS_FEATURES.map((feature) => (
                 <li key={feature} className="flex items-start gap-2">
                   <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
                     <Check className="h-2.5 w-2.5 stroke-[2.5]" />

@@ -1,5 +1,7 @@
 'use client';
 
+import { PLUS_FEATURES } from '@/lib/plusFeatures';
+
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -927,14 +929,7 @@ export default function LandingPage() {
                   </p>
 
                   <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
-                    {[
-                      'Everything in Free',
-                      'Unlimited usage',
-                      'No extra usage charges. No credits to buy.',
-                      'ChatGPT, Claude and Gemini available',
-                      'Shared memory, files and retrieval',
-                      'Cancel anytime',
-                    ].map((feature) => (
+                    {PLUS_FEATURES.map((feature) => (
                       <li key={feature} className="flex items-start gap-2">
                         <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
                           <Check className="h-2.5 w-2.5 stroke-[2.5]" />
