@@ -16,7 +16,8 @@ interface OutOfCreditsModalProps {
 
 const PLAN_FEATURES = [
   'Everything in Free',
-  'Monthly usage refreshed every billing cycle',
+  'Unlimited usage',
+  'No extra usage charges. No credits to buy.',
   'ChatGPT, Claude and Gemini available',
   'Shared memory, files and retrieval',
   'Cancel anytime',
@@ -108,7 +109,7 @@ export const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({
               {variant === 'promotion' ? 'Get more out of Plurilog' : 'Keep the conversation going'}
             </h3>
             <p className="mt-1 text-[12px] leading-5 text-[#6A675F]">
-              {isRenewal ? 'Keep Plus for refreshed monthly usage and continued access to the full panel.' : 'Upgrade to Plus for refreshed monthly usage and continued access to the full panel.'}
+              {isRenewal ? 'Keep Plus for unlimited usage and access to the full panel.' : 'Upgrade to Plus for unlimited usage and access to the full panel.'}
             </p>
           </div>
 

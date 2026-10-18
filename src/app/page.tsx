@@ -929,7 +929,8 @@ export default function LandingPage() {
                   <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
                     {[
                       'Everything in Free',
-                      'Monthly usage refreshed every billing cycle',
+                      'Unlimited usage',
+                      'No extra usage charges. No credits to buy.',
                       'ChatGPT, Claude and Gemini available',
                       'Shared memory, files and retrieval',
                       'Cancel anytime',

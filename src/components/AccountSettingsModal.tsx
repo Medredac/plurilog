@@ -21,7 +21,8 @@ interface AccountSettingsModalProps {
 
 const PLAN_FEATURES = [
   'Everything in Free',
-  'Monthly usage refreshed every billing cycle',
+  'Unlimited usage',
+  'No extra usage charges. No credits to buy.',
   'ChatGPT, Claude and Gemini available',
   'Shared memory, files and retrieval',
   'Cancel anytime',
