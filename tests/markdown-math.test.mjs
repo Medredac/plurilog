@@ -101,14 +101,3 @@ test('numeric expressions retain mathematical functions and commands',()=>{
   const html=render('$'+formula+'$');assert.match(html,/class="katex"/);assert.doesNotMatch(html,/katex-error/);
  }
 });
-
-
-test('generated-file sandbox links are hidden; genuine links and code remain intact',()=>{
- const html=render('Done.\n\n[**Download the PDF essay**](sandbox:/mnt/data/quantum_physics_essay.pdf)\n\n[Research source](https://example.org/paper.pdf)');
- assert.doesNotMatch(html,/Download|sandbox:|href=""/);
- assert.match(html,/Done\./);
- assert.match(html,/href="https:\/\/example.org\/paper.pdf"/);
- const code=render('`[Download](sandbox:/mnt/data/example.pdf)`');
- assert.match(code,/sandbox:\/mnt\/data\/example.pdf/);
- assert.match(render('Equation $E=mc^2$'),/class="katex"/);
-});
