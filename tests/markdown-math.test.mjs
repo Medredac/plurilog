@@ -55,3 +55,16 @@ $$`;
  assert.doesNotMatch(render(String.raw`$\href{javascript:alert(1)}{click}$`),/href="javascript:/);
  assert.doesNotMatch(render('<script>alert(1)</script>'),/<script>/);
 });
+
+
+test('backslash display equations preserve numbered list structure', () => {
+ const html = render(String.raw`1. Equation:
+   \[
+   x^2+y^2=z^2
+   \]
+2. Next step`);
+ assert.equal((html.match(/class="katex"/g)||[]).length, 1);
+ assert.equal((html.match(/<li>/g)||[]).length, 2);
+ assert.equal((html.match(/<ol/g)||[]).length, 1);
+ assert.doesNotMatch(html, /\$\$/);
+});
