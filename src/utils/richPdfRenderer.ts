@@ -903,8 +903,7 @@ h1, h2, h3 {
 </style>
 </head>
 <body>
-${titleHtml}
-${renderDocumentMathHtml(renderBlocksWithCompositions(blocks, design))}
+${renderDocumentMathHtml(titleHtml + renderBlocksWithCompositions(blocks, design))}
 </body>
 </html>`;
 

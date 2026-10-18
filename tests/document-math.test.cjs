@@ -64,3 +64,15 @@ test('matrices render; currency, code and attributes remain intact; invalid equa
   assert.match(output, /href="\/price\/\$x\$"/); assert.throws(() => renderDocumentMathHtml(String.raw`<p>$\notARealCommand{x}$</p>`), /Unsupported equation/);
   assert.equal(splitDocumentMath('$$\na^2+b^2=c^2\n$$')[0].tex.trim(), 'a^2+b^2=c^2');
 });
+
+
+test('renaming the same titled document cannot bypass preservation or correction budget', () => {
+  const guard = createDocumentGenerationGuard();
+  const spec = { title: 'Fuel Cell', blocks: [{ text: '$H_2$' }] };
+  guard.begin('fuel.docx', 'docx', spec); guard.saved('fuel.docx', 'docx', spec);
+  assert.throws(() => guard.begin('fuel_rendered.docx', 'docx', { title: 'Fuel Cell', blocks: [{ text: 'H₂' }] }), /removes or changes/);
+  guard.begin('fuel_fixed.docx', 'docx', spec); guard.saved('fuel_fixed.docx', 'docx', spec);
+  assert.throws(() => guard.begin('fuel_final.docx', 'docx', spec), /correction limit/);
+  assert.doesNotThrow(() => guard.begin('fuel.pdf', 'pdf', spec));
+  assert.doesNotThrow(() => guard.begin('different.docx', 'docx', { ...spec, title: 'Different document' }));
+});

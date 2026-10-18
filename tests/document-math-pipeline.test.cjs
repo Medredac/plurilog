@@ -19,7 +19,7 @@ function internal(file, names, stubImports = false) {
 }
 const rich = internal('src/utils/richPdfRenderer.ts', ['buildHtml']);
 const html = internal('src/utils/htmlPdfRenderer.ts', ['wrapHtmlDocument']);
-const pipeline = internal('src/utils/gptDocumentCreation.ts', ['reviewRenderedPdfWithGpt', 'missingRenderedTableValues'], true);
+const pipeline = internal('src/utils/gptDocumentCreation.ts', ['reviewRenderedPdfWithGpt', 'missingRenderedTableValues', 'repairMissingDocxTableValues'], true);
 
 test('the full fuel-cell PDF layout renders every equation including table cells', () => {
   const result = rich.buildHtml(fixture);
@@ -50,4 +50,16 @@ test('rendered table checks do not mistake typeset LaTeX for missing text, but s
   const blocks = [{ type: 'table', headers: ['Quantity', 'Value'], rows: [['Voltage', '$V_{\\mathrm{cell}}$'], ['Required label', '80']] }];
   assert.deepEqual(pipeline.missingRenderedTableValues(blocks, 'Quantity Value Voltage V cell Required label 80'), []);
   assert.ok(pipeline.missingRenderedTableValues(blocks, 'Quantity Value Voltage V cell 80').includes('Required label'));
+});
+
+test('math in titles is rendered and mixed table cells retain their repair identity', () => {
+  const output = rich.buildHtml({ filename: 'test.pdf', title: '$H_2$', blocks: [{ type: 'paragraph', text: 'Hydrogen' }] });
+  assert.equal((output.html.match(/data:image\/svg\+xml;base64/g) || []).length, 1);
+  const cell = 'Operating voltage $V_{cell}$';
+  const spec = { format: 'docx', filename: 'test.docx', blocks: [{ type: 'table', rows: [[cell]] }] };
+  const missing = pipeline.missingRenderedTableValues(spec.blocks, 'Other text');
+  assert.deepEqual(missing, [cell]);
+  const repaired = pipeline.repairMissingDocxTableValues(spec, missing);
+  assert.equal(repaired.blocks[0].type, 'page_break');
+  assert.equal(repaired.blocks[1].rows[0][0], cell);
 });

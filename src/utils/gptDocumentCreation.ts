@@ -314,9 +314,7 @@ function missingRenderedTableValues(
       ? (block as any).rows
       : [];
     const values = [...headers, ...rows.flat()]
-      // LaTeX source is not a literal PDF text sentinel. Its visual form is reviewed
-      // from page images; still validate all ordinary text around each equation.
-      .flatMap((value) => splitDocumentMath(String(value || '')).filter(part => !part.tex).map(part => part.source.trim()))
+      .map((value) => String(value || '').trim())
       .filter(
         (value) =>
           value.length >= 2 &&
@@ -324,7 +322,11 @@ function missingRenderedTableValues(
       );
 
     for (const value of values) {
-      if (!renderedTableValuePresent(value, renderedText)) {
+      // Typeset math is not literal LaTeX in PDF text extraction. Check surrounding
+      // prose, but retain the original cell identity for the targeted table repair.
+      const prose = splitDocumentMath(value).filter(part => !part.tex).map(part => part.source.trim())
+        .filter(part => part.length >= 2 && !isBlankFormScaffoldValue(part));
+      if (prose.some(part => !renderedTableValuePresent(part, renderedText))) {
         missing.push(value.slice(0, 240));
         if (missing.length >= 20) return missing;
       }
@@ -371,9 +373,7 @@ function repairMissingDocxTableValues(
 ): GptCreateFileArgs {
   const missing = new Set(
     (missingValues || [])
-      // LaTeX source is not a literal PDF text sentinel. Its visual form is reviewed
-      // from page images; still validate all ordinary text around each equation.
-      .flatMap((value) => splitDocumentMath(String(value || '')).filter(part => !part.tex).map(part => part.source.trim()))
+      .map((value) => String(value || '').trim())
       .filter(Boolean)
   );
   if (missing.size === 0) return args;
