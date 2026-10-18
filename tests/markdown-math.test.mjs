@@ -68,3 +68,36 @@ test('backslash display equations preserve numbered list structure', () => {
  assert.equal((html.match(/<ol/g)||[]).length, 1);
  assert.doesNotMatch(html, /\$\$/);
 });
+
+
+test('currency from the reported response preserves spaces, bold text and dollar signs', () => {
+ const cases = [
+  'Both treat that **$5,000** like a miniature venture fund allocating capital across departments. At $5,000, you do not have an asset allocation problem.',
+  String.raw`Paid advertising on a sub-$5k budget is usually lighting money on fire. B2B LinkedIn CPCs often sit between \$8 and \$15.`,
+  '**$200:** Direct user validation. Instead of guessing what to build, reach out to 10 highly specific target buyers and offer a **$50 Amazon gift card** for 20 minutes.',
+  '**Cash:** Spend ~$1,000 on discovery interviews, outbound infrastructure, and API buffer; keep the remaining ~$3,500+ locked until paying customers show you where the real bottleneck lives.',
+  'Tranche 1: Validation & Customer Proof ($600 – $800)',
+  'Costs $600–$800 or $5k–$10k; options $10,$20.',
+  '**$150 – $250:** Clean web presence. **$800 – $1,000:** API costs.',
+ ];
+ for(const input of cases){
+  const html=render(input);
+  assert.doesNotMatch(html,/class="katex|katex-error/);
+  assert.equal((html.match(/\$/g)||[]).length,(input.match(/\$/g)||[]).length);
+  assert.doesNotMatch(html,/\\\$/);
+ }
+ assert.match(render(cases[3]),/on discovery interviews, outbound infrastructure, and API buffer; keep the remaining/);
+ assert.match(render(cases[2]),/<strong>\$200:<\/strong>/);
+});
+test('currency can coexist with equations, explicit math and literal code',()=>{
+ const html=render(String.raw`Budget **$5,000** and $50. Formula $2 x$ and $2 + 2$, explicit \(2 x\), display $$2 + 2 = 4$$.`);
+ assert.equal((html.match(/class="katex"/g)||[]).length,4);
+ assert.doesNotMatch(html,/katex-error/);
+ assert.match(html,/<strong>\$5,000<\/strong>/);
+});
+
+test('numeric expressions retain mathematical functions and commands',()=>{
+ for(const formula of [String.raw`2\sin(x)`, '2 sin(x)', String.raw`2 \text{meters}`, '2x+3y=7']) {
+  const html=render('$'+formula+'$');assert.match(html,/class="katex"/);assert.doesNotMatch(html,/katex-error/);
+ }
+});
