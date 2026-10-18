@@ -1,0 +1,365 @@
+{
+  "title": "",
+  "filename": "hydrogen_fuel_cell_explanation_equations.pdf",
+  "format": "pdf",
+  "blocks": [
+    {
+      "type": "banner",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 10,
+        "paddingPt": 20,
+        "textColor": "#FFFFFF",
+        "fontSizePt": 24,
+        "fontWeight": 700,
+        "accentColor": "#99F6E4",
+        "borderColor": "#0F766E",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 14,
+        "backgroundColor": "#0F766E"
+      },
+      "title": "How a Hydrogen Fuel Cell Works",
+      "eyebrow": "ENERGY CONVERSION FUNDAMENTALS",
+      "subtitle": "Chemical reactions, voltage, current, and a simple power calculation"
+    },
+    {
+      "text": "A hydrogen fuel cell converts the chemical energy of hydrogen and oxygen directly into electrical energy. In a typical proton exchange membrane fuel cell (PEMFC), the main byproducts are water and heat.",
+      "type": "paragraph",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 8,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "1. How the fuel cell works",
+      "type": "heading",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "#0F766E",
+        "fontSizePt": 16,
+        "fontWeight": 700,
+        "accentColor": "#0F766E",
+        "borderColor": "",
+        "marginTopPt": 8,
+        "borderWidthPt": 0,
+        "marginBottomPt": 5,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "type": "numbered",
+      "items": [
+        "Hydrogen gas ($H_2$) enters the anode, where a platinum catalyst separates each molecule into protons ($H^+$) and electrons ($e^-$).",
+        "The proton exchange membrane allows protons ($H^+$) to pass through to the cathode, but it blocks electrons ($e^-$).",
+        "The electrons are forced through an external electrical circuit. Their movement produces direct-current electricity for a load, such as an electric motor.",
+        "Oxygen ($O_2$), usually supplied from air, reaches the cathode. There, oxygen combines with the returning electrons ($e^-$) and the protons ($H^+$) to form water and release heat."
+      ],
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 6,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "Electron path: anode \u2192 external circuit/load \u2192 cathode. Proton path: anode \u2192 membrane \u2192 cathode.",
+      "type": "callout",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 8,
+        "paddingPt": 12,
+        "textColor": "#164E63",
+        "fontSizePt": 10,
+        "fontWeight": 600,
+        "accentColor": "#06B6D4",
+        "borderColor": "#A5F3FC",
+        "marginTopPt": 8,
+        "borderWidthPt": 1,
+        "marginBottomPt": 10,
+        "backgroundColor": "#ECFEFF"
+      },
+      "title": "Why electricity is produced",
+      "eyebrow": "KEY IDEA"
+    },
+    {
+      "text": "2. Chemical reactions",
+      "type": "heading",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "#0F766E",
+        "fontSizePt": 16,
+        "fontWeight": 700,
+        "accentColor": "#0F766E",
+        "borderColor": "",
+        "marginTopPt": 7,
+        "borderWidthPt": 0,
+        "marginBottomPt": 5,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "Anode (oxidation):\n$$H_2 \\rightarrow 2H^+ + 2e^-$$\nCathode (reduction):\n$$\\frac{1}{2}O_2 + 2H^+ + 2e^- \\rightarrow H_2O$$\nOverall reaction:\n$$H_2 + \\frac{1}{2}O_2 \\rightarrow H_2O$$",
+      "type": "paragraph",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 6,
+        "paddingPt": 10,
+        "textColor": "#1F2937",
+        "fontSizePt": 11,
+        "fontWeight": 400,
+        "accentColor": "#0F766E",
+        "borderColor": "#D5DEE8",
+        "marginTopPt": 0,
+        "borderWidthPt": 0.5,
+        "marginBottomPt": 7,
+        "backgroundColor": "#F8FAFC"
+      }
+    },
+    {
+      "text": "Under standard conditions (25 \u00b0C and 1 atm), the theoretical reversible cell voltage is approximately 1.23 V. It follows from the Gibbs free-energy relation $$E^\\circ = -\\frac{\\Delta G^\\circ}{nF}$$ using $\\Delta G^\\circ \\approx -237.13\\ \\mathrm{kJ/mol}$, $n = 2$ electrons, and $F \\approx 96{,}485\\ \\mathrm{C/mol}$.",
+      "type": "paragraph",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 6,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "Real cells operate below 1.23 V because of activation losses, ohmic resistance, and mass-transport limitations. A loaded PEM fuel cell commonly operates around 0.6\u20130.8 V per cell, depending on conditions and design.",
+      "type": "paragraph",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 6,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "type": "page_break",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 0,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "3. Calculating electrical power",
+      "type": "heading",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "#0F766E",
+        "fontSizePt": 16,
+        "fontWeight": 700,
+        "accentColor": "#0F766E",
+        "borderColor": "",
+        "marginTopPt": 7,
+        "borderWidthPt": 0,
+        "marginBottomPt": 5,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "Stack voltage:\n$$V_{\\mathrm{stack}} = N \\times V_{\\mathrm{cell}}$$\nElectrical power:\n$$P = V_{\\mathrm{stack}} \\times I$$\nCombined form:\n$$P = N \\times V_{\\mathrm{cell}} \\times I$$\nElectrical energy over time:\n$$E = P \\times t$$",
+      "type": "paragraph",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 6,
+        "paddingPt": 10,
+        "textColor": "#1F2937",
+        "fontSizePt": 11,
+        "fontWeight": 400,
+        "accentColor": "#0F766E",
+        "borderColor": "#D5DEE8",
+        "marginTopPt": 0,
+        "borderWidthPt": 0.5,
+        "marginBottomPt": 10,
+        "backgroundColor": "#F8FAFC"
+      }
+    },
+    {
+      "text": "4. Simple numerical example",
+      "type": "heading",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "#0F766E",
+        "fontSizePt": 16,
+        "fontWeight": 700,
+        "accentColor": "#0F766E",
+        "borderColor": "",
+        "marginTopPt": 7,
+        "borderWidthPt": 0,
+        "marginBottomPt": 5,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "rows": [
+        [
+          "Number of cells in series, N",
+          "80"
+        ],
+        [
+          "Operating voltage per cell, $V_{\\mathrm{cell}}$",
+          "0.70 V"
+        ],
+        [
+          "Operating current, I",
+          "40 A"
+        ],
+        [
+          "Operating time",
+          "2 h"
+        ]
+      ],
+      "type": "table",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10,
+        "fontWeight": 400,
+        "accentColor": "#0F766E",
+        "borderColor": "#D5DEE8",
+        "marginTopPt": 0,
+        "borderWidthPt": 0.5,
+        "marginBottomPt": 6,
+        "backgroundColor": ""
+      },
+      "headers": [
+        "Parameter",
+        "Value"
+      ]
+    },
+    {
+      "type": "numbered",
+      "items": [
+        "Stack voltage: $$V_{\\mathrm{stack}} = 80 \\times 0.70\\ \\mathrm{V} = 56\\ \\mathrm{V}$$",
+        "Electrical power: $$P = 56\\ \\mathrm{V} \\times 40\\ \\mathrm{A} = 2{,}240\\ \\mathrm{W} = 2.24\\ \\mathrm{kW}$$",
+        "Electrical energy in 2 hours: $$E = 2.24\\ \\mathrm{kW} \\times 2\\ \\mathrm{h} = 4.48\\ \\mathrm{kWh}$$"
+      ],
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 0,
+        "paddingPt": 0,
+        "textColor": "",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "",
+        "borderColor": "",
+        "marginTopPt": 0,
+        "borderWidthPt": 0,
+        "marginBottomPt": 5,
+        "backgroundColor": ""
+      }
+    },
+    {
+      "text": "Result: this example fuel-cell stack delivers 2.24 kW of electrical power and 4.48 kWh of energy over two hours, assuming the voltage and current remain constant.",
+      "type": "callout",
+      "level": 1,
+      "style": {
+        "align": "left",
+        "radiusPt": 8,
+        "paddingPt": 12,
+        "textColor": "#7C2D12",
+        "fontSizePt": 10.5,
+        "fontWeight": 400,
+        "accentColor": "#F59E0B",
+        "borderColor": "#FED7AA",
+        "marginTopPt": 10,
+        "borderWidthPt": 1,
+        "marginBottomPt": 0,
+        "backgroundColor": "#FFF7ED"
+      },
+      "title": "2.24 kW at 56 V and 40 A",
+      "eyebrow": "FINAL RESULT"
+    }
+  ],
+  "design": {
+    "locale": "en-US",
+    "marginMm": 18,
+    "pageSize": "LETTER",
+    "textColor": "#1F2937",
+    "bodySizePt": 10.5,
+    "fontFamily": "serif",
+    "footerText": "Hydrogen fuel cell fundamentals",
+    "headerText": "Hydrogen Fuel Cells",
+    "lineHeight": 1.2,
+    "mutedColor": "#5B6472",
+    "accentColor": "#0F766E",
+    "orientation": "portrait",
+    "accentColor2": "#0EA5E9",
+    "accentColor3": "#F59E0B",
+    "backgroundColor": "#FFFFFF",
+    "showPageNumbers": true,
+    "headingFontFamily": "serif"
+  }
+}

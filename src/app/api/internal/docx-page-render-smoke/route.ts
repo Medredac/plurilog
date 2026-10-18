@@ -27,6 +27,10 @@ export async function GET(request: Request) {
       marginMm: 16,
     },
     blocks: [
+      ...(url.searchParams.get('math') === '1' ? [{
+        type: 'paragraph' as const,
+        text: String.raw`Equation rendering: $$\ce{H2 -> 2H+ + 2e-}$$ $$E^\circ=-\frac{\Delta G^\circ}{nF}$$ $$P=V_{\mathrm{stack}}\times I=56\times40=2240\,\mathrm{W}$$`,
+      }] : []),
       {
         type: 'table',
         headers: ['項目', '内容'],
@@ -97,6 +101,10 @@ export async function GET(request: Request) {
     fixture.buffer,
     snapshotId ? { snapshotId } : undefined
   );
+
+  if (url.searchParams.get('page') === '1') {
+    return new Response(new Uint8Array(rendered.pages[0].data), { headers: { 'Content-Type': 'image/png' } });
+  }
 
   const signatures = rendered.pages.map((page) => ({
     pageNumber: page.pageNumber,

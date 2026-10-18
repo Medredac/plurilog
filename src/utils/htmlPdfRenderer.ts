@@ -1,3 +1,4 @@
+import { renderDocumentMathHtml } from './documentMath';
 import { Buffer } from 'node:buffer';
 import { Sandbox } from '@vercel/sandbox';
 
@@ -308,7 +309,7 @@ ${safeCss}
 </style>
 </head>
 <body>
-${safeHtml}
+${renderDocumentMathHtml(safeHtml)}
 </body>
 </html>`,
   };

@@ -4,10 +4,10 @@ const MAX_DOCX_RENDER_BYTES = 25 * 1024 * 1024;
 export const MAX_DOCX_RENDERED_PAGES = 12;
 const DEFAULT_RENDER_DPI = 120;
 const LIBREOFFICE_VERSION = '26.2.6';
-// Snapshot rebuilt with LibreOffice, Poppler, fontconfig, and Japanese Noto CJK fonts.
+// Snapshot rebuilt with LibreOffice Writer + Math, Poppler, fontconfig, and Japanese Noto CJK fonts.
 // Keep this code-level default ahead of older environment snapshots so preview/production
 // do not silently regress to tofu rendering after deployment.
-const DEFAULT_DOCX_RENDERER_SNAPSHOT_ID = 'snap_vwQhLmdtlIxq4OliWzLOjVlHEzuD';
+const DEFAULT_DOCX_RENDERER_SNAPSHOT_ID = 'snap_cbknPjnQC7hkIHA7dWhDjWYKopFw';
 
 export interface RenderedDocxPage {
   pageNumber: number;
@@ -94,6 +94,17 @@ function parsePdfPageCount(raw: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** Writer alone silently drops OMML equations; fail explicitly on incomplete snapshots. */
+async function assertLibreOfficeMath(sandbox: InstanceType<typeof Sandbox>): Promise<void> {
+  const result = await sandbox.runCommand({
+    cmd: 'sh',
+    args: ['-lc', "find /usr/lib/libreoffice /opt -type f -name 'libsmlo.so' -print -quit 2>/dev/null"],
+  });
+  if (!(await result.stdout()).trim()) {
+    throw new Error('DOCX renderer is missing LibreOffice Math. Use a renderer snapshot containing libreoffice-math; equations cannot be rendered safely without it.');
+  }
+}
+
 async function hasJapaneseFonts(
   sandbox: InstanceType<typeof Sandbox>
 ): Promise<boolean> {
@@ -165,6 +176,7 @@ export async function installDocxRendererDependencies(
 
   if (libreOfficePath && pdfInfoPath && pdfToPpmPath) {
     await ensureJapaneseFonts(sandbox);
+    await assertLibreOfficeMath(sandbox);
     return { libreOfficePath };
   }
 
@@ -178,7 +190,7 @@ export async function installDocxRendererDependencies(
   if (packageManager === 'apt-get') {
     await runShell(
       sandbox,
-      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer poppler-utils fontconfig fonts-noto-cjk',
+      'sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libreoffice-writer libreoffice-math fonts-opensymbol poppler-utils fontconfig fonts-noto-cjk',
       'DOCX renderer dependency installation'
     );
   } else if (packageManager === 'dnf') {
@@ -245,6 +257,7 @@ export async function installDocxRendererDependencies(
 export async function createDocxRendererSnapshot(): Promise<CreateDocxRendererSnapshotResult> {
   const startedAt = Date.now();
   const sandbox = await Sandbox.create({
+    source: { type: 'snapshot', snapshotId: DEFAULT_DOCX_RENDERER_SNAPSHOT_ID },
     persistent: false,
     timeout: 5 * 60 * 1000,
     networkPolicy: 'allow-all',
@@ -334,6 +347,7 @@ export async function convertDocxToPdf(
       : await installDocxRendererDependencies(sandbox);
 
     await ensureJapaneseFonts(sandbox);
+    await assertLibreOfficeMath(sandbox);
 
     await sandbox.writeFiles([
       {
@@ -459,6 +473,7 @@ export async function renderDocxPages(
       : await installDocxRendererDependencies(sandbox);
 
     await ensureJapaneseFonts(sandbox);
+    await assertLibreOfficeMath(sandbox);
 
     await sandbox.writeFiles([
       {
