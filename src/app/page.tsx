@@ -845,7 +845,7 @@ export default function LandingPage() {
           <div className="max-w-5xl mx-auto px-6 sm:px-12 py-16">
             <motion.div {...scrollRevealProps(0)}>
               <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-zinc-900 text-center">
-                Simple pricing
+                Simple and transparent pricing. No surprises
               </h2>
               <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
                 Try Plurilog for free, then upgrade when you&apos;re ready.
