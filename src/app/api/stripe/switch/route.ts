@@ -34,7 +34,8 @@ async function handle(request: Request) {
     if (quote.amount !== body.amount || quote.effectiveAt !== body.effectiveAt) return reply({ error: 'Your billing details changed. Please reopen Account settings before confirming.' }, 409);
     return reply(await schedulePlanSwitch(stripe, subscription, schedule, body.interval, body.requestId));
   } catch (error) {
-    if (error instanceof PlanSwitchError) return reply({ error: error.message }, 409);
+    if (error instanceof PlanSwitchError) return request.method === 'GET'
+      ? reply({ available: false, reason: error.message }) : reply({ error: error.message }, 409);
     console.error('[Stripe switch]', error);
     return reply({ error: 'Unable to change your plan. Please try again.' }, 503);
   }
