@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 function load(file, env = {}) {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports, process: { env } });
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports, process: { env }, require: id => id === '@/lib/plans' ? load('src/lib/plans.ts', env) : require(id) });
   return exports;
 }
 const pricing = load('src/lib/plusPricing.ts');
@@ -23,6 +23,7 @@ test('grandfather all accounts created before activation including exhausted fre
 test('new accounts need a plan even if starter credits exist; paying users retain access', () => {
   assert.equal(access.requiresPaidEntry(cutoff, 'free', cutoff), true);
   assert.equal(access.requiresPaidEntry('2026-11-02', 'paid', cutoff), false);
+  assert.equal(access.requiresPaidEntry('2026-11-02', 'weekly_paid', cutoff), false);
   assert.equal(access.requiresPaidEntry('2026-11-02', 'free', cutoff), true);
 });
 test('production rollout is off until a cutoff is explicitly configured', () => {

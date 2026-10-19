@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
 
   // Backend duplicate-subscription guard: block non-terminal paid subscriptions
   const nonTerminalStatuses = ['active', 'canceling', 'past_due', 'unpaid', 'trialing'];
-  if (profile?.plan === 'paid' && profile.plan_status && nonTerminalStatuses.includes(profile.plan_status)) {
+  if (isPlusPlan(profile?.plan) && profile.plan_status && nonTerminalStatuses.includes(profile.plan_status)) {
     return NextResponse.json(
       { error: 'An active or pending subscription already exists. Please manage your subscription in Account Settings.' },
       { status: 400 }
