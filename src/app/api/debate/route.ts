@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { createDocumentGenerationGuard } from '@/utils/documentGenerationGuard';
 import { runAgentToolLoop, AGENT_EXECUTION_INSTRUCTION, type AgentTool } from '@/utils/agentToolLoop';
 import { buildDurableAttachmentUrl } from '@/utils/durableAttachments';
@@ -7219,7 +7220,7 @@ export async function POST(req: NextRequest) {
               imageEditingEnabled: isImageEditingEnabledForSeat,
               documentCreationEnabled: isDocumentCreationEnabledForSeat,
               documentCreatedThisTurn,
-              accountPlan: balance.plan === 'paid' ? 'paid' : 'free',
+              accountPlan: isPlusPlan(balance.plan) ? 'paid' : 'free',
             };
 
             const sameRoundSourceDocumentPages =

@@ -7,3 +7,15 @@ export interface PlusOffer {
   terms: string;
   canSubscribe: boolean;
 }
+
+export type BillingInterval = 'week' | 'month';
+export const WEEKLY_PRICE = 4.99;
+export const MONTHLY_PRICE = 19;
+export const INTRO_MONTHLY_PRICE = 9;
+// Compare 52 weekly charges with 12 monthly charges, rounded down.
+export function monthlySavingsPercent(monthly: number) {
+  return Math.floor((1 - monthly * 12 / (WEEKLY_PRICE * 52)) * 100);
+}
+export function monthlySavingsText() {
+  return `Save ${monthlySavingsPercent(MONTHLY_PRICE)}%`;
+}

@@ -1,4 +1,5 @@
 'use client';
+import { PlanSwitchControls } from './PlanSwitchControls';
 
 import { PLUS_FEATURES } from '@/lib/plusFeatures';
 
@@ -15,7 +16,7 @@ interface AccountSettingsModalProps {
   displayName: string;
   userEmail?: string;
   userAvatarUrl?: string;
-  userPlan: 'free' | 'paid';
+  userPlan: 'free' | 'paid' | 'weekly_paid';
   onNameUpdated?: (newName: string) => void;
   periodResetAt?: string | null;
   planStatus?: string | null;
@@ -296,8 +297,8 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                   <img src="/logo.svg" alt="" className="mt-0.5 h-[22px] w-[22px] shrink-0 object-contain" />
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-1.5">
-                      <span className="text-[13px] font-semibold text-[#1C1B1A]">Plus</span>
-                      <span className="text-[11px] text-[#6A675F]">{offer?.amount != null ? `· $${offer.amount} next payment` : ''}</span>
+                      <span className="text-[13px] font-semibold text-[#1C1B1A]">{userPlan === 'weekly_paid' ? 'Plus · Weekly' : 'Plus · Monthly'}</span>
+                      <span className="text-[11px] text-[#6A675F]">{userPlan === 'weekly_paid' ? '· $4.99 / week' : offer?.amount != null ? `· $${offer.amount} next payment` : ''}</span>
                     </div>
                     {billingDate && (
                       <p className="mt-0.5 text-[10px] leading-4 text-[#6A675F]">
@@ -322,6 +323,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <p className="mb-3 text-[10px] font-medium text-[#6A675F]">Included in your plan</p>
                 <FeatureList />
               </div>
+              <PlanSwitchControls />
             </div>
           )}
 

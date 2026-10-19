@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { applyIntroOnResumption } from '@/lib/stripeIntroOffer';
@@ -10,7 +11,14 @@ import {
   type MetaConsentStatus,
 } from '@/lib/metaConversions';
 
-const PLUS_MONTHLY_ALLOWANCE_CENTS = 900;
+const PLUS_ALLOWANCE_CENTS = 900;
+
+function subscriptionStatus(subscription: Stripe.Subscription) {
+  if (['canceled', 'incomplete_expired'].includes(subscription.status)) return 'canceled';
+  if (subscription.status !== 'active' && subscription.status !== 'trialing') return 'past_due';
+  return subscription.cancel_at_period_end || subscription.cancel_at != null ? 'canceling' : 'active';
+}
+
 
 async function reportInitialMetaPurchase({
   userId,
@@ -86,10 +94,12 @@ export async function POST(request: Request) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      case 'checkout.session.async_payment_succeeded': {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.client_reference_id;
         if (!userId || !session.subscription) break;
+        if (!['paid', 'no_payment_required'].includes(session.payment_status)) break;
 
         const subscriptionId = session.subscription as string;
 
@@ -136,7 +146,7 @@ export async function POST(request: Request) {
         if (profile.stripe_subscription_id === subscriptionId) {
           console.log(`[Stripe Webhook] Duplicate checkout.session.completed for already-initialized subscription ${subscriptionId}, skipping credit grant.`);
           // If the profile is in terminal state (free/canceled), do NOT resurrect to paid.
-          if (profile.plan === 'paid') {
+          if (isPlusPlan(profile.plan)) {
             await supabase.from('profiles').update({
               stripe_customer_id: session.customer as string,
               updated_at: new Date().toISOString(),
@@ -147,6 +157,10 @@ export async function POST(request: Request) {
 
         // Genuinely new subscription: retrieve periodEnd from Stripe
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        if (subscriptionStatus(subscription) === 'canceled') break;
+        const subscriptionPrice = subscription.items.data[0]?.price.id;
+        const weekly = subscriptionPrice === process.env.STRIPE_PRICE_ID_PLUS_WEEKLY;
+        if (!weekly && subscriptionPrice !== process.env.STRIPE_PRICE_ID_PLUS) throw new Error('Unrecognized Plus price');
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
         if (typeof periodEndTimestamp !== 'number' || periodEndTimestamp <= 0) {
           console.error(`[Stripe Webhook] Subscription ${subscriptionId} missing valid current_period_end timestamp.`);
@@ -154,18 +168,22 @@ export async function POST(request: Request) {
         }
         const periodEnd = new Date(periodEndTimestamp * 1000).toISOString();
 
-        const { error, count } = await supabase.from('profiles').update({
-          plan: 'paid',
-          plan_status: 'active',
-          credits_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
-          remaining_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
+        const provision = supabase.from('profiles').update({
+          plan: weekly ? 'weekly_paid' : 'paid',
+          plan_status: subscriptionStatus(subscription),
+          credits_cents: PLUS_ALLOWANCE_CENTS,
+          remaining_cents: PLUS_ALLOWANCE_CENTS,
           total_spent_cents: 0,
           period_reset_at: periodEnd,
           current_period_end: periodEnd,
           stripe_customer_id: session.customer as string,
           stripe_subscription_id: subscriptionId,
           updated_at: new Date().toISOString(),
-        }, { count: 'exact' }).eq('id', userId);
+        }, { count: 'exact' }).eq('id', userId).eq('plan', profile.plan);
+        // Compare-and-set: concurrent deliveries cannot both initialize credit.
+        const { error, count } = await (profile.stripe_subscription_id
+          ? provision.eq('stripe_subscription_id', profile.stripe_subscription_id)
+          : provision.is('stripe_subscription_id', null));
 
         if (error || count === 0) {
           console.error(`[Stripe Webhook] Supabase update failed for checkout.session.completed:`, error || 'matched 0 rows');
@@ -250,7 +268,7 @@ export async function POST(request: Request) {
         }
 
         // Stale invoice must NOT grant credits or resurrect paid access if user is free/canceled
-        if (profile.plan !== 'paid') {
+        if (!isPlusPlan(profile.plan)) {
           console.log(`[Stripe Webhook] invoice.paid received for non-paid user (${profile.plan}), ignoring credit reset.`);
           break;
         }
@@ -275,7 +293,7 @@ export async function POST(request: Request) {
           const linePriceId = typeof line.pricing?.price_details?.price === 'string'
             ? line.pricing.price_details.price
             : (line.pricing?.price_details?.price as any)?.id ?? (line as any).price?.id;
-          if (linePriceId !== plusPriceId) {
+          if (![plusPriceId, process.env.STRIPE_PRICE_ID_PLUS_WEEKLY].filter(Boolean).includes(linePriceId)) {
             return false;
           }
 
@@ -291,18 +309,39 @@ export async function POST(request: Request) {
         // Pick qualifying line with the greatest period.end (in case of proration + recurring line)
         const plusLine = qualifyingLines.reduce((latest, curr) => (curr.period.end > latest.period.end ? curr : latest), qualifyingLines[0]);
         const allowancePeriodEnd = new Date(plusLine.period.end * 1000).toISOString();
+        const currentSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const currentStatus = subscriptionStatus(currentSubscription);
+        if (currentStatus === 'canceled' || currentStatus === 'past_due') break;
+        if (currentSubscription.schedule) {
+          const scheduleId = typeof currentSubscription.schedule === 'string' ? currentSubscription.schedule : currentSubscription.schedule.id;
+          const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+          if (schedule.metadata?.plurilog_switch === 'plurilog_period_end_switch_v1' && schedule.status === 'active' &&
+              schedule.phases.length > 1 && schedule.current_phase?.start_date === schedule.phases.at(-1)?.start_date &&
+              currentSubscription.items.data[0]?.current_period_end === plusLine.period.end) {
+            await stripe.subscriptionSchedules.release(scheduleId);
+          }
+        }
 
-        // Calculate if this is a genuine new allowance period using actual timestamps
+        const invoicePrice = plusLine.pricing?.price_details?.price ?? (plusLine as any).price?.id;
+        const paidPlan = (typeof invoicePrice === 'string' ? invoicePrice : invoicePrice?.id) === process.env.STRIPE_PRICE_ID_PLUS_WEEKLY ? 'weekly_paid' : 'paid';
+
+        // A plan switch can shorten a month to a week even if the legacy monthly
+        // fallback already advanced its local reset date. Stripe's paid cycle wins.
+        const currentItem = currentSubscription.items.data[0];
+        const isPaidPlanSwitch = paidPlan !== profile.plan && currentItem?.current_period_end === plusLine.period.end &&
+          currentItem.price.id === (typeof invoicePrice === 'string' ? invoicePrice : invoicePrice?.id);
+        if (!isPaidPlanSwitch && profile.period_reset_at && Date.parse(allowancePeriodEnd) < Date.parse(profile.period_reset_at)) break;
         const isNewAllowancePeriod =
-          !profile.period_reset_at ||
+          isPaidPlanSwitch || !profile.period_reset_at ||
           new Date(allowancePeriodEnd).getTime() > new Date(profile.period_reset_at).getTime();
 
         if (isNewAllowancePeriod) {
           // Grant allowance exactly once for this period
           const updatePayload = {
-            plan_status: 'active',
-            credits_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
-            remaining_cents: PLUS_MONTHLY_ALLOWANCE_CENTS,
+            plan: paidPlan,
+            plan_status: currentStatus,
+            credits_cents: PLUS_ALLOWANCE_CENTS,
+            remaining_cents: PLUS_ALLOWANCE_CENTS,
             total_spent_cents: 0,
             period_reset_at: allowancePeriodEnd,
             current_period_end: allowancePeriodEnd,
@@ -310,10 +349,11 @@ export async function POST(request: Request) {
             updated_at: new Date().toISOString(),
           };
 
-          const { error, count } = await supabase
-            .from('profiles')
-            .update(updatePayload, { count: 'exact' })
-            .eq('id', profile.id);
+          const renewal = supabase.from('profiles').update(updatePayload, { count: 'exact' })
+            .eq('id', profile.id).eq('stripe_subscription_id', subscriptionId).eq('plan', profile.plan);
+          const { error, count } = await (profile.period_reset_at
+            ? renewal.eq('period_reset_at', profile.period_reset_at)
+            : renewal.is('period_reset_at', null));
 
           if (error || count === 0) {
             console.error(`[Stripe Webhook] Supabase update failed for invoice.paid (new period):`, error || 'matched 0 rows');
@@ -328,7 +368,8 @@ export async function POST(request: Request) {
             new Date(allowancePeriodEnd).getTime() >= new Date(profile.current_period_end).getTime();
 
           const reconcilePayload: Record<string, any> = {
-            plan_status: 'active',
+            plan: paidPlan,
+            plan_status: currentStatus,
             stripe_subscription_id: subscriptionId,
             updated_at: new Date().toISOString(),
             ...(shouldUpdatePeriodEnd ? { current_period_end: allowancePeriodEnd } : {}),
@@ -337,7 +378,7 @@ export async function POST(request: Request) {
           const { error } = await supabase
             .from('profiles')
             .update(reconcilePayload, { count: 'exact' })
-            .eq('id', profile.id);
+            .eq('id', profile.id).eq('plan', profile.plan).eq('period_reset_at', profile.period_reset_at);
 
           if (error) {
             console.error(`[Stripe Webhook] Supabase reconciliation failed for invoice.paid (same period):`, error);
@@ -358,6 +399,8 @@ export async function POST(request: Request) {
         ) as string | null;
         if (!subscriptionId) break;
 
+        const currentSubscription = await stripe.subscriptions.retrieve(subscriptionId);
+        if (subscriptionStatus(currentSubscription) !== 'past_due') break;
         const { error, count } = await supabase.from('profiles').update({
           plan_status: 'past_due',
           updated_at: new Date().toISOString(),
@@ -367,6 +410,7 @@ export async function POST(request: Request) {
 
         if (error) {
           console.error(`[Stripe Webhook] Supabase update failed for invoice.payment_failed:`, error);
+          return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
         } else if (count === 0) {
           console.error(`[Stripe Webhook] Supabase update matched 0 rows for invoice.payment_failed, subscriptionId: ${subscriptionId}`);
         }
@@ -376,24 +420,23 @@ export async function POST(request: Request) {
       }
 
       case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
+        const eventSubscription = event.data.object as Stripe.Subscription;
+        const subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
         await applyIntroOnResumption(stripe, subscription, event.data.previous_attributes, process.env.STRIPE_PRICE_ID_PLUS!);
         const subscriptionId = subscription.id;
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
 
         const { error, count } = await supabase.from('profiles').update({
-          plan_status: (subscription.status === 'past_due' || subscription.status === 'unpaid')
-            ? 'past_due'
-            : (subscription.cancel_at_period_end || subscription.cancel_at !== null)
-              ? 'canceling'
-              : 'active',
+          plan_status: subscriptionStatus(subscription),
+          ...(subscriptionStatus(subscription) === 'canceled' ? { plan: 'free', remaining_cents: 0 } : {}),
           ...(periodEnd ? { current_period_end: periodEnd } : {}),
           updated_at: new Date().toISOString(),
         }, { count: 'exact' }).eq('stripe_subscription_id', subscriptionId);
 
         if (error) {
           console.error(`[Stripe Webhook] Supabase update failed for customer.subscription.updated:`, error);
+          return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
         } else if (count === 0) {
           console.error(`[Stripe Webhook] Supabase update matched 0 rows for customer.subscription.updated, subscriptionId: ${subscriptionId}`);
         }
@@ -416,6 +459,7 @@ export async function POST(request: Request) {
 
         if (error) {
           console.error(`[Stripe Webhook] Supabase update failed for customer.subscription.deleted:`, error);
+          return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
         } else if (count === 0) {
           console.error(`[Stripe Webhook] Supabase update matched 0 rows for customer.subscription.deleted, subscriptionId: ${subscriptionId}`);
         }
