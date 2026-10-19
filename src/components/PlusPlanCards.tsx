@@ -17,7 +17,7 @@ export function PlusPlanCards({ offer, onSelect, busy, disabled = false }: {
       return <div key={interval} className="relative flex flex-col rounded-2xl border bg-white p-5 sm:p-6 border-[#8A867D] shadow-2xs">
         <div className="pointer-events-none absolute -top-[23px] right-5 flex items-end -space-x-2.5" aria-hidden="true">{['claude', 'chatgpt', 'gemini'].map(name => <img key={name} src={`/robot-head-${name}@3x.png`} alt="" className="h-[35px] w-[33px] object-contain" />)}</div>
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <h3 className="text-base font-semibold">Plus {monthly ? 'Monthly' : 'Weekly'}</h3>
+          <h3 className="text-base font-semibold">1 {monthly ? 'month' : 'week'}</h3>
           {monthly && <span className="rounded-full bg-[#F6D3C9] px-2 py-1 text-[11px] font-medium">Popular</span>}
         </div>
         <div className="flex items-baseline gap-1"><span className="text-4xl font-semibold tracking-tight">{amount != null ? `$${amount}` : '…'}</span><span className="text-sm text-[#6A675F]">/ {interval}</span></div>
@@ -29,7 +29,7 @@ export function PlusPlanCards({ offer, onSelect, busy, disabled = false }: {
         <ul className="my-5 flex-1 space-y-2.5 text-xs leading-5">
           {PLUS_FEATURES.map(feature => <li className="flex items-start gap-2" key={feature}><span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white"><Check className="h-2.5 w-2.5 stroke-[2.5]"/></span><span>{feature === 'Cancel anytime' ? `Renews ${monthly ? 'monthly' : 'weekly'}. Cancel anytime.` : feature}</span></li>)}
         </ul>
-        <button type="button" disabled={disabled || !!busy || !offer?.canSubscribe} onClick={() => onSelect(interval)} className={`flex min-h-11 w-full cursor-pointer items-center justify-center rounded-[10px] px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-[#1C1B1A] text-white hover:bg-[#2A2927]`}>{busy === interval ? 'Opening…' : `Choose ${monthly ? 'monthly' : 'weekly'}`}</button>
+        <button type="button" disabled={disabled || !!busy || !offer?.canSubscribe} onClick={() => onSelect(interval)} className={`flex min-h-11 w-full cursor-pointer items-center justify-center rounded-[10px] px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-[#1C1B1A] text-white hover:bg-[#2A2927]`}>{busy === interval ? 'Opening…' : amount != null ? `Enjoy 1 ${monthly ? 'month' : 'week'} for $${amount}` : 'Loading…'}</button>
       </div>;
     })}
   </div>;
