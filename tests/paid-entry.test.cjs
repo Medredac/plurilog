@@ -11,11 +11,10 @@ function load(file, env = {}) {
 const pricing = load('src/lib/plusPricing.ts');
 const access = load('src/lib/paidEntry.ts');
 const cutoff = '2026-11-01T00:00:00.000Z';
-test('weekly comparison uses 52 charges, with distinct intro and regular savings', () => {
+test('monthly badge compares regular annual cost with 52 weekly charges', () => {
   assert.equal(pricing.monthlySavingsPercent(9), 58);
   assert.equal(pricing.monthlySavingsPercent(19), 12);
-  assert.match(pricing.monthlySavingsText(9), /for 3 months/);
-  assert.doesNotMatch(pricing.monthlySavingsText(19), /3 months/);
+  assert.equal(pricing.monthlySavingsText(), 'Save 12%');
 });
 test('grandfather all accounts created before activation including exhausted free users', () => {
   assert.equal(access.requiresPaidEntry('2026-10-31T23:59:59Z', 'free', cutoff), false);

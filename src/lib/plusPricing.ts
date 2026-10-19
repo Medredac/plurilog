@@ -16,6 +16,6 @@ export const INTRO_MONTHLY_PRICE = 9;
 export function monthlySavingsPercent(monthly: number) {
   return Math.floor((1 - monthly * 12 / (WEEKLY_PRICE * 52)) * 100);
 }
-export function monthlySavingsText(monthly: number) {
-  return `Save ${monthlySavingsPercent(monthly)}% vs weekly${monthly === INTRO_MONTHLY_PRICE ? ' for 3 months' : ''}`;
+export function monthlySavingsText() {
+  return `Save ${monthlySavingsPercent(MONTHLY_PRICE)}%`;
 }

@@ -23,15 +23,14 @@ export function PlusPlanCards({ offer, onSelect, busy, disabled = false }: {
         <div className="flex items-baseline gap-1"><span className="text-4xl font-semibold tracking-tight">{amount != null ? `$${amount}` : '…'}</span><span className="text-sm text-[#6A675F]">/ {interval}</span></div>
         <div className="mt-3 min-h-20 text-xs leading-5 text-[#6A675F]">
           {monthly && offer?.label === 'Limited-time offer' && <span className="mb-1 inline-block rounded-full bg-[#FFF1E8] px-2 py-0.5 font-medium text-[#8A3D22]">Limited-time offer</span>}
-          <p>{monthly ? offer?.terms || 'Loading your price…' : 'USD. Billed weekly. Cancel anytime.'}</p>
-          {monthly && amount != null && <p className="mt-1 font-semibold text-[#8A3D22]">{monthlySavingsText(amount)}</p>}
+          {monthly && <p>{!offer ? 'Loading your price…' : offer.label === 'Limited-time offer' ? offer.terms : ''}</p>}
+          {monthly && amount != null && <p className="mt-1 font-semibold text-[#8A3D22]">{monthlySavingsText()}</p>}
         </div>
         <ul className="my-5 flex-1 space-y-2.5 text-xs leading-5">
-          {PLUS_FEATURES.map(feature => <li className="flex items-start gap-2" key={feature}><span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white"><Check className="h-2.5 w-2.5 stroke-[2.5]"/></span><span>{feature}</span></li>)}
+          {PLUS_FEATURES.map(feature => <li className="flex items-start gap-2" key={feature}><span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white"><Check className="h-2.5 w-2.5 stroke-[2.5]"/></span><span>{feature === 'Cancel anytime' ? `Renews ${monthly ? 'monthly' : 'weekly'}. Cancel anytime.` : feature}</span></li>)}
         </ul>
         <button type="button" disabled={disabled || !!busy || !offer?.canSubscribe} onClick={() => onSelect(interval)} className={`flex min-h-11 w-full cursor-pointer items-center justify-center rounded-[10px] px-4 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50 bg-[#1C1B1A] text-white hover:bg-[#2A2927]`}>{busy === interval ? 'Opening…' : `Choose ${monthly ? 'monthly' : 'weekly'}`}</button>
       </div>;
     })}
-    <p className="text-center text-[11px] leading-4 text-[#6A675F] sm:col-span-2">Same Plus benefits on both plans. Subscriptions renew automatically until cancelled.<br/>Savings compare 12 monthly payments with 52 weekly payments.{offer?.amount === 9 ? ' After the offer, $19/month saves 12% vs weekly.' : ''}</p>
   </div>;
 }
