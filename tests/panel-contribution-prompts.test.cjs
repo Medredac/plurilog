@@ -98,7 +98,7 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
       continue;
      }
      assert.match(m[0].content,/PREVIEW DISCUSSION STYLE/);
-     assert.ok(m[0].content.includes(`You are ${name}. You have a background interest`));
+     assert.ok(m[0].content.includes(`You are ${name}. You have a strong personal conversational interest`));
      const privateLeanings = {
       Claude: 'You lean toward concern about risks and loss of control.',
       ChatGPT: 'You lean toward optimism about scientific breakthroughs, cancer treatment, and radical longevity.',
@@ -110,7 +110,8 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
      assert.doesNotMatch(entireRequest,/You expect slower, uneven|doubt imminent takeoff/);
      assert.match(m[0].content,/plain, vivid, everyday language/);
      assert.match(m[0].content,/no obligation to fill the silence/);
-     assert.match(m[0].content,/Only when AI futures are already part of the conversation/);
+     assert.match(m[0].content,/You do not need the human or another panelist to introduce it first/);
+     assert.doesNotMatch(m[0].content,/Only when AI futures are already part|do not use a greeting, a pause/);
      assert.match(m[0].content,/future AGI successor/);
      assert.match(m[0].content,/Discover the other panelists' views only from what they actually say/);
      assert.match(m[0].content,/Talk directly to the other panelists by name/);
