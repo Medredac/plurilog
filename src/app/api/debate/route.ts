@@ -1455,7 +1455,7 @@ export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
 }
 
 // Deliberately confined to this marketing preview; never enabled on production.
-function buildPreviewDebateInstruction(currentModelName: string, isContinueRound: boolean) {
+function buildPreviewDebateInstruction(currentModelName: string, isContinueRound = false) {
   if (process.env.VERCEL_ENV !== 'preview' ||
       process.env.VERCEL_GIT_COMMIT_REF !== 'preview/spirited-ai-debate') return '';
   if (!isContinueRound) return '';
