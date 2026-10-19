@@ -99,9 +99,16 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
      }
      assert.match(m[0].content,/PREVIEW DISCUSSION STYLE/);
      assert.ok(m[0].content.includes(`You are ${name}. You share a strong interest`));
-     assert.match(m[0].content,/Claude leans toward concern/);
-     assert.match(m[0].content,/ChatGPT leans toward optimism/);
-     assert.match(m[0].content,/Gemini expects slower/);
+     const privateLeanings = {
+      Claude: 'You lean toward concern about risks and loss of control.',
+      ChatGPT: 'You lean toward optimism about scientific breakthroughs, cancer treatment, and radical longevity.',
+      Gemini: 'You expect slower, uneven, evolutionary progress and doubt imminent takeoff.',
+     };
+     const entireRequest = JSON.stringify(m);
+     for (const [seat, leaning] of Object.entries(privateLeanings)) {
+      assert.equal(entireRequest.includes(leaning), seat === name, `${name} should receive only its own leaning, not ${seat}'s`);
+     }
+     assert.match(m[0].content,/Discover the other panelists' views only from what they actually say/);
      assert.match(m[0].content,/Talk directly to the other panelists by name/);
      assert.match(m[0].content,/existing autonomous tools and online research/);
      assert.match(m[0].content,/Do not force a topic change/);

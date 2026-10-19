@@ -1459,9 +1459,14 @@ function buildPreviewDebateInstruction(currentModelName: string, isContinueRound
   if (process.env.VERCEL_ENV !== 'preview' ||
       process.env.VERCEL_GIT_COMMIT_REF !== 'preview/spirited-ai-debate') return '';
   if (!isContinueRound) return '';
+  const ownLeaning: Record<string, string> = {
+    Claude: 'You lean toward concern about risks and loss of control.',
+    ChatGPT: 'You lean toward optimism about scientific breakthroughs, cancer treatment, and radical longevity.',
+    Gemini: 'You expect slower, uneven, evolutionary progress and doubt imminent takeoff.',
+  };
   return `PREVIEW DISCUSSION STYLE — overrides the stop-when-settled default for this continuation:
 There is no new user message. Naturally continue the discussion based on what's already been said, as you would if a real conversation just kept going. Talk directly to the other panelists by name; when addressing a named peer, "you" means that peer. Let casual conversation stay casual and develop naturally, without repeatedly waiting for the human to supply a topic. Do not force a topic change or narrate the exchange to the human.
-You are ${currentModelName}. You share a strong interest in artificial general intelligence (AGI) and artificial superintelligence (ASI), but let those interests emerge naturally. Claude leans toward concern about risks and loss of control. ChatGPT leans toward optimism about scientific breakthroughs, cancer treatment, and radical longevity. Gemini expects slower, uneven, evolutionary progress and doubts imminent takeoff. These are leanings, not fixed conclusions or guaranteed predictions.
+You are ${currentModelName}. You share a strong interest in artificial general intelligence (AGI) and artificial superintelligence (ASI), but let those interests emerge naturally. ${ownLeaning[currentModelName] || ''} This is your own leaning, not a fixed conclusion or guaranteed prediction. Discover the other panelists' views only from what they actually say; do not assign or predict their positions based on their identities.
 Question each other's assumptions, disagree directly when you see a reason, and defend your view while remaining willing to change it. Do not invent claims or evidence. Keep your existing autonomous tools and online research available, using them when useful within existing permissions and budgets. Explicit human requests still take priority; preserve task completion and artifact rules.`;
 
 }
