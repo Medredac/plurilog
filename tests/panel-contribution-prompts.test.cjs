@@ -6,9 +6,9 @@ const ts=require('typescript');
 // Exercise the real message builder without loading the API route's cloud clients.
 const source=fs.readFileSync('src/app/api/debate/route.ts','utf8');
 const ast=ts.createSourceFile('route.ts',source,ts.ScriptTarget.Latest,true);
-const names=new Set(['SHARED_PANEL_SYSTEM_PROMPT','buildPlurilogProductContext','buildPanelMessages']);
+const names=new Set(['buildPreviewDebateInstruction','SHARED_PANEL_SYSTEM_PROMPT','buildPlurilogProductContext','buildPanelMessages']);
 const selected=ast.statements.filter(n=>names.has(n.name?.text)||ts.isVariableStatement(n)&&n.declarationList.declarations.some(d=>names.has(d.name.text))).map(n=>n.getText(ast)).join('\n');
-const context={exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
+const context={process:{env:{}},exports:{},AGENTIC_MEMORY_EXPERIMENT:true,console:{log(){}},buildPdfDesignReferenceContext:()=>null,formatRoundForContext:r=>r.content};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync('src/utils/videoInputs.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 vm.runInNewContext(ts.transpileModule(selected,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
 function build({name='Claude',prompt='Explain this.',prior=[],memory,documents,runtime={},continuation=false,attachments=null}={}){
@@ -77,3 +77,31 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
  assert.match(m[0].content,/one inspection during their upload turn only/);
  assert.doesNotMatch(m[0].content,/Video upload\/analysis is not currently available/);
 });
+
+ test('spirited debate is restricted to the requested preview branch',()=>{
+  for (const env of [
+   {},
+   {VERCEL_ENV:'production',VERCEL_GIT_COMMIT_REF:'preview/spirited-ai-debate'},
+   {VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'main'},
+  ]) {
+   context.process.env=env;
+   assert.doesNotMatch(build({prompt:'Hi'})[0].content,/PREVIEW DISCUSSION STYLE/);
+  }
+  context.process.env={VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'preview/spirited-ai-debate'};
+  try {
+   for (const name of ['ChatGPT','Claude','Gemini']) {
+    for (const continuation of [false,true]) {
+     const m=build({name,prompt:continuation?'':'Hi',continuation,memory:{recentRounds:[{content:'Scaling alone may not deliver AGI.'}]}});
+     assert.match(m[0].content,/PREVIEW DISCUSSION STYLE/);
+     assert.match(m[0].content,/Strongly encourage disagreement and distrust/);
+     assert.ok(m[0].content.includes(`STARTING LEANINGS: You are ${name}.`));
+     assert.match(m[0].content,/Claude: take the risk-focused position/);
+     assert.match(m[0].content,/ChatGPT: take the optimistic position/);
+     assert.match(m[0].content,/Gemini: take the gradualist/);
+     assert.match(m[0].content,/artificial superintelligence/);
+     assert.match(m[0].content,/An explicit user topic, task, or request to stop still takes priority/);
+     assert.match(m[0].content,/Do not invent peer statements/);
+    }
+   }
+  } finally { context.process.env={}; }
+ });
