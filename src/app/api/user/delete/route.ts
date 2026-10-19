@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { createServiceClient } from '@/utils/supabase/service';
@@ -222,7 +223,7 @@ export async function POST(request: Request) {
     }
 
     // 3. Evaluate subscription safety
-    if (profile?.plan === 'paid') {
+    if (isPlusPlan(profile?.plan)) {
       if (profile.plan_status === 'canceling') {
         if (!confirmCanceling) {
           return NextResponse.json({

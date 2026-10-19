@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -16,6 +17,12 @@ import {
 } from '@/lib/googleAds';
 
 export async function POST(request: Request) {
+  const input = await request.json().catch(() => ({}));
+  const interval = input.interval ?? 'month';
+  if (interval !== 'week' && interval !== 'month') return NextResponse.json({ error: 'Invalid billing interval.' }, { status: 400 });
+  const priceId = interval === 'week' ? process.env.STRIPE_PRICE_ID_PLUS_WEEKLY : process.env.STRIPE_PRICE_ID_PLUS;
+  if (!priceId) return NextResponse.json({ error: 'This plan is not available yet.' }, { status: 503 });
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -39,7 +46,7 @@ export async function POST(request: Request) {
 
   // Backend duplicate-subscription guard: block non-terminal paid subscriptions
   const nonTerminalStatuses = ['active', 'canceling', 'past_due', 'unpaid', 'trialing'];
-  if (profile?.plan === 'paid' && profile.plan_status && nonTerminalStatuses.includes(profile.plan_status)) {
+  if (isPlusPlan(profile?.plan) && profile.plan_status && nonTerminalStatuses.includes(profile.plan_status)) {
     return NextResponse.json(
       { error: 'An active or pending subscription already exists. Please manage your subscription in Account Settings.' },
       { status: 400 }
@@ -49,7 +56,11 @@ export async function POST(request: Request) {
   let offerParams;
   try {
     const eligible = await qualifiesForIntro(stripe, profile);
-    offerParams = await introCheckoutDiscount(stripe, process.env.STRIPE_PRICE_ID_PLUS!, eligible);
+    const price = await stripe.prices.retrieve(priceId);
+    if (!price.active || price.currency !== 'usd' || price.unit_amount !== (interval === 'week' ? 499 : 1900) || price.recurring?.interval !== interval || price.recurring?.interval_count !== 1) throw new Error('Plan configuration mismatch');
+    offerParams = interval === 'month' ? await introCheckoutDiscount(stripe, priceId, eligible) : {
+      custom_text: { submit: { message: '$4.99 USD billed every week. Renews automatically until cancelled.' } },
+    };
   } catch (error) {
     if (error instanceof ExistingSubscriptionError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
@@ -64,7 +75,7 @@ export async function POST(request: Request) {
     ...offerParams,
     mode: 'subscription',
     client_reference_id: user.id,
-    line_items: [{ price: process.env.STRIPE_PRICE_ID_PLUS!, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${origin}/dashboard?upgraded=true&checkout_session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/dashboard`,
   };

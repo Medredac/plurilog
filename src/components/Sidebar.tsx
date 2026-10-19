@@ -1,4 +1,5 @@
 'use client';
+import { isPlusPlan } from '@/lib/plans';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { 
@@ -31,7 +32,7 @@ interface SidebarProps {
   userEmail?: string;
   userDisplayName?: string;
   userAvatarUrl?: string;
-  userPlan?: 'free' | 'paid';
+  userPlan?: 'free' | 'paid' | 'weekly_paid';
   onOpenAccountSettings?: () => void;
   onSignOut?: () => void;
 }
@@ -618,11 +619,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {firstName}
                       </span>
                       <span className={`text-[10px] font-normal px-1.5 py-0.5 rounded-full shrink-0 border ${
-                        userPlan === 'paid'
+                        isPlusPlan(userPlan)
                           ? 'bg-white text-[#1C1B1A] border-[#D9D6CF]'
                           : 'bg-white text-[#6A675F] border-[#D9D6CF]'
                       }`}>
-                        {userPlan === 'paid' ? 'Plus' : 'Free · Upgrade'}
+                        {isPlusPlan(userPlan) ? 'Plus' : 'Free · Upgrade'}
                       </span>
                     </div>
                   </div>

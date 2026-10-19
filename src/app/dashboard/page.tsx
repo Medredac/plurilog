@@ -1,4 +1,5 @@
 'use client';
+import { isPlusPlan } from '@/lib/plans';
 
 import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { flushSync } from 'react-dom';
@@ -387,7 +388,7 @@ export default function DashboardPage() {
   const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
   const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
-  const [userPlan, setUserPlan] = useState<'free' | 'paid'>('free');
+  const [userPlan, setUserPlan] = useState<'free' | 'paid' | 'weekly_paid'>('free');
   const [remainingCents, setRemainingCents] = useState<number>(0);
   const [periodResetAt, setPeriodResetAt] = useState<string | null>(null);
   const [planStatus, setPlanStatus] = useState<string | null>(null);
@@ -1133,11 +1134,11 @@ export default function DashboardPage() {
       if (!error && balance) {
         const remaining = Number(balance.remaining_cents);
         setIsOutOfCredits(remaining <= 0);
-        setUserPlan(balance.plan === 'paid' ? 'paid' : 'free');
+        setUserPlan(balance.plan === 'weekly_paid' ? 'weekly_paid' : isPlusPlan(balance.plan) ? 'paid' : 'free');
         setRemainingCents(remaining);
 
         if (
-          balance.plan !== 'paid' &&
+          !isPlusPlan(balance.plan) &&
           remaining > 0 &&
           remaining <= 25 &&
           !hasShownLowCreditRef.current
@@ -1150,10 +1151,10 @@ export default function DashboardPage() {
         if (freshUser) {
           const { data: profileRow } = await supabase
             .from('profiles')
-            .select('period_reset_at, plan_status, signup_source, country_code')
+            .select('period_reset_at, current_period_end, plan_status, signup_source, country_code')
             .eq('id', freshUser.id)
             .single();
-          setPeriodResetAt(profileRow?.period_reset_at || null);
+          setPeriodResetAt(profileRow?.current_period_end || profileRow?.period_reset_at || null);
           setPlanStatus(profileRow?.plan_status || null);
 
           const createdAtMs = freshUser.created_at

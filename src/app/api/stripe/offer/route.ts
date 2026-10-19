@@ -1,3 +1,4 @@
+import { isPlusPlan } from '@/lib/plans';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -14,9 +15,12 @@ export async function GET() {
     .select('plan, plan_status, stripe_customer_id, stripe_subscription_id').eq('id', user.id).single();
   if (error || !profile) return reply({ error: 'Unable to load billing details.' }, 500);
   try {
-    if (profile.plan === 'paid') {
+    if (isPlusPlan(profile.plan)) {
       if (profile.plan_status === 'canceling') {
         return reply({ amount: null, label: 'Cancellation scheduled', terms: 'Your plan will not renew.', canSubscribe: false });
+      }
+      if (profile.plan === 'weekly_paid' && (!profile.stripe_customer_id || !profile.stripe_subscription_id)) {
+        return reply({ amount: 4.99, label: 'Weekly Plus', terms: 'Renews weekly. Cancel anytime.', canSubscribe: false });
       }
       if (!profile.stripe_customer_id || !profile.stripe_subscription_id) throw new Error('Missing billing account');
       // A preview never creates an invoice or charges a customer. It reflects
