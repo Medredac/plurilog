@@ -1137,9 +1137,8 @@ export default function DashboardPage() {
       const access = await accessResponse.json();
       setRequiresPlan(access.requiresPlan);
       if (access.requiresPlan) setShowChoosePlan(true);
-      const { data: balanceRows, error } = await supabase.rpc('get_my_balance');
-      const balance = balanceRows?.[0];
-      if (!error && balance) {
+      const balance = access.balance;
+      if (balance) {
         const remaining = Number(balance.remaining_cents);
         setIsOutOfCredits(remaining <= 0);
         setUserPlan(balance.plan === 'weekly_paid' ? 'weekly_paid' : isPlusPlan(balance.plan) ? 'paid' : 'free');
