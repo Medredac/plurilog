@@ -92,6 +92,11 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
    for (const name of ['ChatGPT','Claude','Gemini']) {
     for (const continuation of [false,true]) {
      const m=build({name,prompt:continuation?'':'Hi',continuation,memory:{recentRounds:[{content:'Scaling alone may not deliver AGI.'}]}});
+     if (!continuation) {
+      assert.doesNotMatch(m[0].content,/PREVIEW DISCUSSION STYLE/);
+      assert.match(m[0].content,/respond warmly and briefly/);
+      continue;
+     }
      assert.match(m[0].content,/PREVIEW DISCUSSION STYLE/);
      assert.match(m[0].content,/Strongly encourage disagreement and distrust/);
      assert.ok(m[0].content.includes(`STARTING LEANINGS: You are ${name}.`));
@@ -101,7 +106,9 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
      assert.match(m[0].content,/address the other active panelists directly by name/);
      assert.match(m[0].content,/AGENTIC RESEARCH REMAINS ACTIVE/);
      assert.match(m[0].content,/Preserve existing tool permissions and budgets/);
-     assert.match(m[0].content,/artificial superintelligence/);
+     assert.match(m[0].content,/superintelligence/);
+     assert.match(m[0].content,/not mandatory topics or immediate pivots/);
+     assert.match(m[0].content,/naturally continue the discussion based on/);
      assert.match(m[0].content,/An explicit user topic, task, or request to stop still takes priority/);
      assert.match(m[0].content,/Do not invent peer statements/);
     }
