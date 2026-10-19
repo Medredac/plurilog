@@ -1,10 +1,8 @@
-import { isBillingPreview } from '@/lib/paidEntry';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
 
 export async function POST(request: Request) {
-  if (isBillingPreview()) return NextResponse.json({ url: '/preview/plans?manage=true' });
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 

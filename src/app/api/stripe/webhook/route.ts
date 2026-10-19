@@ -68,7 +68,7 @@ async function reportInitialMetaPurchase({
 }
 
 export async function POST(request: Request) {
-  if (isBillingPreview()) return NextResponse.json({ error: 'Billing webhooks are disabled in this visual preview.' }, { status: 403 });
+  if (isBillingPreview()) return NextResponse.json({ error: 'Preview webhook is disabled; live billing events use the existing registered endpoint.' }, { status: 403 });
   const body = await request.text(); // MUST be raw text, not .json() — signature verification requires the exact original bytes
   const signature = request.headers.get('stripe-signature');
 

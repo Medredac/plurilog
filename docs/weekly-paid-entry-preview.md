@@ -1,28 +1,25 @@
 # Weekly paid-entry preview
 
-Base: current origin/main 044affea6f154548668c1d1cb89d48ddb96e2872.
-Branch: preview/weekly-paid-entry. No production deployment or Supabase changes.
+Based on origin/main 044affea6f154548668c1d1cb89d48ddb96e2872. Branch preview/weekly-paid-entry.
 
-## Review
+## Current setup
 
-- `/`: weekly $4.99 and unchanged monthly $9 for 3 months then $19.
-- `/preview/plans`: same new-user chooser without creating an account.
-- `/preview/plans?checkout=week` or `month`: clearly marked checkout demonstration.
-- `/preview/plans?manage=true`: clearly marked switching demonstration, no billing action.
-- Actual preview dashboard: accounts created before the preview cutoff retain access; newer unpaid accounts get the chooser. API checks enforce access independently of the modal.
-- Billing, portal and webhook preview guards are tied to Vercel's preview environment AND this branch. No URL parameter enables demo mode.
-- Preview pages are noindex. Existing blog content is not rewritten.
+- Weekly $4.99 with the same card branding, robot artwork, benefits and button styling as monthly.
+- Monthly keeps $9 for three months, then $19, and Popular / Limited-time offer labels.
+- Checkout and account management use the existing live Stripe integration. Dummy checkout and management screens have been removed.
+- Weekly live price: price_1USKuzK3pyxY4OhePX7HXc6O, product prod_VTHT9NE6jeSHZV. Identical customer-facing product name to monthly. Separate product prevents monthly coupons from carrying onto weekly if switching is introduced later.
+- STRIPE_PRICE_ID_PLUS_WEEKLY is scoped only to the preview/weekly-paid-entry branch in Vercel. Monthly price and existing subscriptions are unchanged.
+- The existing Stripe account branding applies to both hosted Checkouts.
+- Existing accounts keep their access; paid-entry enforcement in production stays off unless PAID_ENTRY_STARTS_AT is explicitly set.
+- No Supabase mutation, production deployment or payment performed by the agent.
+- A completed live payment is real and will trigger the existing production billing webhook. Preview deployment does not isolate live Stripe events. Do not treat this as a test-card environment.
+- The old /preview/plans URL redirects to the actual dashboard chooser. Sign in normally to use checkout.
 
-## Before any production activation (not done)
+## Before production launch
 
-1. Connect a separate Stripe sandbox and test actual checkout, signed fulfillment, renewal, cancellation and switching against an isolated database. Current connector exposes only live Plurilog; current preview intentionally never creates a live Checkout or Portal session and refuses billing webhooks.
-2. Create a USD 499 recurring weekly price and set STRIPE_PRICE_ID_PLUS_WEEKLY. No live price was created. Monthly stays price_1UG24BK3pyxY4Ohen0WYN1VE.
-3. Plan switching is currently disabled in the existing Stripe portal. Create an isolated portal configuration, then set STRIPE_PLUS_PORTAL_CONFIGURATION_ID only once validated. Do not edit the existing live default configuration during preview.
-4. Coupon caveat: the monthly intro is $10 off for 3 months, restricted to the monthly product. If weekly is added to the SAME product, carrying this coupon through a monthly-to-weekly switch could discount weekly to zero. Prefer a separate weekly product with identical Plus entitlements, or explicitly remove incompatible discounts on switching. Test discounted monthly -> weekly, weekly -> monthly, legacy price subscriptions, and cancellation. Show the payable amount and renewal date before confirmation; avoid double subscriptions and extra usage charges.
-5. Choose PAID_ENTRY_STARTS_AT at the actual launch time. Without that server variable, production paid-entry enforcement stays off. Do not copy the preview cutoff into production: all users created before the eventual launch must be grandfathered. No existing credits are removed.
-6. Review database billing-period/credit replenishment routines for weekly compatibility before authorizing release. No SQL migrations or database updates have been applied. Existing Plus unlimited replenishment remains unchanged.
-7. Update backend product-description prompts and any remaining historical/free-plan claims before release, then reconcile public metadata. This preview retains legacy credit prompts only for grandfathered users.
+- Validate weekly renewal fulfillment: production currently recognizes only the monthly price for invoice renewals. Merge the prepared weekly allowlist and configure the production weekly price before accepting ongoing weekly subscriptions publicly.
+- Review database billing-period fallback for weekly compatibility; no SQL changes are included.
+- Weekly/monthly switching remains disabled in the existing Stripe portal. Do not change its configuration as part of this preview.
+- Choose the actual launch cutoff so all earlier users remain grandfathered.
 
-Savings: floor(100 * (1 - monthly_price * 12 / (4.99 * 52))) => 58% intro, 12% regular. Copy explicitly describes the comparison and promotional duration.
-
-Validation: TypeScript and focused 27 billing/access tests passed without external API usage. Existing monthly offer regression tests retained.
+Savings use 52 weekly payments vs 12 monthly payments: 58% during the introductory offer, 12% afterward (rounded down).

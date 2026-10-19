@@ -1,4 +1,3 @@
-import { isBillingPreview } from '@/lib/paidEntry';
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -20,7 +19,6 @@ export async function POST(request: Request) {
   const input = await request.json().catch(() => ({}));
   const interval = input.interval ?? 'month';
   if (interval !== 'week' && interval !== 'month') return NextResponse.json({ error: 'Invalid billing interval.' }, { status: 400 });
-  if (isBillingPreview()) return NextResponse.json({ url: `/preview/plans?checkout=${interval}` });
   const priceId = interval === 'week' ? process.env.STRIPE_PRICE_ID_PLUS_WEEKLY : process.env.STRIPE_PRICE_ID_PLUS;
   if (!priceId) return NextResponse.json({ error: 'This plan is not available yet.' }, { status: 503 });
 

@@ -280,17 +280,18 @@ test('weekly cannot duplicate an existing monthly subscription', async () => {
   assert.equal((await f.checkout(weeklyRequest('week'))).status, 409);
   assert.equal(f.calls.some(c => c[0] === 'checkout'), false);
 });
-test('visual preview checkout makes no Stripe call even when live credentials exist', async () => {
+test('preview uses real checkout flow and the selected weekly price', async () => {
   const oldEnv = process.env.VERCEL_ENV;
   const oldRef = process.env.VERCEL_GIT_COMMIT_REF;
   process.env.VERCEL_ENV = 'preview';
   process.env.VERCEL_GIT_COMMIT_REF = 'preview/weekly-paid-entry';
   try {
-    const f = fixture();
+    const f = fixture({ priceOverride: { unit_amount: 499, recurring: { interval: 'week', interval_count: 1 } } });
     const response = await f.checkout(weeklyRequest('week'));
     assert.equal(response.status, 200);
-    assert.equal((await response.json()).url, '/preview/plans?checkout=week');
-    assert.equal(f.calls.length, 0);
+    const checkout = f.calls.find(c => c[0] === 'checkout');
+    assert.deepEqual(checkout[1].line_items, [{ price: 'price_weekly', quantity: 1 }]);
+    assert.equal(checkout[1].discounts, undefined);
   } finally {
     if (oldEnv === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = oldEnv;
     if (oldRef === undefined) delete process.env.VERCEL_GIT_COMMIT_REF; else process.env.VERCEL_GIT_COMMIT_REF = oldRef;

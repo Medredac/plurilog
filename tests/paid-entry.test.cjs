@@ -31,7 +31,7 @@ test('production rollout is off until a cutoff is explicitly configured', () => 
   assert.equal(access.requiresPaidEntry(undefined, 'free', cutoff), false);
   assert.equal(access.requiresPaidEntry('2026-11-02', 'free', 'invalid'), false);
 });
-test('demo billing cannot be enabled by production environment or another preview branch', () => {
+test('preview branch detection cannot be enabled by production environment or another preview branch', () => {
   const env = { VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'preview/weekly-paid-entry' };
   assert.equal(load('src/lib/paidEntry.ts', env).isBillingPreview(), true);
   assert.equal(load('src/lib/paidEntry.ts', { ...env, VERCEL_ENV: 'production' }).isBillingPreview(), false);

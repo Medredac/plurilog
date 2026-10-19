@@ -1,4 +1,4 @@
-// Only this isolated branch uses simulated billing. Never follows a URL parameter.
+// Identify the isolated paid-entry preview branch. Never follows a URL parameter.
 export function isBillingPreview() {
   return process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === 'preview/weekly-paid-entry';
 }

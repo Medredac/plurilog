@@ -1,16 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { usePlusOffer } from '@/hooks/usePlusOffer';
 import { PlusPlanCards } from './PlusPlanCards';
-import type { BillingInterval, PlusOffer } from '@/lib/plusPricing';
+import type { BillingInterval } from '@/lib/plusPricing';
 
-export function ChoosePlanModal({ isOpen, onClose, demoOffer }: { isOpen: boolean; onClose: () => void; demoOffer?: PlusOffer }) {
-  const router = useRouter();
+export function ChoosePlanModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const loaded = usePlusOffer(isOpen && !demoOffer);
-  const offer = demoOffer || loaded.offer;
+  const loaded = usePlusOffer(isOpen);
+  const offer = loaded.offer;
   const [busy, setBusy] = useState<BillingInterval | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wasOpen, setWasOpen] = useState(isOpen);
@@ -20,7 +18,6 @@ export function ChoosePlanModal({ isOpen, onClose, demoOffer }: { isOpen: boolea
     else dialog.current?.close();
   }, [isOpen]);
   const choose = async (interval: BillingInterval) => {
-    if (demoOffer) { router.push(`/preview/plans?checkout=${interval}`); return; }
     setBusy(interval); setError(null);
     try {
       const response = await fetch('/api/stripe/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interval }) });
