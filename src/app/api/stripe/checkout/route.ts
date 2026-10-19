@@ -1,3 +1,5 @@
+import { initializePreviewCredits } from '@/lib/previewCredits';
+import { billingProfileTable } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
 import { createHash } from 'crypto';
 import { NextResponse } from 'next/server';
@@ -30,8 +32,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  await initializePreviewCredits(user);
   const { data: profile, error: profileError } = await supabase
-    .from('profiles')
+    .from(billingProfileTable())
     .select('plan, plan_status, stripe_customer_id, stripe_subscription_id, signup_source')
     .eq('id', user.id)
     .single();

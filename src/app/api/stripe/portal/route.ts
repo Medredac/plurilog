@@ -1,3 +1,5 @@
+import { initializePreviewCredits } from '@/lib/previewCredits';
+import { billingProfileTable } from '@/lib/billingEnvironment';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -10,8 +12,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  await initializePreviewCredits(user);
   const { data: profile, error } = await supabase
-    .from('profiles')
+    .from(billingProfileTable())
     .select('stripe_customer_id')
     .eq('id', user.id)
     .single();

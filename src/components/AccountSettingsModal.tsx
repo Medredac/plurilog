@@ -61,7 +61,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   periodResetAt,
   planStatus,
 }) => {
-  const { offer, error: offerError } = usePlusOffer(isOpen);
+  const { offer, error: offerError } = usePlusOffer(isOpen, `${userPlan}:${planStatus}:${periodResetAt}`);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -178,7 +178,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
         aria-label="Close account settings"
       />
 
-      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-3xl flex-col overflow-hidden rounded-[18px] border border-[#E2E0DB] bg-white dashboard-menu-shadow animate-in fade-in zoom-in-95 duration-150">
+      <div className={`relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full ${userPlan === 'free' ? 'max-w-3xl' : 'max-w-md'} flex-col overflow-hidden rounded-[18px] border border-[#E2E0DB] bg-white dashboard-menu-shadow animate-in fade-in zoom-in-95 duration-150`}>
         <div className="flex items-center justify-between px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
           <h3 className="text-[15px] font-semibold tracking-tight text-[#1C1B1A]">
             Account settings
@@ -295,7 +295,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <p className="mb-3 text-[10px] font-medium text-[#6A675F]">Included in your plan</p>
                 <FeatureList />
               </div>
-              <PlanSwitchControls />
+              <PlanSwitchControls key={`${userPlan}:${planStatus}:${periodResetAt}`} />
             </div>
           )}
 

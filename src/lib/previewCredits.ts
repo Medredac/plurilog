@@ -1,7 +1,14 @@
+import { isSandboxBilling } from './billingEnvironment';
 import { isBillingPreview, paidEntryCutoff } from './paidEntry';
 import { createServiceClient } from '@/utils/supabase/service';
 
 export async function initializePreviewCredits(user: { id: string; created_at: string }) {
+  if (isSandboxBilling()) {
+    const { error } = await createServiceClient().from('stripe_sandbox_profiles')
+      .upsert({ id: user.id }, { onConflict: 'id', ignoreDuplicates: true });
+    if (error) throw new Error('Unable to initialize sandbox billing.');
+    return;
+  }
   if (!isBillingPreview()) return;
   const cutoff = paidEntryCutoff();
   if (!cutoff || Date.parse(user.created_at) < Date.parse(cutoff)) return;

@@ -43,6 +43,7 @@ function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile =
   };
   const cookieValues = { '_fbp': 'fb.1.test', '_fbc': 'fb.1.click', 'consent': 'granted', 'gclid': 'google-click' };
   const mocks = {
+    '@/lib/previewCredits': { initializePreviewCredits: async () => {} },
     '@/lib/stripe': { stripe },
     '@/lib/stripeIntroOffer': helpers,
     '@/utils/supabase/server': { createClient: async () => supabase },

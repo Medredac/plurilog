@@ -1,3 +1,4 @@
+import { balanceRpc, spendRpc } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
 import { initializePreviewCredits } from '@/lib/previewCredits';
 import { requiresPaidEntry } from '@/lib/paidEntry';
@@ -3213,7 +3214,7 @@ export async function POST(req: NextRequest) {
     catch { return Response.json({ error: 'Unable to initialize account balance.' }, { status: 503 }); }
 
     // Pre-flight balance check using session-authenticated Supabase client
-    const { data: balanceRows, error: balanceError } = await supabase.rpc('get_my_balance');
+    const { data: balanceRows, error: balanceError } = await supabase.rpc(balanceRpc());
     const balance = balanceRows?.[0];
     if (balanceError || !balance) {
       console.error('[Spend Tracking] Error fetching balance:', balanceError);
@@ -8001,7 +8002,7 @@ export async function POST(req: NextRequest) {
               }
               const generatedImageCache = new Map<string, Awaited<ReturnType<typeof generateChatGPTImage>>>();
               const createImage = async (args: Record<string, any>, editing: boolean) => {
-                const balanceCheck = await supabase.rpc('get_my_balance');
+                const balanceCheck = await supabase.rpc(balanceRpc());
                 if (balanceCheck.error) throw new Error('Could not verify remaining image credit.');
                 if (Number(balanceCheck.data?.[0]?.remaining_cents || 0) <= 0) return { result: { ok: false, error: 'No image credit remains. Do not retry generation; explain this if the image is essential.' } };
                 const instruction = editing ? args.instruction : args.prompt;
@@ -8236,7 +8237,7 @@ export async function POST(req: NextRequest) {
                 const costCents = seatUsage.cost * 100; // dollars → cents, full precision, no rounding
                 if (costCents > 0) {
                   spendRecorded = true;
-                  const { error: spendError } = await supabase.rpc('spend_credits', {
+                  const { error: spendError } = await supabase.rpc(spendRpc(), {
                     p_cents: costCents,
                     p_model: respondingModel,
                     p_discussion_id: discussionId || null,
@@ -8361,7 +8362,7 @@ export async function POST(req: NextRequest) {
                 const accruedCost = agentModelCostUsd + incurredDocumentFollowUpCostUsd + incurredDocumentAssetCostUsd + (incurredImageCostUsd || 0);
                 if (accruedCost > 0) {
                   try {
-                    const { error } = await supabase.rpc('spend_credits', { p_cents: accruedCost * 100, p_model: respondingModel,
+                    const { error } = await supabase.rpc(spendRpc(), { p_cents: accruedCost * 100, p_model: respondingModel,
                       p_discussion_id: discussionId || null, p_meta: { seatId: seat.seatId, runId: turnId, agentLoop: true } });
                     if (error) console.error('[Agent Loop] Could not record accrued usage', error);
                     else spendRecorded = true;
@@ -8372,7 +8373,7 @@ export async function POST(req: NextRequest) {
               // Record it exactly once, including if that later continuation fails.
               if (incurredVideoCostUsd > 0) {
                 try {
-                  const { error } = await supabase.rpc('spend_credits', {
+                  const { error } = await supabase.rpc(spendRpc(), {
                     p_cents: incurredVideoCostUsd * 100,
                     p_model: primaryModel,
                     p_discussion_id: discussionId || null,

@@ -9,7 +9,7 @@ function fixture({env = 'preview', created = '2026-10-20T00:00:00Z', plan = 'fre
   const stored = {plan, credits_cents: remaining, remaining_cents: remaining};
   let initialized = false;
   const service = {rpc:async()=>{if(!initialized){if(stored.plan==='free'){stored.credits_cents=0;stored.remaining_cents=0;} initialized=true;}return {error:null};}};
-  const db = {auth:{getUser:async()=>({data:{user:user?{id:'test',created_at:created}:null}})},rpc:async()=>({data:[stored],error:fail?{}:null})};
+  const db = {from:()=>({select:()=>({eq:()=>({single:async()=>({data:{plan_status:'active'},error:null})})})}),auth:{getUser:async()=>({data:{user:user?{id:'test',created_at:created}:null}})},rpc:async()=>({data:[stored],error:fail?{}:null})};
   function load(file) {
     const exports = {};
     vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{

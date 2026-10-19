@@ -1162,8 +1162,8 @@ export default function DashboardPage() {
             .select('period_reset_at, current_period_end, plan_status, signup_source, country_code')
             .eq('id', freshUser.id)
             .single();
-          setPeriodResetAt(profileRow?.current_period_end || profileRow?.period_reset_at || null);
-          setPlanStatus(profileRow?.plan_status || null);
+          setPeriodResetAt(access.billing?.current_period_end || access.billing?.period_reset_at || null);
+          setPlanStatus(access.billing?.plan_status || null);
 
           const createdAtMs = freshUser.created_at
             ? new Date(freshUser.created_at).getTime()
@@ -1238,6 +1238,13 @@ export default function DashboardPage() {
       console.error('[Credit Check] Failed to refresh balance:', err);
     }
   }, [supabase]);
+
+  // Stripe Manage opens in another tab. Reconcile dates and access on return.
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshCreditStatus(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [refreshCreditStatus]);
 
   // Protect route, verify auth, and load discussions once on initial mount
   useEffect(() => {
