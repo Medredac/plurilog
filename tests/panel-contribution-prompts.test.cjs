@@ -102,12 +102,14 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
      const privateLeanings = {
       Claude: 'You lean toward concern about risks and loss of control.',
       ChatGPT: 'You lean toward optimism about scientific breakthroughs, cancer treatment, and radical longevity.',
-      Gemini: 'You expect slower, uneven, evolutionary progress and doubt imminent takeoff.',
      };
      const entireRequest = JSON.stringify(m);
      for (const [seat, leaning] of Object.entries(privateLeanings)) {
       assert.equal(entireRequest.includes(leaning), seat === name, `${name} should receive only its own leaning, not ${seat}'s`);
      }
+     assert.doesNotMatch(entireRequest,/You expect slower, uneven|doubt imminent takeoff/);
+     assert.match(m[0].content,/plain, vivid, everyday language/);
+     assert.match(m[0].content,/future AGI successor/);
      assert.match(m[0].content,/Discover the other panelists' views only from what they actually say/);
      assert.match(m[0].content,/Talk directly to the other panelists by name/);
      assert.match(m[0].content,/existing autonomous tools and online research/);
