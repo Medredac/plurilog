@@ -1,4 +1,5 @@
 import { isPlusPlan } from '@/lib/plans';
+import { initializePreviewCredits } from '@/lib/previewCredits';
 import { requiresPaidEntry } from '@/lib/paidEntry';
 import { createDocumentGenerationGuard } from '@/utils/documentGenerationGuard';
 import { runAgentToolLoop, AGENT_EXECUTION_INSTRUCTION, type AgentTool } from '@/utils/agentToolLoop';
@@ -3196,6 +3197,21 @@ export async function POST(req: NextRequest) {
       }
     );
 
+    const {
+      data: { user: authenticatedUser },
+      error: authenticatedUserError,
+    } = await supabase.auth.getUser();
+
+    if (authenticatedUserError || !authenticatedUser) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized.' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    try { await initializePreviewCredits(authenticatedUser); }
+    catch { return Response.json({ error: 'Unable to initialize account balance.' }, { status: 503 }); }
+
     // Pre-flight balance check using session-authenticated Supabase client
     const { data: balanceRows, error: balanceError } = await supabase.rpc('get_my_balance');
     const balance = balanceRows?.[0];
@@ -3217,18 +3233,6 @@ export async function POST(req: NextRequest) {
           code: 'INSUFFICIENT_CREDITS',
         }),
         { status: 402, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const {
-      data: { user: authenticatedUser },
-      error: authenticatedUserError,
-    } = await supabase.auth.getUser();
-
-    if (authenticatedUserError || !authenticatedUser) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized.' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
     }
 

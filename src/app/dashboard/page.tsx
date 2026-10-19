@@ -1136,7 +1136,8 @@ export default function DashboardPage() {
       if (!accessResponse.ok) throw new Error('Unable to verify account access');
       const access = await accessResponse.json();
       setRequiresPlan(access.requiresPlan);
-      if (access.requiresPlan) setShowChoosePlan(true);
+      setShowChoosePlan(access.requiresPlan);
+      if (access.blocked && isPlusPlan(access.balance?.plan)) setIsAccountSettingsOpen(true);
       const balance = access.balance;
       if (balance) {
         const remaining = Number(balance.remaining_cents);
@@ -2978,9 +2979,8 @@ export default function DashboardPage() {
         }
 
         if (activeDebateIdRef.current === discussionId) {
-          if (err?.code === 'INSUFFICIENT_CREDITS') {
-            setIsOutOfCredits(true);
-            setShowUpgradeModal(true);
+          if (err?.code === 'INSUFFICIENT_CREDITS' || err?.code === 'PLAN_REQUIRED') {
+            await refreshCreditStatus();
             setRestoreDraft({ text: promptToSend, trigger: Date.now() });
             setSeatStatuses(INITIAL_SEAT_STATUSES);
             setMessages((prev) => prev.filter((m) => !currentAttemptModelMsgIds.has(m.id)));
@@ -3047,7 +3047,8 @@ export default function DashboardPage() {
 
     if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
       return;
     }
@@ -3577,7 +3578,8 @@ export default function DashboardPage() {
 
     if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       return;
     }
 
@@ -3666,7 +3668,8 @@ export default function DashboardPage() {
 
     if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       return;
     }
 

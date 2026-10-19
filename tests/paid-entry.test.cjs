@@ -37,3 +37,10 @@ test('preview branch detection cannot be enabled by production environment or an
   assert.equal(load('src/lib/paidEntry.ts', { ...env, VERCEL_ENV: 'production' }).isBillingPreview(), false);
   assert.equal(load('src/lib/paidEntry.ts', { ...env, VERCEL_GIT_COMMIT_REF: 'main' }).isBillingPreview(), false);
 });
+
+test('preview lets existing accounts test plan eligibility without deleting their balance',()=>{
+ const preview=load('src/lib/paidEntry.ts',{VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'preview/weekly-paid-entry'});
+ assert.equal(preview.requiresPaidEntry('2026-01-01','free'),true);
+ assert.equal(preview.requiresPaidEntry('2026-01-01','paid'),false);
+ assert.equal(preview.requiresPaidEntry('2026-01-01','weekly_paid'),false);
+});

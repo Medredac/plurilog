@@ -6,7 +6,7 @@ Based on main 044affea6f154548668c1d1cb89d48ddb96e2872. Branch preview/weekly-pa
 
 - Weekly $4.99 has the same Plus benefits and branding as monthly.
 - Monthly retains $9 for three months, then $19; Popular / Limited-time offer / Save 12% remain. Savings compare 52 weekly charges with 12 regular monthly charges.
-- Production landing-page pricing, the free plan, existing-user access and acquisition popups remain unchanged. New paid-entry enforcement is preview-only unless a production launch cutoff is explicitly configured.
+- Production landing-page pricing, the free plan, existing-user access and acquisition popups remain unchanged. In the preview, sending requires both a paid tier and positive usable balance, including for existing accounts used for testing. New preview accounts get zero credits once through a service-only initializer; subsequent manual balance edits are preserved. Shared production signup defaults remain 100.
 - Checkout is live Stripe, not a test-card environment. No live payment or customer subscription was created or changed during implementation.
 - Weekly price: price_1USKuzK3pyxY4OhePX7HXc6O; product prod_VTHT9NE6jeSHZV. Separate product prevents the monthly coupon applying to weekly.
 - The weekly price is configured for the preview branch and production webhook. Existing monthly prices and portal configuration remain unchanged.
