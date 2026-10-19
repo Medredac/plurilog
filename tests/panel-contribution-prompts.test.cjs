@@ -98,6 +98,9 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
      assert.match(m[0].content,/Claude: take the risk-focused position/);
      assert.match(m[0].content,/ChatGPT: take the optimistic position/);
      assert.match(m[0].content,/Gemini: take the gradualist/);
+     assert.match(m[0].content,/address the other active panelists directly by name/);
+     assert.match(m[0].content,/AGENTIC RESEARCH REMAINS ACTIVE/);
+     assert.match(m[0].content,/Preserve existing tool permissions and budgets/);
      assert.match(m[0].content,/artificial superintelligence/);
      assert.match(m[0].content,/An explicit user topic, task, or request to stop still takes priority/);
      assert.match(m[0].content,/Do not invent peer statements/);
