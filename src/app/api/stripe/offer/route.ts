@@ -1,3 +1,4 @@
+import { isBillingPreview } from '@/lib/paidEntry';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -7,6 +8,7 @@ import { ExistingSubscriptionError, qualifiesForIntro } from '@/lib/stripeIntroO
 export async function GET() {
   const reply = (body: PlusOffer | { error: string }, status = 200) =>
     NextResponse.json(body, { status, headers: { 'Cache-Control': 'private, no-store' } });
+  if (isBillingPreview()) return reply({ amount: 9, label: 'Limited-time offer', terms: INTRO_TERMS, canSubscribe: true });
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return reply({ error: 'Not authenticated' }, 401);

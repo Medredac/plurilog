@@ -255,3 +255,44 @@ test('subscription webhook applies the conditional offer before confirming the a
     }
   }
 });
+
+process.env.STRIPE_PRICE_ID_PLUS_WEEKLY = 'price_weekly';
+const weeklyRequest = interval => new Request('https://preview.example.com/api/stripe/checkout', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interval }),
+});
+test('weekly checkout charges 499 cents every week without the monthly coupon or trial', async () => {
+  const f = fixture({ priceOverride: { unit_amount: 499, recurring: { interval: 'week', interval_count: 1 } } });
+  assert.equal((await f.checkout(weeklyRequest('week'))).status, 200);
+  const params = f.calls.find(c => c[0] === 'checkout')[1];
+  assert.deepEqual(params.line_items, [{ price: 'price_weekly', quantity: 1 }]);
+  assert.equal(params.discounts, undefined);
+  assert.equal(params.subscription_data.trial_period_days, undefined);
+  assert.equal(f.calls.some(c => c[0] === 'coupon'), false);
+  assert.match(params.custom_text.submit.message, /4.99 USD billed every week/);
+});
+test('invalid interval cannot choose an arbitrary Stripe price', async () => {
+  const f = fixture();
+  assert.equal((await f.checkout(weeklyRequest('year'))).status, 400);
+  assert.equal(f.calls.length, 0);
+});
+test('weekly cannot duplicate an existing monthly subscription', async () => {
+  const f = fixture({ profile: { stripe_customer_id: 'cus_existing' }, history: [{ status: 'active' }] });
+  assert.equal((await f.checkout(weeklyRequest('week'))).status, 409);
+  assert.equal(f.calls.some(c => c[0] === 'checkout'), false);
+});
+test('visual preview checkout makes no Stripe call even when live credentials exist', async () => {
+  const oldEnv = process.env.VERCEL_ENV;
+  const oldRef = process.env.VERCEL_GIT_COMMIT_REF;
+  process.env.VERCEL_ENV = 'preview';
+  process.env.VERCEL_GIT_COMMIT_REF = 'preview/weekly-paid-entry';
+  try {
+    const f = fixture();
+    const response = await f.checkout(weeklyRequest('week'));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).url, '/preview/plans?checkout=week');
+    assert.equal(f.calls.length, 0);
+  } finally {
+    if (oldEnv === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = oldEnv;
+    if (oldRef === undefined) delete process.env.VERCEL_GIT_COMMIT_REF; else process.env.VERCEL_GIT_COMMIT_REF = oldRef;
+  }
+});

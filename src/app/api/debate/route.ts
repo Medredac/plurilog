@@ -1,3 +1,4 @@
+import { requiresPaidEntry } from '@/lib/paidEntry';
 import { createDocumentGenerationGuard } from '@/utils/documentGenerationGuard';
 import { runAgentToolLoop, AGENT_EXECUTION_INSTRUCTION, type AgentTool } from '@/utils/agentToolLoop';
 import { buildDurableAttachmentUrl } from '@/utils/durableAttachments';
@@ -3228,6 +3229,10 @@ export async function POST(req: NextRequest) {
         JSON.stringify({ error: 'Unauthorized.' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
       );
+    }
+
+    if (requiresPaidEntry(authenticatedUser.created_at, balance.plan)) {
+      return Response.json({ error: 'Choose a plan to start your discussion.', code: 'PLAN_REQUIRED' }, { status: 402 });
     }
 
     const uploadedVideos = (Array.isArray(attachments) ? attachments : []).filter(isVideoAttachment);

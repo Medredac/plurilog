@@ -1,6 +1,7 @@
 'use client';
 
-import { PLUS_FEATURES } from '@/lib/plusFeatures';
+import { PlusPlanCards } from '@/components/PlusPlanCards';
+import { INTRO_TERMS, type BillingInterval } from '@/lib/plusPricing';
 
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -253,17 +254,18 @@ export default function LandingPage() {
     }
   };
 
-  const handleGetPlus = () => {
+  const handleGetPlus = (interval: BillingInterval = 'month') => {
+    try { sessionStorage.setItem('plurilog:selected-plan', interval); } catch {}
     if (isAuthenticated) {
-      router.push('/dashboard?upgrade=true');
+      router.push(`/dashboard?upgrade=true&plan=${interval}`);
     } else {
       try {
         sessionStorage.setItem('plurilog:post-auth-upgrade', 'true');
       } catch {
         // Ignore storage restrictions; redirectUrl still preserves the intent.
       }
-      authRedirectTargetRef.current = '/dashboard?upgrade=true';
-      setAuthRedirectTarget('/dashboard?upgrade=true');
+      authRedirectTargetRef.current = `/dashboard?upgrade=true&plan=${interval}`;
+      setAuthRedirectTarget(`/dashboard?upgrade=true&plan=${interval}`);
       setAuthMode('signup');
       setIsAuthModalOpen(true);
       window.fbq?.('trackCustom', 'SignupStarted');
@@ -443,7 +445,7 @@ export default function LandingPage() {
                 onClick={() => handleOpenAuth('signup')}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
               >
-                <span>Try Plurilog free</span>
+                <span>Get started</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
@@ -848,106 +850,12 @@ export default function LandingPage() {
                 Simple and transparent pricing. No surprises
               </h2>
               <p className="mt-3 max-w-2xl mx-auto text-center text-sm sm:text-base text-zinc-500 leading-relaxed">
-                Try Plurilog for free, then upgrade when you&apos;re ready.
+                One Plus plan. Pay weekly or save with monthly.
               </p>
             </motion.div>
 
-            <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto items-stretch">
-              {/* Free Card */}
-              <motion.div
-                {...scrollRevealProps(0.06)}
-                className="rounded-[16px] border border-[#E2E0DB] bg-white p-6 sm:p-8 flex flex-col justify-between shadow-2xs transition-colors hover:border-[#CFCBC2]"
-              >
-                <div>
-                  <div className="mb-5 flex items-center gap-2.5">
-                    <img src="/logo.svg" alt="" className="h-[26px] w-[26px] shrink-0 object-contain" />
-                    <div className="flex items-baseline gap-2">
-                      <h3 className="text-[15px] font-semibold text-[#1C1B1A]">Free</h3>
-                      <span className="text-[12px] text-[#6A675F]">$0 / month</span>
-                    </div>
-                  </div>
-
-                  <p className="mb-5 text-[12px] leading-5 text-[#6A675F]">
-                    Try Plurilog with one-time starter usage.
-                  </p>
-
-                  <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
-                    {[
-                      'ChatGPT, Claude and Gemini together',
-                      'Shared conversation context',
-                      'Files and images',
-                      'Full panel controls',
-                      'One-time included usage',
-                      'No card required',
-                    ].map((feature) => (
-                      <li key={feature} className="flex items-start gap-2">
-                        <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
-                          <Check className="h-2.5 w-2.5 stroke-[2.5]" />
-                        </span>
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleOpenAuth('signup')}
-                  className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] border border-[#E2E0DB] bg-white px-4 text-[12px] font-medium text-[#1C1B1A] transition-colors hover:bg-[#F7F6F3]"
-                >
-                  Start free
-                </button>
-              </motion.div>
-
-              {/* Plus Card */}
-              <motion.div
-                {...scrollRevealProps(0.12)}
-                className="relative rounded-[16px] border border-[#8A867D] bg-white p-6 sm:p-8 flex flex-col justify-between shadow-2xs"
-              >
-                <div className="pointer-events-none absolute -top-[23px] right-5 flex items-end -space-x-2.5" aria-hidden="true">
-                  <img src="/robot-head-claude@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
-                  <img src="/robot-head-chatgpt@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
-                  <img src="/robot-head-gemini@3x.png" alt="" className="h-[35px] w-[33px] object-contain" />
-                </div>
-
-                <div>
-                  <div className="mb-2 flex items-center gap-2">
-                    <h3 className="text-[15px] font-semibold text-[#1C1B1A]">Plus</h3>
-                    <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[10px] font-medium text-[#1C1B1A]">
-                      Popular
-                    </span>
-                  </div>
-
-                  <div className="mb-1 flex items-end gap-1.5">
-                    <span className="text-[34px] sm:text-[38px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">$9</span>
-                    <span className="pb-0.5 text-[12px] text-[#6A675F]">/ month</span>
-                    <span className="ml-auto self-center rounded-full bg-[#FFF1E8] px-2 py-1 text-[10px] font-medium text-[#8A3D22]">Limited-time offer</span>
-                  </div>
-
-                  <p className="mb-5 text-[12px] leading-5 text-[#6A675F]">
-                    For your first 3 months, then $19/month.
-                  </p>
-
-                  <ul className="mb-8 space-y-2.5 text-[12px] leading-5 text-[#1C1B1A]">
-                    {PLUS_FEATURES.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2">
-                        <span className="mt-[2px] inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#1C1B1A] text-white">
-                          <Check className="h-2.5 w-2.5 stroke-[2.5]" />
-                        </span>
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleGetPlus}
-                  className="flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927]"
-                >
-                  Get Plus
-                </button>
-              </motion.div>
+            <div className="mx-auto mt-12 max-w-4xl">
+              <PlusPlanCards offer={{ amount: 9, label: 'Limited-time offer', terms: INTRO_TERMS, canSubscribe: true }} onSelect={handleGetPlus}/>
             </div>
           </div>
         </section>

@@ -1,3 +1,4 @@
+import { isBillingPreview } from '@/lib/paidEntry';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -9,6 +10,7 @@ const reply = (body: object, status = 200) => NextResponse.json(body, {
 });
 
 export async function GET() {
+  if (isBillingPreview()) return NextResponse.json({ dismissed: true });
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return reply({ error: 'Not authenticated' }, 401);
@@ -43,6 +45,7 @@ export async function GET() {
 }
 
 export async function POST() {
+  if (isBillingPreview()) return NextResponse.json({ saved: true });
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return reply({ error: 'Not authenticated' }, 401);

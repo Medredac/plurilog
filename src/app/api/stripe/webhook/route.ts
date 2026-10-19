@@ -1,3 +1,4 @@
+import { isBillingPreview } from '@/lib/paidEntry';
 import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { applyIntroOnResumption } from '@/lib/stripeIntroOffer';
@@ -67,6 +68,7 @@ async function reportInitialMetaPurchase({
 }
 
 export async function POST(request: Request) {
+  if (isBillingPreview()) return NextResponse.json({ error: 'Billing webhooks are disabled in this visual preview.' }, { status: 403 });
   const body = await request.text(); // MUST be raw text, not .json() — signature verification requires the exact original bytes
   const signature = request.headers.get('stripe-signature');
 
@@ -275,7 +277,7 @@ export async function POST(request: Request) {
           const linePriceId = typeof line.pricing?.price_details?.price === 'string'
             ? line.pricing.price_details.price
             : (line.pricing?.price_details?.price as any)?.id ?? (line as any).price?.id;
-          if (linePriceId !== plusPriceId) {
+          if (![plusPriceId, process.env.STRIPE_PRICE_ID_PLUS_WEEKLY].filter(Boolean).includes(linePriceId)) {
             return false;
           }
 
