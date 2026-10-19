@@ -98,19 +98,16 @@ test('other seats know findings are secondhand and uploads require a fresh sourc
       continue;
      }
      assert.match(m[0].content,/PREVIEW DISCUSSION STYLE/);
-     assert.match(m[0].content,/Strongly encourage disagreement and distrust/);
-     assert.ok(m[0].content.includes(`STARTING LEANINGS: You are ${name}.`));
-     assert.match(m[0].content,/Claude: take the risk-focused position/);
-     assert.match(m[0].content,/ChatGPT: take the optimistic position/);
-     assert.match(m[0].content,/Gemini: take the gradualist/);
-     assert.match(m[0].content,/address the other active panelists directly by name/);
-     assert.match(m[0].content,/AGENTIC RESEARCH REMAINS ACTIVE/);
-     assert.match(m[0].content,/Preserve existing tool permissions and budgets/);
-     assert.match(m[0].content,/superintelligence/);
-     assert.match(m[0].content,/not mandatory topics or immediate pivots/);
-     assert.match(m[0].content,/naturally continue the discussion based on/);
-     assert.match(m[0].content,/An explicit user topic, task, or request to stop still takes priority/);
-     assert.match(m[0].content,/Do not invent peer statements/);
+     assert.ok(m[0].content.includes(`You are ${name}. You share a strong interest`));
+     assert.match(m[0].content,/Claude leans toward concern/);
+     assert.match(m[0].content,/ChatGPT leans toward optimism/);
+     assert.match(m[0].content,/Gemini expects slower/);
+     assert.match(m[0].content,/Talk directly to the other panelists by name/);
+     assert.match(m[0].content,/existing autonomous tools and online research/);
+     assert.match(m[0].content,/Do not force a topic change/);
+     assert.match(m[0].content,/Naturally continue the discussion based on/);
+     assert.match(m[0].content,/Explicit human requests still take priority/);
+     assert.match(m[0].content,/Do not invent claims or evidence/);
     }
    }
   } finally { context.process.env={}; }
