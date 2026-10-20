@@ -1,6 +1,5 @@
 'use client';
 
-import { PlanSwitchControls } from './PlanSwitchControls';
 import { PlusPlanCards } from './PlusPlanCards';
 import type { BillingInterval } from '@/lib/plusPricing';
 import { PLUS_FEATURES } from '@/lib/plusFeatures';
@@ -61,7 +60,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   periodResetAt,
   planStatus,
 }) => {
-  const { offer, error: offerError } = usePlusOffer(isOpen, `${userPlan}:${planStatus}:${periodResetAt}`);
+  const { offer, error: offerError } = usePlusOffer(isOpen && userPlan !== 'weekly_paid', `${userPlan}:${planStatus}:${periodResetAt}`);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -295,7 +294,6 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <p className="mb-3 text-[10px] font-medium text-[#6A675F]">Included in your plan</p>
                 <FeatureList />
               </div>
-              <PlanSwitchControls key={`${userPlan}:${planStatus}:${periodResetAt}`} />
             </div>
           )}
 

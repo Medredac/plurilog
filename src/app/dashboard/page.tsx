@@ -1138,6 +1138,8 @@ export default function DashboardPage() {
       setRequiresPlan(access.requiresPlan);
       setShowChoosePlan(access.requiresPlan);
       if (access.blocked && isPlusPlan(access.balance?.plan)) setIsAccountSettingsOpen(true);
+      setPeriodResetAt(access.billing?.current_period_end || access.billing?.period_reset_at || null);
+      setPlanStatus(access.billing?.plan_status || null);
       const balance = access.balance;
       if (balance) {
         const remaining = Number(balance.remaining_cents);
@@ -1162,8 +1164,6 @@ export default function DashboardPage() {
             .select('period_reset_at, current_period_end, plan_status, signup_source, country_code')
             .eq('id', freshUser.id)
             .single();
-          setPeriodResetAt(access.billing?.current_period_end || access.billing?.period_reset_at || null);
-          setPlanStatus(access.billing?.plan_status || null);
 
           const createdAtMs = freshUser.created_at
             ? new Date(freshUser.created_at).getTime()
