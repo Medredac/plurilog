@@ -18,6 +18,7 @@ import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
 import { RoleMarquee } from '@/components/RoleMarquee';
+import { UserCount } from '@/components/UserCount';
 import { createClient } from '../utils/supabase/client';
 
 const faqItems = [
@@ -457,6 +458,7 @@ export default function LandingPage() {
                 <span>Sign in</span>
               </button>
             </motion.div>
+            <UserCount />
           </div>
 
           {/* Right Column: Hero Image */}
