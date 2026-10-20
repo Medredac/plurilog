@@ -118,6 +118,15 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'Failed to load profile for checkout provisioning' }, { status: 500 });
         }
 
+        // Shared profiles must never let a test checkout replace a live subscription.
+        // Retrieving with the sandbox key fails closed for a live subscription ID.
+        if (isSandboxBilling() && profile.stripe_subscription_id && profile.stripe_subscription_id !== subscriptionId) {
+          const existing = await stripe.subscriptions.retrieve(profile.stripe_subscription_id);
+          if (!['canceled', 'incomplete_expired'].includes(existing.status)) {
+            return NextResponse.json({ error: 'An existing subscription must not be replaced.' }, { status: 409 });
+          }
+        }
+
         // Meta reporting is analytics only. Schedule it after the webhook response so
         // Meta latency or failure cannot delay or block subscription provisioning.
         if (session.payment_status === 'paid') {
