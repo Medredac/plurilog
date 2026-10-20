@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'motion/react';
-import { X, Layers, ArrowRight, AlertCircle, CheckCircle2, Loader2, Eye, EyeOff } from 'lucide-react';
+import { X, ArrowRight, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 import { createClient } from '../utils/supabase/client';
 import { ResetPasswordModal } from './ResetPasswordModal';
+import { EmailVerificationNotice } from './EmailVerificationNotice';
 
 const backdropVariants: Variants = {
   initial: { opacity: 0 },
@@ -68,7 +69,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
 
   const supabase = createClient();
@@ -90,7 +91,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setEmail('');
       setPassword('');
       setErrorMessage(null);
-      setSuccessMessage(null);
+      setVerificationEmail(null);
       setIsLoading(false);
       setIsResetPasswordOpen(false);
       setShowPassword(false);
@@ -101,7 +102,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setIsLoading(true);
     setErrorMessage(null);
-    setSuccessMessage(null);
+    setVerificationEmail(null);
 
     try {
       if (mode === 'signin') {
@@ -172,12 +173,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           if (data.session) {
             onSuccess();
           } else {
-            setSuccessMessage("Account created! We've sent a confirmation link to your email — click it to activate your account.");
-            setTimeout(() => {
-              if (data.session) {
-                onSuccess();
-              }
-            }, 1500);
+            setVerificationEmail(email.trim());
+            setPassword('');
+            setShowPassword(false);
           }
         }
       }
@@ -215,7 +213,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const toggleMode = () => {
     setMode(mode === 'signin' ? 'signup' : 'signin');
     setErrorMessage(null);
-    setSuccessMessage(null);
+    setVerificationEmail(null);
   };
 
   return (
@@ -240,6 +238,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               initial="initial"
               animate="animate"
               exit="exit"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="auth-modal-title"
+              onKeyDown={(event) => {
+                if (isResetPasswordOpen) return;
+                if (event.key === 'Escape') {
+                  event.stopPropagation();
+                  onClose();
+                }
+                if (event.key === 'Tab') {
+                  const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+                    'button:not([disabled]), input:not([disabled]), a[href], [tabindex="0"]'
+                  ));
+                  const first = controls[0];
+                  const last = controls[controls.length - 1];
+                  if (event.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement as HTMLElement))) {
+                    event.preventDefault();
+                    last?.focus();
+                  } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first?.focus();
+                  }
+                }
+              }}
               className="relative w-full max-w-sm rounded-2xl bg-white border border-zinc-200/90 p-5 sm:p-6 shadow-lg z-10 max-h-[calc(100dvh-2rem)] overflow-y-auto flex flex-col"
             >
         {/* Close Button */}
@@ -252,10 +274,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <X className="w-4 h-4" />
         </button>
 
+        {verificationEmail ? (
+          <EmailVerificationNotice
+            email={verificationEmail}
+            onSignIn={() => {
+              setMode('signin');
+              setVerificationEmail(null);
+              setErrorMessage(null);
+            }}
+          />
+        ) : (
+        <>
         {/* Logo & Header */}
         <div className="flex flex-col items-center text-center mb-5">
           <img src="/logo.svg" alt="Plurilog" className="w-8 h-8 rounded-lg object-contain mb-2.5" />
-          <h3 className="font-semibold text-base text-zinc-900 tracking-tight">
+          <h3 id="auth-modal-title" className="font-semibold text-base text-zinc-900 tracking-tight">
             {mode === 'signin' ? 'Sign in to Plurilog' : 'Create your account'}
           </h3>
           <p className="text-xs text-zinc-500 mt-0.5">
@@ -281,7 +314,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     onClick={() => {
                       setMode('signin');
                       setErrorMessage(null);
-                      setSuccessMessage(null);
+                      setVerificationEmail(null);
                     }}
                     className="font-medium text-zinc-900 underline hover:no-underline cursor-pointer ml-0.5"
                   >
@@ -302,13 +335,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </>
               )}
             </span>
-          </div>
-        )}
-
-        {successMessage && (
-          <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-emerald-600" />
-            <span className="leading-snug">{successMessage}</span>
           </div>
         )}
 
@@ -470,6 +496,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </p>
         </div>
+        </>
+        )}
       </motion.div>
     </div>
   )}
