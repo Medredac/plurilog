@@ -361,7 +361,7 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.07,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#DCE8FA] text-[#294B78] text-[11px] sm:text-xs font-medium mb-6"
+              className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#F8E8B3] text-[#6B501C] text-[11px] sm:text-xs font-medium mb-6"
             >
               <span>Multi-model reasoning. One shared context.</span>
             </motion.div>
