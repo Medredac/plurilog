@@ -74,7 +74,7 @@ const sections: Section[] = [
       {
         "kind": "list",
         "items": [
-          "$9 USD/month for the first three months, then $19/month",
+          "$4.99 USD/week or $19/month",
           "Unlimited Plus chat with GPT, Claude and Gemini",
           "No additional Plus usage charges or chat-credit purchases",
           "Use one, two or all three AIs",
@@ -353,7 +353,7 @@ export default function PoeVsPlurilogBlogPost() {
                   <span>Try Plurilog free</span><ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
-              <p className="text-xs text-zinc-300">No credit card required. Free includes one-time starter usage. Plus is $9/month for three months, then $19/month.</p>
+              <p className="text-xs text-zinc-300">Plus is $4.99/week or $19/month. Both plans include the same benefits. Cancel anytime.</p>
             </MotionReveal>
             <MotionReveal as="section" className="space-y-3">
               <h2 className="text-lg font-bold text-zinc-900">Explore more Plurilog guides</h2>

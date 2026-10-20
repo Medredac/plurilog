@@ -20,11 +20,15 @@ function load(file, mocks = {}) {
   }).outputText, filename);
   return mod.exports;
 }
-const helpers = load('src/lib/stripeIntroOffer.ts');
+const pricing = load('src/lib/plusPricing.ts');
+// Retain legacy-offer regression coverage; retirement tests below use the actual disabled flag.
+const legacyPricing = { ...pricing, INTRO_OFFER_ENABLED: true };
+const helpers = load('src/lib/stripeIntroOffer.ts', { './plusPricing': legacyPricing });
+const retiredHelpers = load('src/lib/stripeIntroOffer.ts');
 const coupon = { valid: true, amount_off: 1000, currency: 'usd', duration: 'repeating', duration_in_months: 3, applies_to: { products: ['prod_plus'] } };
 const price = { active: true, unit_amount: 1900, currency: 'usd', recurring: { interval: 'month', interval_count: 1 }, product: 'prod_plus' };
 
-function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile = {}, history = [], invoices = [], failInvoices = false, priceOverride = {}, couponOverride = {}, failHistory = false, nextPayment = 900 } = {}) {
+function fixture({ retired = false, user = { id: 'user-1', email: 'test@example.com' }, profile = {}, history = [], invoices = [], failInvoices = false, priceOverride = {}, couponOverride = {}, failHistory = false, nextPayment = 900 } = {}) {
   const calls = [];
   const billingProfile = { plan: 'free', plan_status: null, stripe_customer_id: null, stripe_subscription_id: null, signup_source: 'facebook', ...profile };
   const stripe = {
@@ -45,7 +49,7 @@ function fixture({ user = { id: 'user-1', email: 'test@example.com' }, profile =
   const mocks = {
     '@/lib/previewCredits': { initializePreviewCredits: async () => {} },
     '@/lib/stripe': { stripe },
-    '@/lib/stripeIntroOffer': helpers,
+    '@/lib/stripeIntroOffer': retired ? retiredHelpers : helpers,
     '@/utils/supabase/server': { createClient: async () => supabase },
     'next/headers': { cookies: async () => ({ get: name => cookieValues[name] ? { value: cookieValues[name] } : undefined }) },
     '@/lib/metaConversions': { META_CONSENT_COOKIE: 'consent', isMetaSignupSource: () => true, isMetaTrackingAllowedForRequest: () => true, normalizeMetaConsentStatus: value => value },
@@ -409,7 +413,7 @@ test('mid-month weekly switch uses the new weekly line, not the later-ending mon
   assert.equal(f.profile.remaining_cents,300);
 });
 
-const switching=load('src/lib/stripePlanSwitch.ts');
+const switching=load('src/lib/stripePlanSwitch.ts', { './plusPricing': legacyPricing, './stripeIntroOffer': helpers });
 function switchFixture(interval='month', usedIntro=false){
   const end=Math.floor(Date.now()/1000)+7*86400;
   const sub={id:'sub_switch',customer:'cus_one',status:'active',cancel_at:null,cancel_at_period_end:false,items:{data:[{
@@ -490,4 +494,43 @@ test('account settings render a manually assigned weekly tier as weekly Plus, wi
   assert.match(weekly,/Plus · Weekly/);assert.match(weekly,/4.99 \/ week/);assert.match(weekly,/Expires/);assert.doesNotMatch(weekly,/>Free</);
   const monthly=renderToStaticMarkup(React.createElement(mod.exports.AccountSettingsModal,{...props,userPlan:'paid',planStatus:'active'}));
   assert.match(monthly,/Plus · Monthly/);assert.match(monthly,/9 next payment/);assert.match(monthly,/Renews/);
+});
+
+// Current pricing: no new discounts, existing subscription state remains intact.
+test('retired offer: new and returning monthly checkout charges the full price without coupon lookups', async () => {
+  for (const profile of [{}, {stripe_customer_id:'cus_old', stripe_subscription_id:'sub_old'}]) {
+    const f=fixture({retired:true,profile,history:[{status:'canceled'}],failInvoices:true});
+    assert.equal((await f.checkout(request())).status,200);
+    const params=f.calls.find(c=>c[0]==='checkout')[1];
+    assert.equal(params.discounts,undefined);
+    assert.equal(params.allow_promotion_codes,undefined);
+    assert.equal(params.line_items[0].price,process.env.STRIPE_PRICE_ID_PLUS);
+    assert.equal((await (await f.offer()).json()).amount,19);
+    assert.equal(f.calls.some(c=>['coupon','invoices'].includes(c[0])),false);
+  }
+});
+test('retired offer: active-subscription guard still blocks duplicate purchases', async () => {
+  const f=fixture({retired:true,profile:{stripe_customer_id:'cus_active'},history:[{status:'active'}]});
+  assert.equal((await f.checkout(request())).status,409);
+  assert.equal(f.calls.some(c=>c[0]==='checkout'),false);
+});
+test('retired offer: resuming never adds or removes a discount, including existing promotions', async () => {
+  for(const discounts of [[],['di_existing_intro']]) {
+    const f=resumeFixture(); f.subscription.discounts=discounts;
+    await retiredHelpers.applyIntroOnResumption(f.stripe,f.subscription,{cancel_at_period_end:true},process.env.STRIPE_PRICE_ID_PLUS);
+    assert.equal(f.calls.length,0);
+    assert.deepEqual(f.subscription.discounts,discounts);
+    assert.deepEqual(await retiredHelpers.introCheckoutDiscount(f.stripe,process.env.STRIPE_PRICE_ID_PLUS,true),{});
+  }
+});
+test('retired offer: existing paid users still see their discounted actual invoice', async () => {
+  const f=fixture({retired:true,profile:{plan:'paid',stripe_customer_id:'cus_paid',stripe_subscription_id:'sub_paid'},nextPayment:900});
+  assert.equal((await (await f.offer()).json()).amount,9);
+});
+test('retired offer: legacy switching helper cannot create another promotion', async () => {
+  const f=switchFixture('week');
+  const current=load('src/lib/stripePlanSwitch.ts');
+  const result=await current.schedulePlanSwitch(f.stripe,f.sub,null,'month','retired-offer-switch');
+  assert.equal(result.amount,19);
+  assert.equal(f.calls.find(c=>c[0]==='update')[2].phases[1].discounts,'');
 });

@@ -1,4 +1,6 @@
 export const INTRO_COUPON_ID = 'plurilog_intro_9usd_3months_v1';
+// Retired for new purchases and resumptions. Stripe retains existing discounts.
+export const INTRO_OFFER_ENABLED = false;
 export const INTRO_TERMS = 'For your first 3 months, then $19/month.';
 
 export interface PlusOffer {

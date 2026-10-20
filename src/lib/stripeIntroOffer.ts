@@ -1,5 +1,5 @@
 import type Stripe from 'stripe';
-import { INTRO_COUPON_ID } from './plusPricing';
+import { INTRO_COUPON_ID, INTRO_OFFER_ENABLED } from './plusPricing';
 
 interface BillingProfile {
   stripe_customer_id?: string | null;
@@ -37,9 +37,9 @@ export async function qualifiesForIntro(stripe: Stripe, profile: BillingProfile)
         throw new ExistingSubscriptionError('Please manage your existing subscription in Account Settings.');
       }
     }
-    return !(await hasUsedIntro(stripe, profile.stripe_customer_id));
+    return INTRO_OFFER_ENABLED && !(await hasUsedIntro(stripe, profile.stripe_customer_id));
   }
-  return true;
+  return INTRO_OFFER_ENABLED;
 }
 
 // Called only after a signed Stripe event says the customer undid cancellation.
@@ -50,6 +50,7 @@ export async function applyIntroOnResumption(
   previous: { cancel_at?: number | null; cancel_at_period_end?: boolean } | undefined,
   priceId: string,
 ) {
+  if (!INTRO_OFFER_ENABLED) return;
   const wasCanceling = previous?.cancel_at_period_end === true ||
     (typeof previous?.cancel_at === 'number' && previous.cancel_at > 0);
   if (!wasCanceling || subscription.status !== 'active' || subscription.cancel_at || subscription.cancel_at_period_end) return;
@@ -70,7 +71,7 @@ export async function applyIntroOnResumption(
 }
 
 export async function introCheckoutDiscount(stripe: Stripe, priceId: string, eligible: boolean) {
-  if (!eligible) return {};
+  if (!INTRO_OFFER_ENABLED || !eligible) return {};
   const [price, coupon] = await Promise.all([
     stripe.prices.retrieve(priceId),
     stripe.coupons.retrieve(INTRO_COUPON_ID, { expand: ['applies_to'] }),

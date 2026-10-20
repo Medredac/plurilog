@@ -1,7 +1,7 @@
 'use client';
 
 import { PlusPlanCards } from '@/components/PlusPlanCards';
-import { INTRO_TERMS, type BillingInterval } from '@/lib/plusPricing';
+import { MONTHLY_PRICE, type BillingInterval } from '@/lib/plusPricing';
 
 import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -855,7 +855,7 @@ export default function LandingPage() {
             </motion.div>
 
             <div className="mx-auto mt-12 max-w-4xl">
-              <PlusPlanCards offer={{ amount: 9, label: 'Limited-time offer', terms: INTRO_TERMS, canSubscribe: true }} onSelect={handleGetPlus}/>
+              <PlusPlanCards offer={{ amount: MONTHLY_PRICE, label: 'Plus', terms: 'Renews monthly. Cancel anytime.', canSubscribe: true }} onSelect={handleGetPlus}/>
             </div>
           </div>
         </section>

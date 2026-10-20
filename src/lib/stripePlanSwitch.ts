@@ -1,5 +1,6 @@
 import type Stripe from 'stripe';
 import type { BillingInterval } from './plusPricing';
+import { INTRO_OFFER_ENABLED } from './plusPricing';
 import { hasUsedIntro, introCheckoutDiscount } from './stripeIntroOffer';
 
 const OWNER = 'plurilog_period_end_switch_v1';
@@ -46,7 +47,7 @@ export async function switchDetails(stripe: Stripe, subscription: Stripe.Subscri
       introductory: schedule?.metadata?.introductory === 'true', effectiveAt: new Date(pending.start_date * 1000).toISOString() };
   }
   const interval = item.price.id === process.env.STRIPE_PRICE_ID_PLUS_WEEKLY ? 'month' : 'week';
-  const introductory = interval === 'month' && !await hasUsedIntro(stripe, idOf(subscription.customer));
+  const introductory = INTRO_OFFER_ENABLED && interval === 'month' && !await hasUsedIntro(stripe, idOf(subscription.customer));
   return { available: true, pending: false, interval, amount: interval === 'week' ? 4.99 : introductory ? 9 : 19,
     introductory, effectiveAt: new Date(end * 1000).toISOString() };
 }
