@@ -16,31 +16,15 @@ test('monthly badge compares regular annual cost with 52 weekly charges', () => 
   assert.equal(pricing.monthlySavingsPercent(19), 12);
   assert.equal(pricing.monthlySavingsText(), 'Save 12%');
 });
-test('grandfather all accounts created before activation including exhausted free users', () => {
-  assert.equal(access.requiresPaidEntry('2026-10-31T23:59:59Z', 'free', cutoff), false);
-  assert.equal(access.requiresPaidEntry('2026-01-01', 'paid', cutoff), false);
+test('positive balances allow access regardless of plan or signup date', () => {
+  for (const value of [1, 100, '100.0000', 900, 0.01]) assert.equal(access.hasUsableBalance(value), true);
 });
-test('new accounts need a plan even if starter credits exist; paying users retain access', () => {
-  assert.equal(access.requiresPaidEntry(cutoff, 'free', cutoff), true);
-  assert.equal(access.requiresPaidEntry('2026-11-02', 'paid', cutoff), false);
-  assert.equal(access.requiresPaidEntry('2026-11-02', 'weekly_paid', cutoff), false);
-  assert.equal(access.requiresPaidEntry('2026-11-02', 'free', cutoff), true);
-});
-test('production rollout is off until a cutoff is explicitly configured', () => {
-  assert.equal(access.requiresPaidEntry('2099-01-01', 'free'), false);
-  assert.equal(access.requiresPaidEntry(undefined, 'free', cutoff), false);
-  assert.equal(access.requiresPaidEntry('2026-11-02', 'free', 'invalid'), false);
+test('zero, negative and invalid balances cannot authorize spending', () => {
+  for (const value of [0, -1, '0.0000', null, undefined, NaN, Infinity, 'invalid']) assert.equal(access.hasUsableBalance(value), false);
 });
 test('preview branch detection cannot be enabled by production environment or another preview branch', () => {
   const env = { VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'preview/weekly-paid-entry' };
   assert.equal(load('src/lib/paidEntry.ts', env).isBillingPreview(), true);
   assert.equal(load('src/lib/paidEntry.ts', { ...env, VERCEL_ENV: 'production' }).isBillingPreview(), false);
   assert.equal(load('src/lib/paidEntry.ts', { ...env, VERCEL_GIT_COMMIT_REF: 'main' }).isBillingPreview(), false);
-});
-
-test('preview lets existing accounts test plan eligibility without deleting their balance',()=>{
- const preview=load('src/lib/paidEntry.ts',{VERCEL_ENV:'preview',VERCEL_GIT_COMMIT_REF:'preview/weekly-paid-entry'});
- assert.equal(preview.requiresPaidEntry('2026-01-01','free'),true);
- assert.equal(preview.requiresPaidEntry('2026-01-01','paid'),false);
- assert.equal(preview.requiresPaidEntry('2026-01-01','weekly_paid'),false);
 });

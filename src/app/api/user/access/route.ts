@@ -2,7 +2,8 @@ import { balanceRpc, billingProfileTable } from '@/lib/billingEnvironment';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { initializePreviewCredits } from '@/lib/previewCredits';
-import { requiresPaidEntry } from '@/lib/paidEntry';
+import { hasUsableBalance } from '@/lib/paidEntry';
+import { isPlusPlan } from '@/lib/plans';
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -15,11 +16,12 @@ export async function GET() {
   const { data: billing, error: billingError } = await supabase.from(billingProfileTable())
     .select('current_period_end, period_reset_at, plan_status').eq('id', user.id).single();
   if (billingError) return NextResponse.json({ error: 'Unable to check billing' }, { status: 503 });
-  const requiresPlan = requiresPaidEntry(user.created_at, balance.plan);
+  const blocked = !hasUsableBalance(balance.remaining_cents);
+  const requiresPlan = blocked && !isPlusPlan(balance.plan);
   return NextResponse.json({
     requiresPlan,
     balance,
     billing,
-    blocked: requiresPlan || Number(balance.remaining_cents) <= 0,
+    blocked,
   }, { headers: { 'Cache-Control': 'private, no-store' } });
 }

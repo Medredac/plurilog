@@ -10,8 +10,23 @@ test('sandbox routes every billing table and balance operation away from live da
 test('sandbox mode cannot run on production or unrelated previews',()=>{
  for(const env of [{...preview,VERCEL_ENV:'production'},{...preview,VERCEL_GIT_COMMIT_REF:'other'}])assert.throws(()=>load('src/lib/billingEnvironment.ts',env).billingProfileTable(),/restricted/);
 });
-test('sandbox initialization never resets an existing balance or writes live profiles',async()=>{
- const calls=[];const h=load('src/lib/previewCredits.ts',preview,{'@/utils/supabase/service':{createServiceClient:()=>({from:table=>({upsert:async(row,options)=>{calls.push({table,row,options});return {error:null}}})})}});
- await h.initializePreviewCredits({id:'tester',created_at:'2020-01-01'});
- assert.equal(calls[0].table,'stripe_sandbox_profiles');assert.equal(calls[0].row.id,'tester');assert.equal(Object.keys(calls[0].row).length,1);assert.equal(calls[0].options.ignoreDuplicates,true);
+test('new sandbox account starts at zero, with one-time main initialization and no overwrites',async()=>{
+ const calls=[];const h=load('src/lib/previewCredits.ts',preview,{'@/utils/supabase/service':{createServiceClient:()=>({rpc:async(name)=>{calls.push({rpc:name});return {error:null}},from:table=>({upsert:async(row,options)=>{calls.push({table,row,options});return {error:null}}})})}});
+ await h.initializePreviewCredits({id:'tester',created_at:'2026-10-20T00:00:00Z'});
+ assert.equal(calls[0].rpc,'initialize_preview_credits');assert.equal(calls[1].table,'stripe_sandbox_profiles');assert.equal(calls[1].row.remaining_cents,0);assert.equal(calls[1].options.ignoreDuplicates,true);
+});
+test('existing users keep their available balance in sandbox without copying live billing IDs', async () => {
+ const calls = [];
+ const service = {
+  rpc() { throw Error('must not zero existing users'); },
+  from(table) {
+   if (table === 'profiles') return { select: () => ({ eq: () => ({ single: async () => ({ data: { credits_cents: 100, remaining_cents: 67 }, error: null }) }) }) };
+   return { upsert: async (row, options) => { calls.push({ row, options }); return { error: null }; } };
+  },
+ };
+ const h = load('src/lib/previewCredits.ts', preview, { '@/utils/supabase/service': { createServiceClient: () => service } });
+ await h.initializePreviewCredits({ id: 'existing', created_at: '2026-01-01T00:00:00Z' });
+ assert.equal(calls[0].row.remaining_cents, 67);
+ assert.equal(calls[0].row.stripe_customer_id, undefined);
+ assert.equal(calls[0].options.ignoreDuplicates, true);
 });

@@ -1,7 +1,7 @@
 import { balanceRpc, spendRpc } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
 import { initializePreviewCredits } from '@/lib/previewCredits';
-import { requiresPaidEntry } from '@/lib/paidEntry';
+import { hasUsableBalance } from '@/lib/paidEntry';
 import { createDocumentGenerationGuard } from '@/utils/documentGenerationGuard';
 import { runAgentToolLoop, AGENT_EXECUTION_INSTRUCTION, type AgentTool } from '@/utils/agentToolLoop';
 import { buildDurableAttachmentUrl } from '@/utils/durableAttachments';
@@ -3224,7 +3224,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (Number(balance.remaining_cents) <= 0) {
+    if (!hasUsableBalance(balance.remaining_cents)) {
       return new Response(
         JSON.stringify({
           error:
@@ -3235,10 +3235,6 @@ export async function POST(req: NextRequest) {
         }),
         { status: 402, headers: { 'Content-Type': 'application/json' } }
       );
-    }
-
-    if (requiresPaidEntry(authenticatedUser.created_at, balance.plan)) {
-      return Response.json({ error: 'Choose a plan to start your discussion.', code: 'PLAN_REQUIRED' }, { status: 402 });
     }
 
     const uploadedVideos = (Array.isArray(attachments) ? attachments : []).filter(isVideoAttachment);

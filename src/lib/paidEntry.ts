@@ -1,4 +1,3 @@
-import { isPlusPlan } from '@/lib/plans';
 // Identify the isolated paid-entry preview branch. Never follows a URL parameter.
 export function isBillingPreview() {
   return process.env.VERCEL_ENV === 'preview' && process.env.VERCEL_GIT_COMMIT_REF === 'preview/weekly-paid-entry';
@@ -6,13 +5,8 @@ export function isBillingPreview() {
 export function paidEntryCutoff() {
   return process.env.PAID_ENTRY_STARTS_AT || (isBillingPreview() ? '2026-10-19T17:46:29.236598+00:00' : '');
 }
-export function requiresPaidEntry(createdAt: string | undefined, plan: string, cutoff = paidEntryCutoff()) {
-  // The preview lets an existing account test the paid-only flow too.
-  // The signup cutoff controls one-time zero initialization, not this preview gate.
-  if (isBillingPreview()) return !isPlusPlan(plan);
-  if (!cutoff || isPlusPlan(plan)) return false;
-  const start = Date.parse(cutoff);
-  const created = Date.parse(createdAt || '');
-  // Never restrict existing users because a timestamp is missing or invalid.
-  return Number.isFinite(start) && Number.isFinite(created) && created >= start;
+// Plan labels never block a user who still has usable credits.
+export function hasUsableBalance(remaining: unknown) {
+  const amount = Number(remaining);
+  return Number.isFinite(amount) && amount > 0;
 }

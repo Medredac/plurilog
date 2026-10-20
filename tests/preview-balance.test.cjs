@@ -31,9 +31,9 @@ test('new unpaid preview account has zero available and remaining credits initia
   assert.equal(data.requiresPlan,true);assert.equal(data.balance.remaining_cents,0);assert.equal(data.balance.credits_cents,0);
   assert.equal(f.stored.remaining_cents,0);assert.equal(response.headers.get('Cache-Control'),'private, no-store');
 });
-test('existing free balances are preserved, but preview still requires a paid tier',async()=>{
+test('existing free balances remain usable in both preview and production',async()=>{
   for(const options of [{created:'2026-10-01T00:00:00Z'},{env:'production'}]){
-    const data=await (await fixture(options).GET()).json();assert.equal(data.requiresPlan,options.env!=='production');assert.equal(data.balance.remaining_cents,100);
+    const data=await (await fixture(options).GET()).json();assert.equal(data.requiresPlan,false);assert.equal(data.balance.remaining_cents,100);
   }
 });
 test('both paid tiers retain their real balance',async()=>{
@@ -45,9 +45,9 @@ test('unverified access and unavailable balances fail closed',async()=>{
   assert.equal((await fixture({user:false}).GET()).status,401);assert.equal((await fixture({fail:true}).GET()).status,503);
 });
 
-test('manual positive free balance remains blocked; either paid tier also needs positive balance',async()=>{
+test('manual positive balances work for free and paid tiers; zero blocks each tier',async()=>{
  const f=fixture();await f.GET();f.stored.remaining_cents=100;
- let data=await(await f.GET()).json();assert.equal(data.balance.remaining_cents,100);assert.equal(data.blocked,true);
+ let data=await(await f.GET()).json();assert.equal(data.balance.remaining_cents,100);assert.equal(data.blocked,false);
  for(const plan of ['paid','weekly_paid']){
   f.stored.plan=plan;f.stored.remaining_cents=100;
   data=await(await f.GET()).json();assert.equal(data.blocked,false);
