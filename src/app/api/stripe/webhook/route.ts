@@ -1,3 +1,4 @@
+import { billingProfileTable, isSandboxBilling } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
 import { after, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
@@ -47,7 +48,7 @@ async function reportInitialMetaPurchase({
   regionCode?: string | null;
   consentStatus?: MetaConsentStatus;
 }) {
-  if (!isMetaSignupSource(signupSource)) return;
+  if (isSandboxBilling() || !isMetaSignupSource(signupSource)) return;
   if (typeof amountCents !== 'number' || amountCents <= 0 || !currency) return;
 
   const result = await sendMetaConversionEvent({
@@ -90,6 +91,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
+  if (event.livemode === isSandboxBilling()) return NextResponse.json({ error: 'Incorrect billing mode' }, { status: 400 });
+
   const supabase = createServiceClient();
 
   try {
@@ -105,7 +108,7 @@ export async function POST(request: Request) {
 
         // Fetch profile BEFORE provisioning to check replay
         const { data: profile, error: profileFetchError } = await supabase
-          .from('profiles')
+          .from(billingProfileTable())
           .select('id, plan, plan_status, stripe_subscription_id, current_period_end, period_reset_at, email, signup_source')
           .eq('id', userId)
           .single();
@@ -113,6 +116,15 @@ export async function POST(request: Request) {
         if (profileFetchError || !profile) {
           console.error(`[Stripe Webhook] Profile fetch failed for checkout.session.completed:`, profileFetchError);
           return NextResponse.json({ error: 'Failed to load profile for checkout provisioning' }, { status: 500 });
+        }
+
+        // Shared profiles must never let a test checkout replace a live subscription.
+        // Retrieving with the sandbox key fails closed for a live subscription ID.
+        if (isSandboxBilling() && profile.stripe_subscription_id && profile.stripe_subscription_id !== subscriptionId) {
+          const existing = await stripe.subscriptions.retrieve(profile.stripe_subscription_id);
+          if (!['canceled', 'incomplete_expired'].includes(existing.status)) {
+            return NextResponse.json({ error: 'An existing subscription must not be replaced.' }, { status: 409 });
+          }
         }
 
         // Meta reporting is analytics only. Schedule it after the webhook response so
@@ -147,7 +159,7 @@ export async function POST(request: Request) {
           console.log(`[Stripe Webhook] Duplicate checkout.session.completed for already-initialized subscription ${subscriptionId}, skipping credit grant.`);
           // If the profile is in terminal state (free/canceled), do NOT resurrect to paid.
           if (isPlusPlan(profile.plan)) {
-            await supabase.from('profiles').update({
+            await supabase.from(billingProfileTable()).update({
               stripe_customer_id: session.customer as string,
               updated_at: new Date().toISOString(),
             }).eq('id', userId);
@@ -168,7 +180,7 @@ export async function POST(request: Request) {
         }
         const periodEnd = new Date(periodEndTimestamp * 1000).toISOString();
 
-        const provision = supabase.from('profiles').update({
+        const provision = supabase.from(billingProfileTable()).update({
           plan: weekly ? 'weekly_paid' : 'paid',
           plan_status: subscriptionStatus(subscription),
           credits_cents: PLUS_ALLOWANCE_CENTS,
@@ -207,14 +219,14 @@ export async function POST(request: Request) {
 
         // Fetch matching profile by subscriptionId, falling back to customerId
         let { data: profile, error: profileError } = await supabase
-          .from('profiles')
+          .from(billingProfileTable())
           .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at, email, signup_source')
           .eq('stripe_subscription_id', subscriptionId)
           .maybeSingle();
 
         if (!profile && customerId) {
           const fallback = await supabase
-            .from('profiles')
+            .from(billingProfileTable())
             .select('id, plan, plan_status, stripe_subscription_id, stripe_customer_id, current_period_end, period_reset_at, email, signup_source')
             .eq('stripe_customer_id', customerId)
             .maybeSingle();
@@ -357,7 +369,7 @@ export async function POST(request: Request) {
             updated_at: new Date().toISOString(),
           };
 
-          const renewal = supabase.from('profiles').update(updatePayload, { count: 'exact' })
+          const renewal = supabase.from(billingProfileTable()).update(updatePayload, { count: 'exact' })
             .eq('id', profile.id).eq('stripe_subscription_id', subscriptionId).eq('plan', profile.plan);
           const { error, count } = await (profile.period_reset_at
             ? renewal.eq('period_reset_at', profile.period_reset_at)
@@ -384,7 +396,7 @@ export async function POST(request: Request) {
           };
 
           const { error } = await supabase
-            .from('profiles')
+            .from(billingProfileTable())
             .update(reconcilePayload, { count: 'exact' })
             .eq('id', profile.id).eq('plan', profile.plan).eq('period_reset_at', profile.period_reset_at);
 
@@ -409,7 +421,7 @@ export async function POST(request: Request) {
 
         const currentSubscription = await stripe.subscriptions.retrieve(subscriptionId);
         if (subscriptionStatus(currentSubscription) !== 'past_due') break;
-        const { error, count } = await supabase.from('profiles').update({
+        const { error, count } = await supabase.from(billingProfileTable()).update({
           plan_status: 'past_due',
           updated_at: new Date().toISOString(),
         }, { count: 'exact' })
@@ -435,7 +447,7 @@ export async function POST(request: Request) {
         const periodEndTimestamp = (subscription as any).current_period_end ?? ((subscription as any).items?.data?.[0])?.current_period_end;
         const periodEnd = periodEndTimestamp ? new Date(periodEndTimestamp * 1000).toISOString() : null;
 
-        const { error, count } = await supabase.from('profiles').update({
+        const { error, count } = await supabase.from(billingProfileTable()).update({
           plan_status: subscriptionStatus(subscription),
           ...(subscriptionStatus(subscription) === 'canceled' ? { plan: 'free', remaining_cents: 0 } : {}),
           ...(periodEnd ? { current_period_end: periodEnd } : {}),
@@ -457,7 +469,7 @@ export async function POST(request: Request) {
         const subscription = event.data.object as Stripe.Subscription;
         const subscriptionId = subscription.id;
 
-        const { error, count } = await supabase.from('profiles').update({
+        const { error, count } = await supabase.from(billingProfileTable()).update({
           plan: 'free',
           plan_status: 'canceled',
           credits_cents: 50,

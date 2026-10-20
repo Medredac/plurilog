@@ -8,6 +8,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { ChatFeed, FailedTurnState, TurnSummaryState } from '../../components/ChatFeed';
 import { DocumentPreviewDrawer } from '../../components/DocumentPreviewDrawer';
 import { ChatInput } from '../../components/ChatInput';
+import { ChoosePlanModal } from '../../components/ChoosePlanModal';
 import { OutOfCreditsModal } from '../../components/OutOfCreditsModal';
 import { PlusPromotionPrompt } from '../../components/PlusPromotionPrompt';
 import { LowCreditModal } from '../../components/LowCreditModal';
@@ -388,6 +389,8 @@ export default function DashboardPage() {
   const [failedTurn, setFailedTurn] = useState<FailedTurnState | null>(null);
   const [abandonedFailedTurnIds, setAbandonedFailedTurnIds] = useState<string[]>([]);
   const [isOutOfCredits, setIsOutOfCredits] = useState(false);
+  const [requiresPlan, setRequiresPlan] = useState(false);
+  const [showChoosePlan, setShowChoosePlan] = useState(false);
   const [userPlan, setUserPlan] = useState<'free' | 'paid' | 'weekly_paid'>('free');
   const [remainingCents, setRemainingCents] = useState<number>(0);
   const [periodResetAt, setPeriodResetAt] = useState<string | null>(null);
@@ -1129,16 +1132,23 @@ export default function DashboardPage() {
   // Check user's current credit balance from database and update isOutOfCredits state
   const refreshCreditStatus = useCallback(async () => {
     try {
-      const { data: balanceRows, error } = await supabase.rpc('get_my_balance');
-      const balance = balanceRows?.[0];
-      if (!error && balance) {
+      const accessResponse = await fetch('/api/user/access', { cache: 'no-store' });
+      if (!accessResponse.ok) throw new Error('Unable to verify account access');
+      const access = await accessResponse.json();
+      setRequiresPlan(access.requiresPlan);
+      setShowChoosePlan(access.requiresPlan);
+      if (access.blocked && isPlusPlan(access.balance?.plan)) setIsAccountSettingsOpen(true);
+      setPeriodResetAt(access.billing?.current_period_end || access.billing?.period_reset_at || null);
+      setPlanStatus(access.billing?.plan_status || null);
+      const balance = access.balance;
+      if (balance) {
         const remaining = Number(balance.remaining_cents);
         setIsOutOfCredits(remaining <= 0);
         setUserPlan(balance.plan === 'weekly_paid' ? 'weekly_paid' : isPlusPlan(balance.plan) ? 'paid' : 'free');
         setRemainingCents(remaining);
 
         if (
-          !isPlusPlan(balance.plan) &&
+          !access.requiresPlan && !isPlusPlan(balance.plan) &&
           remaining > 0 &&
           remaining <= 25 &&
           !hasShownLowCreditRef.current
@@ -1154,8 +1164,6 @@ export default function DashboardPage() {
             .select('period_reset_at, current_period_end, plan_status, signup_source, country_code')
             .eq('id', freshUser.id)
             .single();
-          setPeriodResetAt(profileRow?.current_period_end || profileRow?.period_reset_at || null);
-          setPlanStatus(profileRow?.plan_status || null);
 
           const createdAtMs = freshUser.created_at
             ? new Date(freshUser.created_at).getTime()
@@ -1230,6 +1238,13 @@ export default function DashboardPage() {
       console.error('[Credit Check] Failed to refresh balance:', err);
     }
   }, [supabase]);
+
+  // Stripe Manage opens in another tab. Reconcile dates and access on return.
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshCreditStatus(); };
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [refreshCreditStatus]);
 
   // Protect route, verify auth, and load discussions once on initial mount
   useEffect(() => {
@@ -2971,9 +2986,8 @@ export default function DashboardPage() {
         }
 
         if (activeDebateIdRef.current === discussionId) {
-          if (err?.code === 'INSUFFICIENT_CREDITS') {
-            setIsOutOfCredits(true);
-            setShowUpgradeModal(true);
+          if (err?.code === 'INSUFFICIENT_CREDITS' || err?.code === 'PLAN_REQUIRED') {
+            await refreshCreditStatus();
             setRestoreDraft({ text: promptToSend, trigger: Date.now() });
             setSeatStatuses(INITIAL_SEAT_STATUSES);
             setMessages((prev) => prev.filter((m) => !currentAttemptModelMsgIds.has(m.id)));
@@ -3038,8 +3052,10 @@ export default function DashboardPage() {
       return;
     }
 
+    if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       setRestoreDraft({ text: content, files: imageFiles, trigger: Date.now() });
       return;
     }
@@ -3567,8 +3583,10 @@ export default function DashboardPage() {
       return;
     }
 
+    if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       return;
     }
 
@@ -3655,8 +3673,10 @@ export default function DashboardPage() {
       activeSeatOrder.length === 0
     ) return;
 
+    if (requiresPlan) { setShowChoosePlan(true); return; }
     if (isOutOfCredits) {
-      setShowUpgradeModal(true);
+      if (isPlusPlan(userPlan)) setIsAccountSettingsOpen(true);
+      else setShowChoosePlan(true);
       return;
     }
 
@@ -3809,7 +3829,7 @@ export default function DashboardPage() {
         <Suspense fallback={null}>
           <UpgradeParamsHandler
             isLoadingAuth={isLoadingAuth}
-            onOpenUpgrade={() => setIsAccountSettingsOpen(true)}
+            onOpenUpgrade={() => isPlusPlan(userPlan) ? setIsAccountSettingsOpen(true) : setShowChoosePlan(true)}
             urlDiscussionId={urlDiscussionId}
           />
         </Suspense>
@@ -3844,7 +3864,7 @@ export default function DashboardPage() {
       <Suspense fallback={null}>
         <UpgradeParamsHandler
           isLoadingAuth={isLoadingAuth}
-          onOpenUpgrade={() => setIsAccountSettingsOpen(true)}
+          onOpenUpgrade={() => isPlusPlan(userPlan) ? setIsAccountSettingsOpen(true) : setShowChoosePlan(true)}
           urlDiscussionId={urlDiscussionId}
         />
       </Suspense>
@@ -3867,6 +3887,7 @@ export default function DashboardPage() {
           userDisplayName={userDisplayName}
           userAvatarUrl={userAvatarUrl}
           userPlan={userPlan}
+          requiresPlan={requiresPlan}
           onOpenAccountSettings={() => setIsAccountSettingsOpen(true)}
           onSignOut={handleSignOut}
         />
@@ -4102,21 +4123,23 @@ export default function DashboardPage() {
           <PlusPromotionPrompt
             key={userId}
             userId={userId}
-            eligible={(userPlan === 'free' && remainingCents > 25 && !isOutOfCredits) || (userPlan === 'paid' && planStatus === 'canceling')}
-            blocked={showUpgradeModal || showLowCreditModal || isAccountSettingsOpen || isDeleteProfileModalOpen || !!previewDocument || isDebating || isLoadingMessages}
+            eligible={!requiresPlan && ((userPlan === 'free' && remainingCents > 25 && !isOutOfCredits) || (userPlan === 'paid' && planStatus === 'canceling'))}
+            blocked={showChoosePlan || showUpgradeModal || showLowCreditModal || isAccountSettingsOpen || isDeleteProfileModalOpen || !!previewDocument || isDebating || isLoadingMessages}
             onUpgrade={() => setIsAccountSettingsOpen(true)}
           />
         )}
 
+        <ChoosePlanModal isOpen={showChoosePlan} onClose={() => setShowChoosePlan(false)} />
+
         {/* Out of Credits Upgrade Modal */}
         <OutOfCreditsModal
-          isOpen={showUpgradeModal}
+          isOpen={!requiresPlan && showUpgradeModal}
           onClose={() => setShowUpgradeModal(false)}
         />
 
         {/* Low Credit Warning Modal */}
         <LowCreditModal
-          isOpen={showLowCreditModal}
+          isOpen={!requiresPlan && showLowCreditModal}
           onClose={() => setShowLowCreditModal(false)}
         />
 
@@ -4132,6 +4155,7 @@ export default function DashboardPage() {
           userEmail={userEmail}
           userAvatarUrl={userAvatarUrl}
           userPlan={userPlan}
+          requiresPlan={requiresPlan}
           onNameUpdated={(newName) => setUserDisplayName(newName)}
           periodResetAt={periodResetAt}
           planStatus={planStatus}

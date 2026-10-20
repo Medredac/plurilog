@@ -1,6 +1,6 @@
 // Shared by every Plus pricing card and upgrade prompt.
 export const PLUS_FEATURES = [
-  'Everything in Free',
+  'Files, images and full panel controls',
   'Unlimited usage',
   'No usage cooldowns',
   'No extra usage charges. No credits to buy.',

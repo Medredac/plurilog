@@ -28,6 +28,7 @@ function fixture({user = {id: 'u1', user_metadata: {}}, profile = {plan: 'free'}
   const subscription = {customer: 'cus1', status: 'active', cancel_at_period_end: canceling, items: {data: [{price: {id:'price1'},quantity:1,discounts:[]}]}, discounts:[]};
   const route = load('src/app/api/user/plus-promotion/route.ts', {
     '@/utils/supabase/server': {createClient: async () => ({auth, from: () => ({select: () => ({eq: () => ({single: async () => ({data: profile})})})})})},
+    '@/lib/plusPricing': {INTRO_OFFER_ENABLED:true},
     '@/lib/stripe': {stripe: {subscriptions: {retrieve: async () => subscription}}},
     '@/lib/stripeIntroOffer': {hasUsedIntro: async () => used, introCheckoutDiscount: async () => ({})},
   });
@@ -59,4 +60,13 @@ test('unused promotion on a canceling subscription offers renewal without writin
 });
 test('used promotion or stale cancellation state never advertises a fresh discount', async () => {
   for(const extra of [{used:true},{canceling:false}]) assert.equal((await (await fixture({profile:cancelProfile,...extra}).GET()).json()).activePlus,true);
+});
+
+test('retired promotion endpoint is dismissed and never queries or modifies accounts', async () => {
+  const route=load('src/app/api/user/plus-promotion/route.ts', {
+    '@/utils/supabase/server':{createClient:()=>{throw new Error('Must not access account');}},
+    '@/lib/stripe':{stripe:{}},
+  });
+  assert.deepEqual(await (await route.GET()).json(),{dismissed:true});
+  assert.deepEqual(await (await route.POST()).json(),{saved:true});
 });

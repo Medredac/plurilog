@@ -1,6 +1,7 @@
 'use client';
-import { PlanSwitchControls } from './PlanSwitchControls';
 
+import { PlusPlanCards } from './PlusPlanCards';
+import { MONTHLY_PRICE, type BillingInterval, type PlusOffer } from '@/lib/plusPricing';
 import { PLUS_FEATURES } from '@/lib/plusFeatures';
 
 import React, { useEffect, useState } from 'react';
@@ -17,12 +18,20 @@ interface AccountSettingsModalProps {
   userEmail?: string;
   userAvatarUrl?: string;
   userPlan: 'free' | 'paid' | 'weekly_paid';
+  requiresPlan?: boolean;
   onNameUpdated?: (newName: string) => void;
   periodResetAt?: string | null;
   planStatus?: string | null;
 }
 
 
+
+const STANDARD_OFFER: PlusOffer = {
+  amount: MONTHLY_PRICE,
+  label: 'Plus',
+  terms: 'Billed monthly. Cancel anytime.',
+  canSubscribe: true,
+};
 
 const RobotHeads = () => (
   <div className="pointer-events-none absolute -top-[23px] right-4 flex items-end -space-x-2.5" aria-hidden="true">
@@ -53,11 +62,16 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   userEmail,
   userAvatarUrl,
   userPlan,
+  requiresPlan = false,
   onNameUpdated,
   periodResetAt,
   planStatus,
 }) => {
-  const { offer, error: offerError } = usePlusOffer(isOpen);
+  // Free-account pricing is fixed. Fetch existing monthly subscribers' actual
+  // invoice price before they open settings, preserving their legacy discounts.
+  const loadedOffer = usePlusOffer(userPlan === 'paid', `${userPlan}:${planStatus}:${periodResetAt}`);
+  const offer = userPlan === 'free' ? STANDARD_OFFER : loadedOffer.offer;
+  const offerError = userPlan === 'paid' ? loadedOffer.error : null;
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);
@@ -107,11 +121,11 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
     }
   };
 
-  const handleUpgrade = async (setLoading: (v: boolean) => void) => {
+  const handleUpgrade = async (setLoading: (v: boolean) => void, interval: BillingInterval = 'month') => {
     setLoading(true);
     try {
       setCheckoutError(null);
-      const res = await fetch('/api/stripe/checkout', { method: 'POST' });
+      const res = await fetch('/api/stripe/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ interval }) });
       const data = await res.json();
       if (res.ok && data.url) {
         window.location.href = data.url;
@@ -174,7 +188,7 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
         aria-label="Close account settings"
       />
 
-      <div className="relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full max-w-[470px] flex-col overflow-hidden rounded-[18px] border border-[#E2E0DB] bg-white dashboard-menu-shadow animate-in fade-in zoom-in-95 duration-150">
+      <div className={`relative z-10 flex max-h-[calc(100dvh-1.5rem)] w-full ${userPlan === 'free' ? 'max-w-3xl' : 'max-w-md'} flex-col overflow-hidden rounded-[18px] border border-[#E2E0DB] bg-white dashboard-menu-shadow animate-in fade-in zoom-in-95 duration-150`}>
         <div className="flex items-center justify-between px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
           <h3 className="text-[15px] font-semibold tracking-tight text-[#1C1B1A]">
             Account settings
@@ -244,48 +258,16 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <div className="flex min-w-0 items-center gap-2.5">
                   <img src="/logo.svg" alt="" className="h-[22px] w-[22px] shrink-0 object-contain" />
                   <div className="flex min-w-0 items-baseline gap-2">
-                    <span className="text-[13px] font-medium text-[#1C1B1A]">Free</span>
-                    <span className="text-[11px] text-[#6A675F]">$0 / month</span>
+                    <span className="text-[13px] font-medium text-[#1C1B1A]">{requiresPlan ? 'Choose your plan' : 'Free'}</span>
+                    <span className="text-[11px] text-[#6A675F]">{requiresPlan ? 'No active subscription' : '$0 / month'}</span>
                   </div>
                 </div>
                 <span className="shrink-0 text-[10px] text-[#8A867D]">Your current plan</span>
               </div>
 
-              <div className="relative mt-6 rounded-[16px] border border-[#8A867D] bg-white px-5 pb-4 pt-5">
-                <RobotHeads />
-
-                <div className="mb-2 flex items-center gap-2">
-                  <h4 className="text-[14px] font-semibold text-[#1C1B1A]">Plus</h4>
-                  <span className="rounded-full bg-[#F6D3C9] px-2 py-0.5 text-[9px] font-medium text-[#1C1B1A]">
-                    Popular
-                  </span>
-                </div>
-
-                <div className="mb-1 flex items-end gap-1.5">
-                  <span className="text-[29px] font-semibold leading-none tracking-[-0.03em] text-[#1C1B1A]">{offer?.amount != null ? `$${offer.amount}` : '…'}</span>
-                  <span className="pb-0.5 text-[11px] text-[#6A675F]">/ month</span>
-                  {offer?.label === 'Limited-time offer' && (
-                    <span className="ml-auto self-center rounded-full bg-[#FFF1E8] px-2 py-1 text-[10px] font-medium text-[#8A3D22]">Limited-time offer</span>
-                  )}
-                </div>
-
-                <p className="mb-4 text-[12px] leading-5 text-[#6A675F]">
-                  {offer?.terms || (offerError ? 'Pricing unavailable.' : 'Loading your price…')}
-                </p>
-
-                {(offerError || checkoutError) && (
-                  <p role="alert" className="mb-3 text-[12px] text-red-700">{offerError || checkoutError}</p>
-                )}
-                <FeatureList />
-
-                <button
-                  type="button"
-                  onClick={() => handleUpgrade(setIsRedirectingPromo)}
-                  disabled={isRedirectingPromo || !offer?.canSubscribe}
-                  className="mt-5 flex h-11 w-full cursor-pointer items-center justify-center rounded-[10px] bg-[#1C1B1A] px-4 text-[12px] font-medium text-white transition-colors hover:bg-[#2A2927] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isRedirectingPromo ? 'Redirecting…' : 'Get Plus'}
-                </button>
+              <div className="mt-6">
+                {(offerError || checkoutError) && <p role="alert" className="mb-3 text-xs text-red-700">{offerError || checkoutError}</p>}
+                <PlusPlanCards offer={offer} disabled={isRedirectingPromo} onSelect={interval => handleUpgrade(setIsRedirectingPromo, interval)}/>
               </div>
             </>
           ) : (
@@ -323,7 +305,6 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
                 <p className="mb-3 text-[10px] font-medium text-[#6A675F]">Included in your plan</p>
                 <FeatureList />
               </div>
-              <PlanSwitchControls />
             </div>
           )}
 

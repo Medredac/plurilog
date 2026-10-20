@@ -1,3 +1,4 @@
+import { paidEntryGuard } from '@/lib/paidEntryGuard';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 
@@ -24,6 +25,8 @@ function getOpenRouterAudioFormat(baseType: string): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  const accessDenied = await paidEntryGuard();
+  if (accessDenied) return accessDenied;
   try {
     const supabase = await createClient();
     const {

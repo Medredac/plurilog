@@ -1,3 +1,6 @@
+import { isPlusPlan } from '@/lib/plans';
+import { INTRO_OFFER_ENABLED } from '@/lib/plusPricing';
+import { isBillingPreview } from '@/lib/paidEntry';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { stripe } from '@/lib/stripe';
@@ -9,6 +12,7 @@ const reply = (body: object, status = 200) => NextResponse.json(body, {
 });
 
 export async function GET() {
+  if (!INTRO_OFFER_ENABLED || isBillingPreview()) return NextResponse.json({ dismissed: true });
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return reply({ error: 'Not authenticated' }, 401);
@@ -16,7 +20,7 @@ export async function GET() {
   const { data: profile, error: profileError } = await supabase.from('profiles')
     .select('plan, plan_status, stripe_customer_id, stripe_subscription_id').eq('id', user.id).single();
   if (profileError || !profile) return reply({ error: 'Unable to load profile' }, 503);
-  if (profile.plan !== 'paid') return reply({ dismissed: false });
+  if (!isPlusPlan(profile.plan)) return reply({ dismissed: false });
   if (profile.plan_status !== 'canceling') return reply({ dismissed: false, activePlus: true });
   try {
     if (!profile.stripe_customer_id || !profile.stripe_subscription_id) throw new Error('Missing billing account');
@@ -43,6 +47,7 @@ export async function GET() {
 }
 
 export async function POST() {
+  if (!INTRO_OFFER_ENABLED || isBillingPreview()) return NextResponse.json({ saved: true });
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return reply({ error: 'Not authenticated' }, 401);

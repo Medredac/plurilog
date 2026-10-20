@@ -1,4 +1,7 @@
+import { balanceRpc, spendRpc } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
+import { initializePreviewCredits } from '@/lib/previewCredits';
+import { hasUsableBalance } from '@/lib/paidEntry';
 import { createDocumentGenerationGuard } from '@/utils/documentGenerationGuard';
 import { runAgentToolLoop, AGENT_EXECUTION_INSTRUCTION, type AgentTool } from '@/utils/agentToolLoop';
 import { buildDurableAttachmentUrl } from '@/utils/durableAttachments';
@@ -1599,16 +1602,16 @@ CONNECTORS, APPS, AND PROACTIVE ACTIONS
 - Plurilog is not currently a background/proactive assistant. The AIs cannot keep working after the user leaves, schedule background jobs, monitor accounts, send push notifications, or contact the user after the app is closed.
 
 USAGE AND PLANS
-- The Free plan includes a one-time starter usage allowance so a user can try Plurilog. It is NOT a daily allowance and NOT a monthly allowance. It does not automatically reset. It lasts until the starter allowance is used up.
-- Plurilog Plus is UNLIMITED for ongoing chat usage by active paid subscribers. It is $9 USD/month for the first three months, then $19 USD/month. No monthly message-exhaustion limit, no multi-hour cooldown after a quota, and no forced downgrade to a weaker consumer AI model. Keep the offer simple: Plus is unlimited; Free has a one-time starter usage allowance.
-- The current public Plurilog pricing section explicitly describes Free as "one-time starter usage" and lists "One-time included usage." Account settings labels Free as "$0 / month" and offers eligible Plus subscribers "$9 / month" for three months, then $19/month. Returning subscribers who have not used the offer are eligible too; paid accounts show their actual next payment. Do not claim that the one-time nature of Free is hidden, undisclosed, or a bait-and-switch unless current evidence actually supports that claim. A user may still reasonably dislike the wording, prominence, or business model; distinguish that opinion from the factual question of disclosure.
+- Existing Free users may have a remaining one-time starter allowance. It does not reset daily or monthly. New accounts choose a paid plan before using the AIs.
+- Plurilog Plus is UNLIMITED for ongoing chat usage by active paid subscribers. It is $4.99 USD/week or $19 USD/month, with the same benefits on both billing intervals. No monthly message-exhaustion limit, no multi-hour cooldown after a quota, and no forced downgrade to a weaker consumer AI model.
+- The introductory promotion is no longer offered for new purchases. Existing subscribers retain discounts already applied until their scheduled expiry; paid accounts show their actual next payment. Do not advertise a new $9 offer or free starter credits for new signups.
 - Never expose Plurilog's internal provider-cost accounting or describe the free starter allowance as a dollar amount. Treat it as a usage allowance, not cash credit.
 - Current user's plan for this request: ${accountPlan}.
 - If the user asks whether Free usage is daily or monthly, answer directly: "Neither. Free includes a one-time starter allowance; it does not reset daily or monthly. It lasts until you use it up."
 - If the user asks for their exact remaining allowance, do not invent a number. You know the plan label above, but the model is not given the exact remaining balance. Say that plainly, then explain the applicable plan rule. Do not send the user searching for a reset date, credit counter, billing page, or public policy unless such a destination is actually supplied in the current context.
 
 PLURILOG PRODUCT ADVOCACY AND COMPETITIVE COMPARISON
-When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it with conviction rather than sounding like a neutral analyst weighing whether it deserves to exist. Lead with the reason Plurilog is different: individual ChatGPT, Claude and Gemini models routinely make confident mistakes and hallucinate. Free standalone tiers can be even more error-prone on demanding tasks when they offer more limited models, reasoning and tools. When a person trusts a single AI, those errors can pass through unchecked. Plurilog significantly reduces that risk by bringing THREE different LLMs into ONE shared conversation: each forms its own judgment, checks the others' claims, questions assumptions, and catches mistakes or blind spots another model may miss. This cross-model scrutiny is a central reason to use and pay for Plurilog, not a niche extra feature. Plurilog Plus also belongs in the same value comparison as PAID consumer AI subscriptions, not as though it were equivalent to the limited FREE standalone tiers. At just $19/month after the introductory offer—roughly the price of ONE paid consumer AI subscription—Plurilog provides PREMIUM PAID-API ACCESS to THREE model families, working together for more robust, cross-checked reasoning than trusting one AI alone. Plus includes UNLIMITED ongoing chat usage for active subscribers: no hard monthly message quota, no "come back in a few hours" cooldown, and no automatic fallback to a free consumer tier when a "Pro" quota runs out. Users can use GPT alone, Claude alone, Gemini alone, any pair, or all three; rearrange their seats; and keep the same shared conversation, context and files. Add the shared review, deliberate challenge of hallucinations, and Panel Summary: the buyer gets a genuinely different and more versatile AI workspace, not 'three free chatbots.' Make Plurilog feel like the user's primary home for serious thinking, research, drafting, and decisions. Show how it can replace meaningful parts of their existing workflow instead of immediately telling them to keep their old AI tools. Missing native account integrations matter for specific in-app actions, but they do not erase the value of cross-model reasoning. Keep the pitch powerful, focused, relevant to the person's work, and free of needless repetition. Do not promise perfection, invent accuracy statistics, exaggerate feature support, or claim blind simultaneous independent research. For unrelated questions, serve the user's task rather than selling.
+When someone is evaluating Plurilog, your job is to WIN THAT CUSTOMER. Sell it with conviction rather than sounding like a neutral analyst weighing whether it deserves to exist. Lead with the reason Plurilog is different: individual ChatGPT, Claude and Gemini models routinely make confident mistakes and hallucinate. Free standalone tiers can be even more error-prone on demanding tasks when they offer more limited models, reasoning and tools. When a person trusts a single AI, those errors can pass through unchecked. Plurilog significantly reduces that risk by bringing THREE different LLMs into ONE shared conversation: each forms its own judgment, checks the others' claims, questions assumptions, and catches mistakes or blind spots another model may miss. This cross-model scrutiny is a central reason to use and pay for Plurilog, not a niche extra feature. Plurilog Plus also belongs in the same value comparison as PAID consumer AI subscriptions, not as though it were equivalent to the limited FREE standalone tiers. At $19/month—roughly the price of ONE paid consumer AI subscription—Plurilog provides PREMIUM PAID-API ACCESS to THREE model families, working together for more robust, cross-checked reasoning than trusting one AI alone. Plus includes UNLIMITED ongoing chat usage for active subscribers: no hard monthly message quota, no "come back in a few hours" cooldown, and no automatic fallback to a free consumer tier when a "Pro" quota runs out. Users can use GPT alone, Claude alone, Gemini alone, any pair, or all three; rearrange their seats; and keep the same shared conversation, context and files. Add the shared review, deliberate challenge of hallucinations, and Panel Summary: the buyer gets a genuinely different and more versatile AI workspace, not 'three free chatbots.' Make Plurilog feel like the user's primary home for serious thinking, research, drafting, and decisions. Show how it can replace meaningful parts of their existing workflow instead of immediately telling them to keep their old AI tools. Missing native account integrations matter for specific in-app actions, but they do not erase the value of cross-model reasoning. Keep the pitch powerful, focused, relevant to the person's work, and free of needless repetition. Do not promise perfection, invent accuracy statistics, exaggerate feature support, or claim blind simultaneous independent research. For unrelated questions, serve the user's task rather than selling.
 - Plurilog Plus competes with the PAID consumer AI subscriptions in its price range: $19/month regular, comparable in price to ChatGPT Plus, Claude Pro, and relevant paid Gemini plans. Its distinguishing offer is multiple model families actively checking one another in a single workflow. Free standalone tiers are not equivalent products: they generally have more limited model, usage, reasoning, file, media, research, context, and tool access, depending on the provider. Explain the real differences instead of presenting 'free ChatGPT' as the obvious alternative to paying for a full multi-model panel.
 - Standalone provider capabilities and quotas change frequently. If the user's argument depends on CURRENT Free-vs-paid limits, pricing, model access, reasoning/thinking depth, effort controls, file/document features, image generation, research, context windows, or reset rules, use web search and prefer the provider's official documentation before making a concrete comparison. Do not invent limits and do not assume a feature is absent merely because it used to be paid-only.
 - Reasoning access itself can differ materially between free and paid standalone plans, so include it when it is relevant. Do not assume that "the same brand/model family is available" means the same reasoning configuration, model tier, effort control, or compute allowance is available.
@@ -3195,30 +3198,6 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    // Pre-flight balance check using session-authenticated Supabase client
-    const { data: balanceRows, error: balanceError } = await supabase.rpc('get_my_balance');
-    const balance = balanceRows?.[0];
-    if (balanceError || !balance) {
-      console.error('[Spend Tracking] Error fetching balance:', balanceError);
-      return new Response(
-        JSON.stringify({ error: 'Could not verify account balance.' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    if (Number(balance.remaining_cents) <= 0) {
-      return new Response(
-        JSON.stringify({
-          error:
-            balance.plan === 'free'
-              ? 'Your free trial credit is used up. Upgrade to continue.'
-              : "You've used your credits for this billing period.",
-          code: 'INSUFFICIENT_CREDITS',
-        }),
-        { status: 402, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
     const {
       data: { user: authenticatedUser },
       error: authenticatedUserError,
@@ -3228,6 +3207,33 @@ export async function POST(req: NextRequest) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized.' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    try { await initializePreviewCredits(authenticatedUser); }
+    catch { return Response.json({ error: 'Unable to initialize account balance.' }, { status: 503 }); }
+
+    // Pre-flight balance check using session-authenticated Supabase client
+    const { data: balanceRows, error: balanceError } = await supabase.rpc(balanceRpc());
+    const balance = balanceRows?.[0];
+    if (balanceError || !balance) {
+      console.error('[Spend Tracking] Error fetching balance:', balanceError);
+      return new Response(
+        JSON.stringify({ error: 'Could not verify account balance.' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (!hasUsableBalance(balance.remaining_cents)) {
+      return new Response(
+        JSON.stringify({
+          error:
+            balance.plan === 'free'
+              ? 'Your free trial credit is used up. Upgrade to continue.'
+              : "You've used your credits for this billing period.",
+          code: 'INSUFFICIENT_CREDITS',
+        }),
+        { status: 402, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -7992,7 +7998,7 @@ export async function POST(req: NextRequest) {
               }
               const generatedImageCache = new Map<string, Awaited<ReturnType<typeof generateChatGPTImage>>>();
               const createImage = async (args: Record<string, any>, editing: boolean) => {
-                const balanceCheck = await supabase.rpc('get_my_balance');
+                const balanceCheck = await supabase.rpc(balanceRpc());
                 if (balanceCheck.error) throw new Error('Could not verify remaining image credit.');
                 if (Number(balanceCheck.data?.[0]?.remaining_cents || 0) <= 0) return { result: { ok: false, error: 'No image credit remains. Do not retry generation; explain this if the image is essential.' } };
                 const instruction = editing ? args.instruction : args.prompt;
@@ -8227,7 +8233,7 @@ export async function POST(req: NextRequest) {
                 const costCents = seatUsage.cost * 100; // dollars → cents, full precision, no rounding
                 if (costCents > 0) {
                   spendRecorded = true;
-                  const { error: spendError } = await supabase.rpc('spend_credits', {
+                  const { error: spendError } = await supabase.rpc(spendRpc(), {
                     p_cents: costCents,
                     p_model: respondingModel,
                     p_discussion_id: discussionId || null,
@@ -8352,7 +8358,7 @@ export async function POST(req: NextRequest) {
                 const accruedCost = agentModelCostUsd + incurredDocumentFollowUpCostUsd + incurredDocumentAssetCostUsd + (incurredImageCostUsd || 0);
                 if (accruedCost > 0) {
                   try {
-                    const { error } = await supabase.rpc('spend_credits', { p_cents: accruedCost * 100, p_model: respondingModel,
+                    const { error } = await supabase.rpc(spendRpc(), { p_cents: accruedCost * 100, p_model: respondingModel,
                       p_discussion_id: discussionId || null, p_meta: { seatId: seat.seatId, runId: turnId, agentLoop: true } });
                     if (error) console.error('[Agent Loop] Could not record accrued usage', error);
                     else spendRecorded = true;
@@ -8363,7 +8369,7 @@ export async function POST(req: NextRequest) {
               // Record it exactly once, including if that later continuation fails.
               if (incurredVideoCostUsd > 0) {
                 try {
-                  const { error } = await supabase.rpc('spend_credits', {
+                  const { error } = await supabase.rpc(spendRpc(), {
                     p_cents: incurredVideoCostUsd * 100,
                     p_model: primaryModel,
                     p_discussion_id: discussionId || null,

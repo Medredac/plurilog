@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { PlusOffer } from '@/lib/plusPricing';
 
-export function usePlusOffer(isOpen: boolean) {
+export function usePlusOffer(isOpen: boolean, billingVersion?: string) {
   const [offer, setOffer] = useState<PlusOffer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wasOpen, setWasOpen] = useState(isOpen);
@@ -25,6 +25,6 @@ export function usePlusOffer(isOpen: boolean) {
         if (!controller.signal.aborted) setError(error.message);
       });
     return () => controller.abort();
-  }, [isOpen]);
+  }, [isOpen, billingVersion]);
   return { offer, error };
 }

@@ -33,6 +33,7 @@ interface SidebarProps {
   userDisplayName?: string;
   userAvatarUrl?: string;
   userPlan?: 'free' | 'paid' | 'weekly_paid';
+  requiresPlan?: boolean;
   onOpenAccountSettings?: () => void;
   onSignOut?: () => void;
 }
@@ -54,6 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userDisplayName,
   userAvatarUrl,
   userPlan = 'free',
+  requiresPlan = false,
   onOpenAccountSettings,
   onSignOut,
 }) => {
@@ -623,7 +625,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           ? 'bg-white text-[#1C1B1A] border-[#D9D6CF]'
                           : 'bg-white text-[#6A675F] border-[#D9D6CF]'
                       }`}>
-                        {isPlusPlan(userPlan) ? 'Plus' : 'Free · Upgrade'}
+                        {isPlusPlan(userPlan) ? 'Plus' : requiresPlan ? 'Choose plan' : 'Free · Upgrade'}
                       </span>
                     </div>
                   </div>

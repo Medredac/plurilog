@@ -1,3 +1,5 @@
+import { initializePreviewCredits } from '@/lib/previewCredits';
+import { billingProfileTable } from '@/lib/billingEnvironment';
 import { isPlusPlan } from '@/lib/plans';
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -11,7 +13,8 @@ export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return reply({ error: 'Not authenticated' }, 401);
-  const { data: profile, error } = await supabase.from('profiles')
+  await initializePreviewCredits(user);
+  const { data: profile, error } = await supabase.from(billingProfileTable())
     .select('plan, plan_status, stripe_customer_id, stripe_subscription_id').eq('id', user.id).single();
   if (error || !profile) return reply({ error: 'Unable to load billing details.' }, 500);
   try {

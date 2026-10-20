@@ -1,3 +1,4 @@
+import { paidEntryGuard } from '@/lib/paidEntryGuard';
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
@@ -28,6 +29,8 @@ function filenameFromUrl(rawUrl: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const accessDenied = await paidEntryGuard();
+  if (accessDenied) return accessDenied;
   try {
     const body = await req.json();
     const userPrompt = cleanText(body?.userPrompt, 6000);
