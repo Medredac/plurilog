@@ -332,6 +332,28 @@ function lifecycle(interval = 'week') {
   };
 }
 for (const interval of ['week','month']) {
+  test(`${interval}: failed renewal stays overdue until successful retry, then resets once`, async () => {
+    const f = lifecycle(interval);
+    await f.checkout();
+    f.setProfile({ remaining_cents: 35 });
+    const next = f.end + (interval === 'week' ? 7 : 30) * 86400;
+    f.sub.items.data[0].current_period_end = next;
+    f.sub.status = 'past_due';
+    await f.send('invoice.payment_failed', { subscription: 'sub_one' });
+    assert.equal(f.profile.plan_status, 'past_due');
+    assert.equal(f.profile.remaining_cents, 35);
+    await f.invoice(next);
+    assert.equal(f.profile.remaining_cents, 35);
+    f.sub.status = 'active';
+    await f.invoice(next);
+    assert.equal(f.profile.plan_status, 'active');
+    assert.equal(f.profile.remaining_cents, 900);
+    f.setProfile({ remaining_cents: 800 });
+    await f.invoice(next);
+    await f.send('invoice.payment_failed', { subscription: 'sub_one' });
+    assert.equal(f.profile.plan_status, 'active');
+    assert.equal(f.profile.remaining_cents, 800);
+  });
   test(`${interval}: initial 900, exact Stripe period, duplicate checkout and invoice do not restore spent credit`, async () => {
     const f=lifecycle(interval); assert.equal((await f.checkout()).status,200);
     assert.equal(f.profile.plan,interval==='week'?'weekly_paid':'paid'); assert.equal(f.profile.remaining_cents,900);
