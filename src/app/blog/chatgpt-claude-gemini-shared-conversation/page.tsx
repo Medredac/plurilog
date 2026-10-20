@@ -654,7 +654,7 @@ export default function WhyWeBuiltPlurilogSharedConversationBlogPost() {
                   href="/?signup=true"
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white hover:bg-zinc-100 text-zinc-900 font-semibold text-sm transition-colors shadow-xs cursor-pointer"
                 >
-                  <span>Try Plurilog free</span>
+                  <span>Open your panel</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>

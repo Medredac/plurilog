@@ -445,7 +445,7 @@ export default function LandingPage() {
                 onClick={() => handleOpenAuth('signup')}
                 className="flex items-center gap-2 px-6 py-3 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-medium text-sm shadow-sm transition-all cursor-pointer hover:shadow"
               >
-                <span>Get started</span>
+                <span>Open your panel</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 

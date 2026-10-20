@@ -87,7 +87,7 @@ const sections: Section[] = [
       },
       {
         "kind": "p",
-        "text": "Plurilog also offers a Free plan with a one-time starter usage allowance, with no credit card required. Free is not unlimited, and its starter allowance does not reset every month."
+        "text": "Choose weekly or monthly billing for the same Plus features. Both subscriptions renew automatically, and you can cancel anytime."
       }
     ]
   },
@@ -261,7 +261,7 @@ const sections: Section[] = [
       },
       {
         "kind": "link",
-        "text": "Try Plurilog free",
+        "text": "Open your panel",
         "href": "/?signup=true"
       }
     ]
@@ -350,7 +350,7 @@ export default function PoeVsPlurilogBlogPost() {
               <p className="text-sm sm:text-base text-zinc-300 max-w-xl mx-auto leading-relaxed">Try a conversation where ChatGPT, Claude and Gemini can build on each other&apos;s answers. Your choice of one, two or three AIs.</p>
               <div className="pt-2">
                 <Link href="/?signup=true" className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-white hover:bg-zinc-100 text-zinc-900 font-semibold text-sm transition-colors shadow-xs cursor-pointer">
-                  <span>Try Plurilog free</span><ArrowRight className="w-4 h-4" />
+                  <span>Open your panel</span><ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
               <p className="text-xs text-zinc-300">Plus is $4.99/week or $19/month. Both plans include the same benefits. Cancel anytime.</p>

@@ -122,7 +122,7 @@ export function SeoFeaturePage({
                 href="/?signup=true"
                 className="inline-flex items-center px-5 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-medium transition-colors shadow-sm"
               >
-                Get started
+                Open your panel
               </Link>
               <Link
                 href="/#pricing"
