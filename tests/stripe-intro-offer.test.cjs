@@ -389,6 +389,25 @@ test('switching updates the paid tier only on the paid invoice and stale invoice
   }
 });
 
+test('mid-month weekly switch uses the new weekly line, not the later-ending monthly refund',async()=>{
+  const f=lifecycle('month'); await f.checkout(); f.setProfile({remaining_cents:130});
+  const oldPrice=f.sub.items.data[0].price.id;
+  const next=f.end-8*86400;
+  f.sub.items.data[0].price.id='price_weekly';
+  f.sub.items.data[0].current_period_end=next;
+  const invoice={id:'in_switch',subscription:'sub_one',lines:{data:[
+    {amount:-465,pricing:{price_details:{price:oldPrice}},period:{end:f.end}},
+    {amount:428,pricing:{price_details:{price:'price_weekly'}},period:{end:next}},
+  ]}};
+  assert.equal((await f.send('invoice.paid',invoice)).status,200);
+  assert.equal(f.profile.plan,'weekly_paid');
+  assert.equal(f.profile.current_period_end,new Date(next*1000).toISOString());
+  assert.equal(f.profile.period_reset_at,new Date(next*1000).toISOString());
+  assert.equal(f.profile.remaining_cents,900);
+  f.setProfile({remaining_cents:300}); await f.send('invoice.paid',invoice);
+  assert.equal(f.profile.remaining_cents,300);
+});
+
 const switching=load('src/lib/stripePlanSwitch.ts');
 function switchFixture(interval='month', usedIntro=false){
   const end=Math.floor(Date.now()/1000)+7*86400;

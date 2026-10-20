@@ -306,12 +306,20 @@ export async function POST(request: Request) {
           return NextResponse.json({ error: 'No matching Plus subscription line on invoice' }, { status: 400 });
         }
 
-        // Pick qualifying line with the greatest period.end (in case of proration + recurring line)
-        const plusLine = qualifyingLines.reduce((latest, curr) => (curr.period.end > latest.period.end ? curr : latest), qualifyingLines[0]);
-        const allowancePeriodEnd = new Date(plusLine.period.end * 1000).toISOString();
         const currentSubscription = await stripe.subscriptions.retrieve(subscriptionId);
         const currentStatus = subscriptionStatus(currentSubscription);
         if (currentStatus === 'canceled' || currentStatus === 'past_due') break;
+        // A mid-month switch to weekly also includes a refund line for the old
+        // month, whose end date can be later than the new weekly period. Only
+        // the current subscription price can determine the paid tier and cycle.
+        const currentPriceId = currentSubscription.items.data[0]?.price.id;
+        const currentPriceLines = qualifyingLines.filter(line => {
+          const price = line.pricing?.price_details?.price ?? (line as any).price?.id;
+          return (typeof price === 'string' ? price : price?.id) === currentPriceId;
+        });
+        if (currentPriceLines.length === 0) break; // Delayed invoice for a previous plan.
+        const plusLine = currentPriceLines.reduce((latest, curr) => (curr.period.end > latest.period.end ? curr : latest), currentPriceLines[0]);
+        const allowancePeriodEnd = new Date(plusLine.period.end * 1000).toISOString();
         if (currentSubscription.schedule) {
           const scheduleId = typeof currentSubscription.schedule === 'string' ? currentSubscription.schedule : currentSubscription.schedule.id;
           const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
