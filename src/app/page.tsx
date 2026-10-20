@@ -18,7 +18,6 @@ import { AuthModal } from '../components/AuthModal';
 import { SiteHeader } from '../components/SiteHeader';
 import { PlurilogMark } from '@/components/PlurilogMark';
 import { RoleMarquee } from '@/components/RoleMarquee';
-import { UserCount } from '@/components/UserCount';
 import { createClient } from '../utils/supabase/client';
 
 const faqItems = [
@@ -362,7 +361,7 @@ export default function LandingPage() {
                 delay: shouldReduceMotion ? 0 : 0.07,
                 ease: [0.21, 0.47, 0.32, 0.98],
               }}
-              className="inline-flex items-center px-2.5 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-zinc-700 text-[11px] sm:text-xs font-medium mb-6 shadow-2xs"
+              className="inline-flex items-center px-2.5 py-1 rounded-full bg-[#F6D3C9] text-[#582B1D] text-[11px] sm:text-xs font-medium mb-6"
             >
               <span>Multi-model reasoning. One shared context.</span>
             </motion.div>
@@ -458,7 +457,6 @@ export default function LandingPage() {
                 <span>Sign in</span>
               </button>
             </motion.div>
-            <UserCount />
           </div>
 
           {/* Right Column: Hero Image */}
