@@ -1,7 +1,7 @@
 'use client';
 
 import { PlusPlanCards } from './PlusPlanCards';
-import type { BillingInterval } from '@/lib/plusPricing';
+import { MONTHLY_PRICE, type BillingInterval, type PlusOffer } from '@/lib/plusPricing';
 import { PLUS_FEATURES } from '@/lib/plusFeatures';
 
 import React, { useEffect, useState } from 'react';
@@ -25,6 +25,13 @@ interface AccountSettingsModalProps {
 }
 
 
+
+const STANDARD_OFFER: PlusOffer = {
+  amount: MONTHLY_PRICE,
+  label: 'Plus',
+  terms: 'Billed monthly. Cancel anytime.',
+  canSubscribe: true,
+};
 
 const RobotHeads = () => (
   <div className="pointer-events-none absolute -top-[23px] right-4 flex items-end -space-x-2.5" aria-hidden="true">
@@ -60,7 +67,11 @@ export const AccountSettingsModal: React.FC<AccountSettingsModalProps> = ({
   periodResetAt,
   planStatus,
 }) => {
-  const { offer, error: offerError } = usePlusOffer(isOpen && userPlan !== 'weekly_paid', `${userPlan}:${planStatus}:${periodResetAt}`);
+  // Free-account pricing is fixed. Fetch existing monthly subscribers' actual
+  // invoice price before they open settings, preserving their legacy discounts.
+  const loadedOffer = usePlusOffer(userPlan === 'paid', `${userPlan}:${planStatus}:${periodResetAt}`);
+  const offer = userPlan === 'free' ? STANDARD_OFFER : loadedOffer.offer;
+  const offerError = userPlan === 'paid' ? loadedOffer.error : null;
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState(displayName);
   const [isSavingName, setIsSavingName] = useState(false);

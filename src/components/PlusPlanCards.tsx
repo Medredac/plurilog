@@ -15,7 +15,7 @@ export function PlusPlanCards({ offer, onSelect, busy, disabled = false }: {
       const monthly = interval === 'month';
       const amount = monthly ? offer?.amount : WEEKLY_PRICE;
       return <div key={interval} className={`relative flex flex-col rounded-2xl border bg-white p-5 sm:p-6 shadow-2xs ${monthly ? 'border-[#E6AA97]' : 'border-[#8A867D]'}`}>
-        <div className="pointer-events-none absolute -top-[23px] right-5 flex items-end -space-x-2.5" aria-hidden="true">{['claude', 'chatgpt', 'gemini'].map(name => <img key={name} src={`/robot-head-${name}@3x.png`} alt="" className="h-[35px] w-[33px] object-contain" />)}</div>
+        {monthly && <div className="pointer-events-none absolute -top-[23px] right-5 flex items-end -space-x-2.5" aria-hidden="true">{['claude', 'chatgpt', 'gemini'].map(name => <img key={name} src={`/robot-head-${name}@3x.png`} alt="" className="h-[35px] w-[33px] object-contain" />)}</div>}
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <h3 className="text-base font-semibold">1 {monthly ? 'month' : 'week'}</h3>
           {monthly && <span className="rounded-full bg-[#F6D3C9] px-2 py-1 text-[11px] font-medium text-[#582B1D]">Popular · {monthlySavingsText()} monthly</span>}
