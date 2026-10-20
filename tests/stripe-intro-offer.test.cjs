@@ -508,6 +508,7 @@ test('account settings render a manually assigned weekly tier as weekly Plus, wi
     if(id==='@/hooks/usePlusOffer')return{usePlusOffer:()=>({offer:{amount:9},error:null})};
     if(id==='@/utils/supabase/client')return{};
     if(id==='@/lib/plusFeatures')return{PLUS_FEATURES:['Unlimited use']};
+    if(id==='@/lib/plusPricing')return{MONTHLY_PRICE:19};
     return require(id);
   };
   mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,filename);

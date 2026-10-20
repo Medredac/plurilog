@@ -1,35 +1,32 @@
-# Weekly paid-entry preview
+# Weekly and monthly paid-entry release
 
-Based on main 044affea6f154548668c1d1cb89d48ddb96e2872. Branch preview/weekly-paid-entry. The billing-only support is separately based on that same main in fix/weekly-billing-backend.
+## Pricing and access
 
-## Pricing and scope
+- Plus costs $4.99/week or $19/month, with identical benefits. Monthly saves 12% compared with 52 weekly charges over a year.
+- New purchases receive no introductory coupon. Existing Stripe discounts remain in place until their original expiry.
+- Production rollout changes only the profile defaults to zero. Existing free balances are preserved; positive usable balances still permit access regardless of plan label.
+- The preview-only initializer remains limited to the billing preview. Production relies on database insert defaults, with no retrospective balance clearing.
+- Existing free users nearing their limit retain the legacy monthly upgrade prompt. Zero-balance users see both plans.
+- Yellow hero badge, coral monthly card, and “Open your panel” calls to action match the approved preview.
 
-- Weekly $4.99 has the same Plus benefits and branding as monthly.
-- Monthly retains $9 for three months, then $19; Popular / Limited-time offer / Save 12% remain. Savings compare 52 weekly charges with 12 regular monthly charges.
-- Production landing-page pricing, the free plan, existing-user access and acquisition popups remain unchanged. In the preview, sending requires both a paid tier and positive usable balance, including for existing accounts used for testing. New preview accounts get zero credits once through a service-only initializer; subsequent manual balance edits are preserved. Shared production signup defaults remain 100.
-- Checkout is live Stripe, not a test-card environment. No live payment or customer subscription was created or changed during implementation.
-- Weekly price: price_1USKuzK3pyxY4OhePX7HXc6O; product prod_VTHT9NE6jeSHZV. Separate product prevents the monthly coupon applying to weekly.
-- The weekly price is configured for the preview branch and production webhook. Existing monthly prices and portal configuration remain unchanged.
+## Live Stripe connection
+
+- Product: `prod_V9OgMuuBrHYUGY`
+- Monthly price: `price_1UG24BK3pyxY4Ohen0WYN1VE`
+- Weekly price: `price_1USUr5K3pyxY4OheKex7HPsg`
+- Default portal configuration: `bpc_1ULEybK3pyxY4Ohe9DRrYIw1`
+- Live events continue to reach the existing production webhook at `/api/stripe/webhook`.
+- Manage opens Stripe’s portal. Monthly-to-weekly changes are scheduled at period end; weekly-to-monthly uses standard immediate proration.
 
 ## Paid lifecycle
 
-- Supabase plans remain distinct: paid (monthly), weekly_paid (weekly). Manually assigning weekly_paid displays weekly Plus in settings; it does not create a Stripe subscription.
-- Initial paid checkout grants 900. Renewals use the exact recurring invoice period, weekly or monthly. Duplicate and concurrent delivery cannot grant the allowance twice. A failed database write asks Stripe to retry.
-- Weekly refill uses the existing below-100 behavior: add increments of 100 until the balance is at least 100. Cancellation pending retains access until period end. Expired weekly access cannot refill; subscription deletion sets free/canceled and zero remaining.
-- The additive migration 20261019183524_support_weekly_paid_plus.sql has been applied. The monthly fallback is preserved; weekly never advances by that fallback.
-- Stripe sends live checkout events to the existing production webhook irrespective of which UI opened checkout. Backend support therefore ships separately from preview-only pricing/paywall changes.
+- Supabase plans are `paid` (monthly) and `weekly_paid` (weekly), using regular `profiles` and `spend_events` tables.
+- Initial checkout grants 900. Renewals follow the actual recurring invoice period. Duplicate delivery cannot grant the allowance twice.
+- Existing automatic refill behavior is retained. Canceling keeps access until period end; deletion clears the remaining balance and restores the free label.
+- Failed payment marks the account past due without granting a fresh cycle. Successful recovery resets the allowance once. Existing Stripe retry settings are unchanged.
+- Migration `20261020061228_block_overdue_monthly_credit_resets.sql` is already applied.
+- Apply `20261020073021_zero_new_account_starting_balance.sql` with the production launch. It changes insert defaults only.
 
-## Switching
+## Verification
 
-- Preview Account settings offers a confirmed switch at current paid period end, never an immediate charge or credit reset.
-- The monthly introduction is offered only if unused; switching cannot restart it.
-- Stripe subscription schedules preserve the current phase/discount, then activate the chosen interval at period end. A pending change can be undone.
-- Stripe's portal cannot cancel a subscription with a pending schedule. The UI explains to undo the pending change then use Manage. Production can display/undo a pending change created in preview, but cannot initiate a new switch.
-- After the switched period's paid invoice, our completed schedule is released so standard portal management is available again.
-
-## Validation
-
-- 43 focused billing/access/rendering tests, with mocked Stripe events and APIs; no model/API generation spend.
-- TypeScript checks on preview and billing-only branches.
-- Live Supabase checks used a synthetic fixture in one rolled-back transaction: refill, spend/refill, canceling, expiry, canceled access, monthly refill and monthly rollover. No test profile or spend persisted.
-- Not tested by charging a real card or changing an existing user's real subscription.
+Billing/access unit tests and TypeScript checks cover the merged release without model-generation spend. Database verification checks new-account zero balances and preservation of existing balances. Live checkout configuration can be inspected without submitting a real payment.
