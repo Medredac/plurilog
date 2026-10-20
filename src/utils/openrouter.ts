@@ -28,6 +28,19 @@ export function getProviderModels(prefix: ProviderPrefix): string[] {
   return PROVIDER_MODELS[prefix] || [];
 }
 
+// Repeat 50 cents of 5.6-first, then 50 cents of 6-first routing.
+// Use the same overall per-user spend counter as Claude, not GPT-only spend.
+export function getChatgptFallbacksForUsage(overallUsageCents: number): string[] {
+  const models = [...PROVIDER_MODELS['openai/']];
+  const usage = Number.isFinite(overallUsageCents)
+    ? Math.max(0, overallUsageCents)
+    : 0;
+  if (usage % 100 >= 50) {
+    [models[0], models[1]] = [models[1], models[0]];
+  }
+  return models;
+}
+
 export function getCouncilSeatFallbacks(): {
   gemini: string[];
   claude: string[];

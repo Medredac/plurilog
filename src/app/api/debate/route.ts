@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server';
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import OpenAI from 'openai';
-import { getCouncilSeatFallbacks, PROVIDER_MODELS, ProviderPrefix } from '@/utils/openrouter';
+import { getCouncilSeatFallbacks, getChatgptFallbacksForUsage, PROVIDER_MODELS, ProviderPrefix } from '@/utils/openrouter';
 import { ModelId } from '@/types/chat';
 import {
   getScopedDiscussionMemory,
@@ -3312,6 +3312,7 @@ export async function POST(req: NextRequest) {
     // Get hardcoded fallback arrays for each seat.
     // Claude routing repeats on a $1.00 usage cycle:
     // first $0.25 premium-first (Sonnet), then $0.75 economy-first (Haiku).
+    // GPT uses the same counter, alternating first choice every $0.50.
     const seatFallbacks = getCouncilSeatFallbacks();
 
     let overallUsageCents = 0;
@@ -3338,6 +3339,8 @@ export async function POST(req: NextRequest) {
           0,
           Number(usageProfile?.total_spent_cents) || 0
         );
+
+        seatFallbacks.chatgpt = getChatgptFallbacksForUsage(overallUsageCents);
 
         const claudeCyclePositionCents = overallUsageCents % 100;
         claudeEconomyBand = claudeCyclePositionCents >= 25;
