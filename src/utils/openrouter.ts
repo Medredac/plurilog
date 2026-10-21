@@ -41,6 +41,19 @@ export function getChatgptFallbacksForUsage(overallUsageCents: number): string[]
   return models;
 }
 
+// Repeat 50 cents of Flash-first, then 50 cents of Flash-Lite-first routing.
+// Read the same overall per-user spend counter as the other seats.
+export function getGeminiFallbacksForUsage(overallUsageCents: number): string[] {
+  const models = [...PROVIDER_MODELS['google/']];
+  const usage = Number.isFinite(overallUsageCents)
+    ? Math.max(0, overallUsageCents)
+    : 0;
+  if (usage % 100 >= 50) {
+    return [models[2], models[0], models[1]];
+  }
+  return models;
+}
+
 export function getCouncilSeatFallbacks(): {
   gemini: string[];
   claude: string[];
