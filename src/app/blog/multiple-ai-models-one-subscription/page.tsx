@@ -78,7 +78,7 @@ export default function MultipleAiModelsBlogPost() {
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 leading-tight mb-4">{title}</h1>
             <p className="text-xs text-zinc-500 mb-6">Written by the Plurilog team</p>
             <div className="aspect-[16/9] w-full rounded-2xl overflow-hidden border border-zinc-200/80 shadow-2xs bg-zinc-100">
-              <video src="/multiple-ais-one-conversation.mp4" poster="/opengraph-image.png"
+              <video src="/multiple-ais-one-conversation.mp4"
                 autoPlay loop muted playsInline preload="metadata" controls={false}
                 disablePictureInPicture disableRemotePlayback controlsList="nodownload nofullscreen noremoteplayback"
                 aria-hidden="true" tabIndex={-1} className="w-full h-full object-cover pointer-events-none select-none" />
