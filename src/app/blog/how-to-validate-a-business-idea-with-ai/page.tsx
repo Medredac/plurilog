@@ -417,7 +417,7 @@ export default function ValidateBusinessIdeaWithAiBlogPost() {
             <time dateTime="2026-10-16" className="text-xs font-medium text-zinc-400 block mb-2.5">October 16, 2026</time>
             <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 leading-tight mb-6">{title}</h1>
             <div className="aspect-[16/9] w-full rounded-2xl overflow-hidden border border-zinc-200/80 shadow-2xs bg-zinc-100">
-              <video src="/research-challenge-build.mp4" poster="/opengraph-image.png"
+              <video src="/research-challenge-build.mp4"
                 autoPlay loop muted playsInline preload="metadata" controls={false}
                 disablePictureInPicture disableRemotePlayback controlsList="nodownload nofullscreen noremoteplayback"
                 aria-hidden="true" tabIndex={-1} className="w-full h-full object-cover pointer-events-none select-none" />

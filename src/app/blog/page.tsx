@@ -75,7 +75,7 @@ export default function BlogPage() {
             <MotionReveal delay={0.04}>
               <Link href="/blog/multiple-ai-models-one-subscription" className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer">
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
-                  <video src="/multiple-ais-one-conversation.mp4" poster="/opengraph-image.png"
+                  <video src="/multiple-ais-one-conversation.mp4"
                     autoPlay loop muted playsInline preload="metadata"
                     controls={false} disablePictureInPicture disableRemotePlayback
                     controlsList="nodownload nofullscreen noremoteplayback"
@@ -97,7 +97,7 @@ export default function BlogPage() {
             <MotionReveal delay={0.04}>
               <Link href="/blog/poe-ai-vs-plurilog" className="group block rounded-2xl bg-white border border-zinc-200/80 overflow-hidden shadow-2xs hover:shadow-md hover:border-zinc-300 transition-all cursor-pointer">
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
-                  <video src="/poe-vs-plurilog.mp4" poster="/opengraph-image.png"
+                  <video src="/poe-vs-plurilog.mp4"
                     autoPlay loop muted playsInline preload="metadata"
                     controls={false} disablePictureInPicture disableRemotePlayback
                     controlsList="nodownload nofullscreen noremoteplayback"
@@ -124,7 +124,6 @@ export default function BlogPage() {
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
                   <video
                     src="/write-with-ai-keep-your-voice.mp4"
-                    poster="/opengraph-image.png"
                     autoPlay loop muted playsInline preload="metadata"
                     controls={false} disablePictureInPicture disableRemotePlayback
                     controlsList="nodownload nofullscreen noremoteplayback"
@@ -154,7 +153,6 @@ export default function BlogPage() {
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
                   <video
                     src="/research-challenge-build.mp4"
-                    poster="/opengraph-image.png"
                     autoPlay loop muted playsInline preload="metadata"
                     controls={false} disablePictureInPicture disableRemotePlayback
                     controlsList="nodownload nofullscreen noremoteplayback"
@@ -220,7 +218,6 @@ export default function BlogPage() {
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
                   <video
                     src="/blog/one-shared-ai-conversation.mp4"
-                    poster="/blog/why-we-built-plurilog-shared-ai-conversation.png"
                     autoPlay
                     loop
                     muted
@@ -257,7 +254,6 @@ export default function BlogPage() {
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
                   <video
                     src="/blog/chatgpt-vs-claude-vs-gemini.mp4"
-                    poster="/blog/chatgpt-vs-claude-vs-gemini-thumbnail.png"
                     autoPlay
                     loop
                     muted
@@ -294,7 +290,6 @@ export default function BlogPage() {
                 <div className="aspect-[16/9] w-full overflow-hidden bg-zinc-100 border-b border-zinc-100">
                   <video
                     src="/blog/ai-hallucinations.mp4"
-                    poster="/blog/ai-hallucinations-thumbnail.png"
                     autoPlay
                     loop
                     muted
