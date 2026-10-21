@@ -133,11 +133,13 @@ import {
   formatSharedAgenticEvidenceForPrompt,
   registerAgenticArtifactEvidence,
   registerAgenticWebEvidence,
+  seedConversationSourceAnchors,
   type AgenticEvidenceLedgerEntry,
 } from '@/utils/agenticConversationMemory';
 import {
   getOrRefreshConversationWorkingContext,
   planProactiveConversationRetrieval,
+  type ConversationWorkingContext,
 } from '@/utils/workingConversationContext';
 import {
   AGENTIC_DOCUMENT_EVIDENCE_TOOLS,
@@ -242,6 +244,7 @@ function parseAgenticEvidenceHandoff(
         speaker: value.speaker,
         compactText: value.compactText.slice(0, 1200),
         expandedText: value.expandedText.slice(0, 6000),
+        expandedForSharing: value.expandedForSharing === true,
         query:
           typeof value.query === 'string' ? value.query.slice(0, 4000) : null,
         requestedBySeatId: value.requestedBySeatId.slice(0, 80),
@@ -3485,6 +3488,7 @@ export async function POST(req: NextRequest) {
     }
 
     let workingConversationContext = '';
+    let workingContextSourceAnchors: ConversationWorkingContext['source_anchors'] = [];
     let workingContextMetrics: {
       refreshed: boolean;
       refreshReason: string;
@@ -3515,6 +3519,7 @@ export async function POST(req: NextRequest) {
           signal: req.signal,
         });
       workingConversationContext = workingContextResult.formatted || '';
+      workingContextSourceAnchors = workingContextResult.context?.source_anchors || [];
       workingContextMetrics = {
         refreshed: workingContextResult.refreshed,
         refreshReason: workingContextResult.refreshReason,
@@ -6773,6 +6778,15 @@ export async function POST(req: NextRequest) {
           const createAgenticEvidenceId = () =>
             `mem_${++agenticEvidenceSequence}`;
 
+          if (AGENTIC_MEMORY_EXPERIMENT) {
+            seedConversationSourceAnchors({
+              anchors: workingContextSourceAnchors,
+              allRounds: discussionMemory?.allRounds || [],
+              ledger: sharedAgenticEvidenceLedger,
+              createEvidenceId: createAgenticEvidenceId,
+            });
+          }
+
           let proactiveMemoryPlannerMeta: {
             shouldRetrieve: boolean;
             confidence: number;
@@ -6819,6 +6833,10 @@ export async function POST(req: NextRequest) {
                 await planProactiveConversationRetrieval({
                   currentPrompt: prompt,
                   workingContext: workingConversationContext,
+                  foundationEvidence: sharedAgenticEvidenceLedger
+                    .filter(entry => entry.requestedBySeatId === 'working_context')
+                    .map(entry => `User source ${entry.sourceUserMessageId} (excerpt):\n${entry.compactText}`)
+                    .join('\n\n'),
                   recentRounds: recentExactRounds,
                   olderRoundCount,
                   openai,
