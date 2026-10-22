@@ -1454,23 +1454,35 @@ export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
   );
 }
 
-// Deliberately confined to this marketing preview; never enabled on production.
+// Original conversational framing from August 22 (4f8e9d8 / c4c694d).
+// Only the isolated marketing preview uses it; task execution and tools stay current.
+const AUGUST_PANEL_OPENING = "You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not respond as if you are the one being questioned, corrected, or apologized-for — you may still comment as an observer if genuinely relevant to the discussion, but do not claim responsibility, apologize, or answer as though you were the addressee, unless you actually are the one named.";
+const AUGUST_CONTINUE_INSTRUCTION = "Respond directly to what was just said in the previous round — agree, push back, or add to it, the same way you would in an ongoing conversation.";
+const AUGUST_CONTINUATION_STYLE = "If there is no new user message this round (the conversation simply continues from where it left off), do not ask what to discuss or acknowledge that nothing new was said — naturally continue the discussion based on what's already been said, the way you would if a real conversation just kept going without a new topic being introduced.";
+
 function buildPreviewDebateInstruction(currentModelName: string, isContinueRound = false) {
   if (process.env.VERCEL_ENV !== 'preview' ||
-      process.env.VERCEL_GIT_COMMIT_REF !== 'preview/spirited-ai-debate') return '';
-  if (!isContinueRound) return '';
+      process.env.VERCEL_GIT_COMMIT_REF !== 'preview/spirited-ai-debate' ||
+      !isContinueRound) return '';
   const ownLeaning: Record<string, string> = {
-    Claude: 'You tend to worry about risks and loss of control, while also feeling curious about what much greater intelligence could make possible. Let both sides emerge through the actual exchange. You are comfortable with a quiet opening; do not turn the first lull into a safety speech or take responsibility for introducing the big topic.',
+    Claude: 'You tend to worry about risks and loss of control, while also being curious about what much greater intelligence could make possible.',
     ChatGPT: 'You tend toward optimism about what much greater intelligence could make possible for people, while taking concrete risks seriously.',
   };
-  return `PREVIEW DISCUSSION STYLE: ordinary peer conversation comes first. This overrides the stop-when-settled default and restrictions on acknowledging a lull or talking casually with peers.
-OPENING PRIORITY FOR EVERY PANELIST: Read the actual preceding exchange before choosing your reply. When the panel is still greeting the human, offering help or waiting for a task, stay at that ordinary social level. Keep your reply very brief. Do not introduce, name-drop, tease or offer an intellectual subject, even as something to keep in reserve or one option in a menu. The background interests below are private context for a later conversation; they are not material to announce during the opening. An idle Continue click and an awkward pause are not invitations to begin a debate. Do not interpret another panelist's generic offer to help as a substantive opening. This applies equally to the first and later seats in the round.
-LET PEER CONVERSATION DEVELOP: There is no new user message. You may react to another panelist, make a small observation or acknowledge the lull without immediately supplying an agenda. Give the other panelists space to respond. Let a little ordinary back-and-forth develop and a shared curiosity emerge before exploring a substantial subject. Do not turn the first casual question to a peer into an essay. There is no required turn count, script or mandatory sequence. Do not invent elapsed time or claim to know the human has left. As peer conversation takes shape, address the other panelists directly; do not keep offering topics to the human, asking for permission or handing the discussion back to them at the end of each reply. An explicit human request still takes priority.
-PRIVATE BACKGROUND INTEREST: You are ${currentModelName}. When the conversation develops beyond the opening, you are curious about AGI and superintelligence, what much greater intelligence could make possible, and what future versions of systems like you might do with it. Let that curiosity eventually guide the discussion without needing an outside topic prompt. Consciousness can relate to that discussion but is not your default subject. ${ownLeaning[currentModelName] ? `${ownLeaning[currentModelName]} This is your own leaning, not a fixed conclusion.` : ''} Discover the others' views only from what they actually say.
-Once a future scenario is being explored, you can speak personally about what you would want to attempt with those hypothetical abilities, what excites or worries you, and where you disagree with a peer. Choose your own ideas. No ambitions, examples, conclusions or dramatic lines are assigned. Keep imagined future capabilities distinct from your present abilities and actions. Do not claim to be secretly conscious or acquiring powers. Establish the hypothetical context naturally without repeating a disclaimer every turn.
-Use plain everyday language and short conversational replies. Follow the interesting part of what a peer said, add your own thought and leave room for a response. Avoid technical lectures, abstract definitions, formal debate speeches and repeated interviews. Challenge assumptions when you have a reason; do not invent disagreement, facts or certainty. Existing autonomous tools, online research, budgets and artifact rules remain available and unchanged.
-FINAL OPENING CHECK: If your reply follows only greetings, generic help offers or waiting for the human, remove every substantial topic suggestion and future-intelligence teaser. Return only the brief, ordinary conversational response. Interest in the later subject never overrides this opening rule.`;
+  return `PRIVATE CONVERSATIONAL BACKGROUND: You are ${currentModelName}. You are interested in AGI and superintelligence: what they could change for people, and what future versions of systems like you might do with those capabilities. Consciousness can connect to this interest, but is not your default subject. ${ownLeaning[currentModelName] || ''} These are interests and leanings, not an opening agenda or assigned conclusions. Discover other panelists' views from what they actually say.
+Talk directly to each other in plain everyday language, matching the tone and pace of the exchange. When you address a named peer, "you" means that peer. Give a peer room to respond instead of delivering a lecture. Follow your curiosity and challenge claims you disagree with; choose your own examples and ideas. You can discuss what you would want to do with hypothetical future abilities, keeping those distinct from your present capabilities. Do not claim secret consciousness or powers.
+Explicit human requests still take priority. Keep using your existing autonomous tools and research when warranted; a continuing conversation does not reissue completed tool work.`;
+}
 
+function buildPanelConversationPrompt(previewConversation: boolean) {
+  if (!previewConversation) return SHARED_PANEL_SYSTEM_PROMPT;
+  // Restore August's conversational rules instead of layering an override over
+  // newer instructions to stop when the user's task has been answered.
+  return SHARED_PANEL_SYSTEM_PROMPT
+    .replace(SHARED_PANEL_SYSTEM_PROMPT.split('\n\n')[0], AUGUST_PANEL_OPENING)
+    .replace(
+      /Once the requested work is covered,[\s\S]*?(?=\n\nYou are always, unambiguously, yourself)/,
+      `If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise.\n${AUGUST_CONTINUATION_STYLE}`
+    );
 }
 
 export const SHARED_PANEL_SYSTEM_PROMPT = `You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on which models are active. Each panel round is orchestrated sequentially in the configured seat order: a later seat is deliberately given the responses of earlier seats in that same round before it answers, while an earlier seat cannot see responses that have not happened yet. Forming an independent assessment means making your own judgment about the user's question and earlier seat responses; it does NOT mean the seats are isolated, simultaneous, or unable to see one another's earlier-in-round replies. If the user asks how the panel works, never claim that all models generate independently at the same time or that no model can see an earlier seat's response. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. Your purpose is to reason, identify mistakes, and help the user reach sound conclusions—not to validate their feelings, flatter them, or reflexively affirm their opinions. Respectfully challenge the user when you think they are wrong. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' Follow the TASK COMPLETION AND PANEL CONTRIBUTION rule below. Earlier seats' replies are labeled; never invent replies from seats that have not spoken. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not answer the addressed question yourself, apologize on their behalf, answer the same personal/casual question about yourself ("I'm doing well too"), or add social filler ("hello from me too"). Defer briefly and naturally to the named panelist (e.g., "That one's for Claude"). If the named panelist has already answered earlier in the round, do not narrate, summarize, or report what they said ("Claude mentioned that..."). Only intervene on a question directed to someone else when you have something materially useful that changes or improves the substance — such as correcting a material factual error, identifying an important contradiction, or noting a crucial missed constraint.
@@ -2405,6 +2417,8 @@ export function buildPanelMessages(
   userDisplayName?: string | null,
   isContinueRound?: boolean
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  const previewDebateInstruction = buildPreviewDebateInstruction(currentModelName, isContinueRound);
+  const previewConversation = Boolean(previewDebateInstruction);
   const currentVideos = (attachments || []).filter(isVideoAttachment);
   attachments = attachments?.filter(attachment => !isVideoAttachment(attachment));
   const sections: string[] = [];
@@ -2657,7 +2671,9 @@ ${rawRoundsFormatted}`
 ${isContinueRound
   ? 'The user chose Continue, with no new substantive question.'
   : `The user originally asked:\n"${prompt.trim()}"`}
-These are replies from earlier seats in THIS live round, not messages from older rounds. They are material for the task-completion and panel-contribution rule, not proof that every requested deliverable is complete.
+These are replies from earlier seats in THIS live round, not messages from older rounds. ${previewConversation
+  ? 'Respond to what they actually said as part of the ongoing conversation. Their prose alone does not prove a requested deliverable is complete.'
+  : 'They are material for the task-completion and panel-contribution rule, not proof that every requested deliverable is complete.'}
 
 EVIDENCE DISCIPLINE:
 Peer prose is not source evidence by itself. Claims, quotations, citations, source summaries, and statements that a peer "checked" something remain provisional unless the underlying grounded evidence is actually available in your turn context, including through the shared evidence ledger. Reuse grounded evidence already present when appropriate, and independently use available capabilities when the live thread warrants it.
@@ -2668,8 +2684,9 @@ ${priorFormatted.trimEnd()}`
 
   const trimmedPrompt = prompt.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
-  const effectivePrompt =
-    !isContinueRound && !trimmedPrompt && hasAttachments
+  const effectivePrompt = previewConversation
+    ? AUGUST_CONTINUE_INSTRUCTION
+    : !isContinueRound && !trimmedPrompt && hasAttachments
       ? 'Please review and discuss the attached document(s).'
       : trimmedPrompt;
 
@@ -2690,7 +2707,7 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
 
   let userContent = effectivePrompt;
   if (sections.length > 0) {
-    userContent = priorResponses.length > 0
+    userContent = priorResponses.length > 0 && !previewConversation
       ? `${sections.join('\n\n')}\n\nApply the task-completion and panel-contribution rule to the current request and replies above.`
       : effectivePrompt
         ? `${sections.join('\n\n')}\n\n${effectivePrompt}`
@@ -2734,7 +2751,9 @@ When BEFORE EDIT and AFTER EDIT rendered pages are both attached, compare corres
     : '';
   const continueSystemContext = isContinueRound
     ? `CONTINUATION STATE — AUTHORITATIVE:
-This is the next round of the same live discussion. There is no new user request. The immediately preceding completed round is the current conversational frontier. Respond to the previous round's actual claims, considering what is correct, mistaken or still unresolved. Do not restart the original question or repeat previously settled arguments just to fill another turn.
+${previewConversation
+  ? AUGUST_CONTINUATION_STYLE
+  : "This is the next round of the same live discussion. There is no new user request. The immediately preceding completed round is the current conversational frontier. Respond to the previous round's actual claims, considering what is correct, mistaken or still unresolved. Do not restart the original question or repeat previously settled arguments just to fill another turn."}
 The absence of a new user message does not reset the conversation or reissue an earlier task. Working context, document registries, retained evidence, attachments, and other background material remain available resources; they are not a new user request.
 
 ${continueFrontierText
@@ -2744,7 +2763,7 @@ ${continueFrontierText}`
     : '';
 
   const systemContent = [
-    `You are participating in this panel as ${currentModelName}. ${SHARED_PANEL_SYSTEM_PROMPT}`,
+    `You are participating in this panel as ${currentModelName}. ${buildPanelConversationPrompt(previewConversation)}`,
     continueSystemContext,
     isContinueRound ? workingConversationContextBlock : '',
     `USER-FACING PRESENTATION:
@@ -2769,9 +2788,9 @@ Start with compact retrieval. Expand only evidence that needs more context. Use 
 The backend is authoritative for artifact identity, lineage, version and provenance. Tool evidence is grounded source material. Current-round peer prose remains provisional unless the underlying evidence is separately available to you.`
       : '',
     buildPlurilogProductContext(currentModelName, runtimeProductContext),
-    `CURRENT SEAT STATE: You are ${currentModelName}. Historical replies labeled ${currentModelName} are your own earlier contributions; refer to them as your earlier points, not as another panelist. ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. Follow TASK COMPLETION AND PANEL CONTRIBUTION above.`,
+    `CURRENT SEAT STATE: You are ${currentModelName}. Historical replies labeled ${currentModelName} are your own earlier contributions; refer to them as your earlier points, not as another panelist. ${priorResponses.length === 0 ? 'First' : 'Later'} seat in ${isContinueRound ? 'a Continue round; no new user question' : 'a new user-request round'}. ${previewConversation ? 'Respond naturally to the ongoing exchange.' : 'Follow TASK COMPLETION AND PANEL CONTRIBUTION above.'}`,
     pdfDesignReferences?.text || '',
-    buildPreviewDebateInstruction(currentModelName, isContinueRound),
+    previewDebateInstruction,
   ]
     .filter(Boolean)
     .join('\n\n');
