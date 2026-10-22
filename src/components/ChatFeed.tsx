@@ -1738,9 +1738,9 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               });
             }
           }}
-          className={`relative z-30 inline-flex min-h-10 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-3 py-2 text-[13px] font-medium tracking-[-0.01em] shadow-[0_4px_16px_rgba(28,27,26,0.07)] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
+          className={`relative z-30 inline-flex min-h-10 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-3 py-2 text-[13px] font-medium tracking-[-0.01em] backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,transform] duration-150 ${
             summary.status === 'ready'
-              ? 'border-[#D9D6CF] bg-white/95 text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white hover:shadow-[0_6px_20px_rgba(28,27,26,0.10)] cursor-pointer'
+              ? 'border-[#D9D6CF] bg-white/95 text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white cursor-pointer'
               : summary.status === 'loading'
                 ? 'border-[#DDD9D1] bg-white/90 text-[#5F5C55] cursor-default'
                 : 'border-[#E2E0DB] bg-[#F7F6F3]/90 text-[#8A867D] cursor-default'
