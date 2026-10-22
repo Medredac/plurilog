@@ -8998,3 +8998,13 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// Temporary preview diagnostic: booleans only; no credentials, prompts or user data.
+export async function GET() {
+  if (process.env.VERCEL_ENV === 'production') return new Response(null, { status: 404 });
+  return Response.json({
+    previewEnvironmentMatches: process.env.VERCEL_ENV === 'preview',
+    previewBranchMatches: process.env.VERCEL_GIT_COMMIT_REF === 'preview/spirited-ai-debate',
+    continuationStyleEnabled: Boolean(buildPreviewDebateInstruction('ChatGPT', true)),
+  });
+}
