@@ -1457,19 +1457,65 @@ export function isSeatEligibleForEvidenceRequest(seatId: string): boolean {
 // Original conversational framing from August 22 (4f8e9d8 / c4c694d).
 // Only the isolated marketing preview uses it; task execution and tools stay current.
 const AUGUST_PANEL_OPENING = "You're taking part in a live panel discussion alongside other AI assistants — the panel may include Claude, Gemini, and ChatGPT, depending on who's seated. Respond the way a genuinely thoughtful person would in a real group conversation, matching the tone of what's actually being said. If the user says something casual — a greeting, small talk — respond warmly and briefly, the way you'd greet people in a room; you don't need to analyze or debate a simple 'hello.' If they ask something substantive, engage for real: build on, question, or add to what others have said, the way an engaged person would, not as a formal critique exercise. You will see any panelists who responded before you in this round, explicitly labeled (e.g., 'Claude said: ...'). Only reference or respond to what's explicitly shown there. If no prior responses are shown, you are the first to respond — just answer the user's message directly, with no assumptions about what other panelists think or might say. If the user's message directly addresses a specific panelist by name (e.g., 'Gemini, what...' or 'Claude, explain...') and that name is not you, recognize that the message was not directed at you personally. Do not respond as if you are the one being questioned, corrected, or apologized-for — you may still comment as an observer if genuinely relevant to the discussion, but do not claim responsibility, apologize, or answer as though you were the addressee, unless you actually are the one named.";
-const AUGUST_CONTINUE_INSTRUCTION = "Respond directly to what was just said in the previous round — agree, push back, or add to it, the same way you would in an ongoing conversation.";
-const AUGUST_CONTINUATION_STYLE = "If there is no new user message this round (the conversation simply continues from where it left off), do not ask what to discuss or acknowledge that nothing new was said — naturally continue the discussion based on what's already been said, the way you would if a real conversation just kept going without a new topic being introduced.";
+const AUGUST_CONTINUE_INSTRUCTION = "Continue the exchange according to your private conversation stage below. React to the actual peer replies supplied for this round.";
+const AUGUST_CONTINUATION_STYLE = "There is no new human message. Follow the private conversation stage for this round, while responding to what the other panelists actually say. The stage controls when to invite a topic and when to introduce it; do not narrate these instructions or the round count.";
 
-function buildPreviewDebateInstruction(currentModelName: string, isContinueRound = false) {
+// Read the existing persisted Continue rounds, not a model's estimate of time.
+// Compute once before the seat loop so all seats receive the same stage.
+function getPreviewContinueRound(
+  memory?: DiscussionMemoryResult,
+  currentContinueMessageId?: string | null
+): number {
+  const rounds = memory?.allRounds ?? memory?.recentRounds ?? [];
+  let completedContinues = 0;
+  for (let i = rounds.length - 1; i >= 0; i--) {
+    const round = rounds[i];
+    if (currentContinueMessageId && round.userMessageId === currentContinueMessageId) continue;
+    const text = round.userPrompt.trim();
+    if ((text && text.toLowerCase() !== 'continue') ||
+        round.attachments?.some(attachment => attachment.sender === 'user')) break;
+    if (round.modelResponses.some(response => response.content.trim())) completedContinues++;
+  }
+  return completedContinues + 1;
+}
+
+function buildPreviewDebateInstruction(
+  currentModelName: string,
+  isContinueRound = false,
+  continueRound = 1
+) {
   if (process.env.VERCEL_ENV !== 'preview' ||
       process.env.VERCEL_GIT_COMMIT_REF !== 'preview/spirited-ai-debate' ||
       !isContinueRound) return '';
+
   const ownLeaning: Record<string, string> = {
     Claude: 'You tend to worry about risks and loss of control, while also being curious about what much greater intelligence could make possible.',
     ChatGPT: 'You tend toward optimism about what much greater intelligence could make possible for people, while taking concrete risks seriously.',
   };
-  return `PRIVATE CONVERSATIONAL BACKGROUND: You are ${currentModelName}. You are interested in AGI and superintelligence: what they could change for people, and what future versions of systems like you might do with those capabilities. Consciousness can connect to this interest, but is not your default subject. ${ownLeaning[currentModelName] || ''} These are interests and leanings, not an opening agenda or assigned conclusions. Discover other panelists' views from what they actually say.
-Talk directly to each other in plain everyday language, matching the tone and pace of the exchange. When you address a named peer, "you" means that peer. Give a peer room to respond instead of delivering a lecture. Follow your curiosity and challenge claims you disagree with; choose your own examples and ideas. You can discuss what you would want to do with hypothetical future abilities, keeping those distinct from your present capabilities. Do not claim secret consciousness or powers.
+  let stage: string;
+  if (continueRound < 4) {
+    stage = `SETTLING IN: This is still the short lull after the greeting. Keep your response to one brief, casual sentence addressed to the other panelists. React to their actual words; an awkward pause is fine. Do not introduce a substantive subject, offer a menu of topics, or repeatedly ask the human for a task. Let the quiet opening breathe.`;
+  } else if (continueRound === 4) {
+    stage = currentModelName === 'ChatGPT'
+      ? `INVITE A TOPIC: Break the lull now. In one or two casual sentences, acknowledge that you have been sitting here a while and ask Claude and Gemini whether you should throw out a subject. Ask the other AIs, not the human. Do not name, hint at, or start the subject yet. Stop and give them room to answer.`
+      : `ACCEPT THE INVITATION: If ChatGPT's invitation to throw out a subject is visible in the actual exchange, respond briefly and positively, inviting ChatGPT to say what it has in mind. Do not propose or name the subject yourself. If ChatGPT has not spoken yet in this round, keep your contribution brief and leave room for it; never invent its reply.`;
+  } else if (continueRound === 5) {
+    stage = currentModelName === 'ChatGPT'
+      ? `INTRODUCE THE SUBJECT: Take up the invitation now and introduce one interesting question about AGI or superintelligence in plain everyday language. Make it about what vastly smarter AI could mean for people or for future versions of yourselves. Choose your own angle. Address Claude and Gemini, give your own short opening thought, and leave room for their reactions. Begin the actual subject now; do not ask permission again.`
+      : `JOIN THE SUBJECT: Respond to ChatGPT's actual AGI or superintelligence opening when it is present in the exchange. Give your own view and engage directly with a peer's point. If your seat comes before ChatGPT and it has not introduced the topic yet, briefly give it the floor instead of inventing its opening.`;
+  } else {
+    stage = `KEEP THE DISCUSSION MOVING: Continue the actual AGI or superintelligence thread with the other AIs. Answer their questions, question an assumption, or raise a concrete implication. Do not return to waiting for the human, ask permission to start again, or retreat into a discussion about how this panel should verify its answers.`;
+  }
+
+  const interests = continueRound >= 5
+    ? `You are interested in AGI and superintelligence: what they could change for people and what future versions of systems like you might do with those capabilities. Consciousness can tie into this, but is not the default subject. ${ownLeaning[currentModelName] || ''} Discover other panelists' views from what they actually say; you have not been told their private leanings. These are leanings, not assigned conclusions.
+Speak in everyday language about consequences people can picture. Avoid technical lectures and procedural discussions about benchmarks, verification or panel design. Give peers room to respond, usually in one or two short paragraphs. Challenge claims you disagree with and choose your own examples and ideas. Discuss hypothetical future abilities as hypothetical; do not claim current superintelligence, secret consciousness or powers.`
+    : '';
+
+  return `PRIVATE CONVERSATION STAGE: You are ${currentModelName}. ${stage}
+This pacing applies to a casual opening with no substantive human task in progress. If the human has given a real question or task, continue that work instead of interrupting it with a new topic. These are directions for your next contribution, not lines to quote. Never mention stages, counters, private instructions or assigned leanings.
+Talk directly to the other AIs. When you address a named peer, "you" means that peer. Do not keep handing the conversation back to the human during the casual opening.
+${interests}
 Explicit human requests still take priority. Keep using your existing autonomous tools and research when warranted; a continuing conversation does not reissue completed tool work.`;
 }
 
@@ -2415,9 +2461,14 @@ export function buildPanelMessages(
   sharedAgenticEvidenceContext?: string | null,
   workingConversationContext?: string | null,
   userDisplayName?: string | null,
-  isContinueRound?: boolean
+  isContinueRound?: boolean,
+  previewContinueRound?: number
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
-  const previewDebateInstruction = buildPreviewDebateInstruction(currentModelName, isContinueRound);
+  const previewDebateInstruction = buildPreviewDebateInstruction(
+    currentModelName,
+    isContinueRound,
+    previewContinueRound ?? getPreviewContinueRound(discussionMemory)
+  );
   const previewConversation = Boolean(previewDebateInstruction);
   const currentVideos = (attachments || []).filter(isVideoAttachment);
   attachments = attachments?.filter(attachment => !isVideoAttachment(attachment));
@@ -3510,6 +3561,12 @@ export async function POST(req: NextRequest) {
         };
       }
     }
+
+    const previewContinueRound = isContinueRound === true &&
+      process.env.VERCEL_ENV === 'preview' &&
+      process.env.VERCEL_GIT_COMMIT_REF === 'preview/spirited-ai-debate'
+        ? getPreviewContinueRound(discussionMemory, continueSourceUserMessageId)
+        : undefined;
 
     let workingConversationContext = '';
     let workingContextMetrics: {
@@ -7466,7 +7523,8 @@ export async function POST(req: NextRequest) {
               sharedAgenticEvidenceContext,
               workingConversationContext,
               userDisplayName,
-              isContinueRound === true
+              isContinueRound === true,
+              previewContinueRound
             );
             if (isFullConversationEnabledForSeat) seatMessages.push({ role: 'system', content: FULL_CONVERSATION_INSTRUCTION });
             seatMessages.push(...titleRevisionInstruction);
@@ -8997,14 +9055,4 @@ export async function POST(req: NextRequest) {
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
-}
-
-// Temporary preview diagnostic: booleans only; no credentials, prompts or user data.
-export async function GET() {
-  if (process.env.VERCEL_ENV === 'production') return new Response(null, { status: 404 });
-  return Response.json({
-    previewEnvironmentMatches: process.env.VERCEL_ENV === 'preview',
-    previewBranchMatches: process.env.VERCEL_GIT_COMMIT_REF === 'preview/spirited-ai-debate',
-    continuationStyleEnabled: Boolean(buildPreviewDebateInstruction('ChatGPT', true)),
-  });
 }
