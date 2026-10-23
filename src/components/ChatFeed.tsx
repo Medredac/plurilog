@@ -1714,7 +1714,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     return (
       <div
         data-panel-summary-id={userMessageId}
-        className={`col-span-full sticky top-3 sm:top-4 mt-2 flex justify-center ${
+        className={`col-span-full sticky top-16 nav-rail:top-4 mt-2 flex justify-center ${
           isOpen ? 'z-50' : 'z-30'
         }`}
       >

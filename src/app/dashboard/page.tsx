@@ -3893,7 +3893,7 @@ export default function DashboardPage() {
         />
 
         {/* Main Chamber */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
+        <main className="isolate flex-1 flex flex-col h-full overflow-hidden relative bg-tech-grid min-w-0">
           {messages.length > 0 && (
             <div className="absolute top-4 right-[max(1rem,env(safe-area-inset-right))] lg:right-[max(1.5rem,env(safe-area-inset-right))] z-20 pointer-events-none">
               <button
