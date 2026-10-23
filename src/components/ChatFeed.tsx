@@ -1472,7 +1472,44 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
   const [expandedMsgIds, setExpandedMsgIds] = useState<Record<string, boolean>>({});
   const [collapsedAiMsgIds, setCollapsedAiMsgIds] = useState<Record<string, boolean>>({});
   const [openTurnSummaryId, setOpenTurnSummaryId] = useState<string | null>(null);
+  const [summaryAvailableHeight, setSummaryAvailableHeight] = useState<number | undefined>();
   const [lightboxImageUrl, setLightboxImageUrl] = useState<string | null>(null);
+
+  // Bound the popover to the visible conversation area above the composer.
+  useEffect(() => {
+    const viewport = scrollContainerRef?.current;
+    const content = contentRef.current;
+    if (!viewport || !content || !openTurnSummaryId) return;
+
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const anchor = Array.from(content.querySelectorAll<HTMLElement>('[data-panel-summary-id]'))
+        .find((node) => node.dataset.panelSummaryId === openTurnSummaryId);
+      if (!anchor) return;
+      const visibleBottom = Math.min(
+        viewport.getBoundingClientRect().bottom,
+        window.visualViewport ? window.visualViewport.offsetTop + window.visualViewport.height : window.innerHeight
+      );
+      setSummaryAvailableHeight(Math.max(0, visibleBottom - anchor.getBoundingClientRect().top - 40 - 12));
+    };
+    const scheduleMeasure = () => {
+      if (!frame) frame = window.requestAnimationFrame(measure);
+    };
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(viewport);
+    measure();
+    viewport.addEventListener('scroll', scheduleMeasure, { passive: true });
+    window.addEventListener('resize', scheduleMeasure);
+    window.visualViewport?.addEventListener('resize', scheduleMeasure);
+    return () => {
+      observer.disconnect();
+      viewport.removeEventListener('scroll', scheduleMeasure);
+      window.removeEventListener('resize', scheduleMeasure);
+      window.visualViewport?.removeEventListener('resize', scheduleMeasure);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [openTurnSummaryId, scrollContainerRef]);
 
   // While a summary is open, keep the open overlay in sync with whichever
   // summary pill currently owns the sticky position. Closed summaries keep
@@ -1714,14 +1751,14 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
     return (
       <div
         data-panel-summary-id={userMessageId}
-        className={`col-span-full sticky top-16 nav-rail:top-4 mt-2 flex justify-center ${
+        className={`pointer-events-none col-span-full sticky top-3 sm:top-4 mt-2 flex justify-center ${
           isOpen ? 'z-50' : 'z-30'
         }`}
       >
         <motion.button
           type="button"
           disabled={summary.status !== 'ready'}
-          onClick={() => {
+          onClick={(event) => {
             if (summary.status !== 'ready') return;
 
             const isOpening = openTurnSummaryId !== userMessageId;
@@ -1730,6 +1767,16 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
             );
 
             if (isOpening) {
+              const viewport = scrollContainerRef?.current;
+              if (viewport) {
+                const anchor = event.currentTarget.parentElement;
+                const bounds = viewport.getBoundingClientRect();
+                const top = anchor?.getBoundingClientRect().top ?? bounds.top;
+                if (bounds.bottom - top - 40 < Math.min(320, bounds.height - 68)) {
+                  const stickyTop = window.matchMedia('(min-width: 640px)').matches ? 16 : 12;
+                  viewport.scrollBy({ top: top - bounds.top - stickyTop, behavior: 'instant' });
+                }
+              }
               void fetch('/api/user/panel-summary-open', {
                 method: 'POST',
                 keepalive: true,
@@ -1738,7 +1785,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               });
             }
           }}
-          className={`relative z-30 inline-flex min-h-10 max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border px-3 py-2 text-sm leading-5 font-medium tracking-normal transition-[background-color,border-color,color,transform] duration-150 ${
+          className={`pointer-events-auto relative z-30 inline-flex min-h-10 max-w-[calc(100vw-7.5rem)] sm:max-w-[calc(100vw-2rem)] items-center gap-1 sm:gap-2 rounded-full border px-1 sm:px-3 py-2 text-sm leading-5 font-medium tracking-normal transition-[background-color,border-color,color,transform] duration-150 ${
             summary.status === 'ready'
               ? 'border-[#D9D6CF] bg-white text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white cursor-pointer'
               : summary.status === 'loading'
@@ -1775,7 +1822,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               : { duration: shouldReduceMotion ? 0 : 0.16 }
           }
         >
-          <span className="flex -space-x-1.5 shrink-0" aria-hidden="true">
+          <span className="hidden sm:flex -space-x-1.5 shrink-0" aria-hidden="true">
             {activePanel.map((id) => (
               <ProviderBadge key={id} provider={id} size="sm" />
             ))}
@@ -1831,7 +1878,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
           )}
 
           <span
-            className="relative flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#D3E0F8_0%,#E8D8F5_48%,#F6D3C9_100%)]"
+            className="relative flex h-5 w-5 sm:h-6 sm:w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[linear-gradient(135deg,#D3E0F8_0%,#E8D8F5_48%,#F6D3C9_100%)]"
             aria-hidden="true"
           >
             <motion.span
@@ -1878,9 +1925,10 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 duration: shouldReduceMotion ? 0 : 0.2,
                 ease: [0.16, 1, 0.3, 1],
               }}
-              className="absolute left-1/2 top-10 z-40 w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_50px_rgba(28,27,26,0.16)]"
+              style={{ maxHeight: summaryAvailableHeight }}
+              className="pointer-events-auto absolute left-1/2 top-10 z-40 flex flex-col w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-[16px] border border-[#D9D6CF] bg-white shadow-[0_18px_50px_rgba(28,27,26,0.16)]"
             >
-              <div className="flex items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#E7E5E0] px-4 py-3 sm:px-5">
                 <div className="flex min-w-0 items-center gap-2">
                   <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#8A867D]" aria-hidden="true" />
                   <span className="text-[12px] font-semibold tracking-[-0.01em] text-[#1C1B1A]">
@@ -1952,7 +2000,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                       duration: shouldReduceMotion ? 0 : 0.2,
                       ease: [0.16, 1, 0.3, 1],
                     }}
-                    className="max-h-[420px] overflow-y-auto px-4 py-4 sm:px-5"
+                    className="min-h-0 max-h-[420px] overflow-y-auto overscroll-contain px-4 py-4 sm:px-5"
                   >
                     <ReactMarkdown
                       remarkPlugins={mathRemarkPlugins}
