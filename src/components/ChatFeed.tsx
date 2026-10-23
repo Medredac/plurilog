@@ -1797,7 +1797,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 exit={shouldReduceMotion ? undefined : { opacity: 0, y: -2 }}
                 transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
-                className={`col-start-1 row-start-1 min-w-0 justify-self-center truncate whitespace-nowrap ${
+                className={`col-start-1 row-start-1 min-w-0 justify-self-center overflow-visible px-0.5 whitespace-nowrap ${
                   summary.status === 'loading' ? 'animate-text-shimmer' : ''
                 }`}
               >
@@ -2928,7 +2928,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: shouldReduceMotion ? 0 : 0.18 }}
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-[#F7F6F3]/0 via-[#F7F6F3]/80 to-[#F7F6F3]"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-b from-[var(--pl-canvas)]/0 via-[var(--pl-canvas)]/80 to-[var(--pl-canvas)]"
                         aria-hidden="true"
                       />
                     )}
