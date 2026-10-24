@@ -22,11 +22,11 @@ export async function buildDocumentInSandbox(args: DocumentCodeArgs, inputs: Arr
     if (result.exitCode !== 0) throw new Error((await result.stderr() || await result.stdout() || `Command failed: ${cmd}`).slice(-4000));
     return result;
   };
-  const read = async (path: string, max = MAX_BYTES) => {
+  const read = async (path: string, max = MAX_BYTES, allowEmpty = false) => {
     const stat = await run('stat', ['-Lc', '%s', path]);
     if (Number(await stat.stdout()) > max) throw new Error('Document output exceeds size limit.');
     const value = await sandbox.readFileToBuffer({ path }, { signal });
-    if (!value?.length) throw new Error(`Document output missing: ${path.split('/').pop()}`);
+    if (!value || !allowEmpty && !value.length) throw new Error(`Document output missing: ${path.split('/').pop()}`);
     return value;
   };
   try {
@@ -46,7 +46,7 @@ export async function buildDocumentInSandbox(args: DocumentCodeArgs, inputs: Arr
     await sandbox.writeFiles([{ path: ROOT + '/inspect.py', content: Buffer.from(DOCUMENT_INSPECTION_PYTHON) }], { signal });
     await run(PYTHON, ['-I', ROOT + '/inspect.py', args.format]);
     const report = JSON.parse((await read(ROOT + '/inspection.json', 2_000_000)).toString());
-    const fullText = (await read(ROOT + '/full-text.txt', 2_000_000)).toString();
+    const fullText = (await read(ROOT + '/full-text.txt', 2_000_000, true)).toString();
     await run('pdftoppm', ['-r', '100', '-scale-to', '1400', '-png', ROOT + '/output.pdf', ROOT + '/rendered/page'], 60_000);
     const listing = await run('find', [ROOT + '/rendered', '-maxdepth', '1', '-name', 'page-*.png', '-type', 'f']);
     const paths = (await listing.stdout()).trim().split('\n').filter(Boolean).sort((a, b) => Number(a.match(/page-(\d+)/)?.[1]) - Number(b.match(/page-(\d+)/)?.[1]));
