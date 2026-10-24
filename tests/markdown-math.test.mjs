@@ -8,6 +8,17 @@ const render = (s) => renderToStaticMarkup(React.createElement(ReactMarkdown, {
   remarkPlugins: mathRemarkPlugins, rehypePlugins: mathRehypePlugins,
   children: normalizeMathMarkdown(s),
 }));
+test('essay titles render cleanly without interpreting arbitrary HTML', () => {
+ const html = render('<center>**Concert Review**</center>\n\nThe essay body.');
+ assert.match(html, /<strong>Concert Review<\/strong>/);
+ assert.match(html, /<p>The essay body\.<\/p>/);
+ assert.doesNotMatch(html, /center/);
+ assert.equal(normalizeMathMarkdown('<CENTER>Title</CENTER>'), 'Title');
+ assert.doesNotMatch(render('<script>alert(1)</script>'), /<script>/);
+ const code = '`<center>Title</center>`\n\n```html\n<center>Title</center>\n```';
+ assert.equal(normalizeMathMarkdown(code), code);
+ assert.match(render(code), /&lt;center&gt;Title&lt;\/center&gt;/);
+});
 test('inline, display and nested scientific equations render with accessible MathML', () => {
  const html=render(String.raw`A vector $\mathbf{m} \in \mathbb{R}^D$.
 

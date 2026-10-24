@@ -12,7 +12,7 @@ export const mathRehypePlugins: PluggableList = [[rehypeKatex, {
   maxSize: 20,
 }]];
 
-/** Normalize common model delimiters, leaving code and escaped dollars alone. */
+/** Normalize model formatting, leaving code examples and escaped dollars alone. */
 export function normalizeMathMarkdown(source: string): string {
   // Include unfinished fences: partial streamed code must remain literal too.
   const protectedCode = /(^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\2[ \t]*(?=\n|$)|$(?![\s\S]))|(`+)[^\n]*?\3)/gm;
@@ -40,6 +40,10 @@ export function normalizeMathMarkdown(source: string): string {
     },
   );
   const normalize = (text: string) => {
+    // Chat renders HTML literally. Remove the obsolete layout wrappers models
+    // sometimes put around essay titles, without enabling arbitrary HTML.
+    // Code spans and fences are protected by the caller below.
+    text = text.replace(/<\/?center\s*>/gi, '');
     // Explicit equations and display math are unambiguous: protect them before
     // inspecting currency in prose, including numeric equations such as \(2 x\).
     const explicit = /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([^\n]*?\\\))/g;
