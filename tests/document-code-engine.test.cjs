@@ -1,7 +1,7 @@
 require('./helpers/register-typescript.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { isDocumentCodePreviewEnabled, validateDocumentCodeArgs, createDocumentDraftRegistry, createDocumentModelRoute, DOCUMENT_MODELS } = require('../src/utils/documentCodeTools.ts');
+const { isDocumentCodePreviewEnabled, validateDocumentCodeArgs, createDocumentDraftRegistry } = require('../src/utils/documentCodeTools.ts');
 const args = (format = 'docx') => ({ filename: 'essay.' + format, format, code: 'print(1)', requirements: ['Double-spaced body', 'Numbered pages'], inputs: [] });
 const draft = (id = 'one', format = 'docx') => ({ id, args: args(format), pages: ['page1', 'page2'] });
 const review = [{ requirement: 1, satisfied: true, observation: 'All body paragraphs have 2.0 line spacing.' }, { requirement: 2, satisfied: true, observation: 'Every rendered page includes its page number.' }];
@@ -17,16 +17,6 @@ test('reject unsafe paths, wrong formats and unbounded inputs before execution',
   assert.throws(() => validateDocumentCodeArgs({ ...args(), inputs: ['../secret'] }));
   assert.throws(() => validateDocumentCodeArgs({ ...args(), code: 'x'.repeat(180001) }));
   assert.doesNotThrow(() => validateDocumentCodeArgs(args()));
-});
-test('document work switches to Sol only after the explicit tool handoff in preview', () => {
-  const normal = ['openai/gpt-5.6-luna', 'openai/gpt-6-luna'];
-  const route = createDocumentModelRoute(normal, true);
-  assert.deepEqual(route.models, normal); assert.equal(route.active, false);
-  route.start(); assert.equal(route.active, true); assert.deepEqual(route.models, DOCUMENT_MODELS);
-  route.start(); assert.deepEqual(route.models, DOCUMENT_MODELS);
-  const production = createDocumentModelRoute(normal, false);
-  assert.throws(() => production.start(), /unavailable/); assert.deepEqual(production.models, normal);
-  assert.deepEqual(createDocumentModelRoute(normal, true).models, normal, 'next turn restores normal chat routing');
 });
 test('execution failures do not consume a document correction quota or destroy the last draft', () => {
   const registry = createDocumentDraftRegistry(); registry.begin(args()); registry.add(draft());

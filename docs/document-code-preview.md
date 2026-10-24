@@ -1,10 +1,10 @@
 # Document code engine preview
 
-Enabled only when `VERCEL_ENV=preview` and `VERCEL_GIT_COMMIT_REF=preview/document-code-engine`. Production continues to use its existing engine, including if this code is accidentally merged. Ordinary GPT routing and billing accounting are unchanged. A tool-selected handoff activates GPT-6.1 Sol (GPT-6 Sol provider fallback) with high reasoning for document authoring, inspection and repair within that turn. The next turn starts on the normal route. No schema migrations.
+Enabled only when `VERCEL_ENV=preview` and `VERCEL_GIT_COMMIT_REF=preview/document-code-engine`. Production continues to use its existing engine, including if this code is accidentally merged. GPT routing and billing accounting are unchanged. Document creation, inspection and revision use the same usage-selected GPT fallback sequence as the rest of the turn (GPT-5.6 Luna or GPT-6 Luna first). There is no document-specific model handoff or reasoning override. No schema migrations.
 
 ## Flow
 
-1. GPT calls `start_document_work` before code authoring, switching to Sol with the full context and tools. Sol authors Python and a requirement checklist. Existing assets must resolve to exact discussion filenames and be downloaded through the authenticated storage client.
+1. GPT authors Python and a requirement checklist using its normal usage-selected model and tools. Existing assets must resolve to exact discussion filenames and be downloaded through the authenticated storage client.
 2. A fresh Vercel Sandbox with network denied executes the script. No app credentials or signed URLs are passed into it. Python-docx/OOXML supports Word features without the old schema's layout restrictions. ReportLab supports direct PDFs; LibreOffice converts Word to PDF for inspection.
 3. Server-authored inspection extracts actual file structure and rendered text. All pages are rendered and must be requested through `review_document_pages` before publishing.
 4. GPT reviews the pages against every requirement. This is model self-review, not an independent correctness guarantee. There is no per-format build/correction quota. Failed executions preserve the last successful draft. Successful same-filename replacements reset page review; distinct documents keep separate drafts. Known unmet requirements block publication, including when a limitation is supplied. Optional missing information can still be disclosed.
