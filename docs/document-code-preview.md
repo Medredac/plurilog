@@ -25,4 +25,18 @@ The manually provisioned test snapshot has the provider's default 30-day lifetim
 - `tests/fixtures/document-code-smoke.py` runs **inside the sandbox** to exercise essay formatting, headers/page fields, indents, a report with image/table, a preserved revision, and direct PDF generation.
 - Fixtures establish renderer capability, not model reliability. A live preview chat must still verify tool selection, visual review, attachment publication and retrieval by the other panelists.
 
-No paid model testing should run without the agreed cap. Never execute model-authored Python on the app server or development host.
+The user authorized live model testing for this preview. Never execute model-authored Python on the app server or development host.
+
+## Live verification — October 24, 2026
+
+Tested application commit `d5d0707a2cbbb2a87e8091b5e50e2ca556c1715c` on deployment `dpl_9xyVKasWffpS7GGyF2viCQFvRLm3`.
+
+- A real GPT chat created a four-page essay in Word through build → render → review → publish. The initial version missed bibliography italics despite passing its own checklist. This motivated the generic standard-reference and original-request review instructions in the tested commit; it is evidence that self-review is not infallible.
+- A follow-up requested an MLA review without identifying the defect. GPT consulted MLA references, found the missing journal/book italics, edited the original file and produced corrected DOCX and PDF attachments. All four corrected Word pages were visually inspected. The PDF's four rendered-page hashes match the Word preview exactly.
+- Normalized extracted-text hashes are identical across the original Word, corrected Word, and PDF. The essay wording was preserved. Both revised files retain source lineage and searchable document records.
+- Claude and Gemini retrieved the exact closing sentence and both source titles from the PDF, correctly identifying the intentionally fictional references.
+- No error/warning runtime logs were returned for the correction request. Model accounting recorded 7.2678 cents total for GPT's creation/correction turns, 12.5236 cents for Claude and 1.5118 cents for Gemini's retrieval check (21.3032 cents total; excludes sandbox infrastructure).
+- Focused suite: 28 passed, one existing PDF integration test skipped, no failures. After the final instruction/inspection change, all 10 new document-engine tests passed. Vercel builds succeeded. Local generated Next route types report existing route-export issues, so do not describe the final local typecheck as universally clean.
+- Native attachment download helpers in the automation browser stalled; the in-app file previews and page retrieval worked. Saving the DOCX/PDF through the user's normal browser remains a manual check.
+
+Scope: preview only, no production deployment or database migration. The runtime expiry above must be addressed before any production rollout. This is general code-based document authoring, not a hardcoded MLA template; renderer fixtures cover tables, images, preservation and direct PDFs, but arbitrary document correctness is not guaranteed.
