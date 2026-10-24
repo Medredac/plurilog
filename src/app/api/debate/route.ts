@@ -8027,7 +8027,7 @@ export async function POST(req: NextRequest) {
                   const observation = await rememberOutput(output, sources.find(source => /\.(docx|pdf)$/i.test(source.filename))?.storagePath);
                   codeDrafts.published(draft.id);
                   // Pages have already been reviewed; avoid paying for duplicate visual input after publication.
-                  return { result: { ...observation.result, limitations: args.limitations, instruction: 'Reviewed document saved and attached. Deliver it now, explicitly disclosing the listed limitations. Do not rebuild or inspect these same pages again.' } };
+                  return { result: { ...observation.result, limitations: args.limitations, instruction: 'Reviewed document saved and attached. The UI shows its downloadable attachment card. Refer to that card without inventing an inline download link. Explicitly disclose the listed limitations. Do not rebuild or inspect these same pages again.' } };
                 });
               } else if (isDocumentCreationEnabledForSeat) {
                 addTool(GPT_FILE_TOOLS[0], 'write', args => createDocument(args as GptCreateFileArgs));

@@ -1,6 +1,6 @@
 // Trusted inspection runs after document generation. Read properties from the actual output.
 export const DOCUMENT_INSPECTION_PYTHON = String.raw`
-import json, sys, pathlib, zipfile
+import json, sys, pathlib, zipfile, re
 from docx import Document
 from pypdf import PdfReader
 root = pathlib.Path('/vercel/sandbox')
@@ -18,6 +18,8 @@ for i, page in enumerate(pdf.pages):
     if not text.strip(): report['warnings'].append('Page %s has no extractable text; inspect the image.' % (i+1))
 def length(v):
     return round(v.pt, 3) if v is not None else None
+def words(text):
+    return len(re.findall(r"\b[\w]+(?:['’\-][\w]+)*\b", text))
 def inherited(p, prop):
     value = getattr(p.paragraph_format, prop)
     style = p.style
@@ -27,7 +29,7 @@ def inherited(p, prop):
     return value
 def paragraph(p):
     spacing = inherited(p, 'line_spacing')
-    return {'text': p.text[:2000], 'style': p.style.name, 'alignment': str(inherited(p, 'alignment')),
+    return {'text': p.text[:2000], 'word_count': words(p.text), 'style': p.style.name, 'alignment': str(inherited(p, 'alignment')),
         'line_spacing': length(spacing) if hasattr(spacing, 'pt') else spacing,
         'line_spacing_rule': str(inherited(p, 'line_spacing_rule')),
         'before_pt': length(inherited(p, 'space_before')), 'after_pt': length(inherited(p, 'space_after')),
@@ -45,6 +47,8 @@ if (root / 'output.docx').exists():
         'header': [paragraph(p) for p in s.header.paragraphs], 'footer': [paragraph(p) for p in s.footer.paragraphs],
         'header_fields': s.header._element.xpath('.//w:instrText/text() | .//w:fldSimple/@w:instr'), 'footer_fields': s.footer._element.xpath('.//w:instrText/text() | .//w:fldSimple/@w:instr')} for s in doc.sections]
     report['paragraph_count'] = len(doc.paragraphs)
+    report['paragraph_word_count'] = sum(words(p.text) for p in doc.paragraphs)
+    report['word_count_scope'] = 'All body paragraphs including titles and references; excludes headers, footers and tables. Sum relevant paragraph counts for the requested section.'
     report['paragraphs'] = [paragraph(p) for p in doc.paragraphs[:160]]
     report['table_count'] = len(doc.tables)
     report['inline_image_count'] = len(doc.inline_shapes)
