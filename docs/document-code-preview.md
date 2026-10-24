@@ -1,16 +1,16 @@
 # Document code engine preview
 
-Enabled only when `VERCEL_ENV=preview` and `VERCEL_GIT_COMMIT_REF=preview/document-code-engine`. Production continues to use its existing engine, including if this code is accidentally merged. GPT routing and billing accounting are unchanged. No schema migrations.
+Enabled only when `VERCEL_ENV=preview` and `VERCEL_GIT_COMMIT_REF=preview/document-code-engine`. Production continues to use its existing engine, including if this code is accidentally merged. Ordinary GPT routing and billing accounting are unchanged. A tool-selected handoff activates GPT-6.1 Sol (GPT-6 Sol provider fallback) with high reasoning for document authoring, inspection and repair within that turn. The next turn starts on the normal route. No schema migrations.
 
 ## Flow
 
-1. GPT authors Python and a requirement checklist. Existing assets must resolve to exact discussion filenames and be downloaded through the authenticated storage client.
+1. GPT calls `start_document_work` before code authoring, switching to Sol with the full context and tools. Sol authors Python and a requirement checklist. Existing assets must resolve to exact discussion filenames and be downloaded through the authenticated storage client.
 2. A fresh Vercel Sandbox with network denied executes the script. No app credentials or signed URLs are passed into it. Python-docx/OOXML supports Word features without the old schema's layout restrictions. ReportLab supports direct PDFs; LibreOffice converts Word to PDF for inspection.
 3. Server-authored inspection extracts actual file structure and rendered text. All pages are rendered and must be requested through `review_document_pages` before publishing.
-4. GPT reviews the pages against every requirement. This is model self-review, not an independent correctness guarantee. It can correct once per format. Renaming does not reset the budget. Unmet requirements require explicit limitations.
+4. GPT reviews the pages against every requirement. This is model self-review, not an independent correctness guarantee. There is no per-format build/correction quota. Failed executions preserve the last successful draft. Successful same-filename replacements reset page review; distinct documents keep separate drafts. Known unmet requirements block publication, including when a limitation is supplied. Optional missing information can still be disclosed.
 5. Publishing uses existing message attachments, durable storage, embedded images, retrieval indexing and document-state artifacts. The original file is the source for subsequent code-based edits. Review does not add a separate nested model call; normal agent-loop usage is billed as before.
 
-Preview limits: 25 MB input/output, 180 KB script, 20 pages, one initial execution plus one correction per format. Code execution is bounded at 45 seconds, VM lifetime at 180 seconds, and VM cleanup runs on success or failure. Two distinct Word files in one turn are not yet supported by the per-format correction budget. Test before broadening these limits.
+Preview limits: 25 MB input/output, 180 KB script, 20 pages. Execution remains subject to the existing turn deadline, 48-step tool loop and identical-failure guard. Code execution is bounded at 45 seconds, VM lifetime at 180 seconds, and VM cleanup runs on success or failure. Multiple distinct filenames in the same format are supported.
 
 ## Runtime
 

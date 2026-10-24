@@ -96,7 +96,7 @@ import {
 } from '@/utils/openrouterImages';
 import { persistGeneratedImage } from '@/utils/generatedImageStorage';
 import { executeGptDocumentCreation } from '@/utils/gptDocumentCreation';
-import { isDocumentCodePreviewEnabled, DOCUMENT_CODE_INSTRUCTION, DOCUMENT_CODE_TOOLS, createDocumentDraftRegistry, type DocumentCodeArgs } from '@/utils/documentCodeTools';
+import { isDocumentCodePreviewEnabled, DOCUMENT_CODE_INSTRUCTION, DOCUMENT_CODE_TOOLS, DOCUMENT_START_TOOL, createDocumentModelRoute, createDocumentDraftRegistry, type DocumentCodeArgs } from '@/utils/documentCodeTools';
 import { buildDocumentInSandbox, type DocumentCodeDraft } from '@/utils/documentCodeSandbox';
 import { publishCodeDocument } from '@/utils/documentCodePublisher';
 import { createFullConversationSession, FULL_CONVERSATION_TOOL, FULL_CONVERSATION_TOOL_NAME, FULL_CONVERSATION_INSTRUCTION } from '@/utils/conversationDocumentSource';
@@ -7083,8 +7083,9 @@ export async function POST(req: NextRequest) {
                 });
             }, 750);
 
-            const models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
-            const primaryModel = models[0];
+            let models = seatFallbacks[seat.seatId] || PROVIDER_MODELS[seat.providerPrefix];
+            let primaryModel = models[0];
+            const documentModelRoute = createDocumentModelRoute(models, seat.seatId === 'chatgpt' && isDocumentCodePreviewEnabled());
             let incurredVideoCostUsd = 0;
             const analyzeVideo = async (source: import('@/utils/videoInspection').VideoSource, signal: AbortSignal) => {
               sendEvent('seat_activity', { seatId: seat.seatId, ...videoActivity(source.youtube ? { youtube_url: source.url } : { filename: source.label, start_seconds: source.startSeconds, end_seconds: source.endSeconds }) });
@@ -7617,7 +7618,7 @@ export async function POST(req: NextRequest) {
                 models: attemptModels,
                 messages: seatMessages,
                 stream: true,
-                temperature: 0.7,
+                ...(documentModelRoute.active ? { reasoning: { effort: 'high' } } : { temperature: 0.7 }),
                 tools: agentLoopDefinitions !== null ? (agentLoopDefinitions.length ? [
                   { type: 'openrouter:web_search', parameters: { max_results: 3, max_total_results: 6 } },
                   ...agentLoopDefinitions,
@@ -7625,7 +7626,7 @@ export async function POST(req: NextRequest) {
                   { type: 'openrouter:web_search', parameters: { max_results: 3, max_total_results: 6 } },
                   ...(isImageGenerationEnabledForSeat ? GEMINI_IMAGE_TOOLS : []),
                   ...(isImageEditingEnabledForSeat ? GEMINI_IMAGE_EDIT_TOOLS : []),
-                  ...(isDocumentCreationEnabledForSeat ? (isDocumentCodePreviewEnabled() ? DOCUMENT_CODE_TOOLS : [...GPT_FILE_TOOLS, ...GPT_REVISE_FILE_TOOL, ...GPT_SOURCE_DOCUMENT_EDIT_TOOL]) : []),
+                  ...(isDocumentCreationEnabledForSeat ? (isDocumentCodePreviewEnabled() ? [DOCUMENT_START_TOOL] : [...GPT_FILE_TOOLS, ...GPT_REVISE_FILE_TOOL, ...GPT_SOURCE_DOCUMENT_EDIT_TOOL]) : []),
                   WEB_RESEARCH_TOOL,
                   ...REQUEST_EVIDENCE_TOOL,
                   ...(isAgenticMemoryEnabledForSeat ? AGENTIC_CONVERSATION_MEMORY_TOOLS : []),
@@ -7990,7 +7991,16 @@ export async function POST(req: NextRequest) {
                 return rememberOutput(output, revisionContext?.parentSnapshot?.storagePath);
               };
               if (isDocumentCreationEnabledForSeat && isDocumentCodePreviewEnabled()) {
+                addTool(DOCUMENT_START_TOOL, 'read', async () => {
+                  documentModelRoute.start();
+                  models = documentModelRoute.models;
+                  primaryModel = models[0];
+                  diagnosticActiveModelId = primaryModel;
+                  console.log('[Document Model Route]', { turnId, seatId: seat.seatId, models });
+                  return { result: { ok: true, instruction: 'Document authoring is active. Plan from the original request, research applicable standards, build, inspect the actual output, and correct defects before publishing. The complete conversation and existing tools are available.' } };
+                });
                 addTool(DOCUMENT_CODE_TOOLS[0], 'write', async rawArgs => {
+                  if (!documentModelRoute.active) throw new Error('Call start_document_work before authoring a document.');
                   const args = rawArgs as DocumentCodeArgs;
                   codeDrafts.begin(args);
                   const inputs: Array<{ filename: string; data: Buffer }> = [];
@@ -8009,7 +8019,7 @@ export async function POST(req: NextRequest) {
                   codeDrafts.add(draft);
                   codeDraftSources.set(draft.id, sources);
                   return { result: { ok: true, draft_id: draft.id, unpublished: true, page_count: draft.pages.length, requirements: args.requirements,
-                    inspection: draft.report, instruction: 'This file is not attached yet. Review all rendered pages, check every requirement, correct once if needed, then publish_document. Report any font substitution or unmet requirement honestly.' } };
+                    inspection: draft.report, instruction: 'This file is not attached yet. Review all rendered pages, check every requirement, correct any defects and review the new draft, then publish_document. Report any font substitution or unmet requirement honestly.' } };
                 });
                 addTool(DOCUMENT_CODE_TOOLS[1], 'read', async args => {
                   const draft = codeDrafts.view(args.draft_id, args.pages);
@@ -8144,7 +8154,9 @@ export async function POST(req: NextRequest) {
                 model: async (messages, definitions, finalizing) => {
                   seatMessages = messages;
                   seatResponse = ''; seatUsage = null; accumulatedToolCalls = []; reasoningDetails = []; bufferedSeatChunks.length = 0;
-                  agentLoopDefinitions = finalizing ? [] : definitions;
+                  agentLoopDefinitions = finalizing ? [] : definitions.filter(definition =>
+                    !isDocumentCodePreviewEnabled() || documentModelRoute.active || !DOCUMENT_CODE_TOOLS.some(tool => tool.function.name === definition.function.name)
+                  );
                   await requestSeatModel();
                   return { content: seatResponse || null, reasoning_details: reasoningDetails, tool_calls: accumulatedToolCalls.map(({ id, function: fn }) => ({ id, type: 'function', function: fn })) };
                 },

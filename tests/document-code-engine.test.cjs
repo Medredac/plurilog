@@ -1,7 +1,7 @@
 require('./helpers/register-typescript.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { isDocumentCodePreviewEnabled, validateDocumentCodeArgs, createDocumentDraftRegistry } = require('../src/utils/documentCodeTools.ts');
+const { isDocumentCodePreviewEnabled, validateDocumentCodeArgs, createDocumentDraftRegistry, createDocumentModelRoute, DOCUMENT_MODELS } = require('../src/utils/documentCodeTools.ts');
 const args = (format = 'docx') => ({ filename: 'essay.' + format, format, code: 'print(1)', requirements: ['Double-spaced body', 'Numbered pages'], inputs: [] });
 const draft = (id = 'one', format = 'docx') => ({ id, args: args(format), pages: ['page1', 'page2'] });
 const review = [{ requirement: 1, satisfied: true, observation: 'All body paragraphs have 2.0 line spacing.' }, { requirement: 2, satisfied: true, observation: 'Every rendered page includes its page number.' }];
@@ -18,16 +18,30 @@ test('reject unsafe paths, wrong formats and unbounded inputs before execution',
   assert.throws(() => validateDocumentCodeArgs({ ...args(), code: 'x'.repeat(180001) }));
   assert.doesNotThrow(() => validateDocumentCodeArgs(args()));
 });
-test('failed builds and renaming cannot evade the two-execution budget', () => {
-  const registry = createDocumentDraftRegistry();
-  registry.begin(args()); registry.begin({ ...args(), filename: 'renamed.docx' });
-  assert.throws(() => registry.begin({ ...args(), filename: 'third.docx' }), /budget exhausted/);
-  assert.doesNotThrow(() => registry.begin(args('pdf')));
+test('document work switches to Sol only after the explicit tool handoff in preview', () => {
+  const normal = ['openai/gpt-5.6-luna', 'openai/gpt-6-luna'];
+  const route = createDocumentModelRoute(normal, true);
+  assert.deepEqual(route.models, normal); assert.equal(route.active, false);
+  route.start(); assert.equal(route.active, true); assert.deepEqual(route.models, DOCUMENT_MODELS);
+  route.start(); assert.deepEqual(route.models, DOCUMENT_MODELS);
+  const production = createDocumentModelRoute(normal, false);
+  assert.throws(() => production.start(), /unavailable/); assert.deepEqual(production.models, normal);
+  assert.deepEqual(createDocumentModelRoute(normal, true).models, normal, 'next turn restores normal chat routing');
 });
-test('a correction invalidates the original even when correction fails', () => {
+test('execution failures do not consume a document correction quota or destroy the last draft', () => {
   const registry = createDocumentDraftRegistry(); registry.begin(args()); registry.add(draft());
-  registry.begin(args());
+  for (let i = 0; i < 8; i++) registry.begin(args());
+  assert.equal(registry.get('one').id, 'one');
+  registry.add(draft('corrected'));
   assert.throws(() => registry.get('one'), /superseded/);
+  assert.throws(() => registry.checkPublish('corrected', review, []), /every rendered page/);
+});
+test('distinct files of the same format keep their own drafts and reviews', () => {
+  const registry = createDocumentDraftRegistry(); registry.add(draft()); registry.view('one', [1, 2]);
+  registry.add({ ...draft('two'), args: { ...args(), filename: 'report.docx' } });
+  assert.throws(() => registry.checkPublish('one', [{ ...review[0], satisfied: false }, review[1]], ['Text overlaps']), /Unmet document requirements/);
+  assert.doesNotThrow(() => registry.checkPublish('one', review, []));
+  assert.throws(() => registry.checkPublish('two', review, []), /every rendered page/);
 });
 test('publish requires actual page retrieval and a complete requirement review', () => {
   const registry = createDocumentDraftRegistry(); registry.begin(args()); registry.add(draft());
@@ -36,7 +50,8 @@ test('publish requires actual page retrieval and a complete requirement review',
   assert.throws(() => registry.view('one', [3]));
   registry.view('one', [2]);
   assert.throws(() => registry.checkPublish('one', [review[0], review[0]], []), /observation/);
-  assert.throws(() => registry.checkPublish('one', [{ ...review[0], satisfied: false }, review[1]], []), /Disclose/);
+  assert.throws(() => registry.checkPublish('one', [{ ...review[0], satisfied: false }, review[1]], []), /Unmet document requirements/);
+  assert.throws(() => registry.checkPublish('one', [{ ...review[0], satisfied: false }, review[1]], ['Text overlaps']), /Unmet document requirements/);
   assert.doesNotThrow(() => registry.checkPublish('one', review, []));
   assert.equal(registry.hasUnpublished(), true); registry.published('one'); assert.equal(registry.hasUnpublished(), false);
 });
