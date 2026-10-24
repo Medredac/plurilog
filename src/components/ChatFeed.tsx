@@ -1785,7 +1785,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               });
             }
           }}
-          className={`pointer-events-auto relative z-30 inline-flex min-h-10 max-w-[calc(100vw-7.5rem)] sm:max-w-[calc(100vw-2rem)] items-center gap-1 sm:gap-2 rounded-full border px-1 sm:px-3 py-2 text-sm leading-5 font-medium tracking-normal transition-[background-color,border-color,color,transform] duration-150 ${
+          className={`pointer-events-auto relative z-30 inline-flex min-h-10 max-w-[calc(100vw-7.5rem)] sm:max-w-[calc(100vw-2rem)] items-center gap-1 sm:gap-2 rounded-full border px-3 sm:px-4 py-2 text-sm leading-5 font-medium tracking-normal transition-[background-color,border-color,color,transform] duration-150 ${
             summary.status === 'ready'
               ? 'border-[#D9D6CF] bg-white text-[#1C1B1A] hover:border-[#CBC7BE] hover:bg-white cursor-pointer'
               : summary.status === 'loading'
@@ -1838,7 +1838,7 @@ export const ChatFeed: React.FC<ChatFeedProps> = ({
               </span>
             )}
             <span
-              className={`col-start-1 row-start-1 min-w-0 justify-self-center overflow-visible px-0.5 whitespace-nowrap ${
+              className={`col-start-1 row-start-1 min-w-0 justify-self-center overflow-visible px-1 whitespace-nowrap ${
                 summary.status === 'loading' ? 'animate-text-shimmer' : ''
               }`}
             >
