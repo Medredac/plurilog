@@ -44,7 +44,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
     {
       url: 'https://plurilogai.com/blog',
-      lastModified: new Date('2026-10-21T00:00:00.000Z'),
+      lastModified: new Date('2026-10-23T00:00:00.000Z'),
+    },
+    {
+      url: 'https://plurilogai.com/blog/analyzing-legal-documents-with-ai',
+      lastModified: new Date('2026-10-23T00:00:00.000Z'),
     },
     {
       url: 'https://plurilogai.com/blog/multiple-ai-models-one-subscription',
