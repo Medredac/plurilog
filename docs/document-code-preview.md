@@ -1,0 +1,28 @@
+# Document code engine preview
+
+Enabled only when `VERCEL_ENV=preview` and `VERCEL_GIT_COMMIT_REF=preview/document-code-engine`. Production continues to use its existing engine, including if this code is accidentally merged. GPT routing and billing accounting are unchanged. No schema migrations.
+
+## Flow
+
+1. GPT authors Python and a requirement checklist. Existing assets must resolve to exact discussion filenames and be downloaded through the authenticated storage client.
+2. A fresh Vercel Sandbox with network denied executes the script. No app credentials or signed URLs are passed into it. Python-docx/OOXML supports Word features without the old schema's layout restrictions. ReportLab supports direct PDFs; LibreOffice converts Word to PDF for inspection.
+3. Server-authored inspection extracts actual file structure and rendered text. All pages are rendered and must be requested through `review_document_pages` before publishing.
+4. GPT reviews the pages against every requirement. This is model self-review, not an independent correctness guarantee. It can correct once per format. Renaming does not reset the budget. Unmet requirements require explicit limitations.
+5. Publishing uses existing message attachments, durable storage, embedded images, retrieval indexing and document-state artifacts. The original file is the source for subsequent code-based edits. Review does not add a separate nested model call; normal agent-loop usage is billed as before.
+
+Preview limits: 25 MB input/output, 180 KB script, 20 pages, one initial execution plus one correction per format. Code execution is bounded at 45 seconds, VM lifetime at 180 seconds, and VM cleanup runs on success or failure. Two distinct Word files in one turn are not yet supported by the per-format correction budget. Test before broadening these limits.
+
+## Runtime
+
+Snapshot `snap_Wyuhhi2KcdJRmRGmEl65eQTZEaCT` includes LibreOffice 26.2.6, Poppler, Python 3.14, python-docx 1.2.0, ReportLab 4.4.10, pypdf 6.1.3, Pillow 11.3.0, lxml 6.1.3, Liberation/Carlito/Caladea/DejaVu/Noto CJK fonts. Times New Roman may render through Liberation Serif on Linux; Word retains the requested font declaration.
+
+The manually provisioned test snapshot has the provider's default 30-day lifetime (created October 24, 2026). Before any promotion, provision a non-expiring runtime with `scripts/provision-document-code-snapshot.mjs` and replace the snapshot ID. That script is explicit maintenance only, never invoked during a build or user request.
+
+## Verification
+
+- `npx tsc --noEmit`
+- `node --test tests/document-code-engine.test.cjs tests/document-code-sandbox.test.cjs tests/agent-tool-loop.test.cjs tests/document-preservation.test.cjs`
+- `tests/fixtures/document-code-smoke.py` runs **inside the sandbox** to exercise essay formatting, headers/page fields, indents, a report with image/table, a preserved revision, and direct PDF generation.
+- Fixtures establish renderer capability, not model reliability. A live preview chat must still verify tool selection, visual review, attachment publication and retrieval by the other panelists.
+
+No paid model testing should run without the agreed cap. Never execute model-authored Python on the app server or development host.
